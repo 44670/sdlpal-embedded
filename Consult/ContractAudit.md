@@ -614,7 +614,7 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The desktop text/font replacement maps the generated NOR pack read-only and uses the existing `PalTextCache` / `PalFontCache` readers:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The desktop text/font/music/SFX replacement maps generated NOR/TF packs read-only and uses the existing `PalTextCache`, `PalFontCache`, and `PalMusicCache` readers plus a fixed SFX PCM mixer:
 
 ```text
 PAL_InitFont
@@ -627,6 +627,8 @@ PAL_FreeText
 PAL_GetWord
 PAL_GetMsg
 PAL_DrawText
+RIX_Init
+SOUND_Init
 ```
 
 Unsupported desktop audio/video backends remain inert in this reduced profile:
@@ -638,8 +640,6 @@ PAL_DetectCodePageForString
 MP3_Init
 OGG_Init
 OPUS_Init
-RIX_Init
-SOUND_Init
 TIMIDITY_Init
 TSF_Init
 PAL_AVIInit
@@ -651,8 +651,8 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=184173 data=3728 bss=7438904
-.text=149525 .rodata=7432 .data=144 .bss=7438904
+text=185821 data=3736 bss=7439032
+.text=150693 .rodata=7464 .data=144 .bss=7439032
 pal_sram_ total=227840 limit=307200
 pal_psram_ total=7131664 limit=8388608
 ```

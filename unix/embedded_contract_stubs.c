@@ -4,7 +4,9 @@
 #include "resampler.h"
 #include "text.h"
 #include "video.h"
+#include "audio.h"
 #include "../embedded/pal_font_cache.h"
+#include "../embedded/pal_music_cache.h"
 #include "../embedded/pal_pack.h"
 #include "../embedded/pal_text_cache.h"
 
@@ -21,6 +23,10 @@
 
 #define PAL_CONTRACT_TEXT_SLOTS 8u
 #define PAL_CONTRACT_TEXT_CHARS 1024u
+#define PAL_CONTRACT_SFX_MAGIC 0x58465350u
+#define PAL_CONTRACT_SFX_VERSION 1u
+#define PAL_CONTRACT_SFX_HEADER_SIZE 24u
+#define PAL_CONTRACT_SFX_RATE 22050u
 
 #if defined(__GNUC__)
 #define PAL_CONTRACT_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
@@ -29,12 +35,22 @@
 #endif
 
 static PalPack pal_contract_nor_pack;
+static PalPack pal_contract_tf_pack;
 static PalTextCache pal_contract_text;
 static PalFontCache pal_contract_font;
+static PalMusicTrack pal_contract_music_track;
 static bool pal_contract_pack_ready;
 static bool pal_contract_pack_tried;
+static bool pal_contract_tf_pack_ready;
+static bool pal_contract_tf_pack_tried;
 static bool pal_contract_text_ready;
 static bool pal_contract_font_ready;
+static AUDIOPLAYER pal_contract_music_player;
+static AUDIOPLAYER pal_contract_sound_player;
+static const uint8_t *pal_contract_sfx_pcm;
+static uint32_t pal_contract_sfx_samples;
+static uint32_t pal_contract_sfx_cursor;
+static bool pal_contract_sfx_active;
 static uint8_t pal_sram_contract_text_slots
     [PAL_CONTRACT_TEXT_SLOTS][PAL_CONTRACT_TEXT_CHARS * sizeof(WCHAR)] PAL_CONTRACT_SRAM;
 static unsigned int pal_contract_text_slot;
@@ -48,8 +64,42 @@ PalContract_ReadLe16(
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
 }
 
+static uint32_t
+PalContract_ReadLe32(
+    const uint8_t *p
+)
+{
+    return (uint32_t)p[0] |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static int16_t
+PalContract_ReadI16(
+    const uint8_t *p
+)
+{
+    return (int16_t)PalContract_ReadLe16(p);
+}
+
+static int16_t
+PalContract_ClampI16(
+    int32_t sample
+)
+{
+    if (sample > 32767) {
+        return 32767;
+    }
+    if (sample < -32768) {
+        return -32768;
+    }
+    return (int16_t)sample;
+}
+
 static bool
-PalContract_MapNorPackPath(
+PalContract_MapPackPath(
+    PalPack *pack,
     const char *path
 )
 {
@@ -75,7 +125,7 @@ PalContract_MapNorPackPath(
     if (image == MAP_FAILED) {
         return false;
     }
-    if (!PalPack_OpenConst(&pal_contract_nor_pack, image, (uint32_t)st.st_size)) {
+    if (!PalPack_OpenConst(pack, image, (uint32_t)st.st_size)) {
         munmap((void *)image, (size_t)st.st_size);
         return false;
     }
@@ -96,11 +146,31 @@ PalContract_OpenNorPack(
     pal_contract_pack_tried = true;
 
     path = getenv("PAL_CONTRACT_NOR_PACK");
-    if (PalContract_MapNorPackPath(path) ||
-        PalContract_MapNorPackPath("/tmp/pal_nor_default.pak")) {
+    if (PalContract_MapPackPath(&pal_contract_nor_pack, path) ||
+        PalContract_MapPackPath(&pal_contract_nor_pack, "/tmp/pal_nor_default.pak")) {
         pal_contract_pack_ready = true;
     }
     return pal_contract_pack_ready;
+}
+
+static bool
+PalContract_OpenTfPack(
+    void
+)
+{
+    const char *path;
+
+    if (pal_contract_tf_pack_tried) {
+        return pal_contract_tf_pack_ready;
+    }
+    pal_contract_tf_pack_tried = true;
+
+    path = getenv("PAL_CONTRACT_TF_PACK");
+    if (PalContract_MapPackPath(&pal_contract_tf_pack, path) ||
+        PalContract_MapPackPath(&pal_contract_tf_pack, "/tmp/pal_tf_default.pak")) {
+        pal_contract_tf_pack_ready = true;
+    }
+    return pal_contract_tf_pack_ready;
 }
 
 static LPWSTR
@@ -170,6 +240,151 @@ PalContract_DrawGlyph16(
                 dst[dst_x] = color;
             }
         }
+    }
+}
+
+static bool
+PalContract_OpenSfx(
+    const uint8_t *payload,
+    uint32_t payload_size
+)
+{
+    uint16_t version;
+    uint16_t header_size;
+    uint32_t sample_rate;
+    uint32_t sample_count;
+    uint32_t pcm_offset;
+    uint32_t pcm_size;
+
+    if (payload == NULL || payload_size < PAL_CONTRACT_SFX_HEADER_SIZE) {
+        return false;
+    }
+
+    version = PalContract_ReadLe16(payload + 4u);
+    header_size = PalContract_ReadLe16(payload + 6u);
+    sample_rate = PalContract_ReadLe32(payload + 8u);
+    sample_count = PalContract_ReadLe32(payload + 12u);
+    pcm_offset = PalContract_ReadLe32(payload + 16u);
+    pcm_size = PalContract_ReadLe32(payload + 20u);
+
+    if (PalContract_ReadLe32(payload) != PAL_CONTRACT_SFX_MAGIC ||
+        version != PAL_CONTRACT_SFX_VERSION ||
+        header_size != PAL_CONTRACT_SFX_HEADER_SIZE ||
+        sample_rate != PAL_CONTRACT_SFX_RATE ||
+        (pcm_size & 1u) != 0 ||
+        pcm_size != sample_count * 2u ||
+        pcm_offset > payload_size ||
+        pcm_size > payload_size - pcm_offset) {
+        return false;
+    }
+
+    pal_contract_sfx_pcm = payload + pcm_offset;
+    pal_contract_sfx_samples = sample_count;
+    pal_contract_sfx_cursor = 0;
+    pal_contract_sfx_active = true;
+    return true;
+}
+
+static VOID
+PalContract_PlayerShutdown(
+    VOID *player
+)
+{
+    (void)player;
+}
+
+static BOOL
+PalContract_MusicPlay(
+    VOID *player,
+    INT music_num,
+    BOOL loop,
+    FLOAT fade_time
+)
+{
+    LPAUDIOPLAYER audio_player = (LPAUDIOPLAYER)player;
+
+    (void)fade_time;
+    if (audio_player == NULL) {
+        return FALSE;
+    }
+    audio_player->iMusic = -1;
+    audio_player->fLoop = loop;
+    if (music_num <= 0) {
+        return TRUE;
+    }
+    if (!PalContract_OpenNorPack() ||
+        !PalMusic_MapMus(&pal_contract_nor_pack, (uint16_t)music_num, &pal_contract_music_track)) {
+        return FALSE;
+    }
+    audio_player->iMusic = music_num;
+    return TRUE;
+}
+
+static VOID
+PalContract_MusicFillBuffer(
+    VOID *player,
+    LPBYTE stream,
+    INT len
+)
+{
+    (void)player;
+    (void)stream;
+    (void)len;
+}
+
+static BOOL
+PalContract_SoundPlay(
+    VOID *player,
+    INT sound_num,
+    BOOL loop,
+    FLOAT fade_time
+)
+{
+    PalPackSpan span;
+    LPAUDIOPLAYER audio_player = (LPAUDIOPLAYER)player;
+
+    (void)loop;
+    (void)fade_time;
+    if (audio_player == NULL || sound_num < 0) {
+        return FALSE;
+    }
+    if (!PalContract_OpenTfPack() ||
+        !PalPack_MapConst(&pal_contract_tf_pack, PAL_PACK_ARCHIVE_SFX, (uint16_t)sound_num, &span) ||
+        span.format != PAL_PACK_FORMAT_SFX_PCM16 ||
+        !PalContract_OpenSfx(span.data, span.size)) {
+        return FALSE;
+    }
+    audio_player->iMusic = sound_num;
+    return TRUE;
+}
+
+static VOID
+PalContract_SoundFillBuffer(
+    VOID *player,
+    LPBYTE stream,
+    INT len
+)
+{
+    int channels = gAudioDevice.spec.channels > 0 ? gAudioDevice.spec.channels : 1;
+    int frames = len / ((int)sizeof(int16_t) * channels);
+    int16_t *dst = (int16_t *)stream;
+    int frame;
+
+    (void)player;
+    if (!pal_contract_sfx_active || pal_contract_sfx_pcm == NULL || stream == NULL || len <= 0) {
+        return;
+    }
+
+    for (frame = 0; frame < frames && pal_contract_sfx_cursor < pal_contract_sfx_samples; frame++, pal_contract_sfx_cursor++) {
+        int channel;
+        int16_t sample = PalContract_ReadI16(pal_contract_sfx_pcm + pal_contract_sfx_cursor * 2u);
+        for (channel = 0; channel < channels; channel++) {
+            int index = frame * channels + channel;
+            dst[index] = PalContract_ClampI16((int32_t)dst[index] + sample);
+        }
+    }
+    if (pal_contract_sfx_cursor >= pal_contract_sfx_samples) {
+        pal_contract_sfx_active = false;
     }
 }
 
@@ -459,12 +674,25 @@ LPAUDIOPLAYER OPUS_Init(VOID)
 LPAUDIOPLAYER RIX_Init(LPCSTR szFileName)
 {
     (void)szFileName;
-    return NULL;
+    pal_contract_music_player.iMusic = -1;
+    pal_contract_music_player.fLoop = FALSE;
+    pal_contract_music_player.Shutdown = PalContract_PlayerShutdown;
+    pal_contract_music_player.Play = PalContract_MusicPlay;
+    pal_contract_music_player.FillBuffer = PalContract_MusicFillBuffer;
+    return &pal_contract_music_player;
 }
 
 LPAUDIOPLAYER SOUND_Init(VOID)
 {
-    return NULL;
+    if (!PalContract_OpenTfPack()) {
+        return NULL;
+    }
+    pal_contract_sound_player.iMusic = -1;
+    pal_contract_sound_player.fLoop = FALSE;
+    pal_contract_sound_player.Shutdown = PalContract_PlayerShutdown;
+    pal_contract_sound_player.Play = PalContract_SoundPlay;
+    pal_contract_sound_player.FillBuffer = PalContract_SoundFillBuffer;
+    return &pal_contract_sound_player;
 }
 
 VOID PAL_AVIInit(VOID)
