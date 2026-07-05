@@ -23,11 +23,80 @@
 
 LPSPRITE      gpSpriteUI = NULL;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(__GNUC__)
+#define PAL_UI_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_UI_PSRAM
+#endif
+static BOX pal_psram_ui_box_static PAL_UI_PSRAM;
+static uint8_t pal_psram_ui_box_saved_pixels[320 * 200] PAL_UI_PSRAM;
+static uint8_t pal_psram_ui_sprite_static[32768] PAL_UI_PSRAM;
+
+static BOOL
+PAL_CopyBoxPixels(
+   const SDL_Rect *rect,
+   uint8_t        *dst,
+   BOOL            fRestore
+)
+{
+   int y;
+
+   if (rect == NULL || dst == NULL || gpScreen == NULL ||
+       rect->x < 0 || rect->y < 0 || rect->w < 0 || rect->h < 0 ||
+       rect->x + rect->w > gpScreen->w || rect->y + rect->h > gpScreen->h)
+   {
+      return FALSE;
+   }
+#if SDL_VERSION_ATLEAST(3,0,0)
+   if (SDL_BYTESPERPIXEL(SDL_GetPixelFormatDetails(gpScreen->format)->format) != 1)
+#else
+   if (gpScreen->format->BytesPerPixel != 1)
+#endif
+   {
+      return FALSE;
+   }
+
+   for (y = 0; y < rect->h; y++)
+   {
+      uint8_t *line = (uint8_t *)gpScreen->pixels + (rect->y + y) * gpScreen->pitch + rect->x;
+      uint8_t *saved = dst + y * rect->w;
+      if (fRestore)
+      {
+         memcpy(line, saved, rect->w);
+      }
+      else
+      {
+         memcpy(saved, line, rect->w);
+      }
+   }
+   return TRUE;
+}
+#endif
+
 static LPBOX
 PAL_CreateBoxInternal(
 	const SDL_Rect *rect
 )
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+	LPBOX lpBox = &pal_psram_ui_box_static;
+	memset(lpBox, 0, sizeof(*lpBox));
+
+	lpBox->pos = PAL_XY(rect->x, rect->y);
+	lpBox->lpSavedArea = NULL;
+	lpBox->lpSavedPixels = pal_psram_ui_box_saved_pixels;
+	lpBox->wHeight = (WORD)rect->w;
+	lpBox->wWidth = (WORD)rect->h;
+
+	if (!PAL_CopyBoxPixels(rect, lpBox->lpSavedPixels, FALSE))
+	{
+		memset(lpBox, 0, sizeof(*lpBox));
+		return NULL;
+	}
+
+	return lpBox;
+#else
 	LPBOX lpBox = (LPBOX)calloc(1, sizeof(BOX));
 	if (lpBox == NULL)
 	{
@@ -46,6 +115,7 @@ PAL_CreateBoxInternal(
 	}
 
 	return lpBox;
+#endif
 }
 
 INT
@@ -78,11 +148,20 @@ PAL_InitUI(
       return -1;
    }
 
+#ifdef PAL_NO_RUNTIME_HEAP
+   if ((size_t)iSize > sizeof(pal_psram_ui_sprite_static))
+   {
+      return -1;
+   }
+   memset(pal_psram_ui_sprite_static, 0, sizeof(pal_psram_ui_sprite_static));
+   gpSpriteUI = (LPSPRITE)pal_psram_ui_sprite_static;
+#else
    gpSpriteUI = (LPSPRITE)calloc(1, iSize);
    if (gpSpriteUI == NULL)
    {
       return -1;
    }
+#endif
 
    PAL_MKFReadChunk(gpSpriteUI, iSize, CHUNKNUM_SPRITEUI, gpGlobals->f.fpDATA);
 
@@ -110,7 +189,9 @@ PAL_FreeUI(
 {
    if (gpSpriteUI != NULL)
    {
+#ifndef PAL_NO_RUNTIME_HEAP
       free(gpSpriteUI);
+#endif
       gpSpriteUI = NULL;
    }
 }
@@ -388,13 +469,26 @@ PAL_DeleteBox(
    rect.w = lpBox->wWidth;
    rect.h = lpBox->wHeight;
 
-   VIDEO_CopySurface(lpBox->lpSavedArea, NULL, gpScreen, &rect);
+   if (lpBox->lpSavedArea != NULL)
+   {
+      VIDEO_CopySurface(lpBox->lpSavedArea, NULL, gpScreen, &rect);
+   }
+#ifdef PAL_NO_RUNTIME_HEAP
+   else if (lpBox->lpSavedPixels != NULL)
+   {
+      PAL_CopyBoxPixels(&rect, lpBox->lpSavedPixels, TRUE);
+   }
+#endif
 
    //
    // Free the memory used by the box
    //
+#ifndef PAL_NO_RUNTIME_HEAP
    VIDEO_FreeSurface(lpBox->lpSavedArea);
    free(lpBox);
+#else
+   memset(lpBox, 0, sizeof(*lpBox));
+#endif
 }
 
 WORD

@@ -535,6 +535,9 @@ UTIL_OpenFileForMode(
 	//
 	if (UTIL_IsAbsolutePath(lpszFileName))
 	{
+#ifdef PAL_NO_RUNTIME_HEAP
+		return fopen(lpszFileName, szMode);
+#else
 		char *temp = strdup(lpszFileName), *filename = temp;
 		FILE *fp = NULL;
 		for (char *next = strpbrk(filename, PAL_PATH_SEPARATORS); next; next = strpbrk(filename = next + 1, PAL_PATH_SEPARATORS));
@@ -545,6 +548,7 @@ UTIL_OpenFileForMode(
 		}
 		free(temp);
 		return fp;
+#endif
 	}
 
 	return UTIL_OpenFileAtPathForMode(gConfig.pszGamePath, lpszFileName, szMode);
@@ -639,6 +643,17 @@ UTIL_GetFullPathName(
 	int sublen = strlen(subpath);
 	if (sublen == 0) return NULL;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+	const char *candidate = UTIL_CombinePath(INTERNAL_BUFFER_SIZE_ARGS, 2, basepath, subpath);
+	if (candidate && access(candidate, 0) == 0)
+	{
+		size_t dstlen = min(buflen - 1, strlen(candidate));
+		memmove(buffer, candidate, dstlen);
+		buffer[dstlen] = '\0';
+		return buffer;
+	}
+	return NULL;
+#else
 	char *_base = strdup(basepath), *_sub = strdup(subpath);
 	const char *result = NULL;
 
@@ -692,6 +707,7 @@ UTIL_GetFullPathName(
 	free(_sub);
 
 	return result;
+#endif
 }
 
 const char *

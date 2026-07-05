@@ -28,6 +28,29 @@ GLOBALVARS * const  gpGlobals = &_gGlobals;
 
 CONFIGURATION gConfig;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(__GNUC__)
+#define PAL_GLOBAL_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_GLOBAL_PSRAM
+#endif
+#define PAL_GLOBAL_SCRIPT_ENTRY_SLOTS 42500
+#define PAL_GLOBAL_STORE_SLOTS 32
+#define PAL_GLOBAL_ENEMY_SLOTS 350
+#define PAL_GLOBAL_ENEMY_TEAM_SLOTS 390
+#define PAL_GLOBAL_MAGIC_SLOTS 114
+#define PAL_GLOBAL_BATTLEFIELD_SLOTS 130
+#define PAL_GLOBAL_LEVELUP_MAGIC_SLOTS 50
+static EVENTOBJECT pal_psram_global_event_objects[MAX_EVENT_OBJECTS] PAL_GLOBAL_PSRAM;
+static SCRIPTENTRY pal_psram_global_script_entries[PAL_GLOBAL_SCRIPT_ENTRY_SLOTS] PAL_GLOBAL_PSRAM;
+static STORE pal_psram_global_stores[PAL_GLOBAL_STORE_SLOTS] PAL_GLOBAL_PSRAM;
+static ENEMY pal_psram_global_enemies[PAL_GLOBAL_ENEMY_SLOTS] PAL_GLOBAL_PSRAM;
+static ENEMYTEAM pal_psram_global_enemy_teams[PAL_GLOBAL_ENEMY_TEAM_SLOTS] PAL_GLOBAL_PSRAM;
+static MAGIC pal_psram_global_magics[PAL_GLOBAL_MAGIC_SLOTS] PAL_GLOBAL_PSRAM;
+static BATTLEFIELD pal_psram_global_battlefields[PAL_GLOBAL_BATTLEFIELD_SLOTS] PAL_GLOBAL_PSRAM;
+static LEVELUPMAGIC_ALL pal_psram_global_levelup_magics[PAL_GLOBAL_LEVELUP_MAGIC_SLOTS] PAL_GLOBAL_PSRAM;
+#endif
+
 #if SDL_BYTEORDER == SDL_LIL_ENDIAN
 #define DO_BYTESWAP(buf, size)
 #else
@@ -52,6 +75,10 @@ PAL_IsWINVersion(
 	BOOL *pfIsWIN95
 )
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+	if (pfIsWIN95) *pfIsWIN95 = FALSE;
+	return TRUE;
+#else
 	FILE *fps[] = { UTIL_OpenRequiredFile("abc.mkf"), UTIL_OpenRequiredFile("map.mkf"), gpGlobals->f.fpF, gpGlobals->f.fpFBP, gpGlobals->f.fpFIRE, gpGlobals->f.fpMGO };
 	uint8_t *data = NULL;
 	int data_size = 0, dos_score = 0, win_score = 0;
@@ -106,6 +133,7 @@ PAL_IsWINVersion_Exit:
 	fclose(fps[0]);
 
 	return result;
+#endif
 }
 
 CODEPAGE
@@ -113,6 +141,10 @@ PAL_DetectCodePage(
 	const char *   filename
 )
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+	(void)filename;
+	return CP_BIG5;
+#else
 	FILE *fp;
 	char *word_buf = NULL;
 	size_t word_len;
@@ -148,6 +180,7 @@ PAL_DetectCodePage(
 	}
 
 	return cp;
+#endif
 }
 
 INT
@@ -244,6 +277,7 @@ PAL_FreeGlobals(
    //
    // Free the game data
    //
+#ifndef PAL_NO_RUNTIME_HEAP
    free(gpGlobals->g.lprgEventObject);
    free(gpGlobals->g.lprgScriptEntry);
    free(gpGlobals->g.lprgStore);
@@ -252,12 +286,15 @@ PAL_FreeGlobals(
    free(gpGlobals->g.lprgMagic);
    free(gpGlobals->g.lprgBattleField);
    free(gpGlobals->g.lprgLevelUpMagic);
+#endif
 
    //
    // Free the object description data
    //
+#ifndef PAL_NO_RUNTIME_HEAP
    if (!gConfig.fIsWIN95)
       PAL_FreeObjectDesc(gpGlobals->lpObjectDesc);
+#endif
 
    //
    // Clear the instance
@@ -332,6 +369,18 @@ PAL_InitGlobalGameData(
 {
    int        len;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+#define PAL_DOALLOCATE_STATIC(fp, num, type, lptype, ptr, n, storage)            \
+   {                                                                             \
+      len = PAL_MKFGetChunkSize(num, fp);                                        \
+      if (len < 0 || (size_t)len > sizeof(storage))                              \
+      {                                                                          \
+         TerminateOnError("PAL_InitGlobalGameData(): Static buffer too small!"); \
+      }                                                                          \
+      ptr = (lptype)(storage);                                                   \
+      n = len / sizeof(type);                                                    \
+   }
+#else
 #define PAL_DOALLOCATE(fp, num, type, lptype, ptr, n)                            \
    {                                                                             \
       len = PAL_MKFGetChunkSize(num, fp);                                        \
@@ -342,12 +391,46 @@ PAL_InitGlobalGameData(
          TerminateOnError("PAL_InitGlobalGameData(): Memory allocation error!"); \
       }                                                                          \
    }
+#endif
 
    //
    // If the memory has not been allocated, allocate first.
    //
    if (gpGlobals->g.lprgEventObject == NULL)
    {
+#ifdef PAL_NO_RUNTIME_HEAP
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpSSS, 0, EVENTOBJECT, LPEVENTOBJECT,
+         gpGlobals->g.lprgEventObject, gpGlobals->g.nEventObject,
+         pal_psram_global_event_objects);
+
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpSSS, 4, SCRIPTENTRY, LPSCRIPTENTRY,
+         gpGlobals->g.lprgScriptEntry, gpGlobals->g.nScriptEntry,
+         pal_psram_global_script_entries);
+
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 0, STORE, LPSTORE,
+         gpGlobals->g.lprgStore, gpGlobals->g.nStore,
+         pal_psram_global_stores);
+
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 1, ENEMY, LPENEMY,
+         gpGlobals->g.lprgEnemy, gpGlobals->g.nEnemy,
+         pal_psram_global_enemies);
+
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 2, ENEMYTEAM, LPENEMYTEAM,
+         gpGlobals->g.lprgEnemyTeam, gpGlobals->g.nEnemyTeam,
+         pal_psram_global_enemy_teams);
+
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 4, MAGIC, LPMAGIC,
+         gpGlobals->g.lprgMagic, gpGlobals->g.nMagic,
+         pal_psram_global_magics);
+
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 5, BATTLEFIELD, LPBATTLEFIELD,
+         gpGlobals->g.lprgBattleField, gpGlobals->g.nBattleField,
+         pal_psram_global_battlefields);
+
+      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 6, LEVELUPMAGIC_ALL, LPLEVELUPMAGIC_ALL,
+         gpGlobals->g.lprgLevelUpMagic, gpGlobals->g.nLevelUpMagic,
+         pal_psram_global_levelup_magics);
+#else
       PAL_DOALLOCATE(gpGlobals->f.fpSSS, 0, EVENTOBJECT, LPEVENTOBJECT,
          gpGlobals->g.lprgEventObject, gpGlobals->g.nEventObject);
 
@@ -371,10 +454,15 @@ PAL_InitGlobalGameData(
 
       PAL_DOALLOCATE(gpGlobals->f.fpDATA, 6, LEVELUPMAGIC_ALL, LPLEVELUPMAGIC_ALL,
          gpGlobals->g.lprgLevelUpMagic, gpGlobals->g.nLevelUpMagic);
+#endif
 
       PAL_ReadGlobalGameData();
    }
+#ifdef PAL_NO_RUNTIME_HEAP
+#undef PAL_DOALLOCATE_STATIC
+#else
 #undef PAL_DOALLOCATE
+#endif
 }
 
 static VOID
@@ -561,6 +649,12 @@ typedef struct tagSAVEDGAME_WIN
 	EVENTOBJECT      rgEventObject[MAX_EVENT_OBJECTS];
 } SAVEDGAME_WIN, *LPSAVEDGAME_WIN;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+static uint8_t pal_psram_savegame_static[
+   (sizeof(SAVEDGAME_WIN) > sizeof(SAVEDGAME_DOS)) ? sizeof(SAVEDGAME_WIN) : sizeof(SAVEDGAME_DOS)
+] PAL_GLOBAL_PSRAM;
+#endif
+
 static BOOL
 PAL_LoadGame_Common(
 	int                 iSaveSlot,
@@ -660,14 +754,23 @@ PAL_LoadGame_DOS(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)pal_psram_savegame_static;
+#else
    SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)malloc(sizeof(SAVEDGAME_DOS));
+#endif
    int                       i;
 
    //
    // Get all the data from the saved game struct.
    //
    if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_DOS)))
+   {
+#ifndef PAL_NO_RUNTIME_HEAP
+      free(s);
+#endif
 	   return -1;
+   }
 
    //
    // Convert the DOS-style data structure to WIN-style data structure
@@ -680,7 +783,9 @@ PAL_LoadGame_DOS(
    }
    memcpy(gpGlobals->g.lprgEventObject, s->rgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
 
+#ifndef PAL_NO_RUNTIME_HEAP
    free(s);
+#endif
 
    //
    // Success
@@ -707,18 +812,29 @@ PAL_LoadGame_WIN(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)pal_psram_savegame_static;
+#else
    SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)malloc(sizeof(SAVEDGAME_WIN));
+#endif
 
    //
    // Get all the data from the saved game struct.
    //
    if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_WIN)))
+   {
+#ifndef PAL_NO_RUNTIME_HEAP
+      free(s);
+#endif
 	   return -1;
+   }
 
    memcpy(gpGlobals->g.rgObject, s->rgObject, sizeof(gpGlobals->g.rgObject));
    memcpy(gpGlobals->g.lprgEventObject, s->rgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
     
+#ifndef PAL_NO_RUNTIME_HEAP
    free(s);
+#endif
 
    //
    // Success
@@ -823,7 +939,11 @@ PAL_SaveGame_DOS(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)pal_psram_savegame_static;
+#else
    SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)malloc(sizeof(SAVEDGAME_DOS));
+#endif
    UINT32                    i;
 
    //
@@ -840,7 +960,9 @@ PAL_SaveGame_DOS(
    // Put all the data to the saved game struct.
    //
    PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_DOS));
+#ifndef PAL_NO_RUNTIME_HEAP
    free(s);
+#endif
 }
 
 static VOID
@@ -863,7 +985,11 @@ PAL_SaveGame_WIN(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)pal_psram_savegame_static;
+#else
    SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)malloc(sizeof(SAVEDGAME_WIN));
+#endif
 
    //
    // Put all the data to the saved game struct.
@@ -873,7 +999,9 @@ PAL_SaveGame_WIN(
 
    PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_WIN));
 
+#ifndef PAL_NO_RUNTIME_HEAP
    free(s);
+#endif
 }
 
 VOID

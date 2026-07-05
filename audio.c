@@ -39,6 +39,15 @@ typedef void(*ResampleMixFunction)(void *, const void *, int, void *, int, int, 
 
 AUDIODEVICE gAudioDevice;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(__GNUC__)
+#define PAL_AUDIO_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#else
+#define PAL_AUDIO_SRAM
+#endif
+static uint8_t pal_sram_audio_mix_static[32768 * 2 * sizeof(short)] PAL_AUDIO_SRAM;
+#endif
+
 PAL_FORCE_INLINE
 void
 AUDIO_MixNative(
@@ -286,7 +295,17 @@ AUDIO_OpenDevice(
 #else
 # define MULTIPLIER 1
 #endif
+#ifdef PAL_NO_RUNTIME_HEAP
+      if ((size_t)gConfig.wAudioBufferSize * (size_t)gConfig.iAudioChannels * sizeof(short) >
+          sizeof(pal_sram_audio_mix_static))
+      {
+         SDL_CloseAudio();
+         return -4;
+      }
+      gAudioDevice.pSoundBuffer = pal_sram_audio_mix_static;
+#else
       gAudioDevice.pSoundBuffer = malloc(gConfig.wAudioBufferSize * MULTIPLIER * gConfig.iAudioChannels * sizeof(short));
+#endif
    }
 
    gAudioDevice.fOpened = TRUE;
@@ -426,7 +445,9 @@ AUDIO_CloseDevice(
 
    if (gAudioDevice.pSoundBuffer != NULL)
    {
+#ifndef PAL_NO_RUNTIME_HEAP
       free(gAudioDevice.pSoundBuffer);
+#endif
 	  gAudioDevice.pSoundBuffer = NULL;
    }
 

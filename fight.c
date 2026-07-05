@@ -834,8 +834,10 @@ PAL_BattlePostActionCheck(
 
          AUDIO_PlaySound(g_Battle.rgEnemy[i].e.wDeathSound);
          g_Battle.rgEnemy[i].wObjectID = 0;
+#ifndef PAL_NO_RUNTIME_HEAP
          if (g_Battle.rgEnemy[i].lpSprite)
              free(g_Battle.rgEnemy[i].lpSprite);
+#endif
          g_Battle.rgEnemy[i].lpSprite = NULL;
          fFade = TRUE;
 
@@ -980,7 +982,9 @@ end:
       PAL_BattleUpdateFighters();
       PAL_BattleDelay(1, 0, FALSE);
 
+#ifndef PAL_NO_RUNTIME_HEAP
       free(g_Battle.lpSummonSprite);
+#endif
       g_Battle.lpSummonSprite = NULL;
 
       g_Battle.sBackgroundColorShift = 0;

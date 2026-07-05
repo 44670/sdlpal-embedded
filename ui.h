@@ -134,6 +134,9 @@ typedef struct tagBOX
    PAL_POS        pos;
    WORD           wWidth, wHeight;
    SDL_Surface   *lpSavedArea;
+#ifdef PAL_NO_RUNTIME_HEAP
+   LPBYTE         lpSavedPixels;
+#endif
 } BOX, *LPBOX;
 
 typedef struct tagMENUITEM

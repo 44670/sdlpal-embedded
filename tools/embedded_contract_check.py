@@ -7,6 +7,7 @@ turns the main hard requirements into repeatable checks:
 - no project-side heap allocation in selected runtime sources,
 - no runtime decompression path in selected runtime sources,
 - no forbidden heap/decompress symbols in a native verification binary,
+- no call sites to heap/decompress trap targets in that binary,
 - section sizes and symbols visible through size/objdump/nm.
 """
 
@@ -125,6 +126,22 @@ FORBIDDEN_SYMBOL_PATTERNS = (
     r"YJ2_Decompress",
     r"Decompress",
 )
+
+FORBIDDEN_CALL_TARGETS = {
+    "__wrap_malloc",
+    "__wrap_calloc",
+    "__wrap_realloc",
+    "__wrap_free",
+    "malloc",
+    "calloc",
+    "realloc",
+    "free",
+    "PAL_RuntimeHeapAllocUnavailable",
+    "PAL_RuntimeHeapZeroAllocUnavailable",
+    "PAL_MKFCompressedChunkSizeUnavailable",
+    "PAL_MKFCompressedChunkReadUnavailable",
+    "PAL_RuntimeCodecUnavailable",
+}
 
 
 @dataclass(frozen=True)
@@ -653,6 +670,24 @@ def append_symbol_prefix_report(
             report.append(f"  {symbol.size:10d} {symbol.kind} {symbol.name}")
 
 
+def find_forbidden_call_targets(output: str) -> list[str]:
+    hits: list[str] = []
+    call_expr = re.compile(r"\b(callq?|jmpq?|blx?|b\.w)\b")
+    target_expr = re.compile(r"<([^>]+)>")
+
+    for line in output.splitlines():
+        if not call_expr.search(line):
+            continue
+        match = target_expr.search(line)
+        if not match:
+            continue
+        target = match.group(1).split("+", 1)[0]
+        target = target.split("@", 1)[0]
+        if target in FORBIDDEN_CALL_TARGETS:
+            hits.append(line)
+    return hits
+
+
 def check_binary(
     binary: Path,
     budgets: dict[str, int],
@@ -696,6 +731,15 @@ def check_binary(
         errors.append(f"forbidden symbols present: {len(symbol_hits)}")
         report.append("\n## forbidden symbols")
         report.extend(symbol_hits[:200])
+
+    disassembly_output = run_tool(["objdump", "-d", str(binary)])
+    call_hits = find_forbidden_call_targets(disassembly_output)
+    report.append("\n## forbidden call targets")
+    if call_hits:
+        errors.append(f"forbidden call targets present: {len(call_hits)}")
+        report.extend(call_hits[:200])
+    else:
+        report.append("0")
 
     nm_sized_output = run_tool(["nm", "-S", "--size-sort", "-C", str(binary)])
     symbols = parse_sized_symbols(nm_sized_output)

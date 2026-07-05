@@ -646,19 +646,20 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=184776 data=3760 bss=5988728
-.text=149557 .rodata=7640 .data=144 .bss=5988728
-pal_sram_ total=64000 limit=307200
-pal_psram_ total=5845456 limit=8388608
+text=179585 data=3672 bss=6957816
+.text=146197 .rodata=7368 .data=144 .bss=6957816
+pal_sram_ total=195072 limit=307200
+pal_psram_ total=6683496 limit=8388608
 ```
 
-The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`:
+The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets:
 
 ```text
 objdump -t forbidden symbols: 0
+forbidden call targets: 0
 ```
 
-This is still not a usable embedded runtime. The macros remove linked heap/decompress entry points by routing old call sites to unavailable traps; the remaining engineering work is to replace those desktop resource paths with the generated pack/static-buffer slices.
+This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the stubbed desktop resource paths with the generated pack/static-buffer slices.
 
 The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, it uses static `uint8_t` PSRAM buffers for the `PALMAP` object and GOP sprite data, and it accepts only already-native 64KB map chunks. The old compressed-MAP path remains only for non-contract desktop builds.
 
@@ -679,6 +680,14 @@ The contract `global.c` path skips the legacy heap-loaded object-description lis
 The contract `res.c` path now uses static `uint8_t` PSRAM storage for the resource manager, event-sprite pointer table, 64 unique event-sprite slots, and player sprite slots. Duplicate event sprite references share a slot. MGO chunks must already be native.
 
 The contract `rngplay.c` path now reads host-predecoded native RNG frame records into `pal_psram_rng_frame_static` and blits them directly without heap allocation or `Decompress()`.
+
+The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 128KB SRAM mix buffer, instead of allocating `gAudioDevice.pSoundBuffer`.
+
+The contract `global.c` path now uses named PSRAM storage for mutable global tables and save/load structs. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
+
+The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It uses default/static config strings and case-sensitive no-heap path lookup in the reduced profile.
+
+The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprite data and a 320x200 box save/restore buffer, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
 
 ## Current Contract Failures
 

@@ -96,6 +96,10 @@ static const char *opl_chips[] = { "OPL2", "OPL3" };
 
 static char * ParseStringValue(const char *sValue, char *original)
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+	(void)sValue;
+	return original;
+#else
 	int n = strlen(sValue);
 	while (n > 0 && SDL_isspace(sValue[n - 1])) n--;
 	if (n > 0)
@@ -106,6 +110,7 @@ static char * ParseStringValue(const char *sValue, char *original)
 		return newval;
 	}
 	return original;
+#endif
 }
 
 static BOOL
@@ -275,6 +280,7 @@ PAL_FreeConfig(
 )
 {
 
+#ifndef PAL_NO_RUNTIME_HEAP
 #if USE_RIX_EXTRA_INIT
 	free(gConfig.pExtraFMRegs);
 	free(gConfig.pExtraFMVals);
@@ -287,6 +293,7 @@ PAL_FreeConfig(
     free(gConfig.pszShaderPath);
     free(gConfig.pszScaleQuality);
 	free(gConfig.pszLogFile);
+#endif
 
 	memset(&gConfig, 0, sizeof(CONFIGURATION));
 }
@@ -388,6 +395,10 @@ PAL_LoadConfig(
 		// Magic Desc Message Pos
 		.MagicDescMsgPos	= PAL_XY(102, 0),
 	};
+
+#ifdef PAL_NO_RUNTIME_HEAP
+	fFromFile = FALSE;
+#endif
 
 	for (PALCFG_ITEM i = PALCFG_ALL_MIN; i < PALCFG_ALL_MAX; i++) values[i] = gConfigItems[i].DefaultValue;
 
@@ -559,9 +570,16 @@ PAL_LoadConfig(
 	//
 	// Set configurable global options
 	//
+#ifdef PAL_NO_RUNTIME_HEAP
+	(void)fp;
+	gConfig.pszGamePath = PAL_PREFIX;
+	gConfig.pszSavePath = PAL_SAVE_PREFIX;
+	gConfig.pszShaderPath = PAL_PREFIX;
+#else
 	if (!gConfig.pszSavePath) gConfig.pszSavePath = gConfig.pszGamePath ? strdup(gConfig.pszGamePath) : strdup(PAL_SAVE_PREFIX);
 	if (!gConfig.pszGamePath) gConfig.pszGamePath = strdup(PAL_PREFIX);
     if (!gConfig.pszShaderPath) gConfig.pszShaderPath = strdup(gConfig.pszGamePath);
+#endif
 	gConfig.eMusicType = eMusicType;
 	gConfig.eMIDISynth = eMIDISynthType;
 	gConfig.eCDType = eCDType;
