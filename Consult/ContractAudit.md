@@ -626,7 +626,7 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The desktop text/font/music/SFX replacement maps generated NOR/TF packs read-only and uses the existing `PalTextCache`, `PalFontCache`, and `PalMusicCache` readers plus a fixed SFX PCM mixer:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The desktop text/font/music/SFX replacement maps generated NOR/TF packs read-only, uses the existing `PalTextCache`, `PalFontCache`, and `PalMusicCache` readers, and copies SFX PCM from the TF pack into a fixed PSRAM buffer before mixing:
 
 ```text
 PAL_InitFont
@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185658 data=3728 bss=7441112
-.text=150405 .rodata=7304 .data=144 .bss=7441112
+text=185706 data=3728 bss=7703256
+.text=150437 .rodata=7304 .data=144 .bss=7703256
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=7131664 limit=8388608
+pal_psram_ total=7393808 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets:
@@ -711,6 +711,8 @@ The contract `rngplay.c` path now reads host-predecoded native RNG frame records
 
 The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 128KB SRAM mix buffer, instead of allocating `gAudioDevice.pSoundBuffer`.
 
+The Unix contract SFX replacement copies the requested host-converted PCM16 SFX chunk from the generated TF pack into `pal_psram_contract_sfx`, a 256KB static PSRAM buffer, before handing it to the mixer. The largest generated SFX payload in the current data set is chunk #255 at 211,152 bytes, so single-effect playback fits without reading TF-backed data from the audio callback.
+
 The contract `global.c` path now uses named `uint8_t` PSRAM storage for mutable global tables and save/load structs. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
 
 The contract `audio.c`, `global.c`, and `util.c` paths no longer keep active loose original data filename references for `mus.mkf`, `word.dat`, or the legacy file-check list. Music/data access is through the generated packs in contract mode; save files remain normal user files.
@@ -737,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=185658 data=3728 bss=7441112
-.text=150405 .rodata=7304 .data=144 .bss=7441112
+text=185706 data=3728 bss=7703256
+.text=150437 .rodata=7304 .data=144 .bss=7703256
 pal_sram_ total=230912 / 307200
-pal_psram_ total=7131664 / 8388608
+pal_psram_ total=7393808 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

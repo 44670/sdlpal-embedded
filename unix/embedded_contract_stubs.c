@@ -23,6 +23,7 @@
 
 #define PAL_CONTRACT_TEXT_SLOTS 8u
 #define PAL_CONTRACT_TEXT_CHARS 1024u
+#define PAL_CONTRACT_SFX_BYTES (256u * 1024u)
 #define PAL_CONTRACT_SFX_MAGIC 0x58465350u
 #define PAL_CONTRACT_SFX_VERSION 1u
 #define PAL_CONTRACT_SFX_HEADER_SIZE 24u
@@ -30,8 +31,10 @@
 
 #if defined(__GNUC__)
 #define PAL_CONTRACT_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#define PAL_CONTRACT_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
 #else
 #define PAL_CONTRACT_SRAM
+#define PAL_CONTRACT_PSRAM
 #endif
 
 static PalPack pal_contract_nor_pack;
@@ -53,6 +56,7 @@ static uint32_t pal_contract_sfx_cursor;
 static bool pal_contract_sfx_active;
 static uint8_t pal_sram_contract_text_slots
     [PAL_CONTRACT_TEXT_SLOTS][PAL_CONTRACT_TEXT_CHARS * sizeof(WCHAR)] PAL_CONTRACT_SRAM;
+static uint8_t pal_psram_contract_sfx[PAL_CONTRACT_SFX_BYTES] PAL_CONTRACT_PSRAM;
 static unsigned int pal_contract_text_slot;
 static WCHAR pal_empty_text[1];
 
@@ -351,7 +355,12 @@ PalContract_SoundPlay(
     if (!PalContract_OpenTfPack() ||
         !PalPack_MapConst(&pal_contract_tf_pack, PAL_PACK_ARCHIVE_SFX, (uint16_t)sound_num, &span) ||
         span.format != PAL_PACK_FORMAT_SFX_PCM16 ||
-        !PalContract_OpenSfx(span.data, span.size)) {
+        span.size > PAL_CONTRACT_SFX_BYTES) {
+        return FALSE;
+    }
+
+    memcpy(pal_psram_contract_sfx, span.data, span.size);
+    if (!PalContract_OpenSfx(pal_psram_contract_sfx, span.size)) {
         return FALSE;
     }
     audio_player->iMusic = sound_num;
