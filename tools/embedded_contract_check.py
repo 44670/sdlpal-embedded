@@ -6,6 +6,7 @@ turns the main hard requirements into repeatable checks:
 
 - no project-side heap allocation in selected runtime sources,
 - no runtime decompression path in selected runtime sources,
+- no PAL_LARGE local scratch buffers in selected runtime sources,
 - no forbidden heap/decompress symbols in a native verification binary,
 - no call sites to heap/decompress trap targets in that binary,
 - section sizes and symbols visible through size/objdump/nm.
@@ -112,6 +113,10 @@ DECOMPRESS_PATTERNS = (
     r"\bYJ2_Decompress\s*\(",
     r"\bdecompress\b",
     r"\bDecompress\b",
+)
+
+SCRATCH_PATTERNS = (
+    r"\bPAL_LARGE\b",
 )
 
 FORBIDDEN_SYMBOL_PATTERNS = (
@@ -529,6 +534,7 @@ def scan_sources(
 ) -> list[Hit]:
     heap_res = [re.compile(p) for p in HEAP_PATTERNS]
     decomp_res = [re.compile(p, re.IGNORECASE) for p in DECOMPRESS_PATTERNS]
+    scratch_res = [re.compile(p) for p in SCRATCH_PATTERNS]
     hits: list[Hit] = []
 
     for path in sorted(set(iter_scan_sources(root, include_third_party, source_files))):
@@ -545,6 +551,8 @@ def scan_sources(
                 hits.append(Hit("heap", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
             if any(expr.search(line) for expr in decomp_res):
                 hits.append(Hit("decompress", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
+            if any(expr.search(line) for expr in scratch_res):
+                hits.append(Hit("scratch", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
 
     return hits
 
@@ -1119,11 +1127,11 @@ def main() -> int:
     print("# Embedded Contract Check")
     print(f"root: {root}")
 
-    by_kind: dict[str, list[Hit]] = {"heap": [], "decompress": []}
+    by_kind: dict[str, list[Hit]] = {"heap": [], "decompress": [], "scratch": []}
     for hit in hits:
         by_kind.setdefault(hit.kind, []).append(hit)
 
-    for kind in ("heap", "decompress"):
+    for kind in ("heap", "decompress", "scratch"):
         kind_hits = by_kind.get(kind, [])
         print(f"\n## source {kind} hits: {len(kind_hits)}")
         for hit in kind_hits[:200]:

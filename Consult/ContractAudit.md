@@ -77,7 +77,7 @@ python3 -B tools/embedded_contract_check.py \
   --max bss=8388608
 ```
 
-The tool scans selected project sources for heap/decompression use and, when given a binary, runs `size`, `objdump -h`, `objdump -t`, and `nm -C` to report sections and forbidden symbols.
+The tool scans selected project sources for heap/decompression use and active `PAL_LARGE` scratch buffers, and when given a binary, runs `size`, `objdump -h`, `objdump -t`, and `nm -C` to report sections and forbidden symbols.
 It can also sum normal static-storage buffers from ELF symbols with `nm -S --size-sort`, for example:
 
 ```sh
@@ -242,6 +242,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
+source scratch hits: 0
 text=4790 data=576 bss=104
 PASS
 ```
@@ -299,6 +300,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
+source scratch hits: 0
 text=1573 data=520 bss=7486488
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
@@ -336,6 +338,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
+source scratch hits: 0
 text=6468 data=640 bss=7487008
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
@@ -536,6 +539,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
+source scratch hits: 0
 objdump -t forbidden symbols: 0
 text=40662 .rodata=448 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
@@ -662,11 +666,12 @@ The reduced profile now has no forbidden heap/decompress symbols in `objdump -t`
 ```text
 source heap hits: 0
 source decompress hits: 0
+source scratch hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
 ```
 
-The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress patterns. The same target rebuilds and verifies the generated NOR/TF packs and manifest, rejects raw `VOC` in runtime packs, and enforces the 16MB NOR pack budget.
+The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress/`PAL_LARGE` scratch patterns. The same target rebuilds and verifies the generated NOR/TF packs and manifest, rejects raw `VOC` in runtime packs, and enforces the 16MB NOR pack budget.
 
 This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the remaining stubbed desktop resource paths with the generated pack/static-buffer slices.
 
@@ -713,6 +718,7 @@ The contract `palette.c` path now reads `PAT` chunks through the generated pack 
 ```text
 source heap hits: 0
 source decompress hits: 0
+source scratch hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
 text=185690 data=3728 bss=7441112
