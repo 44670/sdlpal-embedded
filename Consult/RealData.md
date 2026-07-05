@@ -25,6 +25,9 @@ This report is intended to complement `Consult/Q1.md`. It records measurements f
 - Real save files present: `1.rpg` 184,672 bytes, `2.rpg` 188,864 bytes, `4.RPG` 183,488 bytes
 - `DATA.MKF #9` UI sprite bytes: 25,532
 - `DATA.MKF #10` battle effect sprite bytes: 17,478
+- `BALL.MKF`: 231 chunks, 133,776 payload bytes, largest chunk #95 is 1,876 bytes
+- `RGM.MKF`: 92 chunks, 452,830 payload bytes, largest chunk #72 is 8,024 bytes
+- `PAT.MKF`: 9 chunks, 8,448 payload bytes, largest chunk #0 is 1,536 bytes
 
 ## Worst Normal Scene Residency
 
@@ -105,6 +108,16 @@ Total predecoded RNG frame payload across all movies is about 7.3MB. That is too
 - Most frequent characters: `．`, `，`, `的`, `我`, `！`, `不`, `是`, `了`, `你`, `？`, `這`, `一`
 
 Main conclusion: the current 2MB `unicode_font[65536][32]` table is unnecessary for this data set. The checked generated FONT pack already replaces the CJK portion with an 88,432-byte read-only NOR payload; final cutover still needs ASCII integration and a fallback for the four missing CJK corpus characters.
+
+## UI Assets
+
+- `DATA.MKF #9` UI sprite: 25,532 bytes
+- `DATA.MKF #10` battle effect sprite: 17,478 bytes
+- `BALL.MKF #95` largest item bitmap: 1,876 bytes
+- `RGM.MKF #72` largest face bitmap: 8,024 bytes
+- `PAT.MKF #0` largest palette chunk: 1,536 bytes, enough for day and night 256-color RGB palettes
+
+The static UI smoke maps the DATA, BALL, and RGM payloads as read-only `const uint8_t *` views from the generated NOR pack. It copies only the selected 768-byte PAT palette into `pal_sram_misc` before handing it to the static indexed-video slice.
 
 ## Largest Single Runtime Chunks
 

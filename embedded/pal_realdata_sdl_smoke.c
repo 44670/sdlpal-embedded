@@ -9,6 +9,7 @@
 #include "pal_scene_cache.h"
 #include "pal_sfx_cache.h"
 #include "pal_text_cache.h"
+#include "pal_ui_cache.h"
 #include "pal_video_static.h"
 
 #include <SDL.h>
@@ -486,6 +487,39 @@ static int check_save_cache(const char *data_dir)
            check_save_file(data_dir, "4.RPG", 183488u, 1u, 1u, 899999u);
 }
 
+static int check_ui_cache(const PalPack *nor)
+{
+    PalUiAsset asset;
+    const uint8_t *palette = 0;
+    uint32_t palette_size = 0;
+
+    if (!PalUi_MapUiSprite(nor, &asset) || asset.size != 25532u || checksum32(asset.data, asset.size) == 0) {
+        return 1;
+    }
+    if (!PalUi_MapBattleEffect(nor, &asset) || asset.size != 17478u || checksum32(asset.data, asset.size) == 0) {
+        return 2;
+    }
+    if (!PalUi_MapItemBitmap(nor, 95, &asset) || asset.size != 1876u || checksum32(asset.data, asset.size) == 0) {
+        return 3;
+    }
+    if (!PalUi_MapFaceBitmap(nor, 72, &asset) || asset.size != 8024u || checksum32(asset.data, asset.size) == 0) {
+        return 4;
+    }
+    if (!PalUi_LoadPaletteRgb(nor, 0, false, &palette, &palette_size) || palette != pal_sram_misc || palette_size != PAL_UI_PALETTE_RGB_BYTES) {
+        return 5;
+    }
+    if (checksum32(palette, palette_size) == 0 || !PalVideo_SetPaletteRgb(0, PAL_UI_PALETTE_COLORS, palette)) {
+        return 6;
+    }
+    if (!PalUi_LoadPaletteRgb(nor, 0, true, &palette, &palette_size) || palette != pal_sram_misc || palette_size != PAL_UI_PALETTE_RGB_BYTES) {
+        return 7;
+    }
+    if (checksum32(palette, palette_size) == 0) {
+        return 8;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
@@ -557,6 +591,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_save_cache(argv[3]);
+    }
+    if (rc == 0) {
+        rc = check_ui_cache(&nor.pack);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();

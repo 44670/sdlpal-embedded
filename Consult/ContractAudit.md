@@ -45,6 +45,8 @@ embedded/pal_save_cache.c
 embedded/pal_save_cache.h
 embedded/pal_video_static.c
 embedded/pal_video_static.h
+embedded/pal_ui_cache.c
+embedded/pal_ui_cache.h
 ```
 
 Source scan:
@@ -175,6 +177,8 @@ embedded/pal_save_cache.c
 embedded/pal_save_cache.h
 embedded/pal_video_static.c
 embedded/pal_video_static.h
+embedded/pal_ui_cache.c
+embedded/pal_ui_cache.h
 ```
 
 Properties:
@@ -395,6 +399,16 @@ The smoke also exercises `embedded/pal_save_cache.c` against real save files in 
 
 The smoke also exercises `embedded/pal_video_static.c`. It preserves a real 320x200 indexed framebuffer through `pal_psram_screen_bak`, uses the 512-byte `pal_video_rgb565` LUT, and converts one line into `pal_sram_display_dma` for RGB565 scanout-style output.
 
+The smoke also exercises `embedded/pal_ui_cache.c` against real UI assets in the NOR pack:
+
+| Asset | Pack source | Bytes | Runtime placement |
+| --- | --- | ---: | --- |
+| UI sprite | `DATA.MKF #9` | 25,532 | `const uint8_t *` NOR view |
+| Battle effect sprite | `DATA.MKF #10` | 17,478 | `const uint8_t *` NOR view |
+| Item bitmap | `BALL.MKF #95` | 1,876 | `const uint8_t *` NOR view |
+| Face bitmap | `RGM.MKF #72` | 8,024 | `const uint8_t *` NOR view |
+| Day/night palette | `PAT.MKF #0` | 768 per palette | copied into `pal_sram_misc` |
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -424,7 +438,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=16738 data=720 bss=7197792
+text=18194 data=720 bss=7197792
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -434,6 +448,7 @@ pal_audio_ total=0 limit=4096
 pal_global_ total=232 limit=4096
 pal_save_ total=512 limit=4096
 pal_video_ total=512 limit=4096
+pal_ui_ total=0 limit=4096
 PASS
 ```
 
