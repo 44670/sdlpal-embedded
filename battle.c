@@ -30,7 +30,6 @@ BATTLE          g_Battle;
 #define PAL_BATTLE_PSRAM
 #endif
 static uint8_t pal_psram_battle_background_static[320 * 200] PAL_BATTLE_PSRAM;
-static uint8_t pal_psram_battle_effect_static[32768] PAL_BATTLE_PSRAM;
 #endif
 
 WORD
@@ -1874,16 +1873,22 @@ PAL_StartBattle(
    //
    i = PAL_MKFGetChunkSize(10, gpGlobals->f.fpDATA);
 #ifdef PAL_NO_RUNTIME_HEAP
-   if (i <= 0 || (size_t)i > sizeof(pal_psram_battle_effect_static))
    {
-      TerminateOnError("PAL_StartBattle(): battle effect sprite is too large!");
+      LPCBYTE lpSpriteData;
+      UINT uiSpriteSize;
+      if (i <= 0 ||
+          !PAL_MKFMapChunk(gpGlobals->f.fpDATA, 10, &lpSpriteData, &uiSpriteSize) ||
+          uiSpriteSize != (UINT)i)
+      {
+         TerminateOnError("PAL_StartBattle(): failed to map battle effect sprite!");
+      }
+      g_Battle.lpEffectSprite = lpSpriteData;
    }
-   g_Battle.lpEffectSprite = pal_psram_battle_effect_static;
 #else
    g_Battle.lpEffectSprite = UTIL_malloc(i);
-#endif
 
-   PAL_MKFReadChunk(g_Battle.lpEffectSprite, i, 10, gpGlobals->f.fpDATA);
+   PAL_MKFReadChunk((LPBYTE)g_Battle.lpEffectSprite, i, 10, gpGlobals->f.fpDATA);
+#endif
 
 #ifdef PAL_CLASSIC
    g_Battle.Phase = kBattlePhaseSelectAction;
@@ -1930,7 +1935,7 @@ PAL_StartBattle(
    //
    PAL_FreeBattleSprites();
 #ifndef PAL_NO_RUNTIME_HEAP
-   free(g_Battle.lpEffectSprite);
+   free((void *)g_Battle.lpEffectSprite);
 #endif
 
    //

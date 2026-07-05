@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=186034 data=3728 bss=2121624
-.text=150693 .rodata=7368 .data=144 .bss=2121624
+text=185970 data=3728 bss=2088856
+.text=150629 .rodata=7368 .data=144 .bss=2088856
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=1812160 limit=8388608
+pal_psram_ total=1779392 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -695,7 +695,7 @@ The full-engine splash path in `main.c` now also uses static `uint8_t` SRAM/PSRA
 
 The full-engine menu-background paths in `uigame.c` now also avoid runtime decompression in contract mode. Opening-menu, status, equipment, item-use, and buy-menu paths use shared static `uint8_t` PSRAM buffers for FBP/image/box scratch and read already-native 64KB FBP chunks.
 
-The full-engine battle path in `battle.c` now maps player/enemy F/ABC battle sprites as `const uint8_t` views into the native NOR pack under contract mode. Battle backgrounds and `DATA.MKF #10` effect storage use fixed PSRAM buffers. The old F/ABC/FBP decompression and battle-effect allocation paths remain only for non-contract desktop builds.
+The full-engine battle path in `battle.c` now maps player/enemy F/ABC battle sprites and `DATA.MKF #10` effect sprites as `const uint8_t` views into the native NOR pack under contract mode. Battle backgrounds still use a fixed PSRAM buffer. The old F/ABC/FBP decompression and battle-effect allocation paths remain only for non-contract desktop builds.
 
 The full-engine magic/summon paths in `fight.c` now map FIRE effect sprites and F.MKF summon sprites as `const uint8_t` views into the native NOR pack in contract mode. These paths require the host-built packs to provide native chunks and avoid `PAL_MKFDecompressChunk()` / `UTIL_malloc()` at runtime.
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=186034 data=3728 bss=2121624
-.text=150693 .rodata=7368 .data=144 .bss=2121624
+text=185970 data=3728 bss=2088856
+.text=150629 .rodata=7368 .data=144 .bss=2088856
 pal_sram_ total=230912 / 307200
-pal_psram_ total=1812160 / 8388608
+pal_psram_ total=1779392 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

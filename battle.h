@@ -195,7 +195,7 @@ typedef struct tagBATTLE
 
    BATTLEUI         UI;
 
-   LPBYTE           lpEffectSprite;
+   LPCSPRITE        lpEffectSprite;
 
    BOOL             fEnemyMoving;         // TRUE if enemy is moving
 
