@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE 700
+
 #include "pal_battle_cache.h"
 #include "pal_audio_static.h"
 #include "pal_dialog_static.h"
@@ -230,6 +232,66 @@ static int exercise_tf_toc_reads(const MappedPack *tf)
         return 7;
     }
     return 0;
+}
+
+static bool read_at_fd(void *user, uint32_t offset, uint8_t *dst, uint32_t size)
+{
+    int fd = *(const int *)user;
+    uint32_t total = 0;
+
+    while (total < size) {
+        ssize_t got = pread(fd, dst + total, (size_t)(size - total), (off_t)(offset + total));
+        if (got <= 0) {
+            return false;
+        }
+        total += (uint32_t)got;
+    }
+    return true;
+}
+
+static int exercise_tf_toc_fd_reads(const char *path)
+{
+    PalPackToc toc;
+    PalPackChunkInfo info;
+    struct stat st;
+    uint16_t chunk_count = 0;
+    uint32_t copied = 0;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+    if (toc.base != pal_psram_tf_toc || toc.toc_size != 13084u || toc.pack_size != (uint32_t)st.st_size) {
+        rc = 4;
+    }
+    if (rc == 0 && (!PalPackToc_GetChunkCount(&toc, PAL_PACK_ARCHIVE_RNG, &chunk_count) || chunk_count != 12u)) {
+        rc = 5;
+    }
+    if (rc == 0 && (!PalPackToc_GetChunkInfo(&toc, PAL_PACK_ARCHIVE_MAP, 1, &info) ||
+        info.size != PAL_PSRAM_MAP_TILES_BYTES || info.format != PAL_PACK_FORMAT_NATIVE || info.flags != 0u)) {
+        rc = 6;
+    }
+    if (rc == 0 && (!PalPackToc_CopyRawReadAt(&toc, read_at_fd, &fd, PAL_PACK_ARCHIVE_MAP, 1, pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES, &copied) ||
+        copied != PAL_PSRAM_MAP_TILES_BYTES || checksum32(pal_psram_map_tiles, copied) == 0)) {
+        rc = 7;
+    }
+    if (rc == 0 && (!PalPackToc_CopyRawReadAt(&toc, read_at_fd, &fd, PAL_PACK_ARCHIVE_FBP, 0, pal_sram_framebuffer, PAL_SRAM_FRAMEBUFFER_BYTES, &copied) ||
+        copied != PAL_SRAM_FRAMEBUFFER_BYTES || checksum32(pal_sram_framebuffer, copied) == 0)) {
+        rc = 8;
+    }
+
+    close(fd);
+    return rc;
 }
 
 static int exercise_sdl_surface(void)
@@ -907,6 +969,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = exercise_tf_toc_reads(&tf);
+    }
+    if (rc == 0) {
+        rc = exercise_tf_toc_fd_reads(argv[2]);
     }
     if (rc == 0) {
         rc =

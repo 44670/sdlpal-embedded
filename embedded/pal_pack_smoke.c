@@ -18,6 +18,20 @@ static const uint8_t kSmokePack[] = {
 static uint8_t g_copy_buffer[4];
 static uint8_t g_toc_buffer[64];
 
+static bool read_smoke_pack(void *user, uint32_t offset, uint8_t *dst, uint32_t size)
+{
+    const uint8_t *pack = (const uint8_t *)user;
+    uint32_t i;
+
+    if (offset > sizeof(kSmokePack) || size > sizeof(kSmokePack) - offset) {
+        return false;
+    }
+    for (i = 0; i < size; i++) {
+        dst[i] = pack[offset + i];
+    }
+    return true;
+}
+
 int main(void)
 {
     PalPack pack;
@@ -69,6 +83,19 @@ int main(void)
     }
     if (copied != 4 || g_copy_buffer[0] != 0xde || g_copy_buffer[3] != 0xef) {
         return 13;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_smoke_pack, (void *)kSmokePack, (uint32_t)sizeof(kSmokePack), g_toc_buffer, (uint32_t)sizeof(g_toc_buffer))) {
+        return 14;
+    }
+    g_copy_buffer[0] = 0;
+    g_copy_buffer[1] = 0;
+    g_copy_buffer[2] = 0;
+    g_copy_buffer[3] = 0;
+    if (!PalPackToc_CopyRawReadAt(&toc, read_smoke_pack, (void *)kSmokePack, PAL_PACK_ARCHIVE_DATA, 0, g_copy_buffer, (uint32_t)sizeof(g_copy_buffer), &copied)) {
+        return 15;
+    }
+    if (copied != 4 || g_copy_buffer[0] != 0xde || g_copy_buffer[3] != 0xef) {
+        return 16;
     }
     return 0;
 }

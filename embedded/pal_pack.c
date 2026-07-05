@@ -200,6 +200,59 @@ bool PalPack_OpenTocCopy(PalPackToc *toc, const uint8_t *pack_image, uint32_t pa
     return true;
 }
 
+bool PalPack_OpenTocRead(
+    PalPackToc *toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint32_t pack_size,
+    uint8_t *toc_buffer,
+    uint32_t toc_capacity)
+{
+    uint16_t version;
+    uint16_t header_size;
+    uint16_t archive_count;
+    uint32_t archive_table_offset;
+    uint32_t data_offset;
+    uint32_t declared_pack_size;
+
+    if (toc == NULL || read_at == NULL || toc_buffer == NULL || pack_size < PAL_PACK_HEADER_SIZE || toc_capacity < PAL_PACK_HEADER_SIZE) {
+        return false;
+    }
+    if (!read_at(user, 0, toc_buffer, PAL_PACK_HEADER_SIZE)) {
+        return false;
+    }
+    if (read_le32(toc_buffer) != PAL_PACK_MAGIC) {
+        return false;
+    }
+
+    version = read_le16(toc_buffer + 4);
+    header_size = read_le16(toc_buffer + 6);
+    archive_count = read_le16(toc_buffer + 8);
+    archive_table_offset = read_le32(toc_buffer + 12);
+    data_offset = read_le32(toc_buffer + 16);
+    declared_pack_size = read_le32(toc_buffer + 24);
+
+    if (version != PAL_PACK_VERSION || header_size != PAL_PACK_HEADER_SIZE || declared_pack_size != pack_size) {
+        return false;
+    }
+    if (!checked_range(archive_table_offset, (uint32_t)archive_count * PAL_PACK_ARCHIVE_ENTRY_SIZE, pack_size)) {
+        return false;
+    }
+    if (data_offset < PAL_PACK_HEADER_SIZE || data_offset > pack_size || data_offset > toc_capacity) {
+        return false;
+    }
+    if (!read_at(user, 0, toc_buffer, data_offset)) {
+        return false;
+    }
+
+    toc->base = toc_buffer;
+    toc->toc_size = data_offset;
+    toc->pack_size = pack_size;
+    toc->archive_count = archive_count;
+    toc->archive_table_offset = archive_table_offset;
+    return true;
+}
+
 static bool find_toc_archive(const PalPackToc *toc, uint16_t archive_id, const uint8_t **entry)
 {
     uint16_t i;
@@ -296,6 +349,34 @@ bool PalPackToc_CopyRawFromImage(
 
     if (info.size != 0) {
         memcpy(dst, pack_image + info.offset, info.size);
+    }
+    if (out_size != NULL) {
+        *out_size = info.size;
+    }
+    return true;
+}
+
+bool PalPackToc_CopyRawReadAt(
+    const PalPackToc *toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t archive_id,
+    uint16_t chunk_id,
+    uint8_t *dst,
+    uint32_t dst_capacity,
+    uint32_t *out_size)
+{
+    PalPackChunkInfo info;
+
+    if (read_at == NULL || !PalPackToc_GetChunkInfo(toc, archive_id, chunk_id, &info)) {
+        return false;
+    }
+    if (info.size > dst_capacity || (info.size != 0 && dst == NULL)) {
+        return false;
+    }
+
+    if (info.size != 0 && !read_at(user, info.offset, dst, info.size)) {
+        return false;
     }
     if (out_size != NULL) {
         *out_size = info.size;
