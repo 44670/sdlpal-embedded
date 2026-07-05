@@ -39,6 +39,8 @@ embedded/pal_text_cache.c
 embedded/pal_text_cache.h
 embedded/pal_font_cache.c
 embedded/pal_font_cache.h
+embedded/pal_save_cache.c
+embedded/pal_save_cache.h
 ```
 
 Source scan:
@@ -162,6 +164,8 @@ embedded/pal_text_cache.c
 embedded/pal_text_cache.h
 embedded/pal_font_cache.c
 embedded/pal_font_cache.h
+embedded/pal_save_cache.c
+embedded/pal_save_cache.h
 ```
 
 Properties:
@@ -369,6 +373,14 @@ The smoke also exercises `embedded/pal_font_cache.c` against the generated FONT 
 
 Runtime only validates the header/table and binary-searches codepoints to return `const uint8_t *` glyph spans. The checked glyphs include U+7D93, U+9A57, and U+503C from the word "經驗值"; ASCII digit U+0030 is intentionally absent from this WOR16 CJK pack.
 
+The smoke also exercises `embedded/pal_save_cache.c` against real save files in `/mnt/hgfs/deb13/PAL`. It reads each file into the existing `pal_psram_save_state` fixed buffer, checks that no heap-backed `SAVEDGAME_DOS`/`SAVEDGAME_WIN` object is needed, and validates common header fields:
+
+| Save file | Bytes | Saved times | Scene | Cash |
+| --- | ---: | ---: | ---: | ---: |
+| `1.rpg` | 184,672 | 1 | 1 | 0 |
+| `2.rpg` | 188,864 | 8 | 17 | 580 |
+| `4.RPG` | 183,488 | 1 | 1 | 899,999 |
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -377,6 +389,12 @@ python3 -B tools/pal_pack_build.py \
   --out-nor /tmp/pal_nor_default.pak \
   --out-tf /tmp/pal_tf_default.pak
 make -C embedded realdata-check
+```
+
+The data directory can be overridden with:
+
+```sh
+make -C embedded realdata-check PAL_DATA_DIR=/mnt/hgfs/deb13/PAL
 ```
 
 Verify the artifact:
@@ -394,7 +412,8 @@ python3 -B tools/embedded_contract_check.py \
   --max-symbol-prefix pal_scene_=8192 \
   --max-symbol-prefix pal_battle_=2048 \
   --max-symbol-prefix pal_sfx_=4096 \
-  --max-symbol-prefix pal_global_=4096
+  --max-symbol-prefix pal_global_=4096 \
+  --max-symbol-prefix pal_save_=4096
 ```
 
 Current result:
@@ -402,13 +421,14 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=13970 data=704 bss=7196744
+text=15121 data=712 bss=7197280
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
 pal_battle_ total=334 limit=2048
 pal_sfx_ total=384 limit=4096
 pal_global_ total=232 limit=4096
+pal_save_ total=512 limit=4096
 PASS
 ```
 

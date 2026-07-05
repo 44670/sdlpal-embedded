@@ -22,6 +22,7 @@ This report is intended to complement `Consult/Q1.md`. It records measurements f
 - Script entries: 42,494
 - Global allocated table bytes in the current code path: 532,066
 - Static embedded global-data mutable bytes: 182,176 in `pal_psram_save_state`
+- Real save files present: `1.rpg` 184,672 bytes, `2.rpg` 188,864 bytes, `4.RPG` 183,488 bytes
 - `DATA.MKF #9` UI sprite bytes: 25,532
 - `DATA.MKF #10` battle effect sprite bytes: 17,478
 

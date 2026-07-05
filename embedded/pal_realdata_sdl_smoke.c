@@ -4,6 +4,7 @@
 #include "pal_memory.h"
 #include "pal_pack.h"
 #include "pal_rng_cache.h"
+#include "pal_save_cache.h"
 #include "pal_scene_cache.h"
 #include "pal_sfx_cache.h"
 #include "pal_text_cache.h"
@@ -14,6 +15,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+static char pal_save_path[512];
 
 typedef struct MappedPack {
     const uint8_t *data;
@@ -102,6 +105,40 @@ static uint32_t checksum32(const uint8_t *data, uint32_t size)
         sum = (sum << 5) - sum + data[i];
     }
     return sum;
+}
+
+static int make_data_path(const char *data_dir, const char *name)
+{
+    uint32_t i = 0;
+    uint32_t j = 0;
+
+    if (data_dir == 0 || name == 0 || data_dir[0] == 0 || name[0] == 0) {
+        return 1;
+    }
+    while (data_dir[i] != 0) {
+        if (i + 1u >= sizeof(pal_save_path)) {
+            return 2;
+        }
+        pal_save_path[i] = data_dir[i];
+        i++;
+    }
+    if (pal_save_path[i - 1u] != '/') {
+        if (i + 1u >= sizeof(pal_save_path)) {
+            return 3;
+        }
+        pal_save_path[i] = '/';
+        i++;
+    }
+    while (name[j] != 0) {
+        if (i + 1u >= sizeof(pal_save_path)) {
+            return 4;
+        }
+        pal_save_path[i] = name[j];
+        i++;
+        j++;
+    }
+    pal_save_path[i] = 0;
+    return 0;
 }
 
 static int exercise_tf_reads(const PalPack *tf)
@@ -372,13 +409,48 @@ static int check_font_cache(const PalPack *nor)
     return 0;
 }
 
+static int check_save_file(
+    const char *data_dir,
+    const char *name,
+    uint32_t expected_size,
+    uint16_t expected_saved_times,
+    uint16_t expected_scene,
+    uint32_t expected_cash)
+{
+    PalSaveSlot slot;
+
+    if (make_data_path(data_dir, name) != 0) {
+        return 1;
+    }
+    if (!PalSave_ReadFile(pal_save_path, &slot)) {
+        return 2;
+    }
+    if (slot.data != pal_psram_save_state || slot.size != expected_size || slot.checksum == 0) {
+        return 3;
+    }
+    if (slot.saved_times != expected_saved_times || slot.scene_num != expected_scene || slot.cash != expected_cash) {
+        return 4;
+    }
+    if (slot.viewport_x == 0 || slot.viewport_y == 0 || slot.music_num == 0 || slot.battle_music_num == 0) {
+        return 5;
+    }
+    return 0;
+}
+
+static int check_save_cache(const char *data_dir)
+{
+    return check_save_file(data_dir, "1.rpg", 184672u, 1u, 1u, 0u) ||
+           check_save_file(data_dir, "2.rpg", 188864u, 8u, 17u, 580u) ||
+           check_save_file(data_dir, "4.RPG", 183488u, 1u, 1u, 899999u);
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
     MappedPack tf = { 0, 0, { 0, 0, 0, 0 } };
     int rc;
 
-    if (argc != 3) {
+    if (argc != 4) {
         return 1;
     }
     if (map_pack_file(argv[1], &nor) != 0) {
@@ -439,6 +511,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_font_cache(&nor.pack);
+    }
+    if (rc == 0) {
+        rc = check_save_cache(argv[3]);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();
