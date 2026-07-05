@@ -5,6 +5,7 @@
 #include "pal_rng_cache.h"
 #include "pal_scene_cache.h"
 #include "pal_sfx_cache.h"
+#include "pal_text_cache.h"
 
 #include <SDL.h>
 #include <fcntl.h>
@@ -319,6 +320,30 @@ static int check_global_cache(const PalPack *nor)
     return 0;
 }
 
+static int check_text_cache(const PalPack *nor)
+{
+    PalTextCache cache;
+    const uint8_t *text = 0;
+    uint32_t size = 0;
+
+    if (!PalText_Open(nor, &cache)) {
+        return 1;
+    }
+    if (cache.word_count != 589u || cache.message_count != 10495u || cache.text_size != 210386u) {
+        return 2;
+    }
+    if (!PalText_GetWord(&cache, 2, &text, &size) || size != 6u || checksum32(text, size) == 0) {
+        return 3;
+    }
+    if (!PalText_GetMessage(&cache, 0, &text, &size) || size != 10u || checksum32(text, size) == 0) {
+        return 4;
+    }
+    if (!PalText_GetMessage(&cache, 10494, &text, &size) || size != 38u || checksum32(text, size) == 0) {
+        return 5;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
@@ -340,6 +365,7 @@ int main(int argc, char **argv)
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_MGO, 637) ||
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_ABC, 160) ||
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_FIRE, 55) ||
+        expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_TEXT, 1) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_FBP, 72) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_MAP, 226) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_GOP, 226) ||
@@ -378,6 +404,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_global_cache(&nor.pack);
+    }
+    if (rc == 0) {
+        rc = check_text_cache(&nor.pack);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();

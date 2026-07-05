@@ -96,6 +96,7 @@ Total predecoded RNG frame payload across all movies is about 7.3MB. That is too
 - Unique characters used by `WORD.DAT` + `M.MSG`: 2,631
 - Unique non-space characters: 2,630
 - Estimated 1bpp 16x16 glyph payload at 32 bytes per glyph: 84,192 bytes
+- Generated TEXT archive payload: 254,762 bytes, with 210,386 bytes of UTF-16LE text and offset tables for 589 words plus 10,495 messages
 - Most frequent characters: `．`, `，`, `的`, `我`, `！`, `不`, `是`, `了`, `你`, `？`, `這`, `一`
 
 Main conclusion: the current 2MB `unicode_font[65536][32]` table is unnecessary for this data set if the port can build a compact CP950/codepoint glyph subset.

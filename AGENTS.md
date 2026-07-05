@@ -64,6 +64,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_rng_cache.c` is the static RNG-frame slice. It reads predecoded RNG frame records from the TF pack and copies frames into `pal_psram_rng_frame_a` / `pal_psram_rng_frame_b`.
 - `embedded/pal_sfx_cache.c` is the static sound-effect bank slice. It copies selected VOC chunks from the TF pack into `pal_psram_sfx_bank` and tracks spans with a small fixed `pal_sfx_` metadata table.
 - `embedded/pal_global_cache.c` is the static global-data slice. It copies mutable default event/scene/object/player-role data into `pal_psram_save_state` and maps read-only scripts/DATA tables as `const uint8_t *` pack views.
+- `embedded/pal_text_cache.c` is the static text slice. The pack builder converts `WORD.DAT` and `M.MSG` to UTF-16LE in the NOR pack; runtime maps it read-only with no text heap or codepage conversion.
 
 ## Known Memory Pressure Points
 

@@ -22,6 +22,11 @@ CHUNK_ENTRY_SIZE = 16
 FORMAT_RAW = 0
 FORMAT_NATIVE = 1
 FORMAT_RNG_FRAMES = 2
+FORMAT_TEXT_UTF16 = 3
+
+TEXT_MAGIC = 0x54585450
+TEXT_VERSION = 1
+TEXT_HEADER_SIZE = 32
 
 ARCHIVE_IDS = {
     "ABC": 1,
@@ -40,9 +45,10 @@ ARCHIVE_IDS = {
     "RNG": 14,
     "SSS": 15,
     "VOC": 16,
+    "TEXT": 17,
 }
 
-DEFAULT_NOR = ["ABC", "BALL", "DATA", "F", "FIRE", "MGO", "MIDI", "MUS", "PAT", "RGM", "SSS"]
+DEFAULT_NOR = ["ABC", "BALL", "DATA", "F", "FIRE", "MGO", "MIDI", "MUS", "PAT", "RGM", "SSS", "TEXT"]
 DEFAULT_TF = ["FBP", "GOP", "MAP", "RNG", "VOC"]
 
 
@@ -207,7 +213,79 @@ def decode_rng_movie(chunk: bytes) -> bytes:
     return bytes(out)
 
 
+def encode_text_pack(data_dir: Path) -> bytes:
+    word_path = data_dir / "WORD.DAT"
+    msg_path = data_dir / "M.MSG"
+    sss_path = data_dir / "SSS.MKF"
+    if not word_path.exists():
+        word_path = data_dir / "word.dat"
+    if not msg_path.exists():
+        msg_path = data_dir / "m.msg"
+    if not sss_path.exists():
+        sss_path = data_dir / "sss.mkf"
+    if not word_path.exists() or not msg_path.exists() or not sss_path.exists():
+        raise FileNotFoundError("WORD.DAT/M.MSG/SSS.MKF")
+
+    sss = read_mkf(sss_path)
+    msg_offsets_data = sss[3]
+    msg_offsets = [u32(msg_offsets_data, i * 4) for i in range(len(msg_offsets_data) // 4)]
+    word_data = word_path.read_bytes()
+    msg_data = msg_path.read_bytes()
+
+    words = []
+    for offset in range(0, len(word_data), 10):
+        raw = word_data[offset : offset + 10].rstrip(b" \0")
+        words.append(raw.decode("cp950", errors="strict").encode("utf-16le"))
+
+    messages = []
+    for index in range(len(msg_offsets) - 1):
+        start, end = msg_offsets[index], msg_offsets[index + 1]
+        if start > end or end > len(msg_data):
+            raise ValueError(f"bad M.MSG offset range: {start}..{end}")
+        messages.append(msg_data[start:end].decode("cp950", errors="strict").encode("utf-16le"))
+
+    word_table_offset = TEXT_HEADER_SIZE
+    message_table_offset = word_table_offset + (len(words) + 1) * 4
+    text_offset = message_table_offset + (len(messages) + 1) * 4
+    text = bytearray()
+
+    word_offsets = []
+    for item in words:
+        word_offsets.append(len(text))
+        text += item
+    word_offsets.append(len(text))
+
+    message_offsets = []
+    for item in messages:
+        message_offsets.append(len(text))
+        text += item
+    message_offsets.append(len(text))
+
+    out = bytearray(
+        struct.pack(
+            "<IHHHHIIIII",
+            TEXT_MAGIC,
+            TEXT_VERSION,
+            TEXT_HEADER_SIZE,
+            len(words),
+            len(messages),
+            word_table_offset,
+            message_table_offset,
+            text_offset,
+            len(text),
+            0,
+        )
+    )
+    out += b"".join(struct.pack("<I", offset) for offset in word_offsets)
+    out += b"".join(struct.pack("<I", offset) for offset in message_offsets)
+    out += text
+    return bytes(out)
+
+
 def load_archive(data_dir: Path, name: str) -> list[Chunk]:
+    if name == "TEXT":
+        return [Chunk(encode_text_pack(data_dir), FORMAT_TEXT_UTF16)]
+
     path = data_dir / f"{name}.MKF"
     if not path.exists():
         path = data_dir / f"{name.lower()}.mkf"

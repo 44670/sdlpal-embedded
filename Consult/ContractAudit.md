@@ -35,6 +35,8 @@ embedded/pal_sfx_cache.c
 embedded/pal_sfx_cache.h
 embedded/pal_global_cache.c
 embedded/pal_global_cache.h
+embedded/pal_text_cache.c
+embedded/pal_text_cache.h
 ```
 
 Source scan:
@@ -79,14 +81,14 @@ python3 -B tools/pal_pack_build.py \
 Current default pack sizes from the audited data:
 
 ```text
-/tmp/pal_nor_default.pak: 10,103,472 bytes
+/tmp/pal_nor_default.pak: 10,358,262 bytes
 /tmp/pal_tf_default.pak: 40,069,156 bytes
 ```
 
 Default NOR archives:
 
 ```text
-ABC,BALL,DATA,F,FIRE,MGO,MIDI,MUS,PAT,RGM,SSS
+ABC,BALL,DATA,F,FIRE,MGO,MIDI,MUS,PAT,RGM,SSS,TEXT
 ```
 
 Default TF archives:
@@ -95,7 +97,7 @@ Default TF archives:
 FBP,GOP,MAP,RNG,VOC
 ```
 
-`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `GOP` and most audio/data chunks are already raw/native and are copied as raw chunks.
+`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `GOP` and most audio/data chunks are already raw/native and are copied as raw chunks.
 
 The generated packs can also be checked with the C runtime reader through the host-side mmap checker:
 
@@ -109,7 +111,7 @@ cc -std=c99 -Wall -Wextra -Werror -O2 \
 Current C-reader summary:
 
 ```text
-/tmp/pal_nor_default.pak: size=10103472
+/tmp/pal_nor_default.pak: size=10358262
   ABC  chunks=  160 payload=2154538
   BALL chunks=  231 payload=133776
   DATA chunks=   15 payload=70784
@@ -121,7 +123,8 @@ Current C-reader summary:
   PAT  chunks=    9 payload=8448
   RGM  chunks=   92 payload=452830
   SSS  chunks=    5 payload=563212
-  archives=11 payload=10079448
+  TEXT chunks=    1 payload=254762
+  archives=12 payload=10334210
 /tmp/pal_tf_default.pak: size=40069156
   FBP  chunks=   72 payload=4608000
   GOP  chunks=  226 payload=11529414
@@ -152,6 +155,8 @@ embedded/pal_sfx_cache.c
 embedded/pal_sfx_cache.h
 embedded/pal_global_cache.c
 embedded/pal_global_cache.h
+embedded/pal_text_cache.c
+embedded/pal_text_cache.h
 ```
 
 Properties:
@@ -338,6 +343,16 @@ The smoke also exercises `embedded/pal_global_cache.c` against real SSS/DATA tab
 
 With 4-byte alignment this uses 182,176 bytes of the 640KB save-state PSRAM buffer. Scripts, stores, enemies, enemy teams, magic, battlefields, level-up magic, battle-effect indexes, enemy positions, and level-up EXP remain `const uint8_t *` views into the NOR pack.
 
+The smoke also exercises `embedded/pal_text_cache.c` against the generated TEXT archive. The host pack builder converts `WORD.DAT` and `M.MSG` from CP950 to UTF-16LE and stores one read-only NOR payload:
+
+| Text source | Entries | UTF-16LE bytes |
+| --- | ---: | ---: |
+| `WORD.DAT` | 589 | included in text payload |
+| `M.MSG` | 10,495 | included in text payload |
+| Combined text data | 11,084 | 210,386 |
+
+The TEXT archive chunk is 254,762 bytes including header and offset tables. Runtime only validates the table and returns `const uint8_t *` UTF-16LE spans.
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -371,7 +386,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=11826 data=704 bss=7196744
+text=13002 data=704 bss=7196744
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192

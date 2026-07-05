@@ -29,6 +29,7 @@ static const char *archive_name(uint16_t archive_id)
     case PAL_PACK_ARCHIVE_RNG: return "RNG";
     case PAL_PACK_ARCHIVE_SSS: return "SSS";
     case PAL_PACK_ARCHIVE_VOC: return "VOC";
+    case PAL_PACK_ARCHIVE_TEXT: return "TEXT";
     default: return "?";
     }
 }
@@ -68,7 +69,7 @@ static int check_pack(const char *path)
     }
 
     printf("%s: size=%" PRIdMAX "\n", path, (intmax_t)st.st_size);
-    for (archive_id = PAL_PACK_ARCHIVE_ABC; archive_id <= PAL_PACK_ARCHIVE_VOC; archive_id++) {
+    for (archive_id = PAL_PACK_ARCHIVE_ABC; archive_id <= PAL_PACK_ARCHIVE_TEXT; archive_id++) {
         uint16_t chunk_count = 0;
         uint16_t chunk_id;
         uint64_t archive_bytes = 0;
