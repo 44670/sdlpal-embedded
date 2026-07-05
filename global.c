@@ -34,21 +34,9 @@ CONFIGURATION gConfig;
 #else
 #define PAL_GLOBAL_PSRAM
 #endif
-#define PAL_GLOBAL_SCRIPT_ENTRY_SLOTS 42500
-#define PAL_GLOBAL_STORE_SLOTS 32
-#define PAL_GLOBAL_ENEMY_SLOTS 350
-#define PAL_GLOBAL_ENEMY_TEAM_SLOTS 390
 #define PAL_GLOBAL_MAGIC_SLOTS 114
-#define PAL_GLOBAL_BATTLEFIELD_SLOTS 130
-#define PAL_GLOBAL_LEVELUP_MAGIC_SLOTS 50
 static uint8_t pal_psram_global_event_objects[MAX_EVENT_OBJECTS * sizeof(EVENTOBJECT)] PAL_GLOBAL_PSRAM;
-static uint8_t pal_psram_global_script_entries[PAL_GLOBAL_SCRIPT_ENTRY_SLOTS * sizeof(SCRIPTENTRY)] PAL_GLOBAL_PSRAM;
-static uint8_t pal_psram_global_stores[PAL_GLOBAL_STORE_SLOTS * sizeof(STORE)] PAL_GLOBAL_PSRAM;
-static uint8_t pal_psram_global_enemies[PAL_GLOBAL_ENEMY_SLOTS * sizeof(ENEMY)] PAL_GLOBAL_PSRAM;
-static uint8_t pal_psram_global_enemy_teams[PAL_GLOBAL_ENEMY_TEAM_SLOTS * sizeof(ENEMYTEAM)] PAL_GLOBAL_PSRAM;
 static uint8_t pal_psram_global_magics[PAL_GLOBAL_MAGIC_SLOTS * sizeof(MAGIC)] PAL_GLOBAL_PSRAM;
-static uint8_t pal_psram_global_battlefields[PAL_GLOBAL_BATTLEFIELD_SLOTS * sizeof(BATTLEFIELD)] PAL_GLOBAL_PSRAM;
-static uint8_t pal_psram_global_levelup_magics[PAL_GLOBAL_LEVELUP_MAGIC_SLOTS * sizeof(LEVELUPMAGIC_ALL)] PAL_GLOBAL_PSRAM;
 #endif
 
 #if SDL_BYTEORDER == SDL_LIL_ENDIAN
@@ -348,6 +336,9 @@ PAL_ReadGlobalGameData(
 {
    const GAMEDATA    *p = &gpGlobals->g;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+   LOAD_DATA(p->lprgMagic, p->nMagic * sizeof(MAGIC), 4, gpGlobals->f.fpDATA);
+#else
    LOAD_DATA(p->lprgScriptEntry, p->nScriptEntry * sizeof(SCRIPTENTRY),
       4, gpGlobals->f.fpSSS);
 
@@ -360,6 +351,7 @@ PAL_ReadGlobalGameData(
       5, gpGlobals->f.fpDATA);
    LOAD_DATA(p->lprgLevelUpMagic, p->nLevelUpMagic * sizeof(LEVELUPMAGIC_ALL),
       6, gpGlobals->f.fpDATA);
+#endif
    LOAD_DATA(p->rgwBattleEffectIndex, sizeof(p->rgwBattleEffectIndex),
       11, gpGlobals->f.fpDATA);
    PAL_MKFReadChunk((LPBYTE)&(p->EnemyPos), sizeof(p->EnemyPos),
@@ -402,6 +394,19 @@ PAL_InitGlobalGameData(
       ptr = (lptype)(storage);                                                   \
       n = len / sizeof(type);                                                    \
    }
+#define PAL_DOMAP_STATIC(fp, num, type, lptype, ptr, n)                          \
+   {                                                                             \
+      LPCBYTE lpData;                                                            \
+      UINT uiSize;                                                               \
+      len = PAL_MKFGetChunkSize(num, fp);                                        \
+      if (len < 0 || (len % sizeof(type)) != 0 ||                                \
+         !PAL_MKFMapChunk(fp, num, &lpData, &uiSize) || uiSize != (UINT)len)      \
+      {                                                                          \
+         TerminateOnError("PAL_InitGlobalGameData(): Pack view error!");         \
+      }                                                                          \
+      ptr = (lptype)lpData;                                                      \
+      n = len / sizeof(type);                                                    \
+   }
 #else
 #define PAL_DOALLOCATE(fp, num, type, lptype, ptr, n)                            \
    {                                                                             \
@@ -425,33 +430,27 @@ PAL_InitGlobalGameData(
          gpGlobals->g.lprgEventObject, gpGlobals->g.nEventObject,
          pal_psram_global_event_objects);
 
-      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpSSS, 4, SCRIPTENTRY, LPSCRIPTENTRY,
-         gpGlobals->g.lprgScriptEntry, gpGlobals->g.nScriptEntry,
-         pal_psram_global_script_entries);
+      PAL_DOMAP_STATIC(gpGlobals->f.fpSSS, 4, SCRIPTENTRY, LPSCRIPTENTRY,
+         gpGlobals->g.lprgScriptEntry, gpGlobals->g.nScriptEntry);
 
-      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 0, STORE, LPSTORE,
-         gpGlobals->g.lprgStore, gpGlobals->g.nStore,
-         pal_psram_global_stores);
+      PAL_DOMAP_STATIC(gpGlobals->f.fpDATA, 0, STORE, LPSTORE,
+         gpGlobals->g.lprgStore, gpGlobals->g.nStore);
 
-      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 1, ENEMY, LPENEMY,
-         gpGlobals->g.lprgEnemy, gpGlobals->g.nEnemy,
-         pal_psram_global_enemies);
+      PAL_DOMAP_STATIC(gpGlobals->f.fpDATA, 1, ENEMY, LPENEMY,
+         gpGlobals->g.lprgEnemy, gpGlobals->g.nEnemy);
 
-      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 2, ENEMYTEAM, LPENEMYTEAM,
-         gpGlobals->g.lprgEnemyTeam, gpGlobals->g.nEnemyTeam,
-         pal_psram_global_enemy_teams);
+      PAL_DOMAP_STATIC(gpGlobals->f.fpDATA, 2, ENEMYTEAM, LPENEMYTEAM,
+         gpGlobals->g.lprgEnemyTeam, gpGlobals->g.nEnemyTeam);
 
       PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 4, MAGIC, LPMAGIC,
          gpGlobals->g.lprgMagic, gpGlobals->g.nMagic,
          pal_psram_global_magics);
 
-      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 5, BATTLEFIELD, LPBATTLEFIELD,
-         gpGlobals->g.lprgBattleField, gpGlobals->g.nBattleField,
-         pal_psram_global_battlefields);
+      PAL_DOMAP_STATIC(gpGlobals->f.fpDATA, 5, BATTLEFIELD, LPBATTLEFIELD,
+         gpGlobals->g.lprgBattleField, gpGlobals->g.nBattleField);
 
-      PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 6, LEVELUPMAGIC_ALL, LPLEVELUPMAGIC_ALL,
-         gpGlobals->g.lprgLevelUpMagic, gpGlobals->g.nLevelUpMagic,
-         pal_psram_global_levelup_magics);
+      PAL_DOMAP_STATIC(gpGlobals->f.fpDATA, 6, LEVELUPMAGIC_ALL, LPLEVELUPMAGIC_ALL,
+         gpGlobals->g.lprgLevelUpMagic, gpGlobals->g.nLevelUpMagic);
 #else
       PAL_DOALLOCATE(gpGlobals->f.fpSSS, 0, EVENTOBJECT, LPEVENTOBJECT,
          gpGlobals->g.lprgEventObject, gpGlobals->g.nEventObject);
@@ -482,6 +481,7 @@ PAL_InitGlobalGameData(
    }
 #ifdef PAL_NO_RUNTIME_HEAP
 #undef PAL_DOALLOCATE_STATIC
+#undef PAL_DOMAP_STATIC
 #else
 #undef PAL_DOALLOCATE
 #endif

@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185770 data=3728 bss=2525912
-.text=150501 .rodata=7304 .data=144 .bss=2525912
+text=186034 data=3728 bss=2154392
+.text=150693 .rodata=7368 .data=144 .bss=2154392
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=2216464 limit=8388608
+pal_psram_ total=1844928 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -713,7 +713,7 @@ The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 128KB 
 
 The Unix contract SFX replacement copies the requested host-converted PCM16 SFX chunk from the generated TF pack into `pal_psram_contract_sfx`, a 256KB static PSRAM buffer, before handing it to the mixer. The largest generated SFX payload in the current data set is chunk #255 at 211,152 bytes, so single-effect playback fits without reading TF-backed data from the audio callback.
 
-The contract `global.c` path now uses named `uint8_t` PSRAM storage for mutable global tables and save/load structs. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
+The contract `global.c` path now uses named `uint8_t` PSRAM storage for mutable event objects, mutable magic data, and save/load structs. Read-only script entries, stores, enemies, enemy teams, battlefields, and level-up magic tables are mapped from the native NOR pack. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
 
 The contract `audio.c`, `global.c`, and `util.c` paths no longer keep active loose original data filename references for `mus.mkf`, `word.dat`, or the legacy file-check list. Music/data access is through the generated packs in contract mode; save files remain normal user files.
 
@@ -725,7 +725,7 @@ The contract `ui.c` object-description load/free path is intentionally a no-heap
 
 The contract `palette.c` path now reads `PAT` chunks through the generated pack bridge and stores loaded/current/work palette colors in named SRAM `uint8_t` buffers (`pal_sram_palette_base`, `pal_sram_palette_work`, `pal_sram_palette_next`). It no longer opens the original `pat.mkf` in contract mode, and palette fades no longer use `PAL_LARGE SDL_Color[256]` local arrays.
 
-The contract `global.c` and `ui.c` mutable storage now follows the same `uint8_t` buffer rule as the embedded slices: global table buffers and UI box metadata are named byte arrays that are cast at the use site, and the contract checker rejects active typed `pal_sram_`/`pal_psram_` declarations.
+The contract `global.c` and `ui.c` mutable storage now follows the same `uint8_t` buffer rule as the embedded slices: mutable global buffers and UI box metadata are named byte arrays that are cast at the use site, and the contract checker rejects active typed `pal_sram_`/`pal_psram_` declarations.
 
 ## Current Contract Status
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=185770 data=3728 bss=2525912
-.text=150501 .rodata=7304 .data=144 .bss=2525912
+text=186034 data=3728 bss=2154392
+.text=150693 .rodata=7368 .data=144 .bss=2154392
 pal_sram_ total=230912 / 307200
-pal_psram_ total=2216464 / 8388608
+pal_psram_ total=1844928 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```
