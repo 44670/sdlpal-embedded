@@ -41,6 +41,8 @@ embedded/pal_font_cache.c
 embedded/pal_font_cache.h
 embedded/pal_save_cache.c
 embedded/pal_save_cache.h
+embedded/pal_video_static.c
+embedded/pal_video_static.h
 ```
 
 Source scan:
@@ -166,6 +168,8 @@ embedded/pal_font_cache.c
 embedded/pal_font_cache.h
 embedded/pal_save_cache.c
 embedded/pal_save_cache.h
+embedded/pal_video_static.c
+embedded/pal_video_static.h
 ```
 
 Properties:
@@ -174,7 +178,8 @@ Properties:
 - copies TF-style raw chunks into caller-supplied `uint8_t` buffers,
 - uses no `malloc`, `calloc`, `realloc`, or `free`,
 - contains no decompression path,
-- rejects chunks flagged as compressed.
+- rejects chunks flagged as compressed,
+- keeps indexed video work in named SRAM/PSRAM buffers.
 
 Build and verify:
 
@@ -256,7 +261,7 @@ The embedded makefile now builds a native SDL2 smoke binary that uses the same s
 embedded/build/pal_native_sdl_smoke
 ```
 
-It maps a `const uint8_t` native pack chunk, fills `pal_sram_framebuffer`, and wraps that exact buffer with `SDL_CreateRGBSurfaceFrom()`. SDL may allocate internally; the project-side smoke code does not use heap allocation and contains no decoder path.
+It maps a `const uint8_t` native pack chunk, fills `pal_sram_framebuffer`, exercises `embedded/pal_video_static.c` clear/save/restore/scanline RGB565 conversion, and wraps that exact 8-bit buffer with `SDL_CreateRGBSurfaceFrom()`. SDL may allocate internally; the project-side smoke code does not use heap allocation and contains no decoder path.
 
 Build and verify:
 
@@ -270,7 +275,8 @@ python3 -B tools/embedded_contract_check.py \
   --max data=4096 \
   --max bss=7200000 \
   --max-symbol-prefix pal_sram_=307200 \
-  --max-symbol-prefix pal_psram_=8388608
+  --max-symbol-prefix pal_psram_=8388608 \
+  --max-symbol-prefix pal_video_=4096
 ```
 
 Current result:
@@ -278,13 +284,14 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=4155 data=624 bss=182792
+text=5228 data=640 bss=7191520
 pal_sram_ total=182784 limit=307200
-pal_psram_ total=0 limit=8388608
+pal_psram_ total=7008208 limit=8388608
+pal_video_ total=512 limit=4096
 PASS
 ```
 
-`pal_psram_` is zero in this binary because the SDL smoke only exercises the framebuffer path; `pal_memory_smoke` is the artifact that forces all declared PSRAM buffers into the ELF for symbol-budget verification.
+The native SDL smoke now touches `pal_psram_screen_bak`, so the full named PSRAM buffer section is visible in this artifact as well as in `pal_memory_smoke`.
 
 ## Native SDL Real-Data Smoke
 
@@ -294,7 +301,7 @@ The embedded makefile also builds a native SDL2 smoke binary that opens the gene
 embedded/build/pal_realdata_sdl_smoke
 ```
 
-It maps both generated packs read-only, checks real archive counts, maps representative NOR chunks as `const uint8_t`, copies real TF chunks into `pal_sram_framebuffer`, `pal_psram_map_tiles`, `pal_psram_gop_copy`, and `pal_psram_sfx_bank`, then wraps `pal_sram_framebuffer` with SDL. There is no project-side heap allocation and no decoder path in this binary.
+It maps both generated packs read-only, checks real archive counts, maps representative NOR chunks as `const uint8_t`, copies real TF chunks into `pal_sram_framebuffer`, `pal_psram_map_tiles`, `pal_psram_gop_copy`, and `pal_psram_sfx_bank`, exercises the static indexed-video path, then wraps `pal_sram_framebuffer` with SDL. There is no project-side heap allocation and no decoder path in this binary.
 
 The same smoke also exercises `embedded/pal_scene_cache.c` on high-pressure real scenes:
 
@@ -381,6 +388,8 @@ The smoke also exercises `embedded/pal_save_cache.c` against real save files in 
 | `2.rpg` | 188,864 | 8 | 17 | 580 |
 | `4.RPG` | 183,488 | 1 | 1 | 899,999 |
 
+The smoke also exercises `embedded/pal_video_static.c`. It preserves a real 320x200 indexed framebuffer through `pal_psram_screen_bak`, uses the 512-byte `pal_video_rgb565` LUT, and converts one line into `pal_sram_display_dma` for RGB565 scanout-style output.
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -413,7 +422,8 @@ python3 -B tools/embedded_contract_check.py \
   --max-symbol-prefix pal_battle_=2048 \
   --max-symbol-prefix pal_sfx_=4096 \
   --max-symbol-prefix pal_global_=4096 \
-  --max-symbol-prefix pal_save_=4096
+  --max-symbol-prefix pal_save_=4096 \
+  --max-symbol-prefix pal_video_=4096
 ```
 
 Current result:
@@ -421,7 +431,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=15121 data=712 bss=7197280
+text=16050 data=720 bss=7197792
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -429,6 +439,7 @@ pal_battle_ total=334 limit=2048
 pal_sfx_ total=384 limit=4096
 pal_global_ total=232 limit=4096
 pal_save_ total=512 limit=4096
+pal_video_ total=512 limit=4096
 PASS
 ```
 

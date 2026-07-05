@@ -8,6 +8,7 @@
 #include "pal_scene_cache.h"
 #include "pal_sfx_cache.h"
 #include "pal_text_cache.h"
+#include "pal_video_static.h"
 
 #include <SDL.h>
 #include <fcntl.h>
@@ -33,6 +34,17 @@ static const SDL_Color kPalette[8] = {
     { 0xb6, 0x78, 0x50, 0xff },
     { 0xdb, 0x90, 0x60, 0xff },
     { 0xff, 0xa8, 0x70, 0xff },
+};
+
+static const uint8_t kPaletteRgb[24] = {
+    0x00, 0x00, 0x00,
+    0x24, 0x18, 0x10,
+    0x49, 0x30, 0x20,
+    0x6d, 0x48, 0x30,
+    0x92, 0x60, 0x40,
+    0xb6, 0x78, 0x50,
+    0xdb, 0x90, 0x60,
+    0xff, 0xa8, 0x70,
 };
 
 static int map_pack_file(const char *path, MappedPack *mapped)
@@ -181,6 +193,26 @@ static int exercise_tf_reads(const PalPack *tf)
 static int exercise_sdl_surface(void)
 {
     SDL_Surface *surface;
+    const uint16_t *line = 0;
+    uint16_t pixels = 0;
+    uint8_t saved_pixel;
+
+    if (!PalVideo_SetPaletteRgb(0, 8, kPaletteRgb)) {
+        return 6;
+    }
+    PalVideo_SaveScreen();
+    PalVideo_Clear(7);
+    if (pal_sram_framebuffer[0] != 7u) {
+        return 7;
+    }
+    PalVideo_RestoreScreen();
+    saved_pixel = pal_sram_framebuffer[0];
+    pal_sram_framebuffer[0] = 1u;
+    if (!PalVideo_ConvertLineRgb565(0, &line, &pixels) || line == 0 || pixels != PAL_VIDEO_WIDTH || line[0] != 0x20c2u) {
+        pal_sram_framebuffer[0] = saved_pixel;
+        return 8;
+    }
+    pal_sram_framebuffer[0] = saved_pixel;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         return 1;

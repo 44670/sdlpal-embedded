@@ -1,5 +1,6 @@
 #include "pal_memory.h"
 #include "pal_pack.h"
+#include "pal_video_static.h"
 
 #include <SDL.h>
 #include <stdint.h>
@@ -28,6 +29,17 @@ static const SDL_Color kPalette[256] = {
     { 0xff, 0xa8, 0x70, 0xff },
 };
 
+static const uint8_t kPaletteRgb[24] = {
+    0x00, 0x00, 0x00,
+    0x24, 0x18, 0x10,
+    0x49, 0x30, 0x20,
+    0x6d, 0x48, 0x30,
+    0x92, 0x60, 0x40,
+    0xb6, 0x78, 0x50,
+    0xdb, 0x90, 0x60,
+    0xff, 0xa8, 0x70,
+};
+
 static void fill_framebuffer(const uint8_t *pattern, uint32_t pattern_size)
 {
     uint32_t y;
@@ -45,7 +57,10 @@ int main(void)
     PalPack pack;
     PalPackSpan span;
     SDL_Surface *surface;
+    const uint16_t *line = 0;
+    uint16_t pixels = 0;
     uint16_t chunk_count = 0;
+    uint8_t saved_pixel;
 
     if (!PalPack_OpenConst(&pack, kNativePack, (uint32_t)sizeof(kNativePack))) {
         return 1;
@@ -61,12 +76,31 @@ int main(void)
     }
 
     fill_framebuffer(span.data, span.size);
+    if (!PalVideo_SetPaletteRgb(0, 8, kPaletteRgb)) {
+        return 12;
+    }
     if (pal_sram_framebuffer[0] != 0x00u || pal_sram_framebuffer[1] != 0x24u) {
         return 4;
     }
     if (pal_sram_framebuffer[(199u * 320u) + 319u] != span.data[(199u + 319u) & 7u]) {
         return 5;
     }
+    PalVideo_SaveScreen();
+    PalVideo_Clear(7);
+    if (pal_sram_framebuffer[0] != 7u) {
+        return 13;
+    }
+    PalVideo_RestoreScreen();
+    if (pal_sram_framebuffer[0] != 0x00u || pal_sram_framebuffer[1] != 0x24u) {
+        return 14;
+    }
+    saved_pixel = pal_sram_framebuffer[1];
+    pal_sram_framebuffer[1] = 1u;
+    if (!PalVideo_ConvertLineRgb565(0, &line, &pixels) || line == 0 || pixels != 320u || line[0] != 0x0000u || line[1] != 0x20c2u) {
+        pal_sram_framebuffer[1] = saved_pixel;
+        return 15;
+    }
+    pal_sram_framebuffer[1] = saved_pixel;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         return 6;

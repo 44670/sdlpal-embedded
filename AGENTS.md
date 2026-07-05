@@ -67,6 +67,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_text_cache.c` is the static text slice. The pack builder converts `WORD.DAT` and `M.MSG` to UTF-16LE in the NOR pack; runtime maps it read-only with no text heap or codepage conversion.
 - `embedded/pal_font_cache.c` is the static font slice. The pack builder converts `WOR16.ASC`/`WOR16.FON` into a read-only NOR glyph table with sorted UTF-16 codepoints and 32-byte glyph payloads; runtime maps it as `const uint8_t *` data with no `unicode_font` allocation.
 - `embedded/pal_save_cache.c` is the static save-file slice. It reads real `.rpg` files into `pal_psram_save_state` and exposes fixed header fields without allocating a `SAVEDGAME_DOS`/`SAVEDGAME_WIN` object.
+- `embedded/pal_video_static.c` is the static indexed-video slice. It uses `pal_sram_framebuffer`, `pal_psram_screen_bak`, and `pal_sram_display_dma` for clear/save/restore/scanline RGB565 conversion without `gpScreenReal` or texture-sized project buffers.
 
 ## Known Memory Pressure Points
 
@@ -77,5 +78,6 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - Worst measured normal scene resource residency is about 909KB before framebuffers, text/font, audio, and allocator overhead, but about 143KB for the same subset after event-sprite deduplication.
 - Several `PAL_LARGE` local buffers are 64KB stack allocations on Unix-style builds.
 - `PAL_MKFDecompressChunk()` allocates a compressed scratch buffer per decompression.
+- The full desktop SDL video path still creates 32-bit surfaces/textures. The embedded video slice proves the replacement shape, but the full engine has not yet been wired to it.
 
 These should not be assumed to fit in fast SRAM, and the target runtime should remove the heap/decompression paths rather than merely moving them to PSRAM.
