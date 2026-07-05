@@ -108,6 +108,12 @@ int main(void)
         return 18;
     }
     PalVideo_RestoreScreen();
+    PalVideo_SaveBigBuffer();
+    PalVideo_Clear(6);
+    PalVideo_RestoreBigBuffer();
+    if (pal_sram_framebuffer[0] != 0x00u || pal_sram_framebuffer[1] != 0x24u) {
+        return 19;
+    }
     saved_pixel = pal_sram_framebuffer[1];
     pal_sram_framebuffer[1] = 1u;
     if (!PalVideo_ConvertLineRgb565(0, &line, &pixels) || line == 0 || pixels != 320u || line[0] != 0x0000u || line[1] != 0x20c2u) {

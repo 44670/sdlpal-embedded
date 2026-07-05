@@ -15,6 +15,8 @@ extern "C" {
 void PalVideo_Clear(uint8_t color);
 void PalVideo_SaveScreen(void);
 void PalVideo_RestoreScreen(void);
+void PalVideo_SaveBigBuffer(void);
+void PalVideo_RestoreBigBuffer(void);
 bool PalVideo_SaveRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height);
 bool PalVideo_RestoreRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height);
 bool PalVideo_SetPaletteRgb(uint16_t first_color, uint16_t color_count, const uint8_t *rgb);

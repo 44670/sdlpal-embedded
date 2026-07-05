@@ -204,6 +204,7 @@ static int exercise_sdl_surface(void)
     uint16_t pixels = 0;
     uint8_t saved_pixel;
     uint8_t rect_pixel;
+    uint8_t big_pixel;
 
     if (!PalVideo_SetPaletteRgb(0, 8, kPaletteRgb)) {
         return 6;
@@ -229,6 +230,13 @@ static int exercise_sdl_surface(void)
         return 14;
     }
     PalVideo_RestoreScreen();
+    big_pixel = pal_sram_framebuffer[0];
+    PalVideo_SaveBigBuffer();
+    PalVideo_Clear(6);
+    PalVideo_RestoreBigBuffer();
+    if (pal_sram_framebuffer[0] != big_pixel) {
+        return 15;
+    }
     saved_pixel = pal_sram_framebuffer[0];
     pal_sram_framebuffer[0] = 1u;
     if (!PalVideo_ConvertLineRgb565(0, &line, &pixels) || line == 0 || pixels != PAL_VIDEO_WIDTH || line[0] != 0x20c2u) {

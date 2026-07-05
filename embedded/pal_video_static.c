@@ -7,6 +7,7 @@
 
 static uint16_t pal_video_rgb565[256];
 typedef char pal_video_dma_fits[(PAL_SRAM_DISPLAY_DMA_BYTES >= PAL_VIDEO_WIDTH * 2u) ? 1 : -1];
+typedef char pal_video_big_buffer_fits[(PAL_SRAM_BIG_BUFFER_BYTES >= PAL_VIDEO_FRAMEBUFFER_BYTES) ? 1 : -1];
 
 static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -46,6 +47,16 @@ void PalVideo_SaveScreen(void)
 void PalVideo_RestoreScreen(void)
 {
     memcpy(pal_sram_framebuffer, pal_psram_screen_bak, PAL_VIDEO_FRAMEBUFFER_BYTES);
+}
+
+void PalVideo_SaveBigBuffer(void)
+{
+    memcpy(pal_sram_big_buffer, pal_sram_framebuffer, PAL_VIDEO_FRAMEBUFFER_BYTES);
+}
+
+void PalVideo_RestoreBigBuffer(void)
+{
+    memcpy(pal_sram_framebuffer, pal_sram_big_buffer, PAL_VIDEO_FRAMEBUFFER_BYTES);
 }
 
 bool PalVideo_SaveRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height)

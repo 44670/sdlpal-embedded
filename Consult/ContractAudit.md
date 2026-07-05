@@ -431,7 +431,7 @@ The smoke also exercises `embedded/pal_save_cache.c` against real save files in 
 | `2.rpg` | 188,864 | 8 | 17 | 580 |
 | `4.RPG` | 183,488 | 1 | 1 | 899,999 |
 
-The smoke also exercises `embedded/pal_video_static.c`. It preserves a real 320x200 indexed framebuffer through `pal_psram_screen_bak`, saves/restores rectangular regions in the same static buffer, uses the 512-byte `pal_video_rgb565` LUT, and converts one line into `pal_sram_display_dma` for RGB565 scanout-style output. The rectangular save/restore path is the embedded replacement shape for `VIDEO_DuplicateSurface()` box-background saves.
+The smoke also exercises `embedded/pal_video_static.c`. It preserves a real 320x200 indexed framebuffer through `pal_psram_screen_bak`, saves/restores rectangular regions in the same static buffer, saves/restores a full scene through `pal_sram_big_buffer`, uses the 512-byte `pal_video_rgb565` LUT, and converts one line into `pal_sram_display_dma` for RGB565 scanout-style output. The rectangular save/restore path is the embedded replacement shape for `VIDEO_DuplicateSurface()` box-background saves; the SRAM big-buffer path is the replacement shape for the battle scene surface.
 
 The smoke also exercises `embedded/pal_ui_cache.c` against real UI assets in the NOR pack:
 
@@ -513,7 +513,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=24998 .rodata=160 data=720 bss=7460512
+text=25190 .rodata=160 data=720 bss=7460512
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -539,7 +539,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=608887
+size=609647
 PASS
 ```
 
