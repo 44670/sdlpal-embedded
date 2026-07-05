@@ -6,6 +6,7 @@ TEST_TARGET = ./sdlpal-tests
 INTER=.unix
 
 HOST =
+PYTHON ?= python3
 TEST_CCFLAGS =
 EMBEDDED_CONTRACT ?= 0
 
@@ -95,7 +96,7 @@ endif
 
 POSTCOMPILE = @mv -f $*$(INTER).Td $*$(INTER).d && touch $@
 
-.PHONY : all clean check
+.PHONY : all clean check contract-check
 
 all: $(TARGET)
 
@@ -138,3 +139,16 @@ check: $(TEST_TARGET)
 	@echo [EXEC] $(TEST_TARGET)
 	@chmod +x $(TEST_TARGET)
 	@exec $(TEST_TARGET)
+
+contract-check: $(TARGET)
+ifeq ($(EMBEDDED_CONTRACT),1)
+	$(PYTHON) -B ../tools/embedded_contract_check.py \
+		--root . \
+		--binary $(TARGET) \
+		--max text=500000 \
+		--max data=524288 \
+		--max bss=524288
+else
+	@echo "Run as: make -C unix EMBEDDED_CONTRACT=1 contract-check"
+	@exit 1
+endif

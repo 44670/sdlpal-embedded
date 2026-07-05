@@ -602,6 +602,12 @@ The Unix makefile now also has a reduced full-engine native profile:
 make -C unix -j2 EMBEDDED_CONTRACT=1
 ```
 
+The reduced profile can be checked with the same binary scanner:
+
+```sh
+make -C unix EMBEDDED_CONTRACT=1 contract-check
+```
+
 On this host it selects SDL2 and produces:
 
 ```text
