@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=186042 data=3728 bss=2018840
-.text=150693 .rodata=7368 .data=144 .bss=2018840
+text=186106 data=3728 bss=1986840
+.text=150757 .rodata=7368 .data=144 .bss=1986840
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=1709392 limit=8388608
+pal_psram_ total=1677392 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -691,7 +691,7 @@ With that bridge in place, the contract `global.c` path opens FBP/MGO/BALL/DATA/
 
 The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, it uses static `uint8_t` PSRAM buffers for the `PALMAP` object and GOP sprite data, and it accepts only already-native 64KB map chunks. The old compressed-MAP path remains only for non-contract desktop builds.
 
-The full-engine splash path in `main.c` now also uses static `uint8_t` SRAM/PSRAM buffers in contract mode and accepts only already-native splash FBP/MGO chunks. The old 128KB heap block and `Decompress()` calls remain only for non-contract desktop builds.
+The full-engine splash path in `main.c` now uses static `uint8_t` SRAM for FBP staging, keeps the mutable title sprite in a static `uint8_t` PSRAM buffer, maps the crane sprite as a `const uint8_t` NOR view, and accepts only already-native splash FBP/MGO chunks. The old 128KB heap block and `Decompress()` calls remain only for non-contract desktop builds.
 
 The full-engine menu-background paths in `uigame.c` now also avoid runtime decompression in contract mode. Opening-menu, status, equipment, item-use, and buy-menu paths use shared static `uint8_t` PSRAM buffers for FBP/image/box scratch and read already-native 64KB FBP chunks.
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=186042 data=3728 bss=2018840
-.text=150693 .rodata=7368 .data=144 .bss=2018840
+text=186106 data=3728 bss=1986840
+.text=150757 .rodata=7368 .data=144 .bss=1986840
 pal_sram_ total=230912 / 307200
-pal_psram_ total=1709392 / 8388608
+pal_psram_ total=1677392 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

@@ -56,7 +56,9 @@ char gExecutablePath[PAL_MAX_PATH];
 #endif
 static uint8_t pal_sram_splash_fbp[320 * 200] PAL_SPLASH_SRAM;
 static uint8_t pal_psram_splash_title[32000] PAL_SPLASH_PSRAM;
+#if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
 static uint8_t pal_psram_splash_crane[32000] PAL_SPLASH_PSRAM;
+#endif
 #endif
 
 
@@ -239,7 +241,7 @@ PAL_SplashScreen(
    SDL_Color      rgCurrentPalette[256];
    SDL_Surface   *lpBitmapDown, *lpBitmapUp;
    SDL_Rect       srcrect, dstrect;
-   LPSPRITE       lpSpriteCrane;
+   LPCSPRITE      lpSpriteCrane;
    LPBITMAPRLE    lpBitmapTitle;
    LPBYTE         buf, buf2;
    int            cranepos[9][3], i, iImgPos = 200, iCraneFrame = 0, iTitleHeight;
@@ -262,7 +264,11 @@ PAL_SplashScreen(
 #ifdef PAL_STATIC_SPLASH_BUFFERS
    buf = pal_sram_splash_fbp;
    buf2 = pal_psram_splash_title;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   lpSpriteCrane = NULL;
+#else
    lpSpriteCrane = (LPSPRITE)pal_psram_splash_crane;
+#endif
 #else
    buf = (LPBYTE)UTIL_calloc(1, 320 * 200 * 2);
    buf2 = (LPBYTE)(buf + 320 * 200);
@@ -294,9 +300,15 @@ PAL_SplashScreen(
       goto end;
    }
    lpBitmapTitle = (LPBITMAPRLE)PAL_SpriteGetFrame(buf2, 0);
-   if (PAL_MKFReadChunk((LPBYTE)lpSpriteCrane, 32000, SPRITENUM_SPLASH_CRANE, gpGlobals->f.fpMGO) <= 0)
    {
-      goto end;
+      LPCBYTE lpCraneData;
+      UINT uiCraneSize;
+      if (!PAL_MKFMapChunk(gpGlobals->f.fpMGO, SPRITENUM_SPLASH_CRANE, &lpCraneData, &uiCraneSize) ||
+          uiCraneSize == 0)
+      {
+         goto end;
+      }
+      lpSpriteCrane = lpCraneData;
    }
 #else
    PAL_MKFReadChunk(buf, 320 * 200, BITMAPNUM_SPLASH_UP, gpGlobals->f.fpFBP);
@@ -309,7 +321,7 @@ PAL_SplashScreen(
    Decompress(buf, buf2, 32000);
    lpBitmapTitle = (LPBITMAPRLE)PAL_SpriteGetFrame(buf2, 0);
    PAL_MKFReadChunk(buf, 32000, SPRITENUM_SPLASH_CRANE, gpGlobals->f.fpMGO);
-   Decompress(buf, lpSpriteCrane, 32000);
+   Decompress(buf, (LPBYTE)lpSpriteCrane, 32000);
 #endif
 
    if (lpBitmapTitle == NULL)
