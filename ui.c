@@ -25,14 +25,22 @@ LPSPRITE      gpSpriteUI = NULL;
 
 #ifdef PAL_NO_RUNTIME_HEAP
 #if defined(__GNUC__)
-#define PAL_UI_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#define PAL_UI_PSRAM __attribute__((section(".bss.pal_psram"), aligned(8)))
 #else
 #define PAL_UI_PSRAM
 #endif
 #define PAL_UI_BOX_SLOTS 8
-static BOX pal_psram_ui_box_static[PAL_UI_BOX_SLOTS] PAL_UI_PSRAM;
+static uint8_t pal_psram_ui_box_static[PAL_UI_BOX_SLOTS][sizeof(BOX)] PAL_UI_PSRAM;
 static uint8_t pal_psram_ui_box_saved_pixels[PAL_UI_BOX_SLOTS][320 * 200] PAL_UI_PSRAM;
 static uint8_t pal_psram_ui_sprite_static[32768] PAL_UI_PSRAM;
+
+static LPBOX
+PAL_StaticBoxSlot(
+   int slot
+)
+{
+   return (LPBOX)pal_psram_ui_box_static[slot];
+}
 
 static BOOL
 PAL_CopyBoxPixels(
@@ -86,9 +94,10 @@ PAL_CreateBoxInternal(
 
 	for (slot = 0; slot < PAL_UI_BOX_SLOTS; slot++)
 	{
-		if (pal_psram_ui_box_static[slot].lpSavedPixels == NULL)
+		LPBOX slotBox = PAL_StaticBoxSlot(slot);
+		if (slotBox->lpSavedPixels == NULL)
 		{
-			lpBox = &pal_psram_ui_box_static[slot];
+			lpBox = slotBox;
 			break;
 		}
 	}

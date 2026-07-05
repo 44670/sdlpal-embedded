@@ -77,7 +77,7 @@ python3 -B tools/embedded_contract_check.py \
   --max bss=8388608
 ```
 
-The tool scans selected project sources for heap/decompression use and active `PAL_LARGE` scratch buffers, and when given a binary, runs `size`, `objdump -h`, `objdump -t`, and `nm -C` to report sections and forbidden symbols.
+The tool scans selected project sources for heap/decompression use, active `PAL_LARGE` scratch buffers, and typed `pal_sram_`/`pal_psram_` storage declarations, and when given a binary, runs `size`, `objdump -h`, `objdump -t`, and `nm -C` to report sections and forbidden symbols.
 It can also sum normal static-storage buffers from ELF symbols with `nm -S --size-sort`, for example:
 
 ```sh
@@ -243,6 +243,7 @@ Current result:
 source heap hits: 0
 source decompress hits: 0
 source scratch hits: 0
+source storage hits: 0
 text=4790 data=576 bss=104
 PASS
 ```
@@ -301,6 +302,7 @@ Current result:
 source heap hits: 0
 source decompress hits: 0
 source scratch hits: 0
+source storage hits: 0
 text=1573 data=520 bss=7486488
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
@@ -339,6 +341,7 @@ Current result:
 source heap hits: 0
 source decompress hits: 0
 source scratch hits: 0
+source storage hits: 0
 text=6468 data=640 bss=7487008
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
@@ -532,7 +535,7 @@ Verify the artifact:
 make -C embedded contract-check
 ```
 
-The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary/pack gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump` including `.rodata`, symbol-prefix budgets from `nm -S --size-sort`, no generated-pack runtime flags or YJ1 payloads, no raw VOC archive in runtime packs, and a 16MB NOR pack size limit.
+The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary/pack gate: no project-side heap hits, no decoder hits, no active `PAL_LARGE` or typed SRAM/PSRAM storage hits, section budgets from `size`/`objdump` including `.rodata`, symbol-prefix budgets from `nm -S --size-sort`, no generated-pack runtime flags or YJ1 payloads, no raw VOC archive in runtime packs, and a 16MB NOR pack size limit.
 
 Current result:
 
@@ -540,6 +543,7 @@ Current result:
 source heap hits: 0
 source decompress hits: 0
 source scratch hits: 0
+source storage hits: 0
 objdump -t forbidden symbols: 0
 text=40662 .rodata=448 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
@@ -655,7 +659,7 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185690 data=3728 bss=7441112
+text=185722 data=3728 bss=7441112
 .text=150469 .rodata=7304 .data=144 .bss=7441112
 pal_sram_ total=230912 limit=307200
 pal_psram_ total=7131664 limit=8388608
@@ -667,11 +671,12 @@ The reduced profile now has no forbidden heap/decompress symbols in `objdump -t`
 source heap hits: 0
 source decompress hits: 0
 source scratch hits: 0
+source storage hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
 ```
 
-The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress/`PAL_LARGE` scratch patterns. The same target rebuilds and verifies the generated NOR/TF packs and manifest, rejects raw `VOC` in runtime packs, and enforces the 16MB NOR pack budget.
+The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress/`PAL_LARGE` scratch/typed SRAM-PSRAM storage patterns. The same target rebuilds and verifies the generated NOR/TF packs and manifest, rejects raw `VOC` in runtime packs, and enforces the 16MB NOR pack budget.
 
 This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the remaining stubbed desktop resource paths with the generated pack/static-buffer slices.
 
@@ -701,15 +706,17 @@ The contract `rngplay.c` path now reads host-predecoded native RNG frame records
 
 The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 128KB SRAM mix buffer, instead of allocating `gAudioDevice.pSoundBuffer`.
 
-The contract `global.c` path now uses named PSRAM storage for mutable global tables and save/load structs. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
+The contract `global.c` path now uses named `uint8_t` PSRAM storage for mutable global tables and save/load structs. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
 
 The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It compiles out config-file parsing in the reduced profile, uses default/static config strings, keeps fixed static `uint8_t` config buffers for string setters, and uses case-sensitive no-heap path lookup.
 
-The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprite data and eight 320x200 box save/restore buffers, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
+The contract `ui.c` path now uses named `uint8_t` PSRAM storage for `DATA.MKF #9` UI sprite data, UI box metadata, and eight 320x200 box save/restore buffers, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
 
 The contract `ui.c` object-description load/free path is a no-heap stub for now. Final UI parity should load object descriptions from generated read-only text/object-description data rather than the legacy linked-list loader.
 
 The contract `palette.c` path now reads `PAT` chunks through the generated pack bridge and stores loaded/current/work palette colors in named SRAM `uint8_t` buffers (`pal_sram_palette_base`, `pal_sram_palette_work`, `pal_sram_palette_next`). It no longer opens the original `pat.mkf` in contract mode, and palette fades no longer use `PAL_LARGE SDL_Color[256]` local arrays.
+
+The contract `global.c` and `ui.c` mutable storage now follows the same `uint8_t` buffer rule as the embedded slices: global table buffers and UI box metadata are named byte arrays that are cast at the use site, and the contract checker rejects active typed `pal_sram_`/`pal_psram_` declarations.
 
 ## Current Contract Status
 
@@ -719,9 +726,10 @@ The contract `palette.c` path now reads `PAT` chunks through the generated pack 
 source heap hits: 0
 source decompress hits: 0
 source scratch hits: 0
+source storage hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=185690 data=3728 bss=7441112
+text=185722 data=3728 bss=7441112
 .text=150469 .rodata=7304 .data=144 .bss=7441112
 pal_sram_ total=230912 / 307200
 pal_psram_ total=7131664 / 8388608

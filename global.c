@@ -41,14 +41,14 @@ CONFIGURATION gConfig;
 #define PAL_GLOBAL_MAGIC_SLOTS 114
 #define PAL_GLOBAL_BATTLEFIELD_SLOTS 130
 #define PAL_GLOBAL_LEVELUP_MAGIC_SLOTS 50
-static EVENTOBJECT pal_psram_global_event_objects[MAX_EVENT_OBJECTS] PAL_GLOBAL_PSRAM;
-static SCRIPTENTRY pal_psram_global_script_entries[PAL_GLOBAL_SCRIPT_ENTRY_SLOTS] PAL_GLOBAL_PSRAM;
-static STORE pal_psram_global_stores[PAL_GLOBAL_STORE_SLOTS] PAL_GLOBAL_PSRAM;
-static ENEMY pal_psram_global_enemies[PAL_GLOBAL_ENEMY_SLOTS] PAL_GLOBAL_PSRAM;
-static ENEMYTEAM pal_psram_global_enemy_teams[PAL_GLOBAL_ENEMY_TEAM_SLOTS] PAL_GLOBAL_PSRAM;
-static MAGIC pal_psram_global_magics[PAL_GLOBAL_MAGIC_SLOTS] PAL_GLOBAL_PSRAM;
-static BATTLEFIELD pal_psram_global_battlefields[PAL_GLOBAL_BATTLEFIELD_SLOTS] PAL_GLOBAL_PSRAM;
-static LEVELUPMAGIC_ALL pal_psram_global_levelup_magics[PAL_GLOBAL_LEVELUP_MAGIC_SLOTS] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_event_objects[MAX_EVENT_OBJECTS * sizeof(EVENTOBJECT)] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_script_entries[PAL_GLOBAL_SCRIPT_ENTRY_SLOTS * sizeof(SCRIPTENTRY)] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_stores[PAL_GLOBAL_STORE_SLOTS * sizeof(STORE)] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_enemies[PAL_GLOBAL_ENEMY_SLOTS * sizeof(ENEMY)] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_enemy_teams[PAL_GLOBAL_ENEMY_TEAM_SLOTS * sizeof(ENEMYTEAM)] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_magics[PAL_GLOBAL_MAGIC_SLOTS * sizeof(MAGIC)] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_battlefields[PAL_GLOBAL_BATTLEFIELD_SLOTS * sizeof(BATTLEFIELD)] PAL_GLOBAL_PSRAM;
+static uint8_t pal_psram_global_levelup_magics[PAL_GLOBAL_LEVELUP_MAGIC_SLOTS * sizeof(LEVELUPMAGIC_ALL)] PAL_GLOBAL_PSRAM;
 #endif
 
 #if SDL_BYTEORDER == SDL_LIL_ENDIAN
