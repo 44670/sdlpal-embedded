@@ -34,8 +34,8 @@ $(MEMORY_SMOKE): pal_memory.c pal_memory.h pal_memory_smoke.c | $(BUILD_DIR)
 $(NATIVE_SDL_SMOKE): pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_native_sdl_smoke.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_native_sdl_smoke.c -o $@ $(LDFLAGS) $(SDL_LIBS)
 
-$(REALDATA_SDL_SMOKE): pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_realdata_sdl_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_realdata_sdl_smoke.c -o $@ $(LDFLAGS) $(SDL_LIBS)
+$(REALDATA_SDL_SMOKE): pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_scene_cache.c pal_scene_cache.h pal_realdata_sdl_smoke.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_scene_cache.c pal_realdata_sdl_smoke.c -o $@ $(LDFLAGS) $(SDL_LIBS)
 
 $(PACK_CHECK): pal_pack.c pal_pack.h ../tools/pal_pack_check.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I. pal_pack.c ../tools/pal_pack_check.c -o $@ $(LDFLAGS)

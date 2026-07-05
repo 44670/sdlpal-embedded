@@ -25,6 +25,8 @@ embedded/pal_memory.h
 embedded/pal_memory_smoke.c
 embedded/pal_native_sdl_smoke.c
 embedded/pal_realdata_sdl_smoke.c
+embedded/pal_scene_cache.c
+embedded/pal_scene_cache.h
 ```
 
 Source scan:
@@ -132,6 +134,8 @@ embedded/pal_memory.c
 embedded/pal_memory.h
 embedded/pal_native_sdl_smoke.c
 embedded/pal_realdata_sdl_smoke.c
+embedded/pal_scene_cache.c
+embedded/pal_scene_cache.h
 ```
 
 Properties:
@@ -262,6 +266,17 @@ embedded/build/pal_realdata_sdl_smoke
 
 It maps both generated packs read-only, checks real archive counts, maps representative NOR chunks as `const uint8_t`, copies real TF chunks into `pal_sram_framebuffer`, `pal_psram_map_tiles`, `pal_psram_gop_copy`, and `pal_psram_sfx_bank`, then wraps `pal_sram_framebuffer` with SDL. There is no project-side heap allocation and no decoder path in this binary.
 
+The same smoke also exercises `embedded/pal_scene_cache.c` on high-pressure real scenes:
+
+| Scene | Events | Sprite refs | Unique sprites |
+| ---: | ---: | ---: | ---: |
+| 59 | 142 | 122 | 11 |
+| 65 | 120 | 91 | 8 |
+| 156 | 130 | 123 | 10 |
+| 260 | 72 | 58 | 11 |
+
+For each scene it reads the scene/event tables from `SSS`, copies decoded `MAP` and raw `GOP` chunks from the TF pack into named PSRAM buffers, and keeps event-object MGO sprites as deduplicated `const uint8_t *` views into the NOR pack.
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -283,7 +298,8 @@ python3 -B tools/embedded_contract_check.py \
   --max data=4096 \
   --max bss=7200000 \
   --max-symbol-prefix pal_sram_=307200 \
-  --max-symbol-prefix pal_psram_=8388608
+  --max-symbol-prefix pal_psram_=8388608 \
+  --max-symbol-prefix pal_scene_=8192
 ```
 
 Current result:
@@ -291,9 +307,10 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=4874 data=672 bss=7191000
+text=6216 data=672 bss=7195744
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
+pal_scene_ total=4736 limit=8192
 PASS
 ```
 

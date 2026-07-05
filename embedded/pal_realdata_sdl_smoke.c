@@ -1,5 +1,6 @@
 #include "pal_memory.h"
 #include "pal_pack.h"
+#include "pal_scene_cache.h"
 
 #include <SDL.h>
 #include <fcntl.h>
@@ -166,6 +167,28 @@ static int exercise_sdl_surface(void)
     return 0;
 }
 
+static int check_scene(const PalPack *nor, const PalPack *tf, uint16_t scene_num, uint16_t expected_events, uint16_t expected_refs, uint16_t expected_unique)
+{
+    PalSceneSnapshot snapshot;
+
+    if (!PalScene_LoadSnapshot(nor, tf, scene_num, &snapshot)) {
+        return 1;
+    }
+    if (snapshot.scene_num != scene_num || snapshot.event_count != expected_events) {
+        return 2;
+    }
+    if (snapshot.sprite_ref_count != expected_refs || snapshot.unique_sprite_count != expected_unique) {
+        return 3;
+    }
+    if (snapshot.map_num == 0 || snapshot.gop_size == 0 || snapshot.unique_sprite_bytes == 0) {
+        return 4;
+    }
+    if (snapshot.sprite_refs == 0) {
+        return 5;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
@@ -200,6 +223,13 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = exercise_tf_reads(&tf.pack);
+    }
+    if (rc == 0) {
+        rc =
+            check_scene(&nor.pack, &tf.pack, 59, 142, 122, 11) ||
+            check_scene(&nor.pack, &tf.pack, 65, 120, 91, 8) ||
+            check_scene(&nor.pack, &tf.pack, 156, 130, 123, 10) ||
+            check_scene(&nor.pack, &tf.pack, 260, 72, 58, 11);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();
