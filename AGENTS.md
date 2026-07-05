@@ -60,6 +60,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_native_sdl_smoke.c` is the native SDL fixed-memory smoke test. It wraps `pal_sram_framebuffer` with an SDL surface and reads from a `const uint8_t` pack; run it through `make -C embedded check` with `SDL_VIDEODRIVER=dummy`.
 - `embedded/pal_realdata_sdl_smoke.c` is the native SDL real-data smoke test. It maps generated NOR/TF packs read-only, copies TF chunks into named SRAM/PSRAM arrays, and is run with `make -C embedded realdata-check`.
 - `embedded/pal_scene_cache.c` is the static scene-loading slice. It copies decoded MAP/GOP chunks into named PSRAM arrays and deduplicates event-object MGO sprites as `const uint8_t *` references into the NOR pack.
+- `embedded/pal_battle_cache.c` is the static battle-loading slice. It copies decoded FBP backgrounds into PSRAM and keeps F/ABC/FIRE sprites as `const uint8_t *` views into the NOR pack, with enemy sprite deduplication.
 
 ## Known Memory Pressure Points
 
