@@ -665,8 +665,8 @@ Current reduced-profile artifact size:
 ```text
 text=187146 data=3728 bss=1342424
 .text=151525 .rodata=7368 .data=144 .bss=1342424
-pal_sram_ total=103936 limit=307200
-pal_psram_ total=1159944 limit=8388608
+pal_sram_ total=39936 limit=307200
+pal_psram_ total=1223944 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -691,7 +691,7 @@ With that bridge in place, the contract `global.c` path opens FBP/MGO/BALL/DATA/
 
 The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, it uses static `uint8_t` PSRAM buffers for the `PALMAP` object and GOP sprite data, and it accepts only already-native 64KB map chunks. The old compressed-MAP path remains only for non-contract desktop builds.
 
-The full-engine splash path in `main.c` now uses static `uint8_t` SRAM for FBP staging, maps title/crane sprites as `const uint8_t` NOR views, uses a clipped RLE blit for title reveal instead of mutating sprite data, and accepts only already-native splash FBP/MGO chunks. The old 128KB heap block and `Decompress()` calls remain only for non-contract desktop builds.
+The full-engine splash path in `main.c` now uses static `uint8_t` PSRAM for FBP staging, maps title/crane sprites as `const uint8_t` NOR views, uses a clipped RLE blit for title reveal instead of mutating sprite data, and accepts only already-native splash FBP/MGO chunks. The old 128KB heap block and `Decompress()` calls remain only for non-contract desktop builds.
 
 The full-engine menu paths in `uigame.c` now avoid runtime decompression in contract mode. Opening-menu, status, and equipment paths use shared static `uint8_t` PSRAM buffers for FBP background and box scratch; saved cash/system/selection boxes use named per-call-site PSRAM buffers. RGM/BALL menu images are mapped as read-only `const uint8_t` NOR views.
 
@@ -741,8 +741,8 @@ objdump -t forbidden symbols: 0
 forbidden call targets: 0
 text=187146 data=3728 bss=1342424
 .text=151525 .rodata=7368 .data=144 .bss=1342424
-pal_sram_ total=103936 / 307200
-pal_psram_ total=1159944 / 8388608
+pal_sram_ total=39936 / 307200
+pal_psram_ total=1223944 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

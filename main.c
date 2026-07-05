@@ -54,7 +54,7 @@ char gExecutablePath[PAL_MAX_PATH];
 #define PAL_SPLASH_SRAM
 #define PAL_SPLASH_PSRAM
 #endif
-static uint8_t pal_sram_splash_fbp[320 * 200] PAL_SPLASH_SRAM;
+static uint8_t pal_psram_splash_fbp[320 * 200] PAL_SPLASH_PSRAM;
 #if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
 static uint8_t pal_psram_splash_title[32000] PAL_SPLASH_PSRAM;
 static uint8_t pal_psram_splash_crane[32000] PAL_SPLASH_PSRAM;
@@ -269,7 +269,7 @@ PAL_SplashScreen(
    // Allocate all the needed memory at once for simplification
    //
 #ifdef PAL_STATIC_SPLASH_BUFFERS
-   buf = pal_sram_splash_fbp;
+   buf = pal_psram_splash_fbp;
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
    lpSpriteCrane = NULL;
 #else
