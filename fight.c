@@ -25,6 +25,85 @@
 //#define INVINCIBLE 1
 extern WORD g_rgPlayerPos[3][3][2];
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(__GNUC__)
+#define PAL_FIGHT_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_FIGHT_PSRAM
+#endif
+static uint8_t pal_psram_fight_effect_sprite[65536] PAL_FIGHT_PSRAM;
+static uint8_t pal_psram_fight_summon_sprite[65536] PAL_FIGHT_PSRAM;
+#define PAL_FIGHT_EFFECT_BUFFER pal_psram_fight_effect_sprite
+#define PAL_FIGHT_SUMMON_BUFFER pal_psram_fight_summon_sprite
+#define PAL_FIGHT_EFFECT_BUFFER_BYTES sizeof(pal_psram_fight_effect_sprite)
+#define PAL_FIGHT_SUMMON_BUFFER_BYTES sizeof(pal_psram_fight_summon_sprite)
+#else
+#define PAL_FIGHT_EFFECT_BUFFER NULL
+#define PAL_FIGHT_SUMMON_BUFFER NULL
+#define PAL_FIGHT_EFFECT_BUFFER_BYTES 0
+#define PAL_FIGHT_SUMMON_BUFFER_BYTES 0
+#endif
+
+static VOID
+PAL_FreeFightTempSprite(
+   LPSPRITE    lpSprite
+)
+{
+#ifdef PAL_NO_RUNTIME_HEAP
+   (void)lpSprite;
+#else
+   free(lpSprite);
+#endif
+}
+
+static LPSPRITE
+PAL_LoadFightTempSprite(
+   FILE       *fp,
+   INT         iChunkNum,
+   uint8_t    *staticBuffer,
+   size_t      staticBufferSize
+)
+{
+   int        l;
+   LPSPRITE   lpSprite;
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   l = PAL_MKFGetChunkSize(iChunkNum, fp);
+#else
+   l = PAL_MKFGetDecompressedSize(iChunkNum, fp);
+#endif
+
+   if (l <= 0)
+   {
+      return NULL;
+   }
+
+#ifdef PAL_NO_RUNTIME_HEAP
+   if ((size_t)l > staticBufferSize)
+   {
+      return NULL;
+   }
+   memset(staticBuffer, 0, staticBufferSize);
+   lpSprite = (LPSPRITE)staticBuffer;
+#else
+   (void)staticBuffer;
+   (void)staticBufferSize;
+   lpSprite = (LPSPRITE)UTIL_malloc(l);
+#endif
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (PAL_MKFReadChunk((LPBYTE)lpSprite, l, iChunkNum, fp) < 0)
+   {
+      PAL_FreeFightTempSprite(lpSprite);
+      return NULL;
+   }
+#else
+   PAL_MKFDecompressChunk((LPBYTE)lpSprite, l, iChunkNum, fp);
+#endif
+
+   return lpSprite;
+}
+
 BOOL
 PAL_IsPlayerDying(
    WORD        wPlayerRole
@@ -2477,15 +2556,12 @@ PAL_BattleShowPlayerDefMagicAnim(
    iMagicNum = gpGlobals->g.rgObject[wObjectID].magic.wMagicNumber;
    iEffectNum = gpGlobals->g.lprgMagic[iMagicNum].wEffect;
 
-   l = PAL_MKFGetDecompressedSize(iEffectNum, gpGlobals->f.fpFIRE);
-   if (l <= 0)
+   lpSpriteEffect = PAL_LoadFightTempSprite(
+      gpGlobals->f.fpFIRE, iEffectNum, PAL_FIGHT_EFFECT_BUFFER, PAL_FIGHT_EFFECT_BUFFER_BYTES);
+   if (lpSpriteEffect == NULL)
    {
       return;
    }
-
-   lpSpriteEffect = (LPSPRITE)UTIL_malloc(l);
-
-   PAL_MKFDecompressChunk((LPBYTE)lpSpriteEffect, l, iEffectNum, gpGlobals->f.fpFIRE);
 
    n = PAL_SpriteGetNumFrames(lpSpriteEffect);
 
@@ -2568,7 +2644,7 @@ PAL_BattleShowPlayerDefMagicAnim(
       VIDEO_UpdateScreen(NULL);
    }
 
-   free(lpSpriteEffect);
+   PAL_FreeFightTempSprite(lpSpriteEffect);
 
    for (i = 0; i < 6; i++)
    {
@@ -2639,15 +2715,12 @@ PAL_BattleShowPlayerOffMagicAnim(
    iMagicNum = gpGlobals->g.rgObject[wObjectID].magic.wMagicNumber;
    iEffectNum = gpGlobals->g.lprgMagic[iMagicNum].wEffect;
 
-   l = PAL_MKFGetDecompressedSize(iEffectNum, gpGlobals->f.fpFIRE);
-   if (l <= 0)
+   lpSpriteEffect = PAL_LoadFightTempSprite(
+      gpGlobals->f.fpFIRE, iEffectNum, PAL_FIGHT_EFFECT_BUFFER, PAL_FIGHT_EFFECT_BUFFER_BYTES);
+   if (lpSpriteEffect == NULL)
    {
       return;
    }
-
-   lpSpriteEffect = (LPSPRITE)UTIL_malloc(l);
-
-   PAL_MKFDecompressChunk((LPBYTE)lpSpriteEffect, l, iEffectNum, gpGlobals->f.fpFIRE);
 
    n = PAL_SpriteGetNumFrames(lpSpriteEffect);
 
@@ -2835,7 +2908,7 @@ PAL_BattleShowPlayerOffMagicAnim(
    gpGlobals->wScreenWave = wave;
    VIDEO_ShakeScreen(0, 0);
 
-   free(lpSpriteEffect);
+   PAL_FreeFightTempSprite(lpSpriteEffect);
 
    for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
    {
@@ -2874,15 +2947,12 @@ PAL_BattleShowEnemyMagicAnim(
    iMagicNum = gpGlobals->g.rgObject[wObjectID].magic.wMagicNumber;
    iEffectNum = gpGlobals->g.lprgMagic[iMagicNum].wEffect;
 
-   l = PAL_MKFGetDecompressedSize(iEffectNum, gpGlobals->f.fpFIRE);
-   if (l <= 0)
+   lpSpriteEffect = PAL_LoadFightTempSprite(
+      gpGlobals->f.fpFIRE, iEffectNum, PAL_FIGHT_EFFECT_BUFFER, PAL_FIGHT_EFFECT_BUFFER_BYTES);
+   if (lpSpriteEffect == NULL)
    {
       return;
    }
-
-   lpSpriteEffect = (LPSPRITE)UTIL_malloc(l);
-
-   PAL_MKFDecompressChunk((LPBYTE)lpSpriteEffect, l, iEffectNum, gpGlobals->f.fpFIRE);
 
    n = PAL_SpriteGetNumFrames(lpSpriteEffect);
 
@@ -3060,7 +3130,7 @@ PAL_BattleShowEnemyMagicAnim(
    gpGlobals->wScreenWave = wave;
    VIDEO_ShakeScreen(0, 0);
 
-   free(lpSpriteEffect);
+   PAL_FreeFightTempSprite(lpSpriteEffect);
 
    for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
    {
@@ -3133,11 +3203,12 @@ PAL_BattleShowPlayerSummonMagicAnim(
    // Load the sprite of the summoned god
    //
    j = gpGlobals->g.lprgMagic[wMagicNum].rgSpecific.wSummonEffect + 10;
-   i = PAL_MKFGetDecompressedSize(j, gpGlobals->f.fpF);
-
-   g_Battle.lpSummonSprite = UTIL_malloc(i);
-
-   PAL_MKFDecompressChunk(g_Battle.lpSummonSprite, i, j, gpGlobals->f.fpF);
+   g_Battle.lpSummonSprite = PAL_LoadFightTempSprite(
+      gpGlobals->f.fpF, j, PAL_FIGHT_SUMMON_BUFFER, PAL_FIGHT_SUMMON_BUFFER_BYTES);
+   if (g_Battle.lpSummonSprite == NULL)
+   {
+      return;
+   }
 
    g_Battle.iSummonFrame = 0;
    g_Battle.posSummon = PAL_XY(240 + (SHORT)(gpGlobals->g.lprgMagic[wMagicNum].wXOffset),

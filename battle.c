@@ -31,6 +31,8 @@ BATTLE          g_Battle;
 #endif
 static uint8_t pal_psram_battle_background_static[320 * 200] PAL_BATTLE_PSRAM;
 static uint8_t pal_psram_battle_effect_static[32768] PAL_BATTLE_PSRAM;
+static uint8_t pal_psram_battle_player_sprite[MAX_PLAYERS_IN_PARTY][65536] PAL_BATTLE_PSRAM;
+static uint8_t pal_psram_battle_enemy_sprite[MAX_ENEMIES_IN_TEAM][65536] PAL_BATTLE_PSRAM;
 #endif
 
 WORD
@@ -839,26 +841,32 @@ PAL_FreeBattleSprites(
    //
    for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
    {
+#ifndef PAL_NO_RUNTIME_HEAP
       if (g_Battle.rgPlayer[i].lpSprite != NULL)
       {
          free(g_Battle.rgPlayer[i].lpSprite);
       }
+#endif
       g_Battle.rgPlayer[i].lpSprite = NULL;
    }
 
    for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
    {
+#ifndef PAL_NO_RUNTIME_HEAP
       if (g_Battle.rgEnemy[i].lpSprite != NULL)
       {
          free(g_Battle.rgEnemy[i].lpSprite);
       }
+#endif
       g_Battle.rgEnemy[i].lpSprite = NULL;
    }
 
+#ifndef PAL_NO_RUNTIME_HEAP
    if (g_Battle.lpSummonSprite != NULL)
    {
       free(g_Battle.lpSummonSprite);
    }
+#endif
    g_Battle.lpSummonSprite = NULL;
 }
 
@@ -895,17 +903,38 @@ PAL_LoadBattleSprites(
    {
       s = PAL_GetPlayerBattleSprite(gpGlobals->rgParty[i].wPlayerRole);
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      l = PAL_MKFGetChunkSize(s, gpGlobals->f.fpF);
+#else
       l = PAL_MKFGetDecompressedSize(s, gpGlobals->f.fpF);
+#endif
 
-      if (l <= 0)
+      if (l <= 0
+#ifdef PAL_NO_RUNTIME_HEAP
+         || (size_t)l > sizeof(pal_psram_battle_player_sprite[i])
+#endif
+      )
       {
          continue;
       }
 
+#ifdef PAL_NO_RUNTIME_HEAP
+      memset(pal_psram_battle_player_sprite[i], 0, sizeof(pal_psram_battle_player_sprite[i]));
+      g_Battle.rgPlayer[i].lpSprite = pal_psram_battle_player_sprite[i];
+#else
       g_Battle.rgPlayer[i].lpSprite = UTIL_calloc(l, 1);
+#endif
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      if (PAL_MKFReadChunk(g_Battle.rgPlayer[i].lpSprite, l, s, gpGlobals->f.fpF) < 0)
+      {
+         g_Battle.rgPlayer[i].lpSprite = NULL;
+         continue;
+      }
+#else
       PAL_MKFDecompressChunk(g_Battle.rgPlayer[i].lpSprite, l,
          s, gpGlobals->f.fpF);
+#endif
 
       //
       // Set the default position for this player
@@ -927,18 +956,40 @@ PAL_LoadBattleSprites(
          continue;
       }
 
-      l = PAL_MKFGetDecompressedSize(
-         gpGlobals->g.rgObject[g_Battle.rgEnemy[i].wObjectID].enemy.wEnemyID, fp);
+      s = gpGlobals->g.rgObject[g_Battle.rgEnemy[i].wObjectID].enemy.wEnemyID;
 
-      if (l <= 0)
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      l = PAL_MKFGetChunkSize(s, fp);
+#else
+      l = PAL_MKFGetDecompressedSize(s, fp);
+#endif
+
+      if (l <= 0
+#ifdef PAL_NO_RUNTIME_HEAP
+         || (size_t)l > sizeof(pal_psram_battle_enemy_sprite[i])
+#endif
+      )
       {
          continue;
       }
 
+#ifdef PAL_NO_RUNTIME_HEAP
+      memset(pal_psram_battle_enemy_sprite[i], 0, sizeof(pal_psram_battle_enemy_sprite[i]));
+      g_Battle.rgEnemy[i].lpSprite = pal_psram_battle_enemy_sprite[i];
+#else
       g_Battle.rgEnemy[i].lpSprite = UTIL_calloc(l, 1);
+#endif
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      if (PAL_MKFReadChunk(g_Battle.rgEnemy[i].lpSprite, l, s, fp) < 0)
+      {
+         g_Battle.rgEnemy[i].lpSprite = NULL;
+         continue;
+      }
+#else
       PAL_MKFDecompressChunk(g_Battle.rgEnemy[i].lpSprite, l,
-         gpGlobals->g.rgObject[g_Battle.rgEnemy[i].wObjectID].enemy.wEnemyID, fp);
+         s, fp);
+#endif
 
       //
       // Set the default position for this enemy
