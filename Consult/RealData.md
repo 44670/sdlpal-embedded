@@ -28,6 +28,8 @@ This report is intended to complement `Consult/Q1.md`. It records measurements f
 - `BALL.MKF`: 231 chunks, 133,776 payload bytes, largest chunk #95 is 1,876 bytes
 - `RGM.MKF`: 92 chunks, 452,830 payload bytes, largest chunk #72 is 8,024 bytes
 - `PAT.MKF`: 9 chunks, 8,448 payload bytes, largest chunk #0 is 1,536 bytes
+- `MIDI.MKF`: 88 chunks, 762,086 payload bytes, largest chunk #45 is 31,034 bytes
+- `MUS.MKF`: 88 chunks, 330,928 payload bytes, largest chunk #46 is 10,108 bytes
 
 ## Worst Normal Scene Residency
 
@@ -151,3 +153,13 @@ These sizes are relevant for a shared decompression scratch buffer and for decid
 - The static SFX smoke banks converted SFX chunks `{1, 62, 192, 213, 214, 255, 272}` into `pal_psram_sfx_bank`; this checked subset uses 1,021,906 bytes after 4-byte alignment and mixes samples through `pal_sram_audio`.
 
 Main conclusion: for this data set, OGG/OPUS/MP3/loose-WAV/AVI support is not needed for base gameplay. The relevant audio formats are the PAL MKF containers, especially RIX/MUS-style music and VOC-derived sound effects. Runtime SFX playback can use the generated PCM16 SFX archive instead of parsing/resampling VOC data on target.
+
+## Music Assets
+
+- `MIDI.MKF`: 88 chunks, 762,086 payload bytes, largest chunk #45 is 31,034 bytes
+- `MUS.MKF`: 88 chunks, 330,928 payload bytes, largest chunk #46 is 10,108 bytes
+- Save headers observed in `1.rpg`, `2.rpg`, and `4.RPG` reference music tracks 31, 37, and 77.
+- Checked MIDI track sizes: #31 6,162 bytes, #37 24,548 bytes, #77 5,180 bytes
+- Checked MUS/RIX track sizes: #31 3,220 bytes, #37 3,956 bytes, #77 3,898 bytes
+
+The static music smoke maps both MIDI and MUS/RIX payloads as read-only `const uint8_t *` views from the generated NOR pack. It deliberately does not instantiate the desktop C++ RIX player or any resampler state.

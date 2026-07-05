@@ -47,6 +47,8 @@ embedded/pal_video_static.c
 embedded/pal_video_static.h
 embedded/pal_ui_cache.c
 embedded/pal_ui_cache.h
+embedded/pal_music_cache.c
+embedded/pal_music_cache.h
 ```
 
 Source scan:
@@ -179,6 +181,8 @@ embedded/pal_video_static.c
 embedded/pal_video_static.h
 embedded/pal_ui_cache.c
 embedded/pal_ui_cache.h
+embedded/pal_music_cache.c
+embedded/pal_music_cache.h
 ```
 
 Properties:
@@ -409,6 +413,14 @@ The smoke also exercises `embedded/pal_ui_cache.c` against real UI assets in the
 | Face bitmap | `RGM.MKF #72` | 8,024 | `const uint8_t *` NOR view |
 | Day/night palette | `PAT.MKF #0` | 768 per palette | copied into `pal_sram_misc` |
 
+The smoke also exercises `embedded/pal_music_cache.c` against real music assets in the NOR pack:
+
+| Track | MIDI bytes | MUS/RIX bytes | Runtime placement |
+| ---: | ---: | ---: | --- |
+| 31 | 6,162 | 3,220 | `const uint8_t *` NOR view |
+| 37 | 24,548 | 3,956 | `const uint8_t *` NOR view |
+| 77 | 5,180 | 3,898 | `const uint8_t *` NOR view |
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -438,7 +450,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=18194 data=720 bss=7197792
+text=19198 data=720 bss=7197792
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -449,6 +461,7 @@ pal_global_ total=232 limit=4096
 pal_save_ total=512 limit=4096
 pal_video_ total=512 limit=4096
 pal_ui_ total=0 limit=4096
+pal_music_ total=0 limit=4096
 PASS
 ```
 

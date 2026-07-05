@@ -3,6 +3,7 @@
 #include "pal_font_cache.h"
 #include "pal_global_cache.h"
 #include "pal_memory.h"
+#include "pal_music_cache.h"
 #include "pal_pack.h"
 #include "pal_rng_cache.h"
 #include "pal_save_cache.h"
@@ -487,6 +488,50 @@ static int check_save_cache(const char *data_dir)
            check_save_file(data_dir, "4.RPG", 183488u, 1u, 1u, 899999u);
 }
 
+static int check_music_track_pair(const PalPack *nor, uint16_t track_num, uint32_t expected_midi_size, uint32_t expected_mus_size)
+{
+    PalMusicTrack track;
+
+    if (!PalMusic_MapMidi(nor, track_num, &track) || track.track_num != track_num || track.format != PAL_MUSIC_FORMAT_MIDI) {
+        return 1;
+    }
+    if (track.size != expected_midi_size || track.data[0] != 'M' || track.data[1] != 'T' || checksum32(track.data, track.size) == 0) {
+        return 2;
+    }
+
+    if (!PalMusic_MapMus(nor, track_num, &track) || track.track_num != track_num || track.format != PAL_MUSIC_FORMAT_RIX) {
+        return 3;
+    }
+    if (track.size != expected_mus_size || track.data[0] != 0xaau || track.data[1] != 0x55u || checksum32(track.data, track.size) == 0) {
+        return 4;
+    }
+
+    return 0;
+}
+
+static int check_music_cache(const PalPack *nor)
+{
+    uint16_t midi_count = 0;
+    uint16_t mus_count = 0;
+
+    if (!PalPack_GetChunkCount(nor, PAL_PACK_ARCHIVE_MIDI, &midi_count) || midi_count != 88u) {
+        return 1;
+    }
+    if (!PalPack_GetChunkCount(nor, PAL_PACK_ARCHIVE_MUS, &mus_count) || mus_count != 88u) {
+        return 2;
+    }
+    if (check_music_track_pair(nor, 31u, 6162u, 3220u) != 0) {
+        return 3;
+    }
+    if (check_music_track_pair(nor, 37u, 24548u, 3956u) != 0) {
+        return 4;
+    }
+    if (check_music_track_pair(nor, 77u, 5180u, 3898u) != 0) {
+        return 5;
+    }
+    return 0;
+}
+
 static int check_ui_cache(const PalPack *nor)
 {
     PalUiAsset asset;
@@ -591,6 +636,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_save_cache(argv[3]);
+    }
+    if (rc == 0) {
+        rc = check_music_cache(&nor.pack);
     }
     if (rc == 0) {
         rc = check_ui_cache(&nor.pack);
