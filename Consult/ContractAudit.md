@@ -608,7 +608,7 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, and `--gc-sections`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, and codepage-table objects from the full-engine build. The remaining audio/video/font/text entry points are inert stubs:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, and `--wrap=malloc/calloc/realloc/free`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, and codepage-table objects from the full-engine build. The remaining audio/video/font/text entry points are inert stubs:
 
 ```text
 resampler_init
@@ -640,11 +640,11 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=278152 data=3840 bss=79320
+text=277973 data=3808 bss=79320
 .text=153109 .rodata=95960 .data=144 .bss=79320
 ```
 
-This is still not an embedded-contract binary. It still links the desktop heap and YJ paths:
+This is still not an embedded-contract binary. Direct libc heap imports are gone from the linked reduced profile, but the full-engine heap wrapper functions and YJ paths are still present:
 
 ```text
 Decompress
@@ -654,10 +654,6 @@ UTIL_calloc
 UTIL_malloc
 YJ1_Decompress
 YJ2_Decompress
-calloc@GLIBC_2.2.5
-free@GLIBC_2.2.5
-malloc@GLIBC_2.2.5
-realloc@GLIBC_2.2.5
 ```
 
 ## Current Contract Failures
