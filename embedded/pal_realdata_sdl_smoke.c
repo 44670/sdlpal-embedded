@@ -681,6 +681,59 @@ static int check_sfx_bank(const PalPack *tf)
     return 0;
 }
 
+static int check_sfx_bank_readat(const char *path)
+{
+    static const uint16_t chunks[] = { 1, 62, 192, 213, 214, 255, 272 };
+    static const uint32_t sizes[] = { 12622, 111738, 132856, 204664, 148342, 211152, 200526 };
+    PalPackToc toc;
+    PalSfxBank bank;
+    struct stat st;
+    uint32_t used = 0;
+    uint16_t i;
+    int fd;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+    if (!PalSfx_LoadBankReadAt(&toc, read_at_fd, &fd, chunks, (uint16_t)(sizeof(chunks) / sizeof(chunks[0])), &bank)) {
+        close(fd);
+        return 4;
+    }
+    close(fd);
+
+    if (bank.entry_count != (uint16_t)(sizeof(chunks) / sizeof(chunks[0])) || bank.entries == 0 || bank.data != pal_psram_sfx_bank) {
+        return 5;
+    }
+
+    for (i = 0; i < bank.entry_count; i++) {
+        const uint8_t *data = 0;
+        uint32_t size = 0;
+
+        used = (used + 3u) & ~3u;
+        if (!PalSfx_Get(&bank, chunks[i], &data, &size)) {
+            return 6;
+        }
+        if (size != sizes[i] || data != pal_psram_sfx_bank + used || checksum32(data, size) == 0) {
+            return 7;
+        }
+        used += size;
+    }
+
+    if (bank.used_bytes != 1021906u || used != bank.used_bytes) {
+        return 8;
+    }
+    return 0;
+}
+
 static int check_global_cache(const PalPack *nor)
 {
     const PalGlobalCache *cache = 0;
@@ -1134,6 +1187,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_sfx_bank(&tf.pack);
+    }
+    if (rc == 0) {
+        rc = check_sfx_bank_readat(argv[2]);
     }
     if (rc == 0) {
         rc = check_global_cache(&nor.pack);

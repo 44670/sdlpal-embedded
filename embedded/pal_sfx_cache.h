@@ -26,6 +26,13 @@ typedef struct PalSfxBank {
 } PalSfxBank;
 
 bool PalSfx_LoadBank(const PalPack *tf_pack, const uint16_t *chunk_nums, uint16_t count, PalSfxBank *sfx_bank);
+bool PalSfx_LoadBankReadAt(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const uint16_t *chunk_nums,
+    uint16_t count,
+    PalSfxBank *sfx_bank);
 bool PalSfx_Get(const PalSfxBank *sfx_bank, uint16_t chunk_num, const uint8_t **data, uint32_t *size);
 
 #ifdef __cplusplus
