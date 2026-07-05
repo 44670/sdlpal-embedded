@@ -23,9 +23,31 @@ typedef struct PalRngFrame {
     uint32_t size;
 } PalRngFrame;
 
+typedef struct PalRngMovieStream {
+    uint16_t movie_num;
+    uint16_t frame_count;
+    uint32_t chunk_offset;
+    uint32_t chunk_size;
+    uint32_t table_size;
+    const uint8_t *table;
+} PalRngMovieStream;
+
 bool PalRng_LoadFrame(
     const PalPack *tf_pack,
     uint16_t movie_num,
+    uint16_t frame_num,
+    PalRngFrameBuffer frame_buffer,
+    PalRngFrame *frame);
+bool PalRng_OpenMovieReadAt(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t movie_num,
+    PalRngMovieStream *movie);
+bool PalRng_LoadFrameReadAt(
+    const PalRngMovieStream *movie,
+    PalPackReadAt read_at,
+    void *user,
     uint16_t frame_num,
     PalRngFrameBuffer frame_buffer,
     PalRngFrame *frame);

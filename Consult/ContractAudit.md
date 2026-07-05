@@ -386,7 +386,7 @@ The smoke also exercises `embedded/pal_rng_cache.c` on large real RNG frames:
 | 5 | 0 | 83 | 64,104 | `pal_psram_rng_frame_b` |
 | 9 | 0 | 257 | 61,773 | `pal_psram_rng_frame_a` |
 
-These are already decoded by `tools/pal_pack_build.py`; runtime only copies the selected frame into a named PSRAM buffer.
+These are already decoded by `tools/pal_pack_build.py`; runtime only copies the selected frame into a named PSRAM buffer. The smoke covers both the mapped-pack path and the TF-style read-at path: file-backed reads stage the selected movie's frame table in `pal_psram_tf_readahead`, then read the selected frame payload range directly into `pal_psram_rng_frame_a` or `pal_psram_rng_frame_b`.
 
 The smoke also exercises `embedded/pal_sfx_cache.c` and `embedded/pal_audio_static.c` on representative large SFX chunks from the TF pack. The host pack builder converts VOC data to 22050Hz mono PCM16 before writing the SFX archive; runtime only copies, validates, and mixes PCM16 samples:
 
@@ -524,7 +524,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=30554 .rodata=224 data=744 bss=7493280
+text=31910 .rodata=224 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -550,7 +550,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=614238
+size=615322
 PASS
 ```
 

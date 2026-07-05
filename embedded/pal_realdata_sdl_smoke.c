@@ -509,6 +509,63 @@ static int check_rng_frame(
     return 0;
 }
 
+static int check_rng_frame_readat(
+    const char *path,
+    uint16_t movie_num,
+    uint16_t frame_num,
+    uint16_t expected_frame_count,
+    uint32_t expected_frame_size,
+    PalRngFrameBuffer frame_buffer)
+{
+    PalPackToc toc;
+    PalRngMovieStream movie;
+    PalRngFrame frame;
+    struct stat st;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+    if (!PalRng_OpenMovieReadAt(&toc, read_at_fd, &fd, movie_num, &movie)) {
+        close(fd);
+        return 4;
+    }
+    if (movie.movie_num != movie_num || movie.frame_count != expected_frame_count ||
+        movie.table != pal_psram_tf_readahead || movie.table_size == 0 ||
+        movie.table_size > PAL_PSRAM_TF_READAHEAD_BYTES) {
+        rc = 5;
+    }
+    if (rc == 0 && !PalRng_LoadFrameReadAt(&movie, read_at_fd, &fd, frame_num, frame_buffer, &frame)) {
+        rc = 6;
+    }
+    if (rc == 0 && (frame.movie_num != movie_num || frame.frame_num != frame_num ||
+        frame.frame_count != expected_frame_count || frame.size != expected_frame_size)) {
+        rc = 7;
+    }
+    if (rc == 0 && (frame.data == 0 || checksum32(frame.data, frame.size) == 0)) {
+        rc = 8;
+    }
+    if (rc == 0 && frame_buffer == PAL_RNG_FRAME_BUFFER_A && frame.data != pal_psram_rng_frame_a) {
+        rc = 9;
+    }
+    if (rc == 0 && frame_buffer == PAL_RNG_FRAME_BUFFER_B && frame.data != pal_psram_rng_frame_b) {
+        rc = 10;
+    }
+
+    close(fd);
+    return rc;
+}
+
 static int check_sfx_bank(const PalPack *tf)
 {
     static const uint16_t chunks[] = { 1, 62, 192, 213, 214, 255, 272 };
@@ -994,6 +1051,12 @@ int main(int argc, char **argv)
             check_rng_frame(&tf.pack, 4, 0, 41, 64288, PAL_RNG_FRAME_BUFFER_A) ||
             check_rng_frame(&tf.pack, 5, 0, 83, 64104, PAL_RNG_FRAME_BUFFER_B) ||
             check_rng_frame(&tf.pack, 9, 0, 257, 61773, PAL_RNG_FRAME_BUFFER_A);
+    }
+    if (rc == 0) {
+        rc =
+            check_rng_frame_readat(argv[2], 4, 0, 41, 64288, PAL_RNG_FRAME_BUFFER_A) ||
+            check_rng_frame_readat(argv[2], 5, 0, 83, 64104, PAL_RNG_FRAME_BUFFER_B) ||
+            check_rng_frame_readat(argv[2], 9, 0, 257, 61773, PAL_RNG_FRAME_BUFFER_A);
     }
     if (rc == 0) {
         rc = check_sfx_bank(&tf.pack);
