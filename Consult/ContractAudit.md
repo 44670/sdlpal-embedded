@@ -24,6 +24,7 @@ embedded/pal_memory.c
 embedded/pal_memory.h
 embedded/pal_memory_smoke.c
 embedded/pal_native_sdl_smoke.c
+embedded/pal_realdata_sdl_smoke.c
 ```
 
 Source scan:
@@ -130,6 +131,7 @@ embedded/pal_pack.h
 embedded/pal_memory.c
 embedded/pal_memory.h
 embedded/pal_native_sdl_smoke.c
+embedded/pal_realdata_sdl_smoke.c
 ```
 
 Properties:
@@ -249,6 +251,51 @@ PASS
 ```
 
 `pal_psram_` is zero in this binary because the SDL smoke only exercises the framebuffer path; `pal_memory_smoke` is the artifact that forces all declared PSRAM buffers into the ELF for symbol-budget verification.
+
+## Native SDL Real-Data Smoke
+
+The embedded makefile also builds a native SDL2 smoke binary that opens the generated pack files from the audited data set:
+
+```text
+embedded/build/pal_realdata_sdl_smoke
+```
+
+It maps both generated packs read-only, checks real archive counts, maps representative NOR chunks as `const uint8_t`, copies real TF chunks into `pal_sram_framebuffer`, `pal_psram_map_tiles`, `pal_psram_gop_copy`, and `pal_psram_sfx_bank`, then wraps `pal_sram_framebuffer` with SDL. There is no project-side heap allocation and no decoder path in this binary.
+
+Build packs and run the real-data smoke:
+
+```sh
+python3 -B tools/pal_pack_build.py \
+  /mnt/hgfs/deb13/PAL \
+  --out-nor /tmp/pal_nor_default.pak \
+  --out-tf /tmp/pal_tf_default.pak
+make -C embedded realdata-check
+```
+
+Verify the artifact:
+
+```sh
+python3 -B tools/embedded_contract_check.py \
+  --root embedded \
+  --fail-on-source \
+  --binary embedded/build/pal_realdata_sdl_smoke \
+  --max text=65536 \
+  --max data=4096 \
+  --max bss=7200000 \
+  --max-symbol-prefix pal_sram_=307200 \
+  --max-symbol-prefix pal_psram_=8388608
+```
+
+Current result:
+
+```text
+source heap hits: 0
+source decompress hits: 0
+text=4874 data=672 bss=7191000
+pal_sram_ total=182784 limit=307200
+pal_psram_ total=7008208 limit=8388608
+PASS
+```
 
 ## Native SDL Build Attempt
 
