@@ -45,7 +45,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `tools/pal_pack_check.c` is a host-side mmap checker for generated packs using the same `embedded/pal_pack.c` reader.
 - The audited data path has no loose `.ogg`, `.opus`, `.mp3`, `.wav`, `.mid`, or `.avi` files. Audio is in `MIDI.MKF`, `MUS.MKF`, and `VOC.MKF`.
 - Scene/event sprite deduplication is high value: worst measured scene resources drop from about 909KB to about 143KB when repeated event-object sprite numbers share one decoded sprite.
-- Text/font conversion should use the actual corpus. `WORD.DAT` + `M.MSG` decode cleanly as `cp950` and use 2,631 unique characters, about 84KB at 32 bytes per glyph before metadata.
+- Text/font conversion should use the actual corpus. `WORD.DAT` + `M.MSG` decode cleanly as `cp950` and use 2,631 unique characters. The current `WOR16.ASC`/`WOR16.FON` data yields 2,600 unique 32-byte CJK glyphs in an 88,432-byte generated FONT chunk; ASCII remains a separate font path.
 
 ## Runtime Allocation Rules
 
@@ -65,10 +65,11 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_sfx_cache.c` is the static sound-effect bank slice. It copies selected VOC chunks from the TF pack into `pal_psram_sfx_bank` and tracks spans with a small fixed `pal_sfx_` metadata table.
 - `embedded/pal_global_cache.c` is the static global-data slice. It copies mutable default event/scene/object/player-role data into `pal_psram_save_state` and maps read-only scripts/DATA tables as `const uint8_t *` pack views.
 - `embedded/pal_text_cache.c` is the static text slice. The pack builder converts `WORD.DAT` and `M.MSG` to UTF-16LE in the NOR pack; runtime maps it read-only with no text heap or codepage conversion.
+- `embedded/pal_font_cache.c` is the static font slice. The pack builder converts `WOR16.ASC`/`WOR16.FON` into a read-only NOR glyph table with sorted UTF-16 codepoints and 32-byte glyph payloads; runtime maps it as `const uint8_t *` data with no `unicode_font` allocation.
 
 ## Known Memory Pressure Points
 
-- `fontglyph.h` currently contains a mutable `unicode_font[65536][32]` table, about 2MB.
+- The full desktop path still has `fontglyph.h` with mutable `unicode_font[65536][32]`, about 2MB. The embedded font slice proves the replacement shape, but the full engine has not yet been wired to it.
 - `resampler.c` has mutable float LUTs totaling about 147KB.
 - Global game data currently allocates about 532KB from this data set.
 - Worst measured normal scene resource residency is about 909KB before framebuffers, text/font, audio, and allocator overhead, but about 143KB for the same subset after event-sprite deduplication.

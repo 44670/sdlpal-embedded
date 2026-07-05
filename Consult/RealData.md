@@ -97,9 +97,13 @@ Total predecoded RNG frame payload across all movies is about 7.3MB. That is too
 - Unique non-space characters: 2,630
 - Estimated 1bpp 16x16 glyph payload at 32 bytes per glyph: 84,192 bytes
 - Generated TEXT archive payload: 254,762 bytes, with 210,386 bytes of UTF-16LE text and offset tables for 589 words plus 10,495 messages
+- `WOR16.ASC`: 5,204 bytes; the valid CP950 prefix is 5,202 bytes followed by `0xffff`
+- `WOR16.FON`: 79,726 bytes; source glyph payload starts at offset `0x682` and has 2,602 30-byte slots
+- Generated FONT archive payload: 88,432 bytes, with 2,600 sorted UTF-16 codepoints and 83,200 bytes of 32-byte glyph payloads
+- WOR16/text coverage: 2,600 of 2,631 unique `WORD.DAT` + `M.MSG` characters. The 31 missing characters are mostly ASCII handled by the separate ASCII font path; the missing non-ASCII text characters are `倘` (U+5018), `噬` (U+566C), `忽` (U+5FFD), and `渺` (U+6E3A).
 - Most frequent characters: `．`, `，`, `的`, `我`, `！`, `不`, `是`, `了`, `你`, `？`, `這`, `一`
 
-Main conclusion: the current 2MB `unicode_font[65536][32]` table is unnecessary for this data set if the port can build a compact CP950/codepoint glyph subset.
+Main conclusion: the current 2MB `unicode_font[65536][32]` table is unnecessary for this data set. The checked generated FONT pack already replaces the CJK portion with an 88,432-byte read-only NOR payload; final cutover still needs ASCII integration and a fallback for the four missing CJK corpus characters.
 
 ## Largest Single Runtime Chunks
 

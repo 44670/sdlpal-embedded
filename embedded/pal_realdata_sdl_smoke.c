@@ -1,4 +1,5 @@
 #include "pal_battle_cache.h"
+#include "pal_font_cache.h"
 #include "pal_global_cache.h"
 #include "pal_memory.h"
 #include "pal_pack.h"
@@ -344,6 +345,33 @@ static int check_text_cache(const PalPack *nor)
     return 0;
 }
 
+static int check_font_cache(const PalPack *nor)
+{
+    PalFontCache cache;
+    const uint8_t *glyph = 0;
+    uint16_t glyph_bytes = 0;
+
+    if (!PalFont_Open(nor, &cache)) {
+        return 1;
+    }
+    if (cache.glyph_count != 2600u || cache.glyph_bytes != PAL_FONT_GLYPH_BYTES || cache.glyph_data_size != 83200u) {
+        return 2;
+    }
+    if (!PalFont_FindGlyph(&cache, 0x7d93u, &glyph, &glyph_bytes) || glyph_bytes != PAL_FONT_GLYPH_BYTES || checksum32(glyph, glyph_bytes) == 0) {
+        return 3;
+    }
+    if (!PalFont_FindGlyph(&cache, 0x9a57u, &glyph, &glyph_bytes) || glyph_bytes != PAL_FONT_GLYPH_BYTES || checksum32(glyph, glyph_bytes) == 0) {
+        return 4;
+    }
+    if (!PalFont_FindGlyph(&cache, 0x503cu, &glyph, &glyph_bytes) || glyph_bytes != PAL_FONT_GLYPH_BYTES || checksum32(glyph, glyph_bytes) == 0) {
+        return 5;
+    }
+    if (PalFont_FindGlyph(&cache, 0x0030u, &glyph, &glyph_bytes)) {
+        return 6;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
@@ -366,6 +394,7 @@ int main(int argc, char **argv)
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_ABC, 160) ||
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_FIRE, 55) ||
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_TEXT, 1) ||
+        expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_FONT, 1) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_FBP, 72) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_MAP, 226) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_GOP, 226) ||
@@ -407,6 +436,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_text_cache(&nor.pack);
+    }
+    if (rc == 0) {
+        rc = check_font_cache(&nor.pack);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();

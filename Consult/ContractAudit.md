@@ -37,6 +37,8 @@ embedded/pal_global_cache.c
 embedded/pal_global_cache.h
 embedded/pal_text_cache.c
 embedded/pal_text_cache.h
+embedded/pal_font_cache.c
+embedded/pal_font_cache.h
 ```
 
 Source scan:
@@ -81,14 +83,14 @@ python3 -B tools/pal_pack_build.py \
 Current default pack sizes from the audited data:
 
 ```text
-/tmp/pal_nor_default.pak: 10,358,262 bytes
+/tmp/pal_nor_default.pak: 10,446,724 bytes
 /tmp/pal_tf_default.pak: 40,069,156 bytes
 ```
 
 Default NOR archives:
 
 ```text
-ABC,BALL,DATA,F,FIRE,MGO,MIDI,MUS,PAT,RGM,SSS,TEXT
+ABC,BALL,DATA,F,FIRE,MGO,MIDI,MUS,PAT,RGM,SSS,TEXT,FONT
 ```
 
 Default TF archives:
@@ -97,7 +99,7 @@ Default TF archives:
 FBP,GOP,MAP,RNG,VOC
 ```
 
-`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `GOP` and most audio/data chunks are already raw/native and are copied as raw chunks.
+`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `WOR16.ASC` and `WOR16.FON` are converted to a sorted read-only glyph table by the host tool. `GOP` and most audio/data chunks are already raw/native and are copied as raw chunks.
 
 The generated packs can also be checked with the C runtime reader through the host-side mmap checker:
 
@@ -111,7 +113,7 @@ cc -std=c99 -Wall -Wextra -Werror -O2 \
 Current C-reader summary:
 
 ```text
-/tmp/pal_nor_default.pak: size=10358262
+/tmp/pal_nor_default.pak: size=10446724
   ABC  chunks=  160 payload=2154538
   BALL chunks=  231 payload=133776
   DATA chunks=   15 payload=70784
@@ -124,7 +126,8 @@ Current C-reader summary:
   RGM  chunks=   92 payload=452830
   SSS  chunks=    5 payload=563212
   TEXT chunks=    1 payload=254762
-  archives=12 payload=10334210
+  FONT chunks=    1 payload=88432
+  archives=13 payload=10422642
 /tmp/pal_tf_default.pak: size=40069156
   FBP  chunks=   72 payload=4608000
   GOP  chunks=  226 payload=11529414
@@ -157,6 +160,8 @@ embedded/pal_global_cache.c
 embedded/pal_global_cache.h
 embedded/pal_text_cache.c
 embedded/pal_text_cache.h
+embedded/pal_font_cache.c
+embedded/pal_font_cache.h
 ```
 
 Properties:
@@ -353,6 +358,17 @@ The smoke also exercises `embedded/pal_text_cache.c` against the generated TEXT 
 
 The TEXT archive chunk is 254,762 bytes including header and offset tables. Runtime only validates the table and returns `const uint8_t *` UTF-16LE spans.
 
+The smoke also exercises `embedded/pal_font_cache.c` against the generated FONT archive. The host pack builder trims the `WOR16.ASC` `0xff` terminator, decodes the valid 5,202-byte CP950 prefix, pairs it with 30-byte source glyphs from `WOR16.FON` at offset `0x682`, pads each glyph to 32 bytes, deduplicates by codepoint, and stores a sorted read-only table:
+
+| Font source | Count | Bytes |
+| --- | ---: | ---: |
+| Decoded `WOR16.ASC` slots | 2,601 | 5,202 |
+| Source `WOR16.FON` glyph slots after `0x682` | 2,602 | 78,060 |
+| Unique generated glyphs | 2,600 | 83,200 |
+| Generated FONT archive chunk | 1 | 88,432 |
+
+Runtime only validates the header/table and binary-searches codepoints to return `const uint8_t *` glyph spans. The checked glyphs include U+7D93, U+9A57, and U+503C from the word "經驗值"; ASCII digit U+0030 is intentionally absent from this WOR16 CJK pack.
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -386,7 +402,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=13002 data=704 bss=7196744
+text=13970 data=704 bss=7196744
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -461,6 +477,6 @@ The large `.data` footprint is expected from the current desktop build and is no
 1. Add a dedicated native embedded-contract build profile instead of overloading the full desktop Unix build.
 2. Exclude MP3/OGG/OPUS/AVI/TinySoundFont/Timidity/high-quality resampler from that profile.
 3. Replace `PAL_MKFDecompressChunk`, `PAL_MKFGetDecompressedSize`, and `Decompress` use with a raw/native resource-pack API.
-4. Add host-side pack generation for decoded MAP/FBP/MGO/ABC/F/FIRE/RNG payloads.
-5. Replace heap-backed scene, battle, text, font, save/load, audio, and temporary buffers with normal named static SRAM/PSRAM arrays.
+4. Wire the generated raw/native packs into the full engine resource path instead of only the embedded smoke slices.
+5. Replace heap-backed scene, battle, save/load, audio, and temporary buffers with normal named static SRAM/PSRAM arrays.
 6. Keep running `tools/embedded_contract_check.py` after each cut until source and binary checks pass.

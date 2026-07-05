@@ -23,10 +23,17 @@ FORMAT_RAW = 0
 FORMAT_NATIVE = 1
 FORMAT_RNG_FRAMES = 2
 FORMAT_TEXT_UTF16 = 3
+FORMAT_FONT_GLYPHS = 4
 
 TEXT_MAGIC = 0x54585450
 TEXT_VERSION = 1
 TEXT_HEADER_SIZE = 32
+FONT_MAGIC = 0x544E4650
+FONT_VERSION = 1
+FONT_HEADER_SIZE = 32
+FONT_GLYPH_SOURCE_OFFSET = 0x682
+FONT_GLYPH_SOURCE_BYTES = 30
+FONT_GLYPH_BYTES = 32
 
 ARCHIVE_IDS = {
     "ABC": 1,
@@ -46,9 +53,10 @@ ARCHIVE_IDS = {
     "SSS": 15,
     "VOC": 16,
     "TEXT": 17,
+    "FONT": 18,
 }
 
-DEFAULT_NOR = ["ABC", "BALL", "DATA", "F", "FIRE", "MGO", "MIDI", "MUS", "PAT", "RGM", "SSS", "TEXT"]
+DEFAULT_NOR = ["ABC", "BALL", "DATA", "F", "FIRE", "MGO", "MIDI", "MUS", "PAT", "RGM", "SSS", "TEXT", "FONT"]
 DEFAULT_TF = ["FBP", "GOP", "MAP", "RNG", "VOC"]
 
 
@@ -282,9 +290,69 @@ def encode_text_pack(data_dir: Path) -> bytes:
     return bytes(out)
 
 
+def find_data_file(data_dir: Path, name: str) -> Path:
+    path = data_dir / name
+    if path.exists():
+        return path
+    lower = data_dir / name.lower()
+    if lower.exists():
+        return lower
+    raise FileNotFoundError(path)
+
+
+def encode_font_pack(data_dir: Path) -> bytes:
+    asc_path = find_data_file(data_dir, "WOR16.ASC")
+    fon_path = find_data_file(data_dir, "WOR16.FON")
+    asc = asc_path.read_bytes().rstrip(b"\xff")
+    fon = fon_path.read_bytes()
+
+    if len(asc) % 2 != 0:
+        raise ValueError(f"odd WOR16.ASC byte count after terminator trim: {asc_path}")
+    if len(fon) < FONT_GLYPH_SOURCE_OFFSET:
+        raise ValueError(f"short WOR16.FON: {fon_path}")
+
+    chars = asc.decode("cp950", errors="strict")
+    source_count = min(len(chars), (len(fon) - FONT_GLYPH_SOURCE_OFFSET) // FONT_GLYPH_SOURCE_BYTES)
+    glyphs: dict[int, bytes] = {}
+
+    for index, ch in enumerate(chars[:source_count]):
+        codepoint = ord(ch)
+        if codepoint > 0xffff or codepoint in glyphs:
+            continue
+        start = FONT_GLYPH_SOURCE_OFFSET + index * FONT_GLYPH_SOURCE_BYTES
+        glyphs[codepoint] = fon[start : start + FONT_GLYPH_SOURCE_BYTES] + b"\0\0"
+
+    ordered_codepoints = sorted(glyphs)
+    codepoint_table_offset = FONT_HEADER_SIZE
+    glyph_data_offset = align4(codepoint_table_offset + len(ordered_codepoints) * 2)
+    glyph_data_size = len(ordered_codepoints) * FONT_GLYPH_BYTES
+
+    out = bytearray(
+        struct.pack(
+            "<IHHHHIIIII",
+            FONT_MAGIC,
+            FONT_VERSION,
+            FONT_HEADER_SIZE,
+            len(ordered_codepoints),
+            FONT_GLYPH_BYTES,
+            codepoint_table_offset,
+            glyph_data_offset,
+            glyph_data_size,
+            source_count,
+            0,
+        )
+    )
+    out += b"".join(struct.pack("<H", codepoint) for codepoint in ordered_codepoints)
+    out += b"\0" * (glyph_data_offset - len(out))
+    out += b"".join(glyphs[codepoint] for codepoint in ordered_codepoints)
+    return bytes(out)
+
+
 def load_archive(data_dir: Path, name: str) -> list[Chunk]:
     if name == "TEXT":
         return [Chunk(encode_text_pack(data_dir), FORMAT_TEXT_UTF16)]
+    if name == "FONT":
+        return [Chunk(encode_font_pack(data_dir), FORMAT_FONT_GLYPHS)]
 
     path = data_dir / f"{name}.MKF"
     if not path.exists():
