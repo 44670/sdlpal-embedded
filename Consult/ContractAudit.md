@@ -79,6 +79,8 @@ python3 -B tools/embedded_contract_check.py \
   --max-symbol-prefix pal_psram_=8388608
 ```
 
+It can also parse generated pack files through `--pack`, fail if any chunk has runtime flags, fail if a payload still starts with `YJ_1`, and enforce pack-size budgets with `--max-pack-size PATH=BYTES`.
+
 ## Resource Pack Builder
 
 The host-side pack builder decodes YJ1 chunks before writing runtime packs:
@@ -445,7 +447,7 @@ Verify the artifact:
 make -C embedded contract-check
 ```
 
-The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump`, and symbol-prefix budgets from `nm -S --size-sort`.
+The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary/pack gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump`, symbol-prefix budgets from `nm -S --size-sort`, no generated-pack runtime flags or YJ1 payloads, and a 16MB NOR pack size limit.
 
 Current result:
 
@@ -464,6 +466,14 @@ pal_save_ total=512 limit=4096
 pal_video_ total=512 limit=4096
 pal_ui_ total=0 limit=4096
 pal_music_ total=0 limit=4096
+
+pack /tmp/pal_nor_default.pak:
+size=10446724 chunks=1401 payload=10422642 max-size=16777216
+formats NATIVE=1399 TEXT_UTF16=1 FONT_GLYPHS=1
+
+pack /tmp/pal_tf_default.pak:
+size=49309874 chunks=1088 payload=49291679
+formats NATIVE=800 RNG_FRAMES=12 SFX_PCM16=276
 PASS
 ```
 

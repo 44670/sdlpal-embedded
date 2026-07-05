@@ -54,11 +54,14 @@ realdata-check: pack-build $(PACK_CHECK) $(REALDATA_SDL_SMOKE)
 	$(PACK_CHECK) $(PACK_NOR) $(PACK_TF)
 	SDL_VIDEODRIVER=dummy $(REALDATA_SDL_SMOKE) $(PACK_NOR) $(PACK_TF) $(PAL_DATA_DIR)
 
-contract-check: $(REALDATA_SDL_SMOKE)
+contract-check: pack-build $(REALDATA_SDL_SMOKE)
 	$(PYTHON) -B ../tools/embedded_contract_check.py \
 		--root . \
 		--fail-on-source \
 		--binary $(REALDATA_SDL_SMOKE) \
+		--pack $(PACK_NOR) \
+		--pack $(PACK_TF) \
+		--max-pack-size $(PACK_NOR)=16777216 \
 		--max text=65536 \
 		--max data=4096 \
 		--max bss=7200000 \

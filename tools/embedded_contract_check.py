@@ -20,6 +20,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+PACK_MAGIC = 0x4B504C50
+PACK_VERSION = 1
+PACK_HEADER_SIZE = 32
+PACK_ARCHIVE_ENTRY_SIZE = 12
+PACK_CHUNK_ENTRY_SIZE = 16
+PACK_CHUNK_F_COMPRESSED = 0x0001
+PACK_FORMAT_NAMES = {
+    0: "RAW",
+    1: "NATIVE",
+    2: "RNG_FRAMES",
+    3: "TEXT_UTF16",
+    4: "FONT_GLYPHS",
+    5: "SFX_PCM16",
+}
+
+
 DEFAULT_SOURCE_GLOBS = ("*.c", "*.cpp", "*.h")
 DEFAULT_EXCLUDE_DIRS = {
     ".git",
@@ -101,6 +117,16 @@ class Symbol:
     size: int
     kind: str
     name: str
+
+
+@dataclass(frozen=True)
+class PackChunk:
+    archive_id: int
+    chunk_id: int
+    offset: int
+    size: int
+    fmt: int
+    flags: int
 
 
 def iter_sources(root: Path, include_third_party: bool):
@@ -233,6 +259,138 @@ def parse_budget(values: list[str]) -> dict[str, int]:
     return result
 
 
+def u16(data: bytes, offset: int) -> int:
+    return data[offset] | (data[offset + 1] << 8)
+
+
+def u32(data: bytes, offset: int) -> int:
+    return (
+        data[offset]
+        | (data[offset + 1] << 8)
+        | (data[offset + 2] << 16)
+        | (data[offset + 3] << 24)
+    )
+
+
+def checked_range(offset: int, size: int, total: int) -> bool:
+    return 0 <= offset <= total and 0 <= size <= total - offset
+
+
+def parse_pack_size_budget(values: list[str]) -> dict[Path, int]:
+    result: dict[Path, int] = {}
+    for item in values:
+        raw_path, sep, raw_limit = item.rpartition("=")
+        if not sep or not raw_path:
+            raise SystemExit(f"bad --max-pack-size form: {item}; expected PATH=BYTES")
+        result[Path(raw_path).resolve()] = int(raw_limit, 0)
+    return result
+
+
+def parse_pack_chunks(path: Path) -> tuple[bytes, list[PackChunk]]:
+    data = path.read_bytes()
+    if len(data) < PACK_HEADER_SIZE:
+        raise ValueError("short pack header")
+    if u32(data, 0) != PACK_MAGIC:
+        raise ValueError("bad pack magic")
+    if u16(data, 4) != PACK_VERSION or u16(data, 6) != PACK_HEADER_SIZE:
+        raise ValueError("bad pack version/header size")
+
+    archive_count = u16(data, 8)
+    archive_table_offset = u32(data, 12)
+    pack_size = u32(data, 24)
+    if pack_size != len(data):
+        raise ValueError(f"pack size field is {pack_size}, actual {len(data)}")
+    if not checked_range(archive_table_offset, archive_count * PACK_ARCHIVE_ENTRY_SIZE, len(data)):
+        raise ValueError("archive table out of range")
+
+    chunks: list[PackChunk] = []
+    seen_archives: set[int] = set()
+    for archive_index in range(archive_count):
+        archive_offset = archive_table_offset + archive_index * PACK_ARCHIVE_ENTRY_SIZE
+        archive_id = u16(data, archive_offset)
+        chunk_count = u16(data, archive_offset + 2)
+        chunk_table_offset = u32(data, archive_offset + 4)
+        if archive_id in seen_archives:
+            raise ValueError(f"duplicate archive id {archive_id}")
+        seen_archives.add(archive_id)
+        if not checked_range(chunk_table_offset, chunk_count * PACK_CHUNK_ENTRY_SIZE, len(data)):
+            raise ValueError(f"chunk table out of range for archive {archive_id}")
+
+        for chunk_id in range(chunk_count):
+            chunk_offset = chunk_table_offset + chunk_id * PACK_CHUNK_ENTRY_SIZE
+            payload_offset = u32(data, chunk_offset)
+            payload_size = u32(data, chunk_offset + 4)
+            fmt = u16(data, chunk_offset + 8)
+            flags = u16(data, chunk_offset + 10)
+            if not checked_range(payload_offset, payload_size, len(data)):
+                raise ValueError(f"payload out of range: archive {archive_id} chunk {chunk_id}")
+            chunks.append(PackChunk(archive_id, chunk_id, payload_offset, payload_size, fmt, flags))
+    return data, chunks
+
+
+def check_pack(path: Path, max_size: int | None) -> tuple[list[str], str]:
+    errors: list[str] = []
+    report: list[str] = []
+
+    try:
+        data, chunks = parse_pack_chunks(path)
+    except OSError as exc:
+        return [f"{path}: cannot read pack: {exc}"], ""
+    except ValueError as exc:
+        return [f"{path}: {exc}"], ""
+
+    if max_size is not None and len(data) > max_size:
+        errors.append(f"{path}: pack size {len(data)} bytes, over budget {max_size}")
+
+    archive_payloads: dict[int, int] = {}
+    archive_chunks: dict[int, int] = {}
+    format_counts: dict[int, int] = {}
+    bad_flags: list[PackChunk] = []
+    bad_magic: list[PackChunk] = []
+    bad_formats: list[PackChunk] = []
+
+    for chunk in chunks:
+        archive_payloads[chunk.archive_id] = archive_payloads.get(chunk.archive_id, 0) + chunk.size
+        archive_chunks[chunk.archive_id] = archive_chunks.get(chunk.archive_id, 0) + 1
+        format_counts[chunk.fmt] = format_counts.get(chunk.fmt, 0) + 1
+        if chunk.flags != 0 or (chunk.flags & PACK_CHUNK_F_COMPRESSED) != 0:
+            bad_flags.append(chunk)
+        if chunk.fmt not in PACK_FORMAT_NAMES:
+            bad_formats.append(chunk)
+        payload = data[chunk.offset : chunk.offset + min(chunk.size, 4)]
+        if payload == b"YJ_1":
+            bad_magic.append(chunk)
+
+    if bad_flags:
+        errors.append(f"{path}: chunks with runtime flags: {len(bad_flags)}")
+    if bad_formats:
+        errors.append(f"{path}: chunks with unknown formats: {len(bad_formats)}")
+    if bad_magic:
+        errors.append(f"{path}: chunks still carrying YJ_1 payloads: {len(bad_magic)}")
+
+    report.append(f"## pack {path}")
+    report.append(f"size={len(data)} chunks={len(chunks)} payload={sum(chunk.size for chunk in chunks)}")
+    for archive_id in sorted(archive_chunks):
+        report.append(
+            f"archive {archive_id} chunks={archive_chunks[archive_id]} payload={archive_payloads[archive_id]}"
+        )
+    report.append("formats " + " ".join(
+        f"{PACK_FORMAT_NAMES.get(fmt, str(fmt))}={count}" for fmt, count in sorted(format_counts.items())
+    ))
+    if max_size is not None:
+        report.append(f"max-size={max_size}")
+    for label, bad in (("flagged", bad_flags), ("unknown-format", bad_formats), ("yj1", bad_magic)):
+        if bad:
+            report.append(label)
+            for chunk in bad[:80]:
+                report.append(
+                    f"  archive={chunk.archive_id} chunk={chunk.chunk_id} size={chunk.size} "
+                    f"format={chunk.fmt} flags=0x{chunk.flags:04x}"
+                )
+
+    return errors, "\n".join(report)
+
+
 def parse_sized_symbols(output: str) -> list[Symbol]:
     symbols: list[Symbol] = []
     expr = re.compile(r"^\s*([0-9A-Fa-f]+)\s+([0-9A-Fa-f]+)\s+([A-Za-z])\s+(.+)$")
@@ -338,8 +496,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--binary", type=Path)
+    parser.add_argument("--pack", type=Path, action="append", default=[])
     parser.add_argument("--include-third-party", action="store_true")
     parser.add_argument("--max", action="append", default=[], metavar="NAME=BYTES")
+    parser.add_argument("--max-pack-size", action="append", default=[], metavar="PATH=BYTES")
     parser.add_argument(
         "--symbol-prefix",
         action="append",
@@ -386,6 +546,15 @@ def main() -> int:
         errors.extend(binary_errors)
         print()
         print(binary_report)
+
+    pack_size_budgets = parse_pack_size_budget(args.max_pack_size)
+    for raw_pack_path in args.pack:
+        pack_path = raw_pack_path.resolve()
+        pack_errors, pack_report = check_pack(pack_path, pack_size_budgets.get(pack_path))
+        errors.extend(pack_errors)
+        if pack_report:
+            print()
+            print(pack_report)
 
     if errors:
         print("\n## FAIL")
