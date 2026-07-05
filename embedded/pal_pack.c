@@ -81,6 +81,18 @@ static bool find_archive(const PalPack *pack, uint16_t archive_id, const uint8_t
     return false;
 }
 
+bool PalPack_GetChunkCount(const PalPack *pack, uint16_t archive_id, uint16_t *chunk_count)
+{
+    const uint8_t *archive;
+
+    if (chunk_count == NULL || !find_archive(pack, archive_id, &archive)) {
+        return false;
+    }
+
+    *chunk_count = read_le16(archive + 2);
+    return true;
+}
+
 bool PalPack_MapConst(const PalPack *pack, uint16_t archive_id, uint16_t chunk_id, PalPackSpan *span)
 {
     const uint8_t *archive;

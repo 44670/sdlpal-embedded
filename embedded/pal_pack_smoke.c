@@ -22,12 +22,16 @@ int main(void)
     PalPack pack;
     PalPackSpan span;
     uint32_t copied = 0;
+    uint16_t chunk_count = 0;
 
     if (!PalPack_OpenConst(&pack, kSmokePack, (uint32_t)sizeof(kSmokePack))) {
         return 1;
     }
     if (!PalPack_MapConst(&pack, PAL_PACK_ARCHIVE_DATA, 0, &span)) {
         return 2;
+    }
+    if (!PalPack_GetChunkCount(&pack, PAL_PACK_ARCHIVE_DATA, &chunk_count) || chunk_count != 1) {
+        return 6;
     }
     if (span.size != 4 || span.data[0] != 0xde || span.data[3] != 0xef) {
         return 3;

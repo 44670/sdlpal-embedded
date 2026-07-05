@@ -45,12 +45,16 @@ int main(void)
     PalPack pack;
     PalPackSpan span;
     SDL_Surface *surface;
+    uint16_t chunk_count = 0;
 
     if (!PalPack_OpenConst(&pack, kNativePack, (uint32_t)sizeof(kNativePack))) {
         return 1;
     }
     if (!PalPack_MapConst(&pack, PAL_PACK_ARCHIVE_DATA, 0, &span)) {
         return 2;
+    }
+    if (!PalPack_GetChunkCount(&pack, PAL_PACK_ARCHIVE_DATA, &chunk_count) || chunk_count != 1u) {
+        return 11;
     }
     if (span.size != 8u || span.format != PAL_PACK_FORMAT_NATIVE || span.data[7] != 0xffu) {
         return 3;

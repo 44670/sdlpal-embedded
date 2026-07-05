@@ -16,6 +16,7 @@ Added:
 ```text
 tools/embedded_contract_check.py
 tools/pal_pack_build.py
+tools/pal_pack_check.c
 embedded/pal_pack.c
 embedded/pal_pack.h
 embedded/pal_pack_smoke.c
@@ -85,6 +86,40 @@ FBP,GOP,MAP,RNG,VOC
 
 `MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `GOP` and most audio/data chunks are already raw/native and are copied as raw chunks.
 
+The generated packs can also be checked with the C runtime reader through the host-side mmap checker:
+
+```sh
+cc -std=c99 -Wall -Wextra -Werror -O2 \
+  -Iembedded embedded/pal_pack.c tools/pal_pack_check.c \
+  -o /tmp/pal_pack_check
+/tmp/pal_pack_check /tmp/pal_nor_default.pak /tmp/pal_tf_default.pak
+```
+
+Current C-reader summary:
+
+```text
+/tmp/pal_nor_default.pak: size=10103472
+  ABC  chunks=  160 payload=2154538
+  BALL chunks=  231 payload=133776
+  DATA chunks=   15 payload=70784
+  F    chunks=   19 payload=329624
+  FIRE chunks=   55 payload=1909992
+  MGO  chunks=  637 payload=3363230
+  MIDI chunks=   88 payload=762086
+  MUS  chunks=   88 payload=330928
+  PAT  chunks=    9 payload=8448
+  RGM  chunks=   92 payload=452830
+  SSS  chunks=    5 payload=563212
+  archives=11 payload=10079448
+/tmp/pal_tf_default.pak: size=40069156
+  FBP  chunks=   72 payload=4608000
+  GOP  chunks=  226 payload=11529414
+  MAP  chunks=  226 payload=14614528
+  RNG  chunks=   12 payload=7307725
+  VOC  chunks=  276 payload=1995936
+  archives=5 payload=40055603
+```
+
 ## Contract Runtime Slice
 
 The first runtime slices are a pack reader and a plain static-buffer declaration unit:
@@ -122,7 +157,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=2211 data=576 bss=8
+text=2395 data=576 bss=8
 PASS
 ```
 
@@ -207,7 +242,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=3927 data=624 bss=182792
+text=4155 data=624 bss=182792
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=0 limit=8388608
 PASS

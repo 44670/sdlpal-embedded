@@ -12,6 +12,7 @@ Primary consultation notes are in:
 - `Consult/mkf_audit.py`
 - `Consult/pal_data_audit.py`
 - `tools/pal_pack_build.py`
+- `tools/pal_pack_check.c`
 - `tools/embedded_contract_check.py`
 
 ## Target Memory and Storage Constraints
@@ -41,6 +42,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - TF card can hold the original files and generated cache files, but runtime TF random access should be minimized. Prefer sequential reads of already-decoded/native chunks.
 - Favor reproducible tools for dataset inspection and conversion.
 - `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode is allowed there because it is host-side pack generation, not runtime.
+- `tools/pal_pack_check.c` is a host-side mmap checker for generated packs using the same `embedded/pal_pack.c` reader.
 - The audited data path has no loose `.ogg`, `.opus`, `.mp3`, `.wav`, `.mid`, or `.avi` files. Audio is in `MIDI.MKF`, `MUS.MKF`, and `VOC.MKF`.
 - Scene/event sprite deduplication is high value: worst measured scene resources drop from about 909KB to about 143KB when repeated event-object sprite numbers share one decoded sprite.
 - Text/font conversion should use the actual corpus. `WORD.DAT` + `M.MSG` decode cleanly as `cp950` and use 2,631 unique characters, about 84KB at 32 bytes per glyph before metadata.

@@ -54,6 +54,7 @@ typedef struct PalPackSpan {
 } PalPackSpan;
 
 bool PalPack_OpenConst(PalPack *pack, const uint8_t *data, uint32_t size);
+bool PalPack_GetChunkCount(const PalPack *pack, uint16_t archive_id, uint16_t *chunk_count);
 bool PalPack_MapConst(const PalPack *pack, uint16_t archive_id, uint16_t chunk_id, PalPackSpan *span);
 bool PalPack_CopyRaw(const PalPack *pack, uint16_t archive_id, uint16_t chunk_id, uint8_t *dst, uint32_t dst_capacity, uint32_t *out_size);
 
