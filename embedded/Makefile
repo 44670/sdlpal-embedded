@@ -10,6 +10,7 @@ PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
 
 CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections
 LDFLAGS ?= -Wl,--gc-sections
+MAP_LDFLAGS = -Wl,-Map,$@.map,--cref
 SDL_CFLAGS := $(shell $(SDL_CONFIG) --cflags)
 SDL_LIBS := $(shell $(SDL_CONFIG) --libs)
 
@@ -28,19 +29,19 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 $(SMOKE): pal_pack.c pal_pack.h pal_pack_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) pal_pack.c pal_pack_smoke.c -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) pal_pack.c pal_pack_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS)
 
 $(MEMORY_SMOKE): pal_memory.c pal_memory.h pal_memory_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) pal_memory.c pal_memory_smoke.c -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) pal_memory.c pal_memory_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS)
 
 $(NATIVE_SDL_SMOKE): pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_video_static.c pal_video_static.h pal_native_sdl_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_video_static.c pal_native_sdl_smoke.c -o $@ $(LDFLAGS) $(SDL_LIBS)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_video_static.c pal_native_sdl_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS) $(SDL_LIBS)
 
 $(REALDATA_SDL_SMOKE): pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_scene_cache.c pal_scene_cache.h pal_battle_cache.c pal_battle_cache.h pal_rng_cache.c pal_rng_cache.h pal_sfx_cache.c pal_sfx_cache.h pal_audio_static.c pal_audio_static.h pal_global_cache.c pal_global_cache.h pal_text_cache.c pal_text_cache.h pal_font_cache.c pal_font_cache.h pal_save_cache.c pal_save_cache.h pal_video_static.c pal_video_static.h pal_ui_cache.c pal_ui_cache.h pal_music_cache.c pal_music_cache.h pal_realdata_sdl_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_scene_cache.c pal_battle_cache.c pal_rng_cache.c pal_sfx_cache.c pal_audio_static.c pal_global_cache.c pal_text_cache.c pal_font_cache.c pal_save_cache.c pal_video_static.c pal_ui_cache.c pal_music_cache.c pal_realdata_sdl_smoke.c -o $@ $(LDFLAGS) $(SDL_LIBS)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_scene_cache.c pal_battle_cache.c pal_rng_cache.c pal_sfx_cache.c pal_audio_static.c pal_global_cache.c pal_text_cache.c pal_font_cache.c pal_save_cache.c pal_video_static.c pal_ui_cache.c pal_music_cache.c pal_realdata_sdl_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS) $(SDL_LIBS)
 
 $(PACK_CHECK): pal_pack.c pal_pack.h ../tools/pal_pack_check.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I. pal_pack.c ../tools/pal_pack_check.c -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) -I. pal_pack.c ../tools/pal_pack_check.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS)
 
 check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE)
 	$(SMOKE)
@@ -59,6 +60,7 @@ contract-check: pack-build $(REALDATA_SDL_SMOKE)
 		--root . \
 		--fail-on-source \
 		--binary $(REALDATA_SDL_SMOKE) \
+		--link-map $(REALDATA_SDL_SMOKE).map \
 		--pack $(PACK_NOR) \
 		--pack $(PACK_TF) \
 		--max-pack-size $(PACK_NOR)=16777216 \

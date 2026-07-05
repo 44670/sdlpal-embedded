@@ -79,7 +79,7 @@ python3 -B tools/embedded_contract_check.py \
   --max-symbol-prefix pal_psram_=8388608
 ```
 
-It can also parse generated pack files through `--pack`, fail if any chunk has runtime flags, fail if a payload still starts with `YJ_1`, and enforce pack-size budgets with `--max-pack-size PATH=BYTES`.
+It can also parse generated pack files through `--pack`, fail if any chunk has runtime flags, fail if a payload still starts with `YJ_1`, enforce pack-size budgets with `--max-pack-size PATH=BYTES`, and check that a linker map exists with `--link-map`.
 
 ## Resource Pack Builder
 
@@ -474,6 +474,9 @@ formats NATIVE=1399 TEXT_UTF16=1 FONT_GLYPHS=1
 pack /tmp/pal_tf_default.pak:
 size=49309874 chunks=1088 payload=49291679
 formats NATIVE=800 RNG_FRAMES=12 SFX_PCM16=276
+
+linker map build/pal_realdata_sdl_smoke.map:
+size=599351
 PASS
 ```
 

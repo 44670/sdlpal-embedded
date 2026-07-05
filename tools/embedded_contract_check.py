@@ -391,6 +391,16 @@ def check_pack(path: Path, max_size: int | None) -> tuple[list[str], str]:
     return errors, "\n".join(report)
 
 
+def check_link_map(path: Path) -> tuple[list[str], str]:
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        return [f"{path}: cannot stat linker map: {exc}"], ""
+    if size <= 0:
+        return [f"{path}: empty linker map"], ""
+    return [], f"## linker map {path}\nsize={size}"
+
+
 def parse_sized_symbols(output: str) -> list[Symbol]:
     symbols: list[Symbol] = []
     expr = re.compile(r"^\s*([0-9A-Fa-f]+)\s+([0-9A-Fa-f]+)\s+([A-Za-z])\s+(.+)$")
@@ -496,6 +506,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--binary", type=Path)
+    parser.add_argument("--link-map", type=Path, action="append", default=[])
     parser.add_argument("--pack", type=Path, action="append", default=[])
     parser.add_argument("--include-third-party", action="store_true")
     parser.add_argument("--max", action="append", default=[], metavar="NAME=BYTES")
@@ -555,6 +566,14 @@ def main() -> int:
         if pack_report:
             print()
             print(pack_report)
+
+    for raw_map_path in args.link_map:
+        map_path = raw_map_path.resolve()
+        map_errors, map_report = check_link_map(map_path)
+        errors.extend(map_errors)
+        if map_report:
+            print()
+            print(map_report)
 
     if errors:
         print("\n## FAIL")
