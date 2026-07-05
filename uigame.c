@@ -30,6 +30,8 @@ static BOOL __buymenu_firsttime_render;
 #define PAL_UIGAME_PSRAM
 #endif
 static uint8_t pal_psram_uigame_background[320 * 200] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_image[PAL_RLEBUFSIZE] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_box[72 * 72] PAL_UIGAME_PSRAM;
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -1099,9 +1101,15 @@ PAL_PlayerStatus(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   BYTE            *bufBackground = pal_psram_uigame_background;
+   BYTE            *bufImage = pal_psram_uigame_image;
+   BYTE            *bufImageBox = pal_psram_uigame_box;
+#else
    PAL_LARGE BYTE   bufBackground[320 * 200];
    PAL_LARGE BYTE   bufImage[PAL_RLEBUFSIZE];
    PAL_LARGE BYTE   bufImageBox[50 * 49];
+#endif
    int              labels0[] = {
       STATUS_LABEL_EXP, STATUS_LABEL_LEVEL, STATUS_LABEL_HP,
       STATUS_LABEL_MP
@@ -1849,9 +1857,15 @@ PAL_EquipItemMenu(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   BYTE            *bufBackground = pal_psram_uigame_background;
+   BYTE            *bufImageBox = pal_psram_uigame_box;
+   BYTE            *bufImage = pal_psram_uigame_image;
+#else
    PAL_LARGE BYTE   bufBackground[320 * 200];
    PAL_LARGE BYTE   bufImageBox[72 * 72];
    PAL_LARGE BYTE   bufImage[2048];
+#endif
    WORD             w;
    int              iCurrentPlayer, i;
    BYTE             bColor, bSelectedColor;
