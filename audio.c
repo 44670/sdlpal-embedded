@@ -321,7 +321,11 @@ AUDIO_OpenDevice(
    switch (gConfig.eMusicType)
    {
    case MUSIC_RIX:
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+       gAudioDevice.pMusPlayer = RIX_Init(NULL);
+#else
        gAudioDevice.pMusPlayer = RIX_Init(UTIL_GetFullPathName(PAL_BUFFER_SIZE_ARGS(0), gConfig.pszGamePath, "mus.mkf"));
+#endif
 	   break;
    case MUSIC_MP3:
 	   gAudioDevice.pMusPlayer = MP3_Init();

@@ -8,6 +8,7 @@ turns the main hard requirements into repeatable checks:
 - no runtime decompression path in selected runtime sources,
 - no PAL_LARGE local scratch buffers in selected runtime sources,
 - no typed static pal_sram_/pal_psram_ storage declarations in selected runtime sources,
+- no active loose original PAL data filename references in selected runtime sources,
 - no forbidden heap/decompress symbols in a native verification binary,
 - no call sites to heap/decompress trap targets in that binary,
 - section sizes and symbols visible through size/objdump/nm.
@@ -122,6 +123,11 @@ SCRATCH_PATTERNS = (
 
 STORAGE_PATTERNS = (
     r"\bstatic\s+(?!uint8_t\b)[^;\n]*\bpal_(?:sram|psram)_",
+)
+
+LOOSE_RESOURCE_PATTERNS = (
+    r'"[^"\n]*(?:abc|ball|data|f|fbp|fire|gop|map|mgo|pat|rgm|rng|sss|voc|sounds|midi|mus)\.mkf"',
+    r'"[^"\n]*(?:word\.dat|m\.msg|desc\.dat|wor16\.asc|wor16\.fon)"',
 )
 
 FORBIDDEN_SYMBOL_PATTERNS = (
@@ -541,6 +547,7 @@ def scan_sources(
     decomp_res = [re.compile(p, re.IGNORECASE) for p in DECOMPRESS_PATTERNS]
     scratch_res = [re.compile(p) for p in SCRATCH_PATTERNS]
     storage_res = [re.compile(p) for p in STORAGE_PATTERNS]
+    loose_resource_res = [re.compile(p, re.IGNORECASE) for p in LOOSE_RESOURCE_PATTERNS]
     hits: list[Hit] = []
 
     for path in sorted(set(iter_scan_sources(root, include_third_party, source_files))):
@@ -561,6 +568,8 @@ def scan_sources(
                 hits.append(Hit("scratch", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
             if any(expr.search(line) for expr in storage_res):
                 hits.append(Hit("storage", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
+            if any(expr.search(line) for expr in loose_resource_res):
+                hits.append(Hit("loose-resource", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
 
     return hits
 
@@ -1135,11 +1144,11 @@ def main() -> int:
     print("# Embedded Contract Check")
     print(f"root: {root}")
 
-    by_kind: dict[str, list[Hit]] = {"heap": [], "decompress": [], "scratch": [], "storage": []}
+    by_kind: dict[str, list[Hit]] = {"heap": [], "decompress": [], "scratch": [], "storage": [], "loose-resource": []}
     for hit in hits:
         by_kind.setdefault(hit.kind, []).append(hit)
 
-    for kind in ("heap", "decompress", "scratch", "storage"):
+    for kind in ("heap", "decompress", "scratch", "storage", "loose-resource"):
         kind_hits = by_kind.get(kind, [])
         print(f"\n## source {kind} hits: {len(kind_hits)}")
         for hit in kind_hits[:200]:

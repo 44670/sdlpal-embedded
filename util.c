@@ -792,6 +792,11 @@ UTIL_CheckResourceFiles(
 	const char *msgfile
 )
 {
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+	(void)path;
+	(void)msgfile;
+	return (PALFILE)0;
+#else
 	const char *common_files[] = {
 		"abc.mkf", "ball.mkf", "data.mkf", "f.mkf",
 		"fbp.mkf", "fire.mkf", "gop.mkf",  "map.mkf",
@@ -840,6 +845,7 @@ UTIL_CheckResourceFiles(
 	}
 
 	return retval;
+#endif
 }
 
 

@@ -245,7 +245,11 @@ PAL_InitGlobals(
    //
    // Detect game language only when no message file specified
    //
+#ifdef PAL_NO_RUNTIME_HEAP
+   if (!gConfig.pszMsgFile) PAL_SetCodePage(CP_BIG5);
+#else
    if (!gConfig.pszMsgFile) PAL_SetCodePage(PAL_DetectCodePage("word.dat"));
+#endif
 
 #ifndef PAL_NO_RUNTIME_DECOMPRESS
    Decompress = gConfig.fIsWIN95 ? YJ2_Decompress : YJ1_Decompress;
