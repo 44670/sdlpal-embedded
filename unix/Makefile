@@ -7,6 +7,7 @@ INTER=.unix
 
 HOST =
 TEST_CCFLAGS =
+EMBEDDED_CONTRACT ?= 0
 
 GENERATED = -DPAL_HAS_GIT_REVISION $(shell ../scripts/gengitrev)
 
@@ -25,14 +26,34 @@ else
 	MIDI_LDFLAGS =
 endif
 
-SOURCES = .. ../sdl_compat ../adplug ../liboggvorbis/src ../libopusfile/src ../libopusfile/celt ../libopusfile/silk ../libopusfile/silk/float ../libmad ../timidity
-CFILES = $(foreach dir, $(SOURCES), $(wildcard $(dir)/*.c)) $(MIDI_CFILES)
+ifeq ($(EMBEDDED_CONTRACT),1)
+	TARGET = sdlpal-embedded-contract
+	INTER = .embedded.unix
+	GENERATED =
+	MIDI_CFILES =
+	MIDI_CPPFILES =
+	MIDI_LDFLAGS =
+	SOURCES = .. ../sdl_compat ../adplug
+	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../video_glsl.c
+	CONTRACT_CFILES = embedded_contract_stubs.c
+	EMBEDDED_CCFLAGS = -UUSE_SDL3 -DUSE_SDL3=0 -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI
+else
+	SOURCES = .. ../sdl_compat ../adplug ../liboggvorbis/src ../libopusfile/src ../libopusfile/celt ../libopusfile/silk ../libopusfile/silk/float ../libmad ../timidity
+	CONTRACT_CFILE_EXCLUDES =
+	CONTRACT_CFILES =
+	EMBEDDED_CCFLAGS =
+endif
+
+CFILES = $(filter-out $(CONTRACT_CFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.c))) $(MIDI_CFILES) $(CONTRACT_CFILES)
 CPPFILES = $(foreach dir, $(SOURCES), $(wildcard $(dir)/*.cpp)) unix.cpp $(MIDI_CPPFILES)
 TOBJFILES = $(CFILES:.c=$(INTER).o) $(CPPFILES:.cpp=$(INTER).o)
 DEPFILES = $(OBJFILES:.o=.d)
 TEST_CPPFILES = $(wildcard ../tests/*.cpp)
 TEST_OBJFILES = $(TEST_CPPFILES:.cpp=.o)
 SDL_CONFIG = pkg-config sdl3
+ifeq ($(EMBEDDED_CONTRACT),1)
+	SDL_CONFIG = pkg-config sdl2
+endif
 
 
 FLTK_INSTALLED := $(shell command -v fltk-config 2> /dev/null)
@@ -49,7 +70,7 @@ endif
 
 CC = $(HOST)gcc
 CXX = $(HOST)g++
-override CCFLAGS += `$(SDL_CONFIG) --cflags` -DUSE_SDL3=1 -I../sdl_compat -D_GNU_SOURCE -g -Wall -O2 -fno-strict-aliasing $(EXTRA_CCFLAGS) $(TEST_CCFLAGS) $(GENERATED)
+override CCFLAGS += `$(SDL_CONFIG) --cflags` -DUSE_SDL3=1 -I../sdl_compat -D_GNU_SOURCE -g -Wall -O2 -fno-strict-aliasing $(EXTRA_CCFLAGS) $(TEST_CCFLAGS) $(GENERATED) $(EMBEDDED_CCFLAGS)
 CXXFLAGS = $(CCFLAGS) -std=c++11 $(FLTK_CXXFLAGS)
 CFLAGS = $(CCFLAGS) -std=gnu99 $(FLTK_CFLAGS)
 LDFLAGS = `$(SDL_CONFIG) --libs` $(FLTK_LDFLAGS) $(MIDI_LDFLAGS) -lstdc++ -lm
@@ -60,7 +81,11 @@ ifeq ($(UNAME_S),Darwin)
 	LDFLAGS += -framework OpenGL
 	OBJFILES = $(filter-out ../mini_glloader.unix.o, $(TOBJFILES))
 else
-	LDFLAGS += -lGL -pthread
+	ifeq ($(EMBEDDED_CONTRACT),1)
+		LDFLAGS += -pthread
+	else
+		LDFLAGS += -lGL -pthread
+	endif
 	OBJFILES = $(TOBJFILES)
 endif
 

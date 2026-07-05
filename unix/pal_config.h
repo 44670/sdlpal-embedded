@@ -62,13 +62,19 @@
 # define PAL_CREDIT           NULL
 # define PAL_PORTYEAR         NULL
 
-# define PAL_HAS_CONFIG_PAGE  1
-# define PAL_HAS_NATIVEMIDI 1
+# ifndef PAL_HAS_CONFIG_PAGE
+#  define PAL_HAS_CONFIG_PAGE  1
+# endif
+# ifndef PAL_HAS_NATIVEMIDI
+#  define PAL_HAS_NATIVEMIDI 1
+# endif
 
 #include <sys/time.h>
 
 #if SDL_VERSION_ATLEAST(2,0,0)
-# define PAL_HAS_GLSL 1
+# ifndef PAL_HAS_GLSL
+#  define PAL_HAS_GLSL 1
+# endif
 #endif
 
 #endif

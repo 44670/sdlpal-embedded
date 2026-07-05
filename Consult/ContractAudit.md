@@ -578,6 +578,57 @@ unix/sdlpal
 
 This is only a baseline desktop/native binary. It is not yet an embedded-contract binary, because it still includes heap allocation, YJ decompression, MP3/OGG/OPUS/AVI, Timidity/TSF paths, and large static tables.
 
+## Reduced Native SDL Profile
+
+The Unix makefile now also has a reduced full-engine native profile:
+
+```sh
+make -C unix -j2 EMBEDDED_CONTRACT=1
+```
+
+On this host it selects SDL2 and produces:
+
+```text
+unix/sdlpal-embedded-contract
+```
+
+This profile excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, and launcher UI objects from the full-engine build. The remaining codec-facing entry points are inert stubs:
+
+```text
+MP3_Init
+OGG_Init
+OPUS_Init
+TIMIDITY_Init
+TSF_Init
+PAL_AVIInit
+PAL_AVIShutdown
+AVI_FillAudioBuffer
+AVI_GetPlayState
+```
+
+Current reduced-profile artifact size:
+
+```text
+text=1674770 data=2172210 bss=353664
+.text=317205 .rodata=1290792 .data=2163074 .bss=353664
+```
+
+This is still not an embedded-contract binary. It still links the desktop heap and YJ paths:
+
+```text
+Decompress
+PAL_MKFDecompressChunk
+PAL_MKFGetDecompressedSize
+UTIL_calloc
+UTIL_malloc
+YJ1_Decompress
+YJ2_Decompress
+calloc@GLIBC_2.2.5
+free@GLIBC_2.2.5
+malloc@GLIBC_2.2.5
+realloc@GLIBC_2.2.5
+```
+
 ## Current Contract Failures
 
 Source scan after stripping C comments:
@@ -613,8 +664,8 @@ The large `.data` footprint is expected from the current desktop build and is no
 
 ## Next Engineering Cuts
 
-1. Add a dedicated native embedded-contract build profile instead of overloading the full desktop Unix build.
-2. Exclude MP3/OGG/OPUS/AVI/TinySoundFont/Timidity/high-quality resampler from that profile.
+1. Keep shrinking `unix/sdlpal-embedded-contract` by wiring the static pack/resource slices into the full-engine path.
+2. Replace the remaining full-engine sound/RIX resampler path with fixed PCM/static mixer paths.
 3. Replace `PAL_MKFDecompressChunk`, `PAL_MKFGetDecompressedSize`, and `Decompress` use with a raw/native resource-pack API.
 4. Wire the generated raw/native packs into the full engine resource path instead of only the embedded smoke slices.
 5. Replace heap-backed scene, battle, save/load, audio, and temporary buffers with normal named static SRAM/PSRAM arrays.

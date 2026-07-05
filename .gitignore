@@ -32,6 +32,7 @@ BundleArtifacts/
 *.js
 *.wasm
 *.wast
+unix/sdlpal-embedded-contract
 
 # Visual Studio Code files
 .vscode/
