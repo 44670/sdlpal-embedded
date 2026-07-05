@@ -1,0 +1,68 @@
+# AGENTS.md
+
+## Current Porting Goal
+
+This repository is being evaluated for an embedded/resource-limited SDLPAL port. When making code, tooling, or documentation changes, keep memory placement and asset loading in scope.
+
+Primary consultation notes are in:
+
+- `Consult/Q1.md`
+- `Consult/RealData.md`
+- `Consult/ContractAudit.md`
+- `Consult/mkf_audit.py`
+- `Consult/pal_data_audit.py`
+- `tools/pal_pack_build.py`
+- `tools/embedded_contract_check.py`
+
+## Target Memory and Storage Constraints
+
+- Fast SRAM: 300KB total. Treat this as scarce low-latency memory.
+- PSRAM: 8MB total. Usable for larger mutable working sets, but much slower than SRAM.
+- NOR flash: 16MB total. Read-only at runtime, random accessible.
+- TF card: effectively unlimited capacity, but slow.
+
+Prefer designs that explicitly choose where data lives: SRAM, PSRAM, NOR, or TF. Avoid adding hidden always-resident RAM use.
+
+## PAL Data Path
+
+The current local PAL data set is:
+
+```text
+/mnt/hgfs/deb13/PAL
+```
+
+Use this path for dataset audits and memory estimates unless the user gives a different path.
+
+## Asset Strategy Notes
+
+- Pre-decompression/offline asset conversion is mandatory for target runtime resources.
+- Do not add runtime decompression to the embedded path. YJ1/YJ2/LZ4/etc. decode belongs in host-side pack-building tools only.
+- Full pre-decompression of all assets into 16MB NOR is not feasible for the current data set, so large decoded/native resources should live in TF-backed resource packs.
+- TF card can hold the original files and generated cache files, but runtime TF random access should be minimized. Prefer sequential reads of already-decoded/native chunks.
+- Favor reproducible tools for dataset inspection and conversion.
+- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode is allowed there because it is host-side pack generation, not runtime.
+- The audited data path has no loose `.ogg`, `.opus`, `.mp3`, `.wav`, `.mid`, or `.avi` files. Audio is in `MIDI.MKF`, `MUS.MKF`, and `VOC.MKF`.
+- Scene/event sprite deduplication is high value: worst measured scene resources drop from about 909KB to about 143KB when repeated event-object sprite numbers share one decoded sprite.
+- Text/font conversion should use the actual corpus. `WORD.DAT` + `M.MSG` decode cleanly as `cp950` and use 2,631 unique characters, about 84KB at 32 bytes per glyph before metadata.
+
+## Runtime Allocation Rules
+
+- Target runtime code should not use `malloc`, `calloc`, `realloc`, or `free`.
+- Use explicit static storage: `uint8_t` buffers for SRAM/PSRAM and `const uint8_t` or typed `const` views for read-only NOR/pack data.
+- Do not add a memory pool or tier allocator. Prefer normal file-scope/static `uint8_t` arrays with clear names, fixed sizes, owners, and lifetimes.
+- The native SDL build should remain a verification harness using the same fixed-memory API. SDL itself may allocate internally, but project engine/resource code should be checked for forbidden heap calls.
+- Verify resource usage from build artifacts with `size`, `objdump -h`, `objdump -t`, `nm -S --size-sort`, and linker map files. Checks should cover `.text`, `.rodata`, `.data`, `.bss`, named SRAM/PSRAM buffer symbols, and absence of runtime decoder symbols.
+- Use `python3 -B tools/embedded_contract_check.py --root .` as the repeatable source/binary contract audit. Add `--binary unix/sdlpal` after producing a native SDL build. Use `--max-symbol-prefix pal_sram_=307200 --max-symbol-prefix pal_psram_=8388608` to budget normal static buffers by scanning ELF symbols.
+- `embedded/pal_pack.c` is the first native runtime slice following the contract: no heap, no decompressor, `const uint8_t` pack reads, fixed `uint8_t` copy destination, and objdump/nm/size verification through `embedded/Makefile`.
+- `embedded/pal_memory.c` intentionally declares normal named static-storage buffers such as `pal_sram_framebuffer` and `pal_psram_map_tiles`; there is no memory pool API.
+
+## Known Memory Pressure Points
+
+- `fontglyph.h` currently contains a mutable `unicode_font[65536][32]` table, about 2MB.
+- `resampler.c` has mutable float LUTs totaling about 147KB.
+- Global game data currently allocates about 532KB from this data set.
+- Worst measured normal scene resource residency is about 909KB before framebuffers, text/font, audio, and allocator overhead, but about 143KB for the same subset after event-sprite deduplication.
+- Several `PAL_LARGE` local buffers are 64KB stack allocations on Unix-style builds.
+- `PAL_MKFDecompressChunk()` allocates a compressed scratch buffer per decompression.
+
+These should not be assumed to fit in fast SRAM, and the target runtime should remove the heap/decompression paths rather than merely moving them to PSRAM.

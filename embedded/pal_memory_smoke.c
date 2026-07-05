@@ -1,0 +1,86 @@
+#include "pal_memory.h"
+
+#include <stddef.h>
+
+static int check_buffer(uint8_t *data, size_t size, uint8_t tag)
+{
+    if (data == 0 || size == 0) {
+        return 1;
+    }
+    data[0] = tag;
+    data[size - 1] = (uint8_t)(tag ^ 0x5a);
+    return 0;
+}
+
+#define CHECK_BUFFER(name, tag) check_buffer((name), sizeof(name), (tag))
+
+int main(void)
+{
+    if (PAL_SRAM_DECLARED_BYTES != 182784u) {
+        return 1;
+    }
+    if (PAL_PSRAM_DECLARED_BYTES != 7008208u) {
+        return 2;
+    }
+
+    if (CHECK_BUFFER(pal_sram_framebuffer, 1u) != 0) {
+        return 3;
+    }
+    if (CHECK_BUFFER(pal_sram_big_buffer, 2u) != 0) {
+        return 4;
+    }
+    if (CHECK_BUFFER(pal_sram_audio, 3u) != 0) {
+        return 5;
+    }
+    if (CHECK_BUFFER(pal_sram_display_dma, 4u) != 0) {
+        return 6;
+    }
+    if (CHECK_BUFFER(pal_sram_hot_globals, 5u) != 0) {
+        return 7;
+    }
+    if (CHECK_BUFFER(pal_sram_misc, 6u) != 0) {
+        return 8;
+    }
+
+    if (CHECK_BUFFER(pal_psram_save_state, 10u) != 0) {
+        return 9;
+    }
+    if (CHECK_BUFFER(pal_psram_map_tiles, 11u) != 0) {
+        return 10;
+    }
+    if (CHECK_BUFFER(pal_psram_gop_copy, 12u) != 0) {
+        return 11;
+    }
+    if (CHECK_BUFFER(pal_psram_screen_bak, 13u) != 0) {
+        return 12;
+    }
+    if (CHECK_BUFFER(pal_psram_resource_staging, 14u) != 0) {
+        return 13;
+    }
+    if (CHECK_BUFFER(pal_psram_rng_frame_a, 15u) != 0) {
+        return 14;
+    }
+    if (CHECK_BUFFER(pal_psram_rng_frame_b, 16u) != 0) {
+        return 15;
+    }
+    if (CHECK_BUFFER(pal_psram_tf_readahead, 17u) != 0) {
+        return 16;
+    }
+    if (CHECK_BUFFER(pal_psram_effect, 18u) != 0) {
+        return 17;
+    }
+    if (CHECK_BUFFER(pal_psram_fbp_background, 19u) != 0) {
+        return 18;
+    }
+    if (CHECK_BUFFER(pal_psram_sfx_bank, 20u) != 0) {
+        return 19;
+    }
+    if (CHECK_BUFFER(pal_psram_text_misc, 21u) != 0) {
+        return 20;
+    }
+    if (CHECK_BUFFER(pal_psram_sprite_pin, 22u) != 0) {
+        return 21;
+    }
+
+    return 0;
+}

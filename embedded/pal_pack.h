@@ -1,0 +1,64 @@
+#ifndef PAL_PACK_H
+#define PAL_PACK_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define PAL_PACK_MAGIC 0x4b504c50u
+#define PAL_PACK_VERSION 1u
+
+enum PalPackArchiveId {
+    PAL_PACK_ARCHIVE_ABC = 1,
+    PAL_PACK_ARCHIVE_BALL = 2,
+    PAL_PACK_ARCHIVE_DATA = 3,
+    PAL_PACK_ARCHIVE_F = 4,
+    PAL_PACK_ARCHIVE_FBP = 5,
+    PAL_PACK_ARCHIVE_FIRE = 6,
+    PAL_PACK_ARCHIVE_GOP = 7,
+    PAL_PACK_ARCHIVE_MAP = 8,
+    PAL_PACK_ARCHIVE_MGO = 9,
+    PAL_PACK_ARCHIVE_MIDI = 10,
+    PAL_PACK_ARCHIVE_MUS = 11,
+    PAL_PACK_ARCHIVE_PAT = 12,
+    PAL_PACK_ARCHIVE_RGM = 13,
+    PAL_PACK_ARCHIVE_RNG = 14,
+    PAL_PACK_ARCHIVE_SSS = 15,
+    PAL_PACK_ARCHIVE_VOC = 16,
+};
+
+enum PalPackFormat {
+    PAL_PACK_FORMAT_RAW = 0,
+    PAL_PACK_FORMAT_NATIVE = 1,
+    PAL_PACK_FORMAT_RNG_FRAMES = 2,
+};
+
+#define PAL_PACK_CHUNK_F_COMPRESSED 0x0001u
+
+typedef struct PalPack {
+    const uint8_t *base;
+    uint32_t size;
+    uint16_t archive_count;
+    uint32_t archive_table_offset;
+} PalPack;
+
+typedef struct PalPackSpan {
+    const uint8_t *data;
+    uint32_t size;
+    uint16_t format;
+    uint16_t flags;
+} PalPackSpan;
+
+bool PalPack_OpenConst(PalPack *pack, const uint8_t *data, uint32_t size);
+bool PalPack_MapConst(const PalPack *pack, uint16_t archive_id, uint16_t chunk_id, PalPackSpan *span);
+bool PalPack_CopyRaw(const PalPack *pack, uint16_t archive_id, uint16_t chunk_id, uint8_t *dst, uint32_t dst_capacity, uint32_t *out_size);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

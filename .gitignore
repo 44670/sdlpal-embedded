@@ -252,6 +252,7 @@ xcuserdata
 
 # Gradle files
 build/
+embedded/build/
 .gradle
 gradle.properties
 
