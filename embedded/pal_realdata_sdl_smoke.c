@@ -294,6 +294,97 @@ static int exercise_tf_toc_fd_reads(const char *path)
     return rc;
 }
 
+static int sweep_tf_archive_readat(
+    const PalPackToc *toc,
+    int *fd,
+    uint16_t archive_id,
+    uint16_t expected_count,
+    uint32_t expected_total,
+    uint32_t expected_max,
+    uint16_t expected_format,
+    uint8_t *dst,
+    uint32_t dst_capacity)
+{
+    uint16_t chunk_count = 0;
+    uint32_t total = 0;
+    uint32_t max_size = 0;
+
+    if (!PalPackToc_GetChunkCount(toc, archive_id, &chunk_count) || chunk_count != expected_count) {
+        return 1;
+    }
+
+    for (uint16_t chunk_id = 0; chunk_id < chunk_count; chunk_id++) {
+        PalPackChunkInfo info;
+        uint32_t copied = 0;
+
+        if (!PalPackToc_GetChunkInfo(toc, archive_id, chunk_id, &info)) {
+            return 2;
+        }
+        if (info.format != expected_format || info.flags != 0u) {
+            return 3;
+        }
+        if (info.size > dst_capacity) {
+            return 4;
+        }
+        if (!PalPackToc_CopyRawReadAt(toc, read_at_fd, fd, archive_id, chunk_id, dst, dst_capacity, &copied) ||
+            copied != info.size) {
+            return 5;
+        }
+        if (info.size != 0u && checksum32(dst, info.size) == 0u) {
+            return 6;
+        }
+
+        total += info.size;
+        if (info.size > max_size) {
+            max_size = info.size;
+        }
+    }
+
+    if (total != expected_total || max_size != expected_max) {
+        return 7;
+    }
+    return 0;
+}
+
+static int sweep_all_tf_payloads_readat(const char *path)
+{
+    PalPackToc toc;
+    struct stat st;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+
+    rc = sweep_tf_archive_readat(&toc, &fd, PAL_PACK_ARCHIVE_FBP, 72u, 4608000u, 64000u,
+        PAL_PACK_FORMAT_NATIVE, pal_psram_fbp_background, PAL_PSRAM_FBP_BACKGROUND_BYTES);
+    if (rc == 0) {
+        rc = sweep_tf_archive_readat(&toc, &fd, PAL_PACK_ARCHIVE_GOP, 226u, 11529414u, 65524u,
+            PAL_PACK_FORMAT_NATIVE, pal_psram_gop_copy, PAL_PSRAM_GOP_COPY_BYTES);
+    }
+    if (rc == 0) {
+        rc = sweep_tf_archive_readat(&toc, &fd, PAL_PACK_ARCHIVE_MAP, 226u, 14614528u, 65536u,
+            PAL_PACK_FORMAT_NATIVE, pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES);
+    }
+    if (rc == 0) {
+        rc = sweep_tf_archive_readat(&toc, &fd, PAL_PACK_ARCHIVE_SFX, 276u, 9236076u, 211152u,
+            PAL_PACK_FORMAT_SFX_PCM16, pal_psram_resource_staging, PAL_PSRAM_RESOURCE_STAGING_BYTES);
+    }
+
+    close(fd);
+    return rc == 0 ? 0 : 10 + rc;
+}
+
 static int exercise_sdl_surface(void)
 {
     SDL_Surface *surface;
@@ -1416,6 +1507,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = exercise_tf_toc_fd_reads(argv[2]);
+    }
+    if (rc == 0) {
+        rc = sweep_all_tf_payloads_readat(argv[2]);
     }
     if (rc == 0) {
         rc =

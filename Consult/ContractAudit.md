@@ -347,7 +347,7 @@ embedded/build/pal_realdata_sdl_smoke
 
 It maps both generated packs read-only, checks real archive counts, maps representative NOR chunks as `const uint8_t`, copies the TF pack TOC into `pal_psram_tf_toc`, verifies the same TOC/payload path through a file-backed read-at callback, copies real TF chunks into `pal_sram_framebuffer`, `pal_psram_map_tiles`, `pal_psram_gop_copy`, and `pal_psram_sfx_bank`, exercises the static indexed-video path, then wraps `pal_sram_framebuffer` with SDL. There is no project-side heap allocation and no decoder path in this binary.
 
-The current TF pack TOC is 13,084 bytes for 812 chunks. The smoke copies it into the 32KB `pal_psram_tf_toc` array and verifies chunk counts, SFX chunk #255 metadata, RNG/MAP metadata, and FBP/MAP payload copies through the copied TOC. The file-backed read-at path proves the target shape: the runtime can keep only the TF index in PSRAM and read payload ranges from TF without mapping the whole pack into target memory.
+The current TF pack TOC is 13,084 bytes for 812 chunks. The smoke copies it into the 32KB `pal_psram_tf_toc` array and verifies chunk counts, SFX chunk #255 metadata, RNG/MAP metadata, and FBP/MAP payload copies through the copied TOC. The file-backed read-at path proves the target shape: the runtime can keep only the TF index in PSRAM and read payload ranges from TF without mapping the whole pack into target memory. It now sweeps every TF native/PCM payload that fits the fixed staging buffers through read-at: 72 FBP chunks totaling 4,608,000 bytes, 226 GOP chunks totaling 11,529,414 bytes, 226 MAP chunks totaling 14,614,528 bytes, and 276 SFX chunks totaling 9,236,076 bytes. RNG is swept separately by frame.
 
 The same smoke also exercises `embedded/pal_scene_cache.c` on high-pressure real scenes:
 
@@ -528,7 +528,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=38394 .rodata=224 data=744 bss=7493280
+text=39474 .rodata=224 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -554,7 +554,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=619019
+size=619178
 PASS
 ```
 
