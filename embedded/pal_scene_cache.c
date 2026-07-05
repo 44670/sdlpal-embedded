@@ -73,9 +73,32 @@ static uint32_t align4(uint32_t value)
     return (value + 3u) & ~3u;
 }
 
+static bool copy_tf_chunk(
+    const PalPack *tf_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t archive_id,
+    uint16_t chunk_id,
+    uint8_t *dst,
+    uint32_t dst_capacity,
+    uint32_t *out_size)
+{
+    if (tf_pack != NULL) {
+        return PalPack_CopyRaw(tf_pack, archive_id, chunk_id, dst, dst_capacity, out_size);
+    }
+    if (tf_toc != NULL && read_at != NULL) {
+        return PalPackToc_CopyRawReadAt(tf_toc, read_at, user, archive_id, chunk_id, dst, dst_capacity, out_size);
+    }
+    return false;
+}
+
 static bool load_snapshot(
     const PalPack *nor_pack,
     const PalPack *tf_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
     const PalPack *sprite_pack,
     uint16_t scene_num,
     bool pin_sprites,
@@ -104,13 +127,13 @@ static bool load_snapshot(
     if (event_span.size < (uint32_t)(event_start + event_count) * SSS_EVENT_OBJECT_BYTES) {
         return false;
     }
-    if (!PalPack_CopyRaw(tf_pack, PAL_PACK_ARCHIVE_MAP, map_num, pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES, &copied)) {
+    if (!copy_tf_chunk(tf_pack, tf_toc, read_at, user, PAL_PACK_ARCHIVE_MAP, map_num, pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES, &copied)) {
         return false;
     }
     if (copied != PAL_PSRAM_MAP_TILES_BYTES) {
         return false;
     }
-    if (!PalPack_CopyRaw(tf_pack, PAL_PACK_ARCHIVE_GOP, map_num, pal_psram_gop_copy, PAL_PSRAM_GOP_COPY_BYTES, &copied)) {
+    if (!copy_tf_chunk(tf_pack, tf_toc, read_at, user, PAL_PACK_ARCHIVE_GOP, map_num, pal_psram_gop_copy, PAL_PSRAM_GOP_COPY_BYTES, &copied)) {
         return false;
     }
     if (copied == 0 || copied > PAL_PSRAM_GOP_COPY_BYTES) {
@@ -184,7 +207,18 @@ static bool load_snapshot(
 
 bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint16_t scene_num, PalSceneSnapshot *snapshot)
 {
-    return load_snapshot(nor_pack, tf_pack, nor_pack, scene_num, false, snapshot);
+    return load_snapshot(nor_pack, tf_pack, NULL, NULL, NULL, nor_pack, scene_num, false, snapshot);
+}
+
+bool PalScene_LoadSnapshotReadAt(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, nor_pack, scene_num, false, snapshot);
 }
 
 bool PalScene_LoadPinnedSnapshot(
@@ -194,5 +228,17 @@ bool PalScene_LoadPinnedSnapshot(
     uint16_t scene_num,
     PalSceneSnapshot *snapshot)
 {
-    return load_snapshot(nor_pack, tf_pack, sprite_pack, scene_num, true, snapshot);
+    return load_snapshot(nor_pack, tf_pack, NULL, NULL, NULL, sprite_pack, scene_num, true, snapshot);
+}
+
+bool PalScene_LoadPinnedSnapshotReadAt(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const PalPack *sprite_pack,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, sprite_pack, scene_num, true, snapshot);
 }

@@ -441,6 +441,124 @@ static int check_scene_pinned(
     return saw_sprite ? 0 : 8;
 }
 
+static int check_scene_readat(
+    const char *path,
+    const PalPack *nor,
+    uint16_t scene_num,
+    uint16_t expected_events,
+    uint16_t expected_refs,
+    uint16_t expected_unique)
+{
+    PalPackToc toc;
+    PalSceneSnapshot snapshot;
+    struct stat st;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+    if (!PalScene_LoadSnapshotReadAt(nor, &toc, read_at_fd, &fd, scene_num, &snapshot)) {
+        rc = 4;
+    }
+    if (rc == 0 && (snapshot.scene_num != scene_num || snapshot.event_count != expected_events)) {
+        rc = 5;
+    }
+    if (rc == 0 && (snapshot.sprite_ref_count != expected_refs || snapshot.unique_sprite_count != expected_unique)) {
+        rc = 6;
+    }
+    if (rc == 0 && (snapshot.map_num == 0 || snapshot.gop_size == 0 || snapshot.unique_sprite_bytes == 0 ||
+        checksum32(pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES) == 0 ||
+        checksum32(pal_psram_gop_copy, snapshot.gop_size) == 0)) {
+        rc = 7;
+    }
+    if (rc == 0 && snapshot.sprite_refs == 0) {
+        rc = 8;
+    }
+
+    close(fd);
+    return rc;
+}
+
+static int check_scene_pinned_readat(
+    const char *path,
+    const PalPack *nor,
+    uint16_t scene_num,
+    uint16_t expected_events,
+    uint16_t expected_refs,
+    uint16_t expected_unique,
+    uint32_t expected_unique_bytes,
+    uint32_t expected_pin_bytes)
+{
+    PalPackToc toc;
+    PalSceneSnapshot snapshot;
+    struct stat st;
+    uint16_t i;
+    bool saw_sprite = false;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+    if (!PalScene_LoadPinnedSnapshotReadAt(nor, &toc, read_at_fd, &fd, nor, scene_num, &snapshot)) {
+        rc = 4;
+    }
+    close(fd);
+    if (rc != 0) {
+        return rc;
+    }
+
+    if (snapshot.scene_num != scene_num || snapshot.event_count != expected_events) {
+        return 5;
+    }
+    if (snapshot.sprite_ref_count != expected_refs || snapshot.unique_sprite_count != expected_unique) {
+        return 6;
+    }
+    if (snapshot.unique_sprite_bytes != expected_unique_bytes || snapshot.sprite_pin_bytes != expected_pin_bytes) {
+        return 7;
+    }
+    if (snapshot.sprite_refs == 0 || snapshot.sprite_pin_bytes == 0 || snapshot.sprite_pin_bytes > PAL_PSRAM_SPRITE_PIN_BYTES) {
+        return 8;
+    }
+    for (i = 0; i < snapshot.event_count; i++) {
+        const PalSceneSpriteRef *ref = snapshot.sprite_refs + i;
+        uintptr_t data = (uintptr_t)ref->data;
+        uintptr_t begin = (uintptr_t)pal_psram_sprite_pin;
+        uintptr_t end = begin + snapshot.sprite_pin_bytes;
+
+        if (ref->sprite_num == 0) {
+            continue;
+        }
+        saw_sprite = true;
+        if (ref->data == 0 || ref->size == 0 || data < begin || data > end || ref->size > end - data) {
+            return 9;
+        }
+        if (checksum32(ref->data, ref->size) == 0) {
+            return 10;
+        }
+    }
+    return saw_sprite ? 0 : 11;
+}
+
 static int check_battle(const PalPack *nor, const PalPack *tf, uint16_t team_num, uint16_t expected_refs, uint16_t expected_unique)
 {
     static const uint16_t player_sprites[3] = { 0, 1, 2 };
@@ -1163,6 +1281,16 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_scene_pinned(&nor.pack, &tf.pack, 153, 14, 14, 7, 65150u, 65156u);
+    }
+    if (rc == 0) {
+        rc =
+            check_scene_readat(argv[2], &nor.pack, 59, 142, 122, 11) ||
+            check_scene_readat(argv[2], &nor.pack, 65, 120, 91, 8) ||
+            check_scene_readat(argv[2], &nor.pack, 156, 130, 123, 10) ||
+            check_scene_readat(argv[2], &nor.pack, 260, 72, 58, 11);
+    }
+    if (rc == 0) {
+        rc = check_scene_pinned_readat(argv[2], &nor.pack, 153, 14, 14, 7, 65150u, 65156u);
     }
     if (rc == 0) {
         rc =

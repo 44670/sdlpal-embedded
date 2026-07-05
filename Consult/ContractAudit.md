@@ -358,7 +358,7 @@ The same smoke also exercises `embedded/pal_scene_cache.c` on high-pressure real
 | 156 | 130 | 123 | 10 |
 | 260 | 72 | 58 | 11 |
 
-For each scene it reads the scene/event tables from `SSS`, copies decoded `MAP` and raw `GOP` chunks from the TF pack into named PSRAM buffers, and keeps event-object MGO sprites as deduplicated `const uint8_t *` views into the NOR pack.
+For each scene it reads the scene/event tables from `SSS`, copies decoded `MAP` and raw `GOP` chunks from the TF pack into named PSRAM buffers, and keeps event-object MGO sprites as deduplicated `const uint8_t *` views into the NOR pack. The same scene set is checked through both mapped-pack reads and file-backed TF read-at reads, so the scene path does not require mapping the whole TF pack.
 
 The smoke also checks the PSRAM sprite-pin fallback for a high-sprite scene:
 
@@ -366,7 +366,7 @@ The smoke also checks the PSRAM sprite-pin fallback for a high-sprite scene:
 | ---: | ---: | ---: | ---: | ---: |
 | 153 | 14 | 7 | 65,150 | 65,156 |
 
-This copies the scene's unique `MGO` sprites into `pal_psram_sprite_pin`, so the same fixed-buffer path can be used if a build demotes MGO sprites from NOR to a TF-backed pack.
+This copies the scene's unique `MGO` sprites into `pal_psram_sprite_pin`, so the same fixed-buffer path can be used if a build demotes MGO sprites from NOR to a TF-backed pack. The pinned scene is also checked while MAP/GOP are loaded through the TF read-at path.
 
 The smoke also exercises `embedded/pal_battle_cache.c` on real high-pressure battle teams:
 
@@ -524,7 +524,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=33806 .rodata=224 data=744 bss=7493280
+text=35326 .rodata=224 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -550,7 +550,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=615876
+size=616703
 PASS
 ```
 

@@ -34,9 +34,24 @@ typedef struct PalSceneSnapshot {
 } PalSceneSnapshot;
 
 bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint16_t scene_num, PalSceneSnapshot *snapshot);
+bool PalScene_LoadSnapshotReadAt(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot);
 bool PalScene_LoadPinnedSnapshot(
     const PalPack *nor_pack,
     const PalPack *tf_pack,
+    const PalPack *sprite_pack,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot);
+bool PalScene_LoadPinnedSnapshotReadAt(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
     const PalPack *sprite_pack,
     uint16_t scene_num,
     PalSceneSnapshot *snapshot);
