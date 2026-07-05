@@ -703,7 +703,7 @@ The full-engine ending paths in `ending.c` now use static `uint8_t` PSRAM buffer
 
 The contract `VIDEO_Startup()` path now omits the YJ1-compressed touch-overlay BMP decode. Overlay art for target builds must be preconverted/offline-packed; the old `bmpData` decode remains only in non-contract desktop builds.
 
-The contract `global.c` path skips the legacy heap-loaded object-description list. Final UI parity should use generated read-only text/object-description data instead of `PAL_LoadObjectDesc()`.
+The contract `global.c` path skips the legacy heap-loaded object-description list. This matches the audited `/mnt/hgfs/deb13/PAL` data set, which has no `DESC.DAT`; future data sets that include descriptions should generate read-only object-description data instead of using `PAL_LoadObjectDesc()`.
 
 The contract `res.c` path now uses static `uint8_t` PSRAM storage for the resource manager, event-sprite pointer table, 64 unique event-sprite slots, and player sprite slots. Duplicate event sprite references share a slot. MGO chunks must already be native.
 
@@ -721,7 +721,7 @@ The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path
 
 The contract `ui.c` path now uses named `uint8_t` PSRAM storage for `DATA.MKF #9` UI sprite data, UI box metadata, and eight 320x200 box save/restore buffers, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
 
-The contract `ui.c` object-description load/free path is a no-heap stub for now. Final UI parity should load object descriptions from generated read-only text/object-description data rather than the legacy linked-list loader.
+The contract `ui.c` object-description load/free path is intentionally a no-heap `NULL` path for the current data set because no `DESC.DAT` exists. Description-bearing data should be handled by generated read-only text/object-description data rather than the legacy linked-list loader.
 
 The contract `palette.c` path now reads `PAT` chunks through the generated pack bridge and stores loaded/current/work palette colors in named SRAM `uint8_t` buffers (`pal_sram_palette_base`, `pal_sram_palette_work`, `pal_sram_palette_next`). It no longer opens the original `pat.mkf` in contract mode, and palette fades no longer use `PAL_LARGE SDL_Color[256]` local arrays.
 
@@ -751,9 +751,7 @@ The normal native SDL2 desktop build still passes as a regression check, but it 
 
 ## Next Engineering Cuts
 
-1. Keep shrinking `unix/sdlpal-embedded-contract` by wiring the static pack/resource slices into the full-engine path.
-2. Replace the remaining full-engine sound/RIX resampler path with fixed PCM/static mixer paths.
-3. Replace `PAL_MKFDecompressChunk`, `PAL_MKFGetDecompressedSize`, and `Decompress` use with a raw/native resource-pack API.
-4. Wire the generated raw/native packs into the full engine resource path instead of only the embedded smoke slices.
-5. Replace heap-backed scene, battle, save/load, audio, and temporary buffers with normal named static SRAM/PSRAM arrays.
-6. Keep running `tools/embedded_contract_check.py` after each cut until source and binary checks pass.
+1. Replace the reduced profile's silent RIX/music synthesis stub with a fixed-storage player or an offline-converted music format.
+2. If a future data set includes `DESC.DAT`, generate read-only object-description data instead of enabling the heap linked-list loader.
+3. Continue wiring static pack/resource slices into the full gameplay path while keeping source/binary contract checks at zero heap, zero runtime decompression, zero active `PAL_LARGE`, and zero loose-resource references.
+4. Keep running `tools/embedded_contract_check.py` after each cut until source and binary checks pass.
