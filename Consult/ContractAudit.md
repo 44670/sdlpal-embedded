@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185970 data=3728 bss=2088856
-.text=150629 .rodata=7368 .data=144 .bss=2088856
+text=186042 data=3728 bss=2018840
+.text=150693 .rodata=7368 .data=144 .bss=2018840
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=1779392 limit=8388608
+pal_psram_ total=1709392 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -699,7 +699,7 @@ The full-engine battle path in `battle.c` now maps player/enemy F/ABC battle spr
 
 The full-engine magic/summon paths in `fight.c` now map FIRE effect sprites and F.MKF summon sprites as `const uint8_t` views into the native NOR pack in contract mode. These paths require the host-built packs to provide native chunks and avoid `PAL_MKFDecompressChunk()` / `UTIL_malloc()` at runtime.
 
-The full-engine ending paths in `ending.c` now use static `uint8_t` PSRAM buffers in contract mode for FBP/MGO scratch. FBP and MGO chunks must already be native, so ending screens and animations avoid heap allocation and runtime decompression.
+The full-engine ending paths in `ending.c` now use a static `uint8_t` PSRAM buffer for FBP screen staging and map MGO ending/effect sprites as `const uint8_t` NOR views in contract mode. FBP and MGO chunks must already be native, so ending screens and animations avoid heap allocation and runtime decompression.
 
 The contract `VIDEO_Startup()` path now omits the YJ1-compressed touch-overlay BMP decode. Overlay art for target builds must be preconverted/offline-packed; the old `bmpData` decode remains only in non-contract desktop builds.
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=185970 data=3728 bss=2088856
-.text=150629 .rodata=7368 .data=144 .bss=2088856
+text=186042 data=3728 bss=2018840
+.text=150693 .rodata=7368 .data=144 .bss=2018840
 pal_sram_ total=230912 / 307200
-pal_psram_ total=1779392 / 8388608
+pal_psram_ total=1709392 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

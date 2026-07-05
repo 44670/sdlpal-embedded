@@ -30,8 +30,10 @@ static WORD g_wCurEffectSprite = 0;
 #define PAL_ENDING_PSRAM
 #endif
 static uint8_t pal_psram_ending_fbp_static[320 * 200] PAL_ENDING_PSRAM;
+#if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
 static uint8_t pal_psram_ending_sprite_static[320 * 200] PAL_ENDING_PSRAM;
 static uint8_t pal_psram_ending_girl_static[6000] PAL_ENDING_PSRAM;
+#endif
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -45,13 +47,14 @@ PAL_EndingReadNativeFbp(
 }
 
 static BOOL
-PAL_EndingReadNativeMgo(
-   LPBYTE         buf,
-   UINT           uiBufferSize,
+PAL_EndingMapNativeMgo(
+   LPCSPRITE     *lplpSprite,
    WORD           wChunkNum
 )
 {
-   return PAL_MKFReadChunk(buf, uiBufferSize, wChunkNum, gpGlobals->f.fpMGO) > 0;
+   UINT uiSpriteSize;
+   return PAL_MKFMapChunk(gpGlobals->f.fpMGO, wChunkNum, lplpSprite, &uiSpriteSize) &&
+      uiSpriteSize > 0;
 }
 #endif
 
@@ -101,7 +104,11 @@ PAL_ShowFBP(
 {
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
    BYTE                     *buf = pal_psram_ending_fbp_static;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPCSPRITE                 lpEffectSprite = NULL;
+#else
    BYTE                     *bufSprite = pal_psram_ending_sprite_static;
+#endif
 #else
    PAL_LARGE BYTE            buf[320 * 200];
    PAL_LARGE BYTE            bufSprite[320 * 200];
@@ -122,7 +129,7 @@ PAL_ShowFBP(
    if (g_wCurEffectSprite != 0)
    {
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-      PAL_EndingReadNativeMgo(bufSprite, 320 * 200, g_wCurEffectSprite);
+      PAL_EndingMapNativeMgo(&lpEffectSprite, g_wCurEffectSprite);
 #else
       PAL_MKFDecompressChunk(bufSprite, 320 * 200, g_wCurEffectSprite, gpGlobals->f.fpMGO);
 #endif
@@ -171,8 +178,16 @@ PAL_ShowFBP(
             if (g_wCurEffectSprite != 0)
             {
                int f = SDL_GetTicks() / 150;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+               if (lpEffectSprite != NULL)
+               {
+                  PAL_RLEBlitToSurface(PAL_SpriteGetFrame(lpEffectSprite, f % PAL_SpriteGetNumFrames(lpEffectSprite)),
+                     gpScreen, PAL_XY(0, 0));
+               }
+#else
                PAL_RLEBlitToSurface(PAL_SpriteGetFrame(bufSprite, f % PAL_SpriteGetNumFrames(bufSprite)),
                   gpScreen, PAL_XY(0, 0));
+#endif
             }
 
             VIDEO_UpdateScreen(NULL);
@@ -222,7 +237,11 @@ PAL_ScrollFBP(
    SDL_Surface          *p;
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
    BYTE                 *buf = pal_psram_ending_fbp_static;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPCSPRITE             lpEffectSprite = NULL;
+#else
    BYTE                 *bufSprite = pal_psram_ending_sprite_static;
+#endif
 #else
    PAL_LARGE BYTE        buf[320 * 200];
    PAL_LARGE BYTE        bufSprite[320 * 200];
@@ -242,7 +261,7 @@ PAL_ScrollFBP(
    if (g_wCurEffectSprite != 0)
    {
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-      PAL_EndingReadNativeMgo(bufSprite, 320 * 200, g_wCurEffectSprite);
+      PAL_EndingMapNativeMgo(&lpEffectSprite, g_wCurEffectSprite);
 #else
       PAL_MKFDecompressChunk(bufSprite, 320 * 200, g_wCurEffectSprite, gpGlobals->f.fpMGO);
 #endif
@@ -315,8 +334,16 @@ PAL_ScrollFBP(
       if (g_wCurEffectSprite != 0)
       {
          int f = SDL_GetTicks() / 150;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         if (lpEffectSprite != NULL)
+         {
+            PAL_RLEBlitToSurface(PAL_SpriteGetFrame(lpEffectSprite, f % PAL_SpriteGetNumFrames(lpEffectSprite)),
+               gpScreen, PAL_XY(0, 0));
+         }
+#else
          PAL_RLEBlitToSurface(PAL_SpriteGetFrame(bufSprite, f % PAL_SpriteGetNumFrames(bufSprite)),
             gpScreen, PAL_XY(0, 0));
+#endif
       }
 
       VIDEO_UpdateScreen(NULL);
@@ -356,8 +383,14 @@ PAL_EndingAnimation(
 --*/
 {
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPBYTE            buf = pal_psram_ending_fbp_static;
+   LPCSPRITE         lpBeastSprite = NULL;
+   LPCSPRITE         lpGirlSprite = NULL;
+#else
    LPBYTE            buf = pal_psram_ending_sprite_static;
    LPBYTE            bufGirl = pal_psram_ending_girl_static;
+#endif
 #else
    LPBYTE            buf;
    LPBYTE            bufGirl;
@@ -392,8 +425,8 @@ PAL_EndingAnimation(
    PAL_FBPBlitToSurface(buf, pLower);
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-   PAL_EndingReadNativeMgo(buf, 64000, 571);
-   PAL_EndingReadNativeMgo(bufGirl, 6000, 572);
+   PAL_EndingMapNativeMgo(&lpBeastSprite, 571);
+   PAL_EndingMapNativeMgo(&lpGirlSprite, 572);
 #else
    PAL_MKFDecompressChunk(buf, 64000, 571, gpGlobals->f.fpMGO);
    PAL_MKFDecompressChunk(bufGirl, 6000, 572, gpGlobals->f.fpMGO);
@@ -432,8 +465,16 @@ PAL_EndingAnimation(
       //
       // Draw the beast
       //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      if (lpBeastSprite != NULL)
+      {
+         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(lpBeastSprite, 0), gpScreen, PAL_XY(0, -400 + i));
+         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(lpBeastSprite, 1), gpScreen, PAL_XY(0, -200 + i));
+      }
+#else
       PAL_RLEBlitToSurface(PAL_SpriteGetFrame(buf, 0), gpScreen, PAL_XY(0, -400 + i));
 	  PAL_RLEBlitToSurface(PAL_SpriteGetFrame(buf, 1), gpScreen, PAL_XY(0, -200 + i));
+#endif
       //
       // Draw the girl
       //
@@ -443,8 +484,16 @@ PAL_EndingAnimation(
          yPosGirl = 80;
       }
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      if (lpGirlSprite != NULL)
+      {
+         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(lpGirlSprite, (SDL_GetTicks() / 50) % 4),
+            gpScreen, PAL_XY(220, yPosGirl));
+      }
+#else
       PAL_RLEBlitToSurface(PAL_SpriteGetFrame(bufGirl, (SDL_GetTicks() / 50) % 4),
          gpScreen, PAL_XY(220, yPosGirl));
+#endif
 
       //
       // Update the screen
