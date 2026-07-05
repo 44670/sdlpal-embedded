@@ -176,6 +176,14 @@ PAL_RLEBlitToSurface(
 );
 
 INT
+PAL_RLEBlitToSurfaceWithHeight(
+   LPCBITMAPRLE      lpBitmapRLE,
+   SDL_Surface      *lpDstSurface,
+   PAL_POS           pos,
+   INT               iVisibleHeight
+);
+
+INT
 PAL_RLEBlitToSurfaceWithShadow(
    LPCBITMAPRLE      lpBitmapRLE,
    SDL_Surface      *lpDstSurface,

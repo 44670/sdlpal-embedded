@@ -55,8 +55,8 @@ char gExecutablePath[PAL_MAX_PATH];
 #define PAL_SPLASH_PSRAM
 #endif
 static uint8_t pal_sram_splash_fbp[320 * 200] PAL_SPLASH_SRAM;
-static uint8_t pal_psram_splash_title[32000] PAL_SPLASH_PSRAM;
 #if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
+static uint8_t pal_psram_splash_title[32000] PAL_SPLASH_PSRAM;
 static uint8_t pal_psram_splash_crane[32000] PAL_SPLASH_PSRAM;
 #endif
 #endif
@@ -242,9 +242,16 @@ PAL_SplashScreen(
    SDL_Surface   *lpBitmapDown, *lpBitmapUp;
    SDL_Rect       srcrect, dstrect;
    LPCSPRITE      lpSpriteCrane;
-   LPBITMAPRLE    lpBitmapTitle;
+   LPCBITMAPRLE   lpBitmapTitle;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPBYTE         buf;
+#else
    LPBYTE         buf, buf2;
+#endif
    int            cranepos[9][3], i, iImgPos = 200, iCraneFrame = 0, iTitleHeight;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   int            iTitleVisibleHeight;
+#endif
    DWORD          dwTime, dwBeginTime;
    BOOL           fUseCD = TRUE;
 
@@ -263,10 +270,10 @@ PAL_SplashScreen(
    //
 #ifdef PAL_STATIC_SPLASH_BUFFERS
    buf = pal_sram_splash_fbp;
-   buf2 = pal_psram_splash_title;
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
    lpSpriteCrane = NULL;
 #else
+   buf2 = pal_psram_splash_title;
    lpSpriteCrane = (LPSPRITE)pal_psram_splash_crane;
 #endif
 #else
@@ -295,11 +302,16 @@ PAL_SplashScreen(
       goto end;
    }
    PAL_FBPBlitToSurface(buf, lpBitmapDown);
-   if (PAL_MKFReadChunk(buf2, 32000, SPRITENUM_SPLASH_TITLE, gpGlobals->f.fpMGO) <= 0)
    {
-      goto end;
+      LPCBYTE lpTitleData;
+      UINT uiTitleSize;
+      if (!PAL_MKFMapChunk(gpGlobals->f.fpMGO, SPRITENUM_SPLASH_TITLE, &lpTitleData, &uiTitleSize) ||
+          uiTitleSize == 0)
+      {
+         goto end;
+      }
+      lpBitmapTitle = PAL_SpriteGetFrame(lpTitleData, 0);
    }
-   lpBitmapTitle = (LPBITMAPRLE)PAL_SpriteGetFrame(buf2, 0);
    {
       LPCBYTE lpCraneData;
       UINT uiCraneSize;
@@ -319,7 +331,7 @@ PAL_SplashScreen(
    PAL_FBPBlitToSurface(buf2, lpBitmapDown);
    PAL_MKFReadChunk(buf, 32000, SPRITENUM_SPLASH_TITLE, gpGlobals->f.fpMGO);
    Decompress(buf, buf2, 32000);
-   lpBitmapTitle = (LPBITMAPRLE)PAL_SpriteGetFrame(buf2, 0);
+   lpBitmapTitle = PAL_SpriteGetFrame(buf2, 0);
    PAL_MKFReadChunk(buf, 32000, SPRITENUM_SPLASH_CRANE, gpGlobals->f.fpMGO);
    Decompress(buf, (LPBYTE)lpSpriteCrane, 32000);
 #endif
@@ -329,8 +341,12 @@ PAL_SplashScreen(
       goto end;
    }
    iTitleHeight = PAL_RLEGetHeight(lpBitmapTitle);
-   lpBitmapTitle[2] = 0;
-   lpBitmapTitle[3] = 0; // HACKHACK
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   iTitleVisibleHeight = 0;
+#else
+   ((LPBYTE)lpBitmapTitle)[2] = 0;
+   ((LPBYTE)lpBitmapTitle)[3] = 0; // HACKHACK
+#endif
 
    //
    // Generate the positions of the cranes
@@ -433,6 +449,12 @@ PAL_SplashScreen(
       //
       // Draw the title...
       //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      if (iTitleVisibleHeight < iTitleHeight)
+      {
+         iTitleVisibleHeight++;
+      }
+#else
       if (PAL_RLEGetHeight(lpBitmapTitle) < iTitleHeight)
       {
          //
@@ -440,11 +462,16 @@ PAL_SplashScreen(
          //
          WORD w = lpBitmapTitle[2] | (lpBitmapTitle[3] << 8);
          w++;
-         lpBitmapTitle[2] = (w & 0xFF);
-         lpBitmapTitle[3] = (w >> 8);
+         ((LPBYTE)lpBitmapTitle)[2] = (w & 0xFF);
+         ((LPBYTE)lpBitmapTitle)[3] = (w >> 8);
       }
+#endif
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      PAL_RLEBlitToSurfaceWithHeight(lpBitmapTitle, gpScreen, PAL_XY(255, 10), iTitleVisibleHeight);
+#else
       PAL_RLEBlitToSurface(lpBitmapTitle, gpScreen, PAL_XY(255, 10));
+#endif
       VIDEO_UpdateScreen(NULL);
 
       //
@@ -455,10 +482,15 @@ PAL_SplashScreen(
          //
          // User has pressed a key...
          //
-         lpBitmapTitle[2] = iTitleHeight & 0xFF;
-         lpBitmapTitle[3] = iTitleHeight >> 8; // HACKHACK
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         iTitleVisibleHeight = iTitleHeight;
+         PAL_RLEBlitToSurfaceWithHeight(lpBitmapTitle, gpScreen, PAL_XY(255, 10), iTitleVisibleHeight);
+#else
+         ((LPBYTE)lpBitmapTitle)[2] = iTitleHeight & 0xFF;
+         ((LPBYTE)lpBitmapTitle)[3] = iTitleHeight >> 8; // HACKHACK
 
          PAL_RLEBlitToSurface(lpBitmapTitle, gpScreen, PAL_XY(255, 10));
+#endif
 
          VIDEO_UpdateScreen(NULL);
 

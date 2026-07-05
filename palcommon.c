@@ -267,6 +267,15 @@ PAL_CalcShadowColor(
     return ((bSourceColor&0xF0)|((bSourceColor&0x0F)>>1));
 }
 
+static INT
+PAL_RLEBlitToSurfaceInternal(
+   LPCBITMAPRLE      lpBitmapRLE,
+   SDL_Surface      *lpDstSurface,
+   PAL_POS           pos,
+   BOOL              bShadow,
+   INT               iVisibleHeight
+);
+
 INT
 PAL_RLEBlitToSurface(
    LPCBITMAPRLE      lpBitmapRLE,
@@ -274,7 +283,18 @@ PAL_RLEBlitToSurface(
    PAL_POS           pos
 )
 {
-    return PAL_RLEBlitToSurfaceWithShadow ( lpBitmapRLE, lpDstSurface, pos, FALSE );
+   return PAL_RLEBlitToSurfaceInternal(lpBitmapRLE, lpDstSurface, pos, FALSE, -1);
+}
+
+INT
+PAL_RLEBlitToSurfaceWithHeight(
+   LPCBITMAPRLE      lpBitmapRLE,
+   SDL_Surface      *lpDstSurface,
+   PAL_POS           pos,
+   INT               iVisibleHeight
+)
+{
+   return PAL_RLEBlitToSurfaceInternal(lpBitmapRLE, lpDstSurface, pos, FALSE, iVisibleHeight);
 }
 
 INT
@@ -283,6 +303,18 @@ PAL_RLEBlitToSurfaceWithShadow(
    SDL_Surface      *lpDstSurface,
    PAL_POS           pos,
    BOOL              bShadow
+)
+{
+   return PAL_RLEBlitToSurfaceInternal(lpBitmapRLE, lpDstSurface, pos, bShadow, -1);
+}
+
+static INT
+PAL_RLEBlitToSurfaceInternal(
+   LPCBITMAPRLE      lpBitmapRLE,
+   SDL_Surface      *lpDstSurface,
+   PAL_POS           pos,
+   BOOL              bShadow,
+   INT               iVisibleHeight
 )
 /*++
   Purpose:
@@ -339,6 +371,10 @@ PAL_RLEBlitToSurfaceWithShadow(
    //
    uiWidth = lpBitmapRLE[0] | (lpBitmapRLE[1] << 8);
    uiHeight = lpBitmapRLE[2] | (lpBitmapRLE[3] << 8);
+   if (iVisibleHeight >= 0 && (UINT)iVisibleHeight < uiHeight)
+   {
+      uiHeight = (UINT)iVisibleHeight;
+   }
 
    //
    // Check whether bitmap intersects the surface.
