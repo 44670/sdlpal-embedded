@@ -596,6 +596,59 @@ static int check_battle(const PalPack *nor, const PalPack *tf, uint16_t team_num
     return 0;
 }
 
+static int check_battle_readat(const char *path, const PalPack *nor, uint16_t team_num, uint16_t expected_refs, uint16_t expected_unique)
+{
+    static const uint16_t player_sprites[3] = { 0, 1, 2 };
+    PalPackToc toc;
+    PalBattleSnapshot snapshot;
+    struct stat st;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+    if (!PalBattle_LoadSnapshotReadAt(nor, &toc, read_at_fd, &fd, team_num, 0, player_sprites, 3, 7, &snapshot)) {
+        rc = 4;
+    }
+    close(fd);
+    if (rc != 0) {
+        return rc;
+    }
+
+    if (snapshot.team_num != team_num || snapshot.enemy_ref_count != expected_refs) {
+        return 5;
+    }
+    if (snapshot.player_count != 3 || snapshot.unique_enemy_sprite_count != expected_unique) {
+        return 6;
+    }
+    if (snapshot.background_size != PAL_PSRAM_FBP_BACKGROUND_BYTES ||
+        snapshot.player_sprite_bytes == 0 ||
+        checksum32(pal_psram_fbp_background, snapshot.background_size) == 0) {
+        return 7;
+    }
+    if (snapshot.unique_enemy_sprite_bytes == 0 || snapshot.effect_size == 0 || snapshot.effect_data == 0) {
+        return 8;
+    }
+    if (snapshot.battle_effect_size != 17478u || snapshot.battle_effect_data == 0 ||
+        checksum32(snapshot.battle_effect_data, snapshot.battle_effect_size) == 0) {
+        return 9;
+    }
+    if (snapshot.player_sprites == 0 || snapshot.enemy_sprites == 0) {
+        return 10;
+    }
+    return 0;
+}
+
 static int check_rng_frame(
     const PalPack *tf,
     uint16_t movie_num,
@@ -1297,6 +1350,12 @@ int main(int argc, char **argv)
             check_battle(&nor.pack, &tf.pack, 156, 3, 1) ||
             check_battle(&nor.pack, &tf.pack, 342, 3, 2) ||
             check_battle(&nor.pack, &tf.pack, 385, 3, 1);
+    }
+    if (rc == 0) {
+        rc =
+            check_battle_readat(argv[2], &nor.pack, 156, 3, 1) ||
+            check_battle_readat(argv[2], &nor.pack, 342, 3, 2) ||
+            check_battle_readat(argv[2], &nor.pack, 385, 3, 1);
     }
     if (rc == 0) {
         rc =

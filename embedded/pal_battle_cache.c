@@ -35,6 +35,26 @@ static int find_unique_enemy(uint16_t unique_count, uint16_t enemy_sprite_num)
     return -1;
 }
 
+static bool copy_tf_chunk(
+    const PalPack *tf_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t archive_id,
+    uint16_t chunk_id,
+    uint8_t *dst,
+    uint32_t dst_capacity,
+    uint32_t *out_size)
+{
+    if (tf_pack != NULL) {
+        return PalPack_CopyRaw(tf_pack, archive_id, chunk_id, dst, dst_capacity, out_size);
+    }
+    if (tf_toc != NULL && read_at != NULL) {
+        return PalPackToc_CopyRawReadAt(tf_toc, read_at, user, archive_id, chunk_id, dst, dst_capacity, out_size);
+    }
+    return false;
+}
+
 static bool load_player_sprites(
     const PalPack *nor_pack,
     const uint16_t *player_sprite_nums,
@@ -151,9 +171,12 @@ static bool load_enemy_sprites(
     return true;
 }
 
-bool PalBattle_LoadSnapshot(
+static bool load_snapshot(
     const PalPack *nor_pack,
     const PalPack *tf_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
     uint16_t team_num,
     uint16_t battlefield_num,
     const uint16_t *player_sprite_nums,
@@ -172,7 +195,7 @@ bool PalBattle_LoadSnapshot(
     if (snapshot == NULL) {
         return false;
     }
-    if (!PalPack_CopyRaw(tf_pack, PAL_PACK_ARCHIVE_FBP, battlefield_num, pal_psram_fbp_background, PAL_PSRAM_FBP_BACKGROUND_BYTES, &copied)) {
+    if (!copy_tf_chunk(tf_pack, tf_toc, read_at, user, PAL_PACK_ARCHIVE_FBP, battlefield_num, pal_psram_fbp_background, PAL_PSRAM_FBP_BACKGROUND_BYTES, &copied)) {
         return false;
     }
     if (copied != PAL_PSRAM_FBP_BACKGROUND_BYTES) {
@@ -213,6 +236,34 @@ bool PalBattle_LoadSnapshot(
     snapshot->effect_data = effect_span.data;
     snapshot->battle_effect_data = battle_effect_span.data;
     return true;
+}
+
+bool PalBattle_LoadSnapshot(
+    const PalPack *nor_pack,
+    const PalPack *tf_pack,
+    uint16_t team_num,
+    uint16_t battlefield_num,
+    const uint16_t *player_sprite_nums,
+    uint16_t player_count,
+    uint16_t effect_num,
+    PalBattleSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, tf_pack, NULL, NULL, NULL, team_num, battlefield_num, player_sprite_nums, player_count, effect_num, snapshot);
+}
+
+bool PalBattle_LoadSnapshotReadAt(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t team_num,
+    uint16_t battlefield_num,
+    const uint16_t *player_sprite_nums,
+    uint16_t player_count,
+    uint16_t effect_num,
+    PalBattleSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, team_num, battlefield_num, player_sprite_nums, player_count, effect_num, snapshot);
 }
 
 bool PalBattle_LoadEffectScratch(const PalPack *pack, uint16_t effect_num, PalBattleBuffer *buffer)
