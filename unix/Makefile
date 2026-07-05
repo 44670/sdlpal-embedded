@@ -147,7 +147,9 @@ ifeq ($(EMBEDDED_CONTRACT),1)
 		--binary $(TARGET) \
 		--max text=500000 \
 		--max data=524288 \
-		--max bss=524288
+		--max bss=524288 \
+		--max-symbol-prefix pal_sram_=307200 \
+		--max-symbol-prefix pal_psram_=8388608
 else
 	@echo "Run as: make -C unix EMBEDDED_CONTRACT=1 contract-check"
 	@exit 1

@@ -646,8 +646,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=274029 data=3808 bss=79288
-.text=150037 .rodata=95464 .data=144 .bss=79288
+text=273893 data=3808 bss=210360
+.text=149909 .rodata=95464 .data=144 .bss=210360
+pal_sram_ total=0 limit=307200
+pal_psram_ total=131088 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`:
@@ -657,6 +659,8 @@ objdump -t forbidden symbols: 0
 ```
 
 This is still not a usable embedded runtime. The macros remove linked heap/decompress entry points by routing old call sites to unavailable traps; the remaining engineering work is to replace those desktop resource paths with the generated pack/static-buffer slices.
+
+The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, it uses static `uint8_t` PSRAM buffers for the `PALMAP` object and GOP sprite data, and it accepts only already-native 64KB map chunks. The old compressed-MAP path remains only for non-contract desktop builds.
 
 ## Current Contract Failures
 

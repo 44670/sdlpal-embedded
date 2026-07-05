@@ -22,6 +22,90 @@
 #include "palcommon.h"
 #include "map.h"
 
+#ifdef PAL_NO_RUNTIME_HEAP
+
+#if defined(__GNUC__)
+#define PAL_MAP_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_MAP_PSRAM
+#endif
+
+static uint8_t pal_psram_map_instance[sizeof(PALMAP)] PAL_MAP_PSRAM;
+static uint8_t pal_psram_map_gop_static[65536] PAL_MAP_PSRAM;
+
+static LPPALMAP
+PAL_MapAllocInstance(
+   VOID
+)
+{
+   memset(pal_psram_map_instance, 0, sizeof(pal_psram_map_instance));
+   return (LPPALMAP)pal_psram_map_instance;
+}
+
+static VOID
+PAL_MapFreeInstance(
+   LPPALMAP          lpMap
+)
+{
+   (void)lpMap;
+}
+
+static LPBYTE
+PAL_MapAllocGop(
+   INT               size
+)
+{
+   if (size <= 0 || (size_t)size > sizeof(pal_psram_map_gop_static))
+   {
+      return NULL;
+   }
+   return pal_psram_map_gop_static;
+}
+
+static VOID
+PAL_MapFreeGop(
+   LPBYTE            pTileSprite
+)
+{
+   (void)pTileSprite;
+}
+
+#else
+
+static LPPALMAP
+PAL_MapAllocInstance(
+   VOID
+)
+{
+   return (LPPALMAP)malloc(sizeof(PALMAP));
+}
+
+static VOID
+PAL_MapFreeInstance(
+   LPPALMAP          lpMap
+)
+{
+   free(lpMap);
+}
+
+static LPBYTE
+PAL_MapAllocGop(
+   INT               size
+)
+{
+   return (LPBYTE)malloc(size);
+}
+
+static VOID
+PAL_MapFreeGop(
+   LPBYTE            pTileSprite
+)
+{
+   free(pTileSprite);
+}
+
+#endif
+
 LPPALMAP
 PAL_LoadMap(
    INT               iMapNum,
@@ -50,7 +134,9 @@ PAL_LoadMap(
 
 --*/
 {
+#ifndef PAL_NO_RUNTIME_DECOMPRESS
    LPBYTE                     buf;
+#endif
    INT                        size, i, j;
    LPPALMAP                   map;
 
@@ -69,6 +155,7 @@ PAL_LoadMap(
    //
    size = PAL_MKFGetChunkSize(iMapNum, fpMapMKF);
 
+#ifndef PAL_NO_RUNTIME_DECOMPRESS
    //
    // Allocate a temporary buffer for the compressed data.
    //
@@ -81,7 +168,7 @@ PAL_LoadMap(
    //
    // Create the map instance.
    //
-   map = (LPPALMAP)malloc(sizeof(PALMAP));
+   map = PAL_MapAllocInstance();
    if (map == NULL)
    {
       return NULL;
@@ -93,7 +180,7 @@ PAL_LoadMap(
    if (PAL_MKFReadChunk(buf, size, iMapNum, fpMapMKF) < 0)
    {
       free(buf);
-      free(map);
+      PAL_MapFreeInstance(map);
       return NULL;
    }
 
@@ -102,7 +189,7 @@ PAL_LoadMap(
    //
    if (Decompress(buf, (LPBYTE)(map->Tiles), sizeof(map->Tiles)) < 0)
    {
-      free(map);
+      PAL_MapFreeInstance(map);
       free(buf);
       return NULL;
    }
@@ -111,6 +198,19 @@ PAL_LoadMap(
    // The compressed data is useless now; delete it.
    //
    free(buf);
+#else
+   map = PAL_MapAllocInstance();
+   if (map == NULL || size != (INT)sizeof(map->Tiles))
+   {
+      PAL_MapFreeInstance(map);
+      return NULL;
+   }
+   if (PAL_MKFReadChunk((LPBYTE)(map->Tiles), sizeof(map->Tiles), iMapNum, fpMapMKF) < 0)
+   {
+      PAL_MapFreeInstance(map);
+      return NULL;
+   }
+#endif
 
    //
    // Adjust the endianness of the decompressed data.
@@ -130,18 +230,19 @@ PAL_LoadMap(
    size = PAL_MKFGetChunkSize(iMapNum, fpGopMKF);
    if (size <= 0)
    {
-      free(map);
+      PAL_MapFreeInstance(map);
       return NULL;
    }
-   map->pTileSprite = (LPSPRITE)malloc(size);
+   map->pTileSprite = (LPSPRITE)PAL_MapAllocGop(size);
    if (map->pTileSprite == NULL)
    {
-      free(map);
+      PAL_MapFreeInstance(map);
       return NULL;
    }
    if (PAL_MKFReadChunk(map->pTileSprite, size, iMapNum, fpGopMKF) < 0)
    {
-      free(map);
+      PAL_MapFreeGop(map->pTileSprite);
+      PAL_MapFreeInstance(map);
       return NULL;
    }
 
@@ -185,13 +286,13 @@ PAL_FreeMap(
    //
    if (lpMap->pTileSprite != NULL)
    {
-      free(lpMap->pTileSprite);
+      PAL_MapFreeGop(lpMap->pTileSprite);
    }
 
    //
    // Delete the instance.
    //
-   free(lpMap);
+   PAL_MapFreeInstance(lpMap);
 }
 
 LPCBITMAPRLE
