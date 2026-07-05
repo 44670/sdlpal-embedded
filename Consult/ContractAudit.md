@@ -90,6 +90,12 @@ python3 -B tools/pal_pack_build.py \
   --out-tf /tmp/pal_tf_default.pak
 ```
 
+The embedded makefile wraps that default command as:
+
+```sh
+make -C embedded pack-build
+```
+
 Current default pack sizes from the audited data:
 
 ```text
@@ -424,10 +430,6 @@ The smoke also exercises `embedded/pal_music_cache.c` against real music assets 
 Build packs and run the real-data smoke:
 
 ```sh
-python3 -B tools/pal_pack_build.py \
-  /mnt/hgfs/deb13/PAL \
-  --out-nor /tmp/pal_nor_default.pak \
-  --out-tf /tmp/pal_tf_default.pak
 make -C embedded realdata-check
 ```
 

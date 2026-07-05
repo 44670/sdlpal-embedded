@@ -41,7 +41,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - Full pre-decompression of all assets into 16MB NOR is not feasible for the current data set, so large decoded/native resources should live in TF-backed resource packs.
 - TF card can hold the original files and generated cache files, but runtime TF random access should be minimized. Prefer sequential reads of already-decoded/native chunks.
 - Favor reproducible tools for dataset inspection and conversion.
-- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode and VOC-to-PCM conversion are allowed there because they are host-side pack generation, not runtime.
+- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode and VOC-to-PCM conversion are allowed there because they are host-side pack generation, not runtime. `make -C embedded pack-build` regenerates the default packs from `PAL_DATA_DIR`.
 - `tools/pal_pack_check.c` is a host-side mmap checker for generated packs using the same `embedded/pal_pack.c` reader.
 - The audited data path has no loose `.ogg`, `.opus`, `.mp3`, `.wav`, `.mid`, or `.avi` files. Audio is in `MIDI.MKF`, `MUS.MKF`, and `VOC.MKF`.
 - Scene/event sprite deduplication is high value: worst measured scene resources drop from about 909KB to about 143KB when repeated event-object sprite numbers share one decoded sprite.
@@ -58,7 +58,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_pack.c` is the first native runtime slice following the contract: no heap, no decompressor, `const uint8_t` pack reads, fixed `uint8_t` copy destination, and objdump/nm/size verification through `embedded/Makefile`.
 - `embedded/pal_memory.c` intentionally declares normal named static-storage buffers such as `pal_sram_framebuffer` and `pal_psram_map_tiles`; there is no memory pool API.
 - `embedded/pal_native_sdl_smoke.c` is the native SDL fixed-memory smoke test. It wraps `pal_sram_framebuffer` with an SDL surface and reads from a `const uint8_t` pack; run it through `make -C embedded check` with `SDL_VIDEODRIVER=dummy`.
-- `embedded/pal_realdata_sdl_smoke.c` is the native SDL real-data smoke test. It maps generated NOR/TF packs read-only, copies TF chunks into named SRAM/PSRAM arrays, reads real save files into static PSRAM storage, and is run with `make -C embedded realdata-check`.
+- `embedded/pal_realdata_sdl_smoke.c` is the native SDL real-data smoke test. It maps generated NOR/TF packs read-only, copies TF chunks into named SRAM/PSRAM arrays, reads real save files into static PSRAM storage, and is run with `make -C embedded realdata-check`, which rebuilds the packs first.
 - `make -C embedded contract-check` runs the embedded source/binary budget gate with heap/decoder scans and named `pal_sram_`, `pal_psram_`, `pal_scene_`, `pal_battle_`, `pal_sfx_`, `pal_audio_`, `pal_global_`, `pal_save_`, `pal_video_`, `pal_ui_`, and `pal_music_` symbol totals.
 - `embedded/pal_scene_cache.c` is the static scene-loading slice. It copies decoded MAP/GOP chunks into named PSRAM arrays and deduplicates event-object MGO sprites as `const uint8_t *` references into the NOR pack.
 - `embedded/pal_battle_cache.c` is the static battle-loading slice. It copies decoded FBP backgrounds into PSRAM and keeps F/ABC/FIRE sprites as `const uint8_t *` views into the NOR pack, with enemy sprite deduplication.
