@@ -698,7 +698,7 @@ The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 128KB 
 
 The contract `global.c` path now uses named PSRAM storage for mutable global tables and save/load structs. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
 
-The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It uses default/static config strings, fixed static `uint8_t` config buffers for string setters, and case-sensitive no-heap path lookup in the reduced profile.
+The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It compiles out config-file parsing in the reduced profile, uses default/static config strings, keeps fixed static `uint8_t` config buffers for string setters, and uses case-sensitive no-heap path lookup.
 
 The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprite data and eight 320x200 box save/restore buffers, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
 

@@ -141,12 +141,9 @@ PAL_SetStaticConfigString(
 }
 #endif
 
+#ifndef PAL_NO_RUNTIME_HEAP
 static char * ParseStringValue(const char *sValue, char *original)
 {
-#ifdef PAL_NO_RUNTIME_HEAP
-	(void)sValue;
-	return original;
-#else
 	int n = strlen(sValue);
 	while (n > 0 && SDL_isspace(sValue[n - 1])) n--;
 	if (n > 0)
@@ -157,7 +154,6 @@ static char * ParseStringValue(const char *sValue, char *original)
 		return newval;
 	}
 	return original;
-#endif
 }
 
 static BOOL
@@ -239,6 +235,7 @@ PAL_ParseConfigLine(
 	}
 	return FALSE;
 }
+#endif
 
 const char *
 PAL_ConfigName(
@@ -449,6 +446,7 @@ PAL_LoadConfig(
 
 	for (PALCFG_ITEM i = PALCFG_ALL_MIN; i < PALCFG_ALL_MAX; i++) values[i] = gConfigItems[i].DefaultValue;
 
+#ifndef PAL_NO_RUNTIME_HEAP
 	if (fFromFile && (fp = UTIL_OpenFileAtPathForMode(PAL_CONFIG_PREFIX, "sdlpal.cfg", "r")))
 	{
 		PAL_LARGE char buf[512];
@@ -613,6 +611,7 @@ PAL_LoadConfig(
 
 		UTIL_CloseFile(fp);
 	}
+#endif
 
 	//
 	// Set configurable global options
