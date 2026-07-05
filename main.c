@@ -45,6 +45,20 @@ char gExecutablePath[PAL_MAX_PATH];
 #define SPRITENUM_SPLASH_CRANE      0x49
 #define NUM_RIX_TITLE               0x05
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#define PAL_STATIC_SPLASH_BUFFERS 1
+#if defined(__GNUC__)
+#define PAL_SPLASH_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#define PAL_SPLASH_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_SPLASH_SRAM
+#define PAL_SPLASH_PSRAM
+#endif
+static uint8_t pal_sram_splash_fbp[320 * 200] PAL_SPLASH_SRAM;
+static uint8_t pal_psram_splash_title[32000] PAL_SPLASH_PSRAM;
+static uint8_t pal_psram_splash_crane[32000] PAL_SPLASH_PSRAM;
+#endif
+
 
 static VOID
 PAL_Init(
@@ -245,9 +259,15 @@ PAL_SplashScreen(
    //
    // Allocate all the needed memory at once for simplification
    //
+#ifdef PAL_STATIC_SPLASH_BUFFERS
+   buf = pal_sram_splash_fbp;
+   buf2 = pal_psram_splash_title;
+   lpSpriteCrane = (LPSPRITE)pal_psram_splash_crane;
+#else
    buf = (LPBYTE)UTIL_calloc(1, 320 * 200 * 2);
    buf2 = (LPBYTE)(buf + 320 * 200);
    lpSpriteCrane = (LPSPRITE)buf2 + 32000;
+#endif
 
    //
    // Create the surfaces
@@ -258,6 +278,27 @@ PAL_SplashScreen(
    //
    // Read the bitmaps
    //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (PAL_MKFReadChunk(buf, 320 * 200, BITMAPNUM_SPLASH_UP, gpGlobals->f.fpFBP) != 320 * 200)
+   {
+      goto end;
+   }
+   PAL_FBPBlitToSurface(buf, lpBitmapUp);
+   if (PAL_MKFReadChunk(buf, 320 * 200, BITMAPNUM_SPLASH_DOWN, gpGlobals->f.fpFBP) != 320 * 200)
+   {
+      goto end;
+   }
+   PAL_FBPBlitToSurface(buf, lpBitmapDown);
+   if (PAL_MKFReadChunk(buf2, 32000, SPRITENUM_SPLASH_TITLE, gpGlobals->f.fpMGO) <= 0)
+   {
+      goto end;
+   }
+   lpBitmapTitle = (LPBITMAPRLE)PAL_SpriteGetFrame(buf2, 0);
+   if (PAL_MKFReadChunk((LPBYTE)lpSpriteCrane, 32000, SPRITENUM_SPLASH_CRANE, gpGlobals->f.fpMGO) <= 0)
+   {
+      goto end;
+   }
+#else
    PAL_MKFReadChunk(buf, 320 * 200, BITMAPNUM_SPLASH_UP, gpGlobals->f.fpFBP);
    Decompress(buf, buf2, 320 * 200);
    PAL_FBPBlitToSurface(buf2, lpBitmapUp);
@@ -269,7 +310,12 @@ PAL_SplashScreen(
    lpBitmapTitle = (LPBITMAPRLE)PAL_SpriteGetFrame(buf2, 0);
    PAL_MKFReadChunk(buf, 32000, SPRITENUM_SPLASH_CRANE, gpGlobals->f.fpMGO);
    Decompress(buf, lpSpriteCrane, 32000);
+#endif
 
+   if (lpBitmapTitle == NULL)
+   {
+      goto end;
+   }
    iTitleHeight = PAL_RLEGetHeight(lpBitmapTitle);
    lpBitmapTitle[2] = 0;
    lpBitmapTitle[3] = 0; // HACKHACK
@@ -443,9 +489,12 @@ PAL_SplashScreen(
       }
    }
 
+end:
    VIDEO_FreeSurface(lpBitmapDown);
    VIDEO_FreeSurface(lpBitmapUp);
+#ifndef PAL_STATIC_SPLASH_BUFFERS
    free(buf);
+#endif
 
    if (!fUseCD)
    {
