@@ -989,6 +989,10 @@ PAL_LoadObjectDesc(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   (void)lpszFileName;
+   return NULL;
+#else
    FILE                      *fp;
    PAL_LARGE char             buf[512];
    char                      *p;
@@ -1035,6 +1039,7 @@ PAL_LoadObjectDesc(
 
    fclose(fp);
    return lpDesc;
+#endif
 }
 
 VOID
@@ -1056,6 +1061,9 @@ PAL_FreeObjectDesc(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   (void)lpObjectDesc;
+#else
    LPOBJECTDESC    p;
 
    while (lpObjectDesc != NULL)
@@ -1065,6 +1073,7 @@ PAL_FreeObjectDesc(
       free(lpObjectDesc);
       lpObjectDesc = p;
    }
+#endif
 }
 
 LPCWSTR

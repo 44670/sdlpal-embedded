@@ -614,7 +614,7 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, and codepage-table objects from the full-engine build. The remaining audio/video/font/text entry points are inert stubs:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The remaining audio/video/font/text entry points are inert stubs:
 
 ```text
 resampler_init
@@ -661,7 +661,7 @@ objdump -t forbidden symbols: 0
 forbidden call targets: 0
 ```
 
-The Unix contract source scan runs with `--fail-on-source`, strips simple inactive `#ifdef`/`#ifndef` blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress patterns.
+The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress patterns.
 
 This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the stubbed desktop resource paths with the generated pack/static-buffer slices.
 
@@ -689,9 +689,11 @@ The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 128KB 
 
 The contract `global.c` path now uses named PSRAM storage for mutable global tables and save/load structs. The contract profile assumes the DOS/YJ1 data set and avoids heap-based version/codepage probes.
 
-The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It uses default/static config strings and case-sensitive no-heap path lookup in the reduced profile.
+The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It uses default/static config strings, fixed static `uint8_t` config buffers for string setters, and case-sensitive no-heap path lookup in the reduced profile.
 
 The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprite data and eight 320x200 box save/restore buffers, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
+
+The contract `ui.c` object-description load/free path is a no-heap stub for now. Final UI parity should load object descriptions from generated read-only text/object-description data rather than the legacy linked-list loader.
 
 ## Current Contract Failures
 

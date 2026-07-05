@@ -94,6 +94,53 @@ static const char *cd_types[] = { "NONE", "MP3", "OGG", "OPUS", "RAW" };
 static const char *opl_cores[] = { "MAME", "DBFLT", "DBINT", "NUKED" };
 static const char *opl_chips[] = { "OPL2", "OPL3" };
 
+#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(__GNUC__)
+#define PAL_CONFIG_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#else
+#define PAL_CONFIG_SRAM
+#endif
+
+static uint8_t pal_sram_config_game_path[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_save_path[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_shader_path[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_msg_file[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_font_file[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_log_file[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_midi_client[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_sound_bank[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_scale_quality[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+static uint8_t pal_sram_config_shader[PAL_MAX_PATH] PAL_CONFIG_SRAM;
+
+static char *
+PAL_SetStaticConfigString(
+	uint8_t    *dst,
+	size_t      dst_size,
+	const char *src,
+	const char *fallback
+)
+{
+	const char *value = (src && src[0]) ? src : fallback;
+	size_t len;
+
+	if (dst == NULL || dst_size == 0)
+		return NULL;
+
+	if (value == NULL)
+	{
+		dst[0] = '\0';
+		return NULL;
+	}
+
+	len = strlen(value);
+	if (len >= dst_size)
+		len = dst_size - 1;
+	memcpy(dst, value, len);
+	dst[len] = '\0';
+	return (char *)dst;
+}
+#endif
+
 static char * ParseStringValue(const char *sValue, char *original)
 {
 #ifdef PAL_NO_RUNTIME_HEAP
@@ -795,44 +842,84 @@ PAL_SetConfigItem(
 	case PALCFG_TEXTUREHEIGHT:     gConfig.dwTextureHeight = value.uValue; break;
 	case PALCFG_TEXTUREWIDTH:      gConfig.dwTextureWidth = value.uValue; break;
 	case PALCFG_GAMEPATH:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszGamePath = PAL_SetStaticConfigString(pal_sram_config_game_path, sizeof(pal_sram_config_game_path), value.sValue, PAL_PREFIX);
+#else
 		if (gConfig.pszGamePath) free(gConfig.pszGamePath);
 		gConfig.pszGamePath = value.sValue && value.sValue[0] ? strdup(value.sValue) : strdup(PAL_PREFIX);
+#endif
 		break;
 	case PALCFG_SAVEPATH:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszSavePath = PAL_SetStaticConfigString(pal_sram_config_save_path, sizeof(pal_sram_config_save_path), value.sValue, gConfig.pszGamePath ? gConfig.pszGamePath : PAL_SAVE_PREFIX);
+#else
 		if (gConfig.pszSavePath) free(gConfig.pszSavePath);
 		gConfig.pszSavePath = value.sValue && value.sValue[0] ? strdup(value.sValue) : (gConfig.pszGamePath ? strdup(gConfig.pszGamePath) : strdup(PAL_SAVE_PREFIX));
+#endif
 		break;
     case PALCFG_SHADERPATH:
+#ifdef PAL_NO_RUNTIME_HEAP
+        gConfig.pszShaderPath = PAL_SetStaticConfigString(pal_sram_config_shader_path, sizeof(pal_sram_config_shader_path), value.sValue, PAL_PREFIX);
+#else
         if (gConfig.pszShaderPath) free(gConfig.pszShaderPath);
         gConfig.pszShaderPath = value.sValue && value.sValue[0] ? strdup(value.sValue) : strdup(PAL_PREFIX);
+#endif
         break;
 	case PALCFG_MESSAGEFILE:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszMsgFile = PAL_SetStaticConfigString(pal_sram_config_msg_file, sizeof(pal_sram_config_msg_file), value.sValue, NULL);
+#else
 		if (gConfig.pszMsgFile) free(gConfig.pszMsgFile);
 		gConfig.pszMsgFile = value.sValue && value.sValue[0] ? strdup(value.sValue) : NULL;
+#endif
 		break;
 	case PALCFG_FONTFILE:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszFontFile = PAL_SetStaticConfigString(pal_sram_config_font_file, sizeof(pal_sram_config_font_file), value.sValue, NULL);
+#else
 		if (gConfig.pszFontFile) free(gConfig.pszFontFile);
 		gConfig.pszFontFile = value.sValue && value.sValue[0] ? strdup(value.sValue) : NULL;
+#endif
 		break;
 	case PALCFG_LOGFILE:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszLogFile = PAL_SetStaticConfigString(pal_sram_config_log_file, sizeof(pal_sram_config_log_file), value.sValue, NULL);
+#else
 		if (gConfig.pszLogFile) free(gConfig.pszLogFile);
 		gConfig.pszLogFile = value.sValue && value.sValue[0] ? strdup(value.sValue) : NULL;
+#endif
 		break;
 	case PALCFG_MIDICLIENT:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszMIDIClient = PAL_SetStaticConfigString(pal_sram_config_midi_client, sizeof(pal_sram_config_midi_client), value.sValue, NULL);
+#else
 		if (gConfig.pszMIDIClient) free(gConfig.pszMIDIClient);
 		gConfig.pszMIDIClient = value.sValue && value.sValue[0] ? strdup(value.sValue) : NULL;
+#endif
 		break;
 	case PALCFG_SOUNDBANK:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszSoundBank = PAL_SetStaticConfigString(pal_sram_config_sound_bank, sizeof(pal_sram_config_sound_bank), value.sValue, NULL);
+#else
 		if (gConfig.pszSoundBank) free(gConfig.pszSoundBank);
 		gConfig.pszSoundBank = value.sValue && value.sValue[0] ? strdup(value.sValue) : NULL;
+#endif
 		break;
 	case PALCFG_SCALEQUALITY:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszScaleQuality = PAL_SetStaticConfigString(pal_sram_config_scale_quality, sizeof(pal_sram_config_scale_quality), value.sValue, "0");
+#else
 		if (gConfig.pszScaleQuality) free(gConfig.pszScaleQuality);
 		gConfig.pszScaleQuality = value.sValue && value.sValue[0] ? strdup(value.sValue) : NULL;
+#endif
 		break;
 	case PALCFG_SHADER:
+#ifdef PAL_NO_RUNTIME_HEAP
+		gConfig.pszShader = PAL_SetStaticConfigString(pal_sram_config_shader, sizeof(pal_sram_config_shader), value.sValue, NULL);
+#else
 		if (gConfig.pszShader) free(gConfig.pszShader);
 		gConfig.pszShader = value.sValue && value.sValue[0] ? strdup(value.sValue) : NULL;
+#endif
 		break;
 	case PALCFG_CD:
 		for (int i = 0; i < sizeof(cd_types) / sizeof(cd_types[0]); i++)

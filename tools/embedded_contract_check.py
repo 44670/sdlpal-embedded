@@ -249,32 +249,198 @@ def strip_c_comments(text: str) -> str:
     return "".join(out)
 
 
-def eval_simple_if_expr(expr: str, defines: set[str]) -> bool | None:
-    expr = expr.strip()
-    if expr == "0":
-        return False
-    if expr == "1":
-        return True
-
-    match = re.fullmatch(r"defined\s*\(?\s*([A-Za-z_]\w*)\s*\)?", expr)
-    if match:
-        return match.group(1) in defines
-    match = re.fullmatch(r"!\s*defined\s*\(?\s*([A-Za-z_]\w*)\s*\)?", expr)
-    if match:
-        return match.group(1) not in defines
-    match = re.fullmatch(r"([A-Za-z_]\w*)", expr)
-    if match:
-        return match.group(1) in defines
-    match = re.fullmatch(r"!\s*([A-Za-z_]\w*)", expr)
-    if match:
-        return match.group(1) not in defines
-    return None
+SOURCE_IF_TOKEN_RE = re.compile(r"\s*(defined|[A-Za-z_]\w*|0[xX][0-9A-Fa-f]+|\d+|&&|\|\||==|!=|<=|>=|[!()<>,-])")
 
 
-def strip_inactive_preprocessor(text: str, defines: set[str]) -> str:
+def parse_source_defines(raw_defines: list[str]) -> dict[str, int]:
+    defines: dict[str, int] = {}
+    for raw in raw_defines:
+        if "=" in raw:
+            name, value = raw.split("=", 1)
+            name = name.strip()
+            value = value.strip()
+            if not name:
+                continue
+            try:
+                defines[name] = int(value, 0)
+            except ValueError:
+                defines[name] = 1 if value else 0
+        else:
+            name = raw.strip()
+            if name:
+                defines[name] = 1
+    return defines
+
+
+def source_if_tokens(expr: str) -> list[str] | None:
+    tokens: list[str] = []
+    pos = 0
+    while pos < len(expr):
+        if expr[pos:].strip() == "":
+            break
+        match = SOURCE_IF_TOKEN_RE.match(expr, pos)
+        if match is None:
+            return None
+        token = match.group(1)
+        tokens.append(token)
+        pos = match.end()
+    return tokens
+
+
+class SourceIfParser:
+    def __init__(self, tokens: list[str], defines: dict[str, int]):
+        self.tokens = tokens
+        self.defines = defines
+        self.pos = 0
+
+    def peek(self) -> str | None:
+        if self.pos >= len(self.tokens):
+            return None
+        return self.tokens[self.pos]
+
+    def take(self, token: str | None = None) -> str | None:
+        cur = self.peek()
+        if cur is None or (token is not None and cur != token):
+            return None
+        self.pos += 1
+        return cur
+
+    def parse(self) -> int | None:
+        value = self.parse_or()
+        if self.peek() is not None:
+            return None
+        return value
+
+    def parse_or(self) -> int | None:
+        value = self.parse_and()
+        while self.take("||") is not None:
+            rhs = self.parse_and()
+            if value is not None and value != 0:
+                value = 1
+            elif rhs is not None and rhs != 0:
+                value = 1
+            elif value is None or rhs is None:
+                value = None
+            else:
+                value = 0
+        return value
+
+    def parse_and(self) -> int | None:
+        value = self.parse_compare()
+        while self.take("&&") is not None:
+            rhs = self.parse_compare()
+            if value is not None and value == 0:
+                value = 0
+            elif rhs is not None and rhs == 0:
+                value = 0
+            elif value is None or rhs is None:
+                value = None
+            else:
+                value = 1
+        return value
+
+    def parse_compare(self) -> int | None:
+        value = self.parse_unary()
+        op = self.peek()
+        if op not in {"==", "!=", "<", "<=", ">", ">="}:
+            return value
+        self.take()
+        rhs = self.parse_unary()
+        if value is None or rhs is None:
+            return None
+        if op == "==":
+            return 1 if value == rhs else 0
+        if op == "!=":
+            return 1 if value != rhs else 0
+        if op == "<":
+            return 1 if value < rhs else 0
+        if op == "<=":
+            return 1 if value <= rhs else 0
+        if op == ">":
+            return 1 if value > rhs else 0
+        return 1 if value >= rhs else 0
+
+    def parse_unary(self) -> int | None:
+        if self.take("!") is not None:
+            value = self.parse_unary()
+            if value is None:
+                return None
+            return 0 if value else 1
+        return self.parse_primary()
+
+    def parse_primary(self) -> int | None:
+        token = self.peek()
+        if token is None:
+            return None
+        if token == "(":
+            self.take("(")
+            value = self.parse_or()
+            if self.take(")") is None:
+                return None
+            return value
+        if re.fullmatch(r"0[xX][0-9A-Fa-f]+|\d+", token):
+            self.take()
+            return int(token, 0)
+        if token == "defined":
+            self.take()
+            if self.take("(") is not None:
+                name = self.take()
+                if name is None or not re.fullmatch(r"[A-Za-z_]\w*", name) or self.take(")") is None:
+                    return None
+            else:
+                name = self.take()
+                if name is None or not re.fullmatch(r"[A-Za-z_]\w*", name):
+                    return None
+            return 1 if name in self.defines else 0
+        if re.fullmatch(r"[A-Za-z_]\w*", token):
+            self.take()
+            if self.peek() == "(":
+                return self.parse_function_macro(token)
+            return self.defines.get(token, 0)
+        return None
+
+    def parse_function_macro(self, name: str) -> int | None:
+        args: list[int] = []
+        if self.take("(") is None:
+            return None
+        if self.peek() == ")":
+            self.take(")")
+        else:
+            while True:
+                value = self.parse_or()
+                if value is None:
+                    return None
+                args.append(value)
+                if self.take(",") is not None:
+                    continue
+                if self.take(")") is not None:
+                    break
+                return None
+
+        if name == "SDL_VERSION_ATLEAST" and len(args) == 3:
+            current = (
+                self.defines.get("SDL_MAJOR_VERSION", 0),
+                self.defines.get("SDL_MINOR_VERSION", 0),
+                self.defines.get("SDL_PATCHLEVEL", 0),
+            )
+            return 1 if current >= (args[0], args[1], args[2]) else 0
+        return None
+
+
+def eval_simple_if_expr(expr: str, defines: dict[str, int]) -> bool | None:
+    tokens = source_if_tokens(expr)
+    if tokens is None:
+        return None
+    value = SourceIfParser(tokens, defines).parse()
+    if value is None:
+        return None
+    return value != 0
+
+
+def strip_inactive_preprocessor(text: str, defines: dict[str, int]) -> str:
     out: list[str] = []
-    active_stack: list[tuple[bool, bool]] = []
-    parent_active = True
+    local_defines = dict(defines)
+    active_stack: list[dict[str, bool]] = []
     current_active = True
 
     for line in text.splitlines(keepends=True):
@@ -289,27 +455,52 @@ def strip_inactive_preprocessor(text: str, defines: set[str]) -> str:
         rest = tokens[1] if len(tokens) > 1 else ""
 
         if keyword in {"ifdef", "ifndef", "if"}:
-            active_stack.append((parent_active, current_active))
             parent_active = current_active
             if keyword == "ifdef":
-                condition = rest.strip() in defines
+                condition = rest.strip() in local_defines
             elif keyword == "ifndef":
-                condition = rest.strip() not in defines
+                condition = rest.strip() not in local_defines
             else:
-                value = eval_simple_if_expr(rest, defines)
+                value = eval_simple_if_expr(rest, local_defines)
                 condition = True if value is None else value
             current_active = parent_active and condition
+            active_stack.append({"parent": parent_active, "taken": current_active})
             out.append("\n")
         elif keyword == "else" and active_stack:
-            current_active = parent_active and not current_active
+            state = active_stack[-1]
+            current_active = state["parent"] and not state["taken"]
+            state["taken"] = True
             out.append("\n")
         elif keyword == "elif" and active_stack:
-            value = eval_simple_if_expr(rest, defines)
+            state = active_stack[-1]
+            value = eval_simple_if_expr(rest, local_defines)
             condition = True if value is None else value
-            current_active = parent_active and condition
+            current_active = state["parent"] and not state["taken"] and condition
+            state["taken"] = state["taken"] or current_active
             out.append("\n")
         elif keyword == "endif" and active_stack:
-            parent_active, current_active = active_stack.pop()
+            state = active_stack.pop()
+            current_active = state["parent"]
+            out.append("\n")
+        elif keyword == "define" and current_active:
+            parts = rest.split(None, 1)
+            if parts and re.fullmatch(r"[A-Za-z_]\w*", parts[0]):
+                value = 1
+                if len(parts) > 1:
+                    parsed = eval_simple_if_expr(parts[1], local_defines)
+                    if parsed is not None:
+                        value = 1 if parsed else 0
+                    else:
+                        try:
+                            value = int(parts[1].strip(), 0)
+                        except ValueError:
+                            value = 1
+                local_defines[parts[0]] = value
+            out.append("\n")
+        elif keyword == "undef" and current_active:
+            name = rest.strip()
+            if re.fullmatch(r"[A-Za-z_]\w*", name):
+                local_defines.pop(name, None)
             out.append("\n")
         else:
             out.append(line if current_active else "\n")
@@ -317,12 +508,30 @@ def strip_inactive_preprocessor(text: str, defines: set[str]) -> str:
     return "".join(out)
 
 
-def scan_sources(root: Path, include_third_party: bool, source_excludes: list[str], source_defines: set[str]) -> list[Hit]:
+def iter_scan_sources(root: Path, include_third_party: bool, source_files: list[Path]):
+    if source_files:
+        for source_file in source_files:
+            path = source_file if source_file.is_absolute() else (Path.cwd() / source_file)
+            if path.is_file():
+                yield path.resolve()
+        return
+
+    for path in iter_sources(root, include_third_party):
+        yield path.resolve()
+
+
+def scan_sources(
+    root: Path,
+    include_third_party: bool,
+    source_excludes: list[str],
+    source_defines: dict[str, int],
+    source_files: list[Path],
+) -> list[Hit]:
     heap_res = [re.compile(p) for p in HEAP_PATTERNS]
     decomp_res = [re.compile(p, re.IGNORECASE) for p in DECOMPRESS_PATTERNS]
     hits: list[Hit] = []
 
-    for path in sorted(set(iter_sources(root, include_third_party))):
+    for path in sorted(set(iter_scan_sources(root, include_third_party, source_files))):
         if source_is_excluded(path, root, source_excludes):
             continue
         try:
@@ -868,7 +1077,15 @@ def main() -> int:
         action="append",
         default=[],
         metavar="NAME",
-        help="treat NAME as defined when stripping simple #ifdef/#ifndef blocks before source scans",
+        help="treat NAME or NAME=VALUE as defined when stripping simple preprocessor blocks before source scans",
+    )
+    parser.add_argument(
+        "--source-file",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="PATH",
+        help="scan this source path instead of discovering sources under --root; may be repeated",
     )
     parser.add_argument("--max", action="append", default=[], metavar="NAME=BYTES")
     parser.add_argument("--max-pack-size", action="append", default=[], metavar="PATH=BYTES")
@@ -890,7 +1107,13 @@ def main() -> int:
     args = parser.parse_args()
 
     root = args.root.resolve()
-    hits = scan_sources(root, args.include_third_party, args.source_exclude, set(args.source_define))
+    hits = scan_sources(
+        root,
+        args.include_third_party,
+        args.source_exclude,
+        parse_source_defines(args.source_define),
+        args.source_file,
+    )
 
     errors: list[str] = []
     print("# Embedded Contract Check")

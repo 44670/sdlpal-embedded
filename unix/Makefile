@@ -35,7 +35,7 @@ ifeq ($(EMBEDDED_CONTRACT),1)
 	MIDI_CPPFILES =
 	MIDI_LDFLAGS =
 	SOURCES = .. ../sdl_compat
-	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../font.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../mp3play.c ../oggplay.c ../opusplay.c ../resampler.c ../sound.c ../text.c ../video_glsl.c
+	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../font.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../mp3play.c ../oggplay.c ../opusplay.c ../resampler.c ../sound.c ../text.c ../video_glsl.c ../yj1.c
 	CONTRACT_CPPFILE_EXCLUDES = ../rixplay.cpp
 	CONTRACT_CFILES = embedded_contract_stubs.c ../embedded/pal_noheap.c
 	EMBEDDED_CCFLAGS = -ffunction-sections -fdata-sections -UUSE_SDL3 -DUSE_SDL3=0 -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI -DPAL_NO_RUNTIME_DECOMPRESS=1 -DPAL_NO_RUNTIME_HEAP=1
@@ -52,6 +52,7 @@ endif
 CFILES = $(filter-out $(CONTRACT_CFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.c))) $(MIDI_CFILES) $(CONTRACT_CFILES)
 CPPFILES = $(filter-out $(CONTRACT_CPPFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.cpp))) unix.cpp $(MIDI_CPPFILES)
 TOBJFILES = $(CFILES:.c=$(INTER).o) $(CPPFILES:.cpp=$(INTER).o)
+CONTRACT_SOURCE_ARGS = $(foreach src,$(CFILES) $(CPPFILES),--source-file $(src))
 DEPFILES = $(OBJFILES:.o=.d)
 TEST_CPPFILES = $(wildcard ../tests/*.cpp)
 TEST_OBJFILES = $(TEST_CPPFILES:.cpp=.o)
@@ -143,9 +144,22 @@ check: $(TEST_TARGET)
 contract-check: $(TARGET)
 ifeq ($(EMBEDDED_CONTRACT),1)
 	$(PYTHON) -B ../tools/embedded_contract_check.py \
-		--root . \
+		--root .. \
 		--fail-on-source \
+		$(CONTRACT_SOURCE_ARGS) \
+		--source-define PAL_NO_RUNTIME_HEAP=1 \
+		--source-define PAL_NO_RUNTIME_DECOMPRESS=1 \
 		--source-define PAL_NO_LAUNCH_UI \
+		--source-define PAL_HAS_MP3=0 \
+		--source-define PAL_HAS_OGG=0 \
+		--source-define PAL_HAS_OPUS=0 \
+		--source-define PAL_HAS_NATIVEMIDI=0 \
+		--source-define PAL_HAS_GLSL=0 \
+		--source-define PAL_HAS_CONFIG_PAGE=0 \
+		--source-define USE_SDL3=0 \
+		--source-define SDL_MAJOR_VERSION=2 \
+		--source-define SDL_MINOR_VERSION=0 \
+		--source-define SDL_PATCHLEVEL=0 \
 		--source-exclude native_midi.cpp \
 		--source-exclude native_midi_alsa.c \
 		--binary $(TARGET) \
