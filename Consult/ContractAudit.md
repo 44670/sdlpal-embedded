@@ -663,9 +663,9 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=187146 data=3728 bss=1297368
-.text=151525 .rodata=7368 .data=144 .bss=1297368
-pal_sram_ total=39936 limit=307200
+text=187146 data=3728 bss=1266648
+.text=151525 .rodata=7368 .data=144 .bss=1266648
+pal_sram_ total=9216 limit=307200
 pal_psram_ total=1178888 limit=8388608
 ```
 
@@ -739,9 +739,9 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=187146 data=3728 bss=1297368
-.text=151525 .rodata=7368 .data=144 .bss=1297368
-pal_sram_ total=39936 / 307200
+text=187146 data=3728 bss=1266648
+.text=151525 .rodata=7368 .data=144 .bss=1266648
+pal_sram_ total=9216 / 307200
 pal_psram_ total=1178888 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
