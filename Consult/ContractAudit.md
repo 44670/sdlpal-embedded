@@ -234,7 +234,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=2395 data=576 bss=8
+text=3835 data=576 bss=104
 PASS
 ```
 
@@ -255,6 +255,7 @@ pal_psram_map_tiles[65536]
 pal_psram_gop_copy[65536]
 pal_psram_screen_bak[64000]
 pal_psram_resource_staging[262144]
+pal_psram_tf_toc[32768]
 pal_psram_rng_frame_a[65000]
 pal_psram_rng_frame_b[65000]
 pal_psram_tf_readahead[131072]
@@ -290,9 +291,9 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=1557 data=520 bss=7453720
+text=1573 data=520 bss=7486488
 pal_sram_ total=184320 limit=307200
-pal_psram_ total=7269392 limit=8388608
+pal_psram_ total=7302160 limit=8388608
 PASS
 ```
 
@@ -304,7 +305,7 @@ The embedded makefile now builds a native SDL2 smoke binary that uses the same s
 embedded/build/pal_native_sdl_smoke
 ```
 
-It maps a `const uint8_t` native pack chunk, fills `pal_sram_framebuffer`, exercises `embedded/pal_video_static.c` clear/save/restore/scanline RGB565 conversion, and wraps that exact 8-bit buffer with `SDL_CreateRGBSurfaceFrom()`. SDL may allocate internally; the project-side smoke code does not use heap allocation and contains no decoder path.
+It maps a `const uint8_t` native pack chunk, can copy pack TOCs into fixed PSRAM, fills `pal_sram_framebuffer`, exercises `embedded/pal_video_static.c` clear/save/restore/scanline RGB565 conversion, and wraps that exact 8-bit buffer with `SDL_CreateRGBSurfaceFrom()`. SDL may allocate internally; the project-side smoke code does not use heap allocation and contains no decoder path.
 
 Build and verify:
 
@@ -327,9 +328,9 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=5228 data=640 bss=7454240
+text=6468 data=640 bss=7487008
 pal_sram_ total=184320 limit=307200
-pal_psram_ total=7269392 limit=8388608
+pal_psram_ total=7302160 limit=8388608
 pal_video_ total=512 limit=4096
 PASS
 ```
@@ -344,7 +345,9 @@ The embedded makefile also builds a native SDL2 smoke binary that opens the gene
 embedded/build/pal_realdata_sdl_smoke
 ```
 
-It maps both generated packs read-only, checks real archive counts, maps representative NOR chunks as `const uint8_t`, copies real TF chunks into `pal_sram_framebuffer`, `pal_psram_map_tiles`, `pal_psram_gop_copy`, and `pal_psram_sfx_bank`, exercises the static indexed-video path, then wraps `pal_sram_framebuffer` with SDL. There is no project-side heap allocation and no decoder path in this binary.
+It maps both generated packs read-only, checks real archive counts, maps representative NOR chunks as `const uint8_t`, copies the TF pack TOC into `pal_psram_tf_toc`, copies real TF chunks into `pal_sram_framebuffer`, `pal_psram_map_tiles`, `pal_psram_gop_copy`, and `pal_psram_sfx_bank`, exercises the static indexed-video path, then wraps `pal_sram_framebuffer` with SDL. There is no project-side heap allocation and no decoder path in this binary.
+
+The current TF pack TOC is 13,084 bytes for 812 chunks. The smoke copies it into the 32KB `pal_psram_tf_toc` array and verifies chunk counts, SFX chunk #255 metadata, and FBP/MAP payload copies through the copied TOC. This keeps slow-TF index lookup out of the payload-read path without mapping the whole TF pack into target memory.
 
 The same smoke also exercises `embedded/pal_scene_cache.c` on high-pressure real scenes:
 
@@ -521,9 +524,9 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=27407 .rodata=224 data=736 bss=7460512
+text=28987 .rodata=224 data=736 bss=7493280
 pal_sram_ total=184320 limit=307200
-pal_psram_ total=7269392 limit=8388608
+pal_psram_ total=7302160 limit=8388608
 pal_scene_ total=4736 limit=8192
 pal_battle_ total=334 limit=2048
 pal_sfx_ total=384 limit=4096
@@ -547,7 +550,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=611752
+size=613337
 PASS
 ```
 

@@ -22,6 +22,7 @@ uint8_t pal_psram_map_tiles[PAL_PSRAM_MAP_TILES_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_gop_copy[PAL_PSRAM_GOP_COPY_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_screen_bak[PAL_PSRAM_SCREEN_BAK_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_resource_staging[PAL_PSRAM_RESOURCE_STAGING_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_tf_toc[PAL_PSRAM_TF_TOC_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_rng_frame_a[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_rng_frame_b[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_tf_readahead[PAL_PSRAM_TF_READAHEAD_BYTES] PAL_BSS_PSRAM;

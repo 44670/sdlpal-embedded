@@ -198,6 +198,40 @@ static int exercise_tf_reads(const PalPack *tf)
     return 0;
 }
 
+static int exercise_tf_toc_reads(const MappedPack *tf)
+{
+    PalPackToc toc;
+    PalPackChunkInfo info;
+    uint16_t chunk_count = 0;
+    uint32_t copied = 0;
+
+    if (tf == 0 || !PalPack_OpenTocCopy(&toc, tf->data, tf->size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        return 1;
+    }
+    if (toc.base != pal_psram_tf_toc || toc.toc_size != 13084u || toc.pack_size != tf->size) {
+        return 2;
+    }
+    if (!PalPackToc_GetChunkCount(&toc, PAL_PACK_ARCHIVE_MAP, &chunk_count) || chunk_count != 226u) {
+        return 3;
+    }
+    if (!PalPackToc_GetChunkCount(&toc, PAL_PACK_ARCHIVE_SFX, &chunk_count) || chunk_count != 276u) {
+        return 4;
+    }
+    if (!PalPackToc_GetChunkInfo(&toc, PAL_PACK_ARCHIVE_SFX, 255, &info) ||
+        info.size != 211152u || info.format != PAL_PACK_FORMAT_SFX_PCM16 || info.flags != 0u) {
+        return 5;
+    }
+    if (!PalPackToc_CopyRawFromImage(&toc, tf->data, PAL_PACK_ARCHIVE_FBP, 0, pal_sram_framebuffer, PAL_SRAM_FRAMEBUFFER_BYTES, &copied) ||
+        copied != PAL_SRAM_FRAMEBUFFER_BYTES || checksum32(pal_sram_framebuffer, copied) == 0) {
+        return 6;
+    }
+    if (!PalPackToc_CopyRawFromImage(&toc, tf->data, PAL_PACK_ARCHIVE_MAP, 1, pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES, &copied) ||
+        copied != PAL_PSRAM_MAP_TILES_BYTES || checksum32(pal_psram_map_tiles, copied) == 0) {
+        return 7;
+    }
+    return 0;
+}
+
 static int exercise_sdl_surface(void)
 {
     SDL_Surface *surface;
@@ -870,6 +904,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = exercise_tf_reads(&tf.pack);
+    }
+    if (rc == 0) {
+        rc = exercise_tf_toc_reads(&tf);
     }
     if (rc == 0) {
         rc =

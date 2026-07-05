@@ -156,3 +156,149 @@ bool PalPack_CopyRaw(const PalPack *pack, uint16_t archive_id, uint16_t chunk_id
     }
     return true;
 }
+
+bool PalPack_OpenTocCopy(PalPackToc *toc, const uint8_t *pack_image, uint32_t pack_size, uint8_t *toc_buffer, uint32_t toc_capacity)
+{
+    uint16_t version;
+    uint16_t header_size;
+    uint16_t archive_count;
+    uint32_t archive_table_offset;
+    uint32_t data_offset;
+    uint32_t declared_pack_size;
+
+    if (toc == NULL || pack_image == NULL || toc_buffer == NULL || pack_size < PAL_PACK_HEADER_SIZE) {
+        return false;
+    }
+
+    if (read_le32(pack_image) != PAL_PACK_MAGIC) {
+        return false;
+    }
+
+    version = read_le16(pack_image + 4);
+    header_size = read_le16(pack_image + 6);
+    archive_count = read_le16(pack_image + 8);
+    archive_table_offset = read_le32(pack_image + 12);
+    data_offset = read_le32(pack_image + 16);
+    declared_pack_size = read_le32(pack_image + 24);
+
+    if (version != PAL_PACK_VERSION || header_size != PAL_PACK_HEADER_SIZE || declared_pack_size != pack_size) {
+        return false;
+    }
+    if (!checked_range(archive_table_offset, (uint32_t)archive_count * PAL_PACK_ARCHIVE_ENTRY_SIZE, pack_size)) {
+        return false;
+    }
+    if (data_offset < PAL_PACK_HEADER_SIZE || data_offset > pack_size || data_offset > toc_capacity) {
+        return false;
+    }
+
+    memcpy(toc_buffer, pack_image, data_offset);
+    toc->base = toc_buffer;
+    toc->toc_size = data_offset;
+    toc->pack_size = pack_size;
+    toc->archive_count = archive_count;
+    toc->archive_table_offset = archive_table_offset;
+    return true;
+}
+
+static bool find_toc_archive(const PalPackToc *toc, uint16_t archive_id, const uint8_t **entry)
+{
+    uint16_t i;
+
+    if (toc == NULL || toc->base == NULL || entry == NULL) {
+        return false;
+    }
+
+    if (!checked_range(toc->archive_table_offset, (uint32_t)toc->archive_count * PAL_PACK_ARCHIVE_ENTRY_SIZE, toc->toc_size)) {
+        return false;
+    }
+
+    for (i = 0; i < toc->archive_count; i++) {
+        const uint8_t *cur = toc->base + toc->archive_table_offset + (uint32_t)i * PAL_PACK_ARCHIVE_ENTRY_SIZE;
+        if (read_le16(cur) == archive_id) {
+            *entry = cur;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PalPackToc_GetChunkCount(const PalPackToc *toc, uint16_t archive_id, uint16_t *chunk_count)
+{
+    const uint8_t *archive;
+
+    if (chunk_count == NULL || !find_toc_archive(toc, archive_id, &archive)) {
+        return false;
+    }
+
+    *chunk_count = read_le16(archive + 2);
+    return true;
+}
+
+bool PalPackToc_GetChunkInfo(const PalPackToc *toc, uint16_t archive_id, uint16_t chunk_id, PalPackChunkInfo *info)
+{
+    const uint8_t *archive;
+    const uint8_t *chunk;
+    uint16_t chunk_count;
+    uint32_t chunk_table_offset;
+    uint32_t payload_offset;
+    uint32_t payload_size;
+    uint16_t flags;
+
+    if (info == NULL || !find_toc_archive(toc, archive_id, &archive)) {
+        return false;
+    }
+
+    chunk_count = read_le16(archive + 2);
+    chunk_table_offset = read_le32(archive + 4);
+    if (chunk_id >= chunk_count) {
+        return false;
+    }
+    if (!checked_range(chunk_table_offset, (uint32_t)chunk_count * PAL_PACK_CHUNK_ENTRY_SIZE, toc->toc_size)) {
+        return false;
+    }
+
+    chunk = toc->base + chunk_table_offset + (uint32_t)chunk_id * PAL_PACK_CHUNK_ENTRY_SIZE;
+    payload_offset = read_le32(chunk);
+    payload_size = read_le32(chunk + 4);
+    flags = read_le16(chunk + 10);
+
+    if ((flags & PAL_PACK_CHUNK_F_COMPRESSED) != 0) {
+        return false;
+    }
+    if (!checked_range(payload_offset, payload_size, toc->pack_size)) {
+        return false;
+    }
+
+    info->offset = payload_offset;
+    info->size = payload_size;
+    info->format = read_le16(chunk + 8);
+    info->flags = flags;
+    return true;
+}
+
+bool PalPackToc_CopyRawFromImage(
+    const PalPackToc *toc,
+    const uint8_t *pack_image,
+    uint16_t archive_id,
+    uint16_t chunk_id,
+    uint8_t *dst,
+    uint32_t dst_capacity,
+    uint32_t *out_size)
+{
+    PalPackChunkInfo info;
+
+    if (pack_image == NULL || !PalPackToc_GetChunkInfo(toc, archive_id, chunk_id, &info)) {
+        return false;
+    }
+    if (info.size > dst_capacity || (info.size != 0 && dst == NULL)) {
+        return false;
+    }
+
+    if (info.size != 0) {
+        memcpy(dst, pack_image + info.offset, info.size);
+    }
+    if (out_size != NULL) {
+        *out_size = info.size;
+    }
+    return true;
+}
