@@ -566,6 +566,77 @@ static int check_rng_frame_readat(
     return rc;
 }
 
+static int check_rng_all_frames_readat(const char *path)
+{
+    PalPackToc toc;
+    PalRngMovieStream movie;
+    PalRngFrame frame;
+    struct stat st;
+    uint16_t movie_count = 0;
+    uint32_t total_frames = 0;
+    uint32_t total_payload = 0;
+    uint32_t max_size = 0;
+    uint16_t max_movie = 0;
+    uint16_t max_frame = 0;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+    if (!PalPackToc_GetChunkCount(&toc, PAL_PACK_ARCHIVE_RNG, &movie_count) || movie_count != 12u) {
+        close(fd);
+        return 4;
+    }
+
+    for (uint16_t movie_num = 0; rc == 0 && movie_num < movie_count; movie_num++) {
+        if (!PalRng_OpenMovieReadAt(&toc, read_at_fd, &fd, movie_num, &movie)) {
+            rc = 5;
+            break;
+        }
+        total_frames += movie.frame_count;
+        for (uint16_t frame_num = 0; frame_num < movie.frame_count; frame_num++) {
+            PalRngFrameBuffer frame_buffer = (frame_num & 1u) ? PAL_RNG_FRAME_BUFFER_B : PAL_RNG_FRAME_BUFFER_A;
+            if (!PalRng_LoadFrameReadAt(&movie, read_at_fd, &fd, frame_num, frame_buffer, &frame)) {
+                rc = 6;
+                break;
+            }
+            if ((frame_buffer == PAL_RNG_FRAME_BUFFER_A && frame.data != pal_psram_rng_frame_a) ||
+                (frame_buffer == PAL_RNG_FRAME_BUFFER_B && frame.data != pal_psram_rng_frame_b)) {
+                rc = 7;
+                break;
+            }
+            if (frame.size != 0u && checksum32(frame.data, frame.size) == 0u) {
+                rc = 8;
+                break;
+            }
+            total_payload += frame.size;
+            if (frame.size > max_size) {
+                max_size = frame.size;
+                max_movie = movie_num;
+                max_frame = frame_num;
+            }
+        }
+    }
+
+    if (rc == 0 && (total_frames != 1476u || total_payload != 7301725u ||
+        max_size != 64288u || max_movie != 4u || max_frame != 0u)) {
+        rc = 9;
+    }
+
+    close(fd);
+    return rc;
+}
+
 static int check_sfx_bank(const PalPack *tf)
 {
     static const uint16_t chunks[] = { 1, 62, 192, 213, 214, 255, 272 };
@@ -1057,6 +1128,9 @@ int main(int argc, char **argv)
             check_rng_frame_readat(argv[2], 4, 0, 41, 64288, PAL_RNG_FRAME_BUFFER_A) ||
             check_rng_frame_readat(argv[2], 5, 0, 83, 64104, PAL_RNG_FRAME_BUFFER_B) ||
             check_rng_frame_readat(argv[2], 9, 0, 257, 61773, PAL_RNG_FRAME_BUFFER_A);
+    }
+    if (rc == 0) {
+        rc = check_rng_all_frames_readat(argv[2]);
     }
     if (rc == 0) {
         rc = check_sfx_bank(&tf.pack);
