@@ -121,6 +121,8 @@ Main conclusion: the current 2MB `unicode_font[65536][32]` table is unnecessary 
 
 The static UI smoke maps the DATA, BALL, and RGM payloads as read-only `const uint8_t *` views from the generated NOR pack. It copies only the selected 768-byte PAT palette into `pal_sram_misc` before handing it to the static indexed-video slice.
 
+The static menu smoke copies decoded FBP backgrounds #0, #1, and #60 into `pal_psram_menu_background`, copies RGM face #72 into `pal_psram_menu_image`, maps BALL item #95 read-only, and fills a 5,184-byte 72x72 menu box in `pal_psram_menu_box`.
+
 ## Largest Single Runtime Chunks
 
 - `MGO.MKF #571`: compressed 33,944 bytes, runtime 59,516 bytes, YJ1

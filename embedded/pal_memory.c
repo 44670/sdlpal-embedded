@@ -28,3 +28,6 @@ uint8_t pal_psram_fbp_background[PAL_PSRAM_FBP_BACKGROUND_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_sfx_bank[PAL_PSRAM_SFX_BANK_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_text_misc[PAL_PSRAM_TEXT_MISC_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_sprite_pin[PAL_PSRAM_SPRITE_PIN_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_menu_background[PAL_PSRAM_MENU_BACKGROUND_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_menu_image[PAL_PSRAM_MENU_IMAGE_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_menu_box[PAL_PSRAM_MENU_BOX_BYTES] PAL_BSS_PSRAM;

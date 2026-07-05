@@ -49,6 +49,8 @@ embedded/pal_ui_cache.c
 embedded/pal_ui_cache.h
 embedded/pal_music_cache.c
 embedded/pal_music_cache.h
+embedded/pal_menu_static.c
+embedded/pal_menu_static.h
 ```
 
 Source scan:
@@ -191,6 +193,8 @@ embedded/pal_ui_cache.c
 embedded/pal_ui_cache.h
 embedded/pal_music_cache.c
 embedded/pal_music_cache.h
+embedded/pal_menu_static.c
+embedded/pal_menu_static.h
 ```
 
 Properties:
@@ -246,6 +250,9 @@ pal_psram_fbp_background[64000]
 pal_psram_sfx_bank[4194304]
 pal_psram_text_misc[262144]
 pal_psram_sprite_pin[1048576]
+pal_psram_menu_background[64000]
+pal_psram_menu_image[64000]
+pal_psram_menu_box[5184]
 ```
 
 Build and verify:
@@ -258,7 +265,7 @@ python3 -B tools/embedded_contract_check.py \
   --binary embedded/build/pal_memory_smoke \
   --max text=65536 \
   --max data=4096 \
-  --max bss=7200000 \
+  --max bss=7350000 \
   --max-symbol-prefix pal_sram_=307200 \
   --max-symbol-prefix pal_psram_=8388608
 ```
@@ -268,9 +275,9 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=1461 data=520 bss=7191000
+text=1509 data=520 bss=7324184
 pal_sram_ total=182784 limit=307200
-pal_psram_ total=7008208 limit=8388608
+pal_psram_ total=7141392 limit=8388608
 PASS
 ```
 
@@ -294,7 +301,7 @@ python3 -B tools/embedded_contract_check.py \
   --binary embedded/build/pal_native_sdl_smoke \
   --max text=65536 \
   --max data=4096 \
-  --max bss=7200000 \
+  --max bss=7350000 \
   --max-symbol-prefix pal_sram_=307200 \
   --max-symbol-prefix pal_psram_=8388608 \
   --max-symbol-prefix pal_video_=4096
@@ -305,9 +312,9 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=5228 data=640 bss=7191520
+text=5228 data=640 bss=7324704
 pal_sram_ total=182784 limit=307200
-pal_psram_ total=7008208 limit=8388608
+pal_psram_ total=7141392 limit=8388608
 pal_video_ total=512 limit=4096
 PASS
 ```
@@ -429,6 +436,17 @@ The smoke also exercises `embedded/pal_music_cache.c` against real music assets 
 | 37 | 24,548 | 3,956 | `const uint8_t *` NOR view |
 | 77 | 5,180 | 3,898 | `const uint8_t *` NOR view |
 
+The smoke also exercises `embedded/pal_menu_static.c` against real menu/status assets:
+
+| Asset | Pack source | Bytes | Runtime placement |
+| --- | --- | ---: | --- |
+| Status background | `FBP.MKF #0` | 64,000 | `pal_psram_menu_background` |
+| Equipment background | `FBP.MKF #1` | 64,000 | `pal_psram_menu_background` |
+| Main menu background | `FBP.MKF #60` | 64,000 | `pal_psram_menu_background` |
+| Face image scratch | `RGM.MKF #72` | 8,024 | `pal_psram_menu_image` |
+| Item image | `BALL.MKF #95` | 1,876 | `const uint8_t *` NOR view |
+| Menu box | 72x72 fill | 5,184 | `pal_psram_menu_box` |
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -454,9 +472,9 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=19198 data=720 bss=7197792
+text=20766 data=720 bss=7330976
 pal_sram_ total=182784 limit=307200
-pal_psram_ total=7008208 limit=8388608
+pal_psram_ total=7141392 limit=8388608
 pal_scene_ total=4736 limit=8192
 pal_battle_ total=334 limit=2048
 pal_sfx_ total=384 limit=4096
@@ -466,6 +484,7 @@ pal_save_ total=512 limit=4096
 pal_video_ total=512 limit=4096
 pal_ui_ total=0 limit=4096
 pal_music_ total=0 limit=4096
+pal_menu_ total=0 limit=4096
 
 pack /tmp/pal_nor_default.pak:
 size=10446724 chunks=1401 payload=10422642 max-size=16777216
@@ -476,7 +495,7 @@ size=49309874 chunks=1088 payload=49291679
 formats NATIVE=800 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=599351
+size=602165
 PASS
 ```
 

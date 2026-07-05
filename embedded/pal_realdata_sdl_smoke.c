@@ -2,6 +2,7 @@
 #include "pal_audio_static.h"
 #include "pal_font_cache.h"
 #include "pal_global_cache.h"
+#include "pal_menu_static.h"
 #include "pal_memory.h"
 #include "pal_music_cache.h"
 #include "pal_pack.h"
@@ -532,6 +533,50 @@ static int check_music_cache(const PalPack *nor)
     return 0;
 }
 
+static int check_menu_static(const PalPack *nor, const PalPack *tf)
+{
+    PalMenuBuffer buffer;
+    PalMenuConstAsset asset;
+
+    if (!PalMenu_LoadBackground(tf, 0, &buffer) || buffer.data != pal_psram_menu_background || buffer.size != PAL_MENU_BACKGROUND_BYTES) {
+        return 1;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0) {
+        return 2;
+    }
+    if (!PalMenu_LoadBackground(tf, 1, &buffer) || buffer.data != pal_psram_menu_background || buffer.size != PAL_MENU_BACKGROUND_BYTES) {
+        return 3;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0) {
+        return 4;
+    }
+    if (!PalMenu_LoadBackground(tf, 60, &buffer) || buffer.data != pal_psram_menu_background || buffer.size != PAL_MENU_BACKGROUND_BYTES) {
+        return 5;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0) {
+        return 6;
+    }
+    if (!PalMenu_CopyImage(nor, PAL_PACK_ARCHIVE_RGM, 72, &buffer) || buffer.data != pal_psram_menu_image || buffer.size != 8024u) {
+        return 7;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0) {
+        return 8;
+    }
+    if (!PalMenu_MapImage(nor, PAL_PACK_ARCHIVE_BALL, 95, &asset) || asset.data == 0 || asset.size != 1876u) {
+        return 9;
+    }
+    if (checksum32(asset.data, asset.size) == 0) {
+        return 10;
+    }
+    if (!PalMenu_PrepareBox(72, 72, 0x5au, &buffer) || buffer.data != pal_psram_menu_box || buffer.size != PAL_MENU_BOX_MAX_BYTES) {
+        return 11;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0) {
+        return 12;
+    }
+    return 0;
+}
+
 static int check_ui_cache(const PalPack *nor)
 {
     PalUiAsset asset;
@@ -639,6 +684,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_music_cache(&nor.pack);
+    }
+    if (rc == 0) {
+        rc = check_menu_static(&nor.pack, &tf.pack);
     }
     if (rc == 0) {
         rc = check_ui_cache(&nor.pack);
