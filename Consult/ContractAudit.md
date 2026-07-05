@@ -55,6 +55,8 @@ embedded/pal_ending_static.c
 embedded/pal_ending_static.h
 embedded/pal_palette_static.c
 embedded/pal_palette_static.h
+embedded/pal_dialog_static.c
+embedded/pal_dialog_static.h
 ```
 
 Source scan:
@@ -202,6 +204,8 @@ embedded/pal_ending_static.c
 embedded/pal_ending_static.h
 embedded/pal_palette_static.c
 embedded/pal_palette_static.h
+embedded/pal_dialog_static.c
+embedded/pal_dialog_static.h
 ```
 
 Properties:
@@ -477,6 +481,13 @@ The smoke also exercises `embedded/pal_palette_static.c` against real palette/fa
 | Night palette | `PAT.MKF #0` | 768 | `pal_sram_misc`, then fade source |
 | Fade work palette | day/night blend, black scale, color fill | 768 | `pal_sram_palette_work` |
 
+The smoke also exercises `embedded/pal_dialog_static.c` against real dialog assets:
+
+| Asset | Pack source | Bytes | Runtime placement |
+| --- | --- | ---: | --- |
+| Dialog icons | `DATA.MKF #12` | 282 | `const uint8_t *` NOR view |
+| Face bitmap | `RGM.MKF #72` | 8,024 | `const uint8_t *` NOR view |
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -495,14 +506,14 @@ Verify the artifact:
 make -C embedded contract-check
 ```
 
-The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary/pack gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump`, symbol-prefix budgets from `nm -S --size-sort`, no generated-pack runtime flags or YJ1 payloads, no raw VOC archive in runtime packs, and a 16MB NOR pack size limit.
+The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary/pack gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump` including `.rodata`, symbol-prefix budgets from `nm -S --size-sort`, no generated-pack runtime flags or YJ1 payloads, no raw VOC archive in runtime packs, and a 16MB NOR pack size limit.
 
 Current result:
 
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=23462 data=720 bss=7460512
+text=23950 .rodata=160 data=720 bss=7460512
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -517,6 +528,7 @@ pal_music_ total=0 limit=4096
 pal_menu_ total=0 limit=4096
 pal_ending_ total=0 limit=4096
 pal_palette_ total=0 limit=4096
+pal_dialog_ total=0 limit=4096
 
 pack /tmp/pal_nor_default.pak:
 size=10446724 chunks=1401 payload=10422642 max-size=16777216
@@ -527,7 +539,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=606998
+size=608213
 PASS
 ```
 

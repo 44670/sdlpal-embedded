@@ -1,5 +1,6 @@
 #include "pal_battle_cache.h"
 #include "pal_audio_static.h"
+#include "pal_dialog_static.h"
 #include "pal_ending_static.h"
 #include "pal_font_cache.h"
 #include "pal_global_cache.h"
@@ -671,6 +672,25 @@ static int check_palette_static(const PalPack *nor)
     return 0;
 }
 
+static int check_dialog_static(const PalPack *nor)
+{
+    PalDialogAsset asset;
+
+    if (!PalDialog_MapIcons(nor, &asset) || asset.data == 0 || asset.size != PAL_DIALOG_ICON_BYTES) {
+        return 1;
+    }
+    if (checksum32(asset.data, asset.size) == 0) {
+        return 2;
+    }
+    if (!PalDialog_MapFace(nor, 72, &asset) || asset.data == 0 || asset.size != 8024u) {
+        return 3;
+    }
+    if (checksum32(asset.data, asset.size) == 0) {
+        return 4;
+    }
+    return 0;
+}
+
 static int check_ui_cache(const PalPack *nor)
 {
     PalUiAsset asset;
@@ -786,6 +806,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_palette_static(&nor.pack);
+    }
+    if (rc == 0) {
+        rc = check_dialog_static(&nor.pack);
     }
     if (rc == 0) {
         rc = check_ui_cache(&nor.pack);
