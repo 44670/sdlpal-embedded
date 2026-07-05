@@ -24,6 +24,15 @@
 
 #include "main.h"
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(__GNUC__)
+#define PAL_RNG_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_RNG_PSRAM
+#endif
+static uint8_t pal_psram_rng_frame_static[65000] PAL_RNG_PSRAM;
+#endif
+
 static INT
 PAL_RNGReadFrame(
    LPBYTE          lpBuffer,
@@ -99,6 +108,26 @@ PAL_RNGReadFrame(
       return -1;
    }
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   //
+   // Native RNG chunks start with frame_count, then frame offsets.
+   //
+   PAL_fread(&uiChunkCount, sizeof(UINT), 1, fpRngMKF);
+   uiChunkCount = SDL_SwapLE32(uiChunkCount);
+   if (uiFrameNum >= uiChunkCount)
+   {
+      return -1;
+   }
+
+   //
+   // Get the offset of the sub chunk.
+   //
+   fseek(fpRngMKF, uiOffset + 4 + 4 * uiFrameNum, SEEK_SET);
+   PAL_fread(&uiSubOffset, sizeof(UINT), 1, fpRngMKF);
+   PAL_fread(&uiNextOffset, sizeof(UINT), 1, fpRngMKF);
+   uiSubOffset = SDL_SwapLE32(uiSubOffset);
+   uiNextOffset = SDL_SwapLE32(uiNextOffset);
+#else
    //
    // Get the number of sub chunks.
    //
@@ -117,6 +146,7 @@ PAL_RNGReadFrame(
    PAL_fread(&uiNextOffset, sizeof(UINT), 1, fpRngMKF);
    uiSubOffset = SDL_SwapLE32(uiSubOffset);
    uiNextOffset = SDL_SwapLE32(uiNextOffset);
+#endif
 
    //
    // Get the length of the sub chunk.
@@ -397,24 +427,40 @@ PAL_RNGPlay(
 --*/
 {
    double         iDelay = (double)SDL_GetPerformanceFrequency() / (iSpeed == 0 ? 16 : iSpeed);
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+   uint8_t        *rng = pal_psram_rng_frame_static;
+#else
    uint8_t        *rng = (uint8_t *)malloc(65000);
    uint8_t        *buf = (uint8_t *)malloc(65000);
+#endif
    FILE           *fp = UTIL_OpenRequiredFile("rng.mkf");
+   INT             frameLen;
 
    //
    // Avoid losing the last frame
    //
    if (iEndFrame > 0) iEndFrame++;
 
-   for (double iTime = SDL_GetPerformanceCounter(); rng && buf && iStartFrame != iEndFrame; iStartFrame++)
+   for (double iTime = SDL_GetPerformanceCounter(); rng &&
+#ifndef PAL_NO_RUNTIME_DECOMPRESS
+      buf &&
+#endif
+      iStartFrame != iEndFrame; iStartFrame++)
    {
       iTime += iDelay;
 
       //
       // Read, decompress and render the frame
       //
-      if (PAL_RNGReadFrame(buf, 65000, iNumRNG, iStartFrame, fp) < 0 ||
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      frameLen = PAL_RNGReadFrame(rng, 65000, iNumRNG, iStartFrame, fp);
+      if (frameLen < 0 ||
+          PAL_RNGBlitToSurface(rng, frameLen, gpScreen) == -1)
+#else
+      frameLen = PAL_RNGReadFrame(buf, 65000, iNumRNG, iStartFrame, fp);
+      if (frameLen < 0 ||
           PAL_RNGBlitToSurface(rng, Decompress(buf, rng, 65000), gpScreen) == -1)
+#endif
       {
          //
          // Failed to get the frame, don't go further
@@ -443,6 +489,8 @@ PAL_RNGPlay(
    }
 
    fclose(fp);
+#if !defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    free(rng);
    free(buf);
+#endif
 }

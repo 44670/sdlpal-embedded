@@ -200,7 +200,11 @@ PAL_InitGlobals(
    Decompress = gConfig.fIsWIN95 ? YJ2_Decompress : YJ1_Decompress;
 #endif
 
+#ifdef PAL_NO_RUNTIME_HEAP
+   gpGlobals->lpObjectDesc = NULL;
+#else
    gpGlobals->lpObjectDesc = gConfig.fIsWIN95 ? NULL : PAL_LoadObjectDesc("desc.dat");
+#endif
    gpGlobals->bCurrentSaveSlot = 1;
 
    return 0;

@@ -646,10 +646,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185464 data=3760 bss=1357656
-.text=149909 .rodata=7640 .data=144 .bss=1357656
+text=184776 data=3760 bss=5988728
+.text=149557 .rodata=7640 .data=144 .bss=5988728
 pal_sram_ total=64000 limit=307200
-pal_psram_ total=1214400 limit=8388608
+pal_psram_ total=5845456 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`:
@@ -673,6 +673,12 @@ The full-engine magic/summon paths in `fight.c` now use static `uint8_t` PSRAM b
 The full-engine ending paths in `ending.c` now use static `uint8_t` PSRAM buffers in contract mode for FBP/MGO scratch. FBP and MGO chunks must already be native, so ending screens and animations avoid heap allocation and runtime decompression.
 
 The contract `VIDEO_Startup()` path now omits the YJ1-compressed touch-overlay BMP decode. Overlay art for target builds must be preconverted/offline-packed; the old `bmpData` decode remains only in non-contract desktop builds.
+
+The contract `global.c` path skips the legacy heap-loaded object-description list. Final UI parity should use generated read-only text/object-description data instead of `PAL_LoadObjectDesc()`.
+
+The contract `res.c` path now uses static `uint8_t` PSRAM storage for the resource manager, event-sprite pointer table, 64 unique event-sprite slots, and player sprite slots. Duplicate event sprite references share a slot. MGO chunks must already be native.
+
+The contract `rngplay.c` path now reads host-predecoded native RNG frame records into `pal_psram_rng_frame_static` and blits them directly without heap allocation or `Decompress()`.
 
 ## Current Contract Failures
 

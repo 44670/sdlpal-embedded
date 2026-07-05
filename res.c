@@ -34,6 +34,21 @@ typedef struct tagRESOURCES
 
 static LPRESOURCES gpResources = NULL;
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(__GNUC__)
+#define PAL_RES_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_RES_PSRAM
+#endif
+#define PAL_RES_EVENT_SPRITE_SLOTS 64
+#define PAL_RES_SPRITE_SLOT_BYTES 65536
+static uint8_t pal_psram_res_state[sizeof(RESOURCES)] PAL_RES_PSRAM;
+static uint8_t pal_psram_res_event_sprite_ptrs[MAX_EVENT_OBJECTS * sizeof(LPSPRITE)] PAL_RES_PSRAM;
+static uint8_t pal_psram_res_event_sprite_data[PAL_RES_EVENT_SPRITE_SLOTS][PAL_RES_SPRITE_SLOT_BYTES] PAL_RES_PSRAM;
+static uint8_t pal_psram_res_player_sprite_data[MAX_PLAYABLE_PLAYER_ROLES][PAL_RES_SPRITE_SLOT_BYTES] PAL_RES_PSRAM;
+#define PAL_RES_EVENT_SPRITE_PTRS ((LPSPRITE *)pal_psram_res_event_sprite_ptrs)
+#endif
+
 static VOID
 PAL_FreeEventObjectSprites(
    VOID
@@ -57,12 +72,16 @@ PAL_FreeEventObjectSprites(
 
    if (gpResources->lppEventObjectSprites != NULL)
    {
+#ifndef PAL_NO_RUNTIME_HEAP
       for (i = 0; i < gpResources->nEventObject; i++)
       {
          free(gpResources->lppEventObjectSprites[i]);
       }
 
       free(gpResources->lppEventObjectSprites);
+#else
+      (void)i;
+#endif
 
       gpResources->lppEventObjectSprites = NULL;
       gpResources->nEventObject = 0;
@@ -92,7 +111,9 @@ PAL_FreePlayerSprites(
 
    for (i = 0; i < MAX_PLAYABLE_PLAYER_ROLES; i++)
    {
+#ifndef PAL_NO_RUNTIME_HEAP
       free(gpResources->rglpPlayerSprite[i]);
+#endif
       gpResources->rglpPlayerSprite[i] = NULL;
    }
 }
@@ -116,7 +137,12 @@ PAL_InitResources(
 
 --*/
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+   memset(pal_psram_res_state, 0, sizeof(pal_psram_res_state));
+   gpResources = (LPRESOURCES)pal_psram_res_state;
+#else
    gpResources = (LPRESOURCES)UTIL_calloc(1, sizeof(RESOURCES));
+#endif
 }
 
 VOID
@@ -154,7 +180,9 @@ PAL_FreeResources(
       //
       // Delete the instance
       //
+#ifndef PAL_NO_RUNTIME_HEAP
       free(gpResources);
+#endif
    }
 
    gpResources = NULL;
@@ -208,6 +236,10 @@ PAL_LoadResources(
 {
    int                i, index, l, n;
    WORD               wPlayerID, wSpriteNum;
+#ifdef PAL_NO_RUNTIME_HEAP
+   int                eventObjectIndexBase = 0;
+   int                eventSpriteSlotsUsed = 0;
+#endif
 
    if (gpResources == NULL || gpResources->bLoadFlags == 0)
    {
@@ -265,13 +297,26 @@ PAL_LoadResources(
       // Load sprites
       //
       index = gpGlobals->g.rgScene[i].wEventObjectIndex;
+#ifdef PAL_NO_RUNTIME_HEAP
+      eventObjectIndexBase = index;
+      eventSpriteSlotsUsed = 0;
+#endif
       gpResources->nEventObject = gpGlobals->g.rgScene[i + 1].wEventObjectIndex;
       gpResources->nEventObject -= index;
 
       if (gpResources->nEventObject > 0)
       {
+#ifdef PAL_NO_RUNTIME_HEAP
+         if (gpResources->nEventObject > MAX_EVENT_OBJECTS)
+         {
+            gpResources->nEventObject = MAX_EVENT_OBJECTS;
+         }
+         memset(pal_psram_res_event_sprite_ptrs, 0, sizeof(pal_psram_res_event_sprite_ptrs));
+         gpResources->lppEventObjectSprites = PAL_RES_EVENT_SPRITE_PTRS;
+#else
          gpResources->lppEventObjectSprites =
             (LPSPRITE *)UTIL_calloc(gpResources->nEventObject, sizeof(LPSPRITE));
+#endif
       }
 
       for (i = 0; i < gpResources->nEventObject; i++, index++)
@@ -286,12 +331,53 @@ PAL_LoadResources(
             continue;
          }
 
+#ifdef PAL_NO_RUNTIME_HEAP
+         for (l = 0; l < i; l++)
+         {
+            if (gpGlobals->g.lprgEventObject[eventObjectIndexBase + l].wSpriteNum == n &&
+                gpResources->lppEventObjectSprites[l] != NULL)
+            {
+               gpResources->lppEventObjectSprites[i] = gpResources->lppEventObjectSprites[l];
+               gpGlobals->g.lprgEventObject[index].nSpriteFramesAuto =
+                  PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
+               break;
+            }
+         }
+         if (l < i)
+         {
+            continue;
+         }
+#endif
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         l = PAL_MKFGetChunkSize(n, gpGlobals->f.fpMGO);
+#else
          l = PAL_MKFGetDecompressedSize(n, gpGlobals->f.fpMGO);
+#endif
 
+         if (l <= 0
+#ifdef PAL_NO_RUNTIME_HEAP
+            || eventSpriteSlotsUsed >= PAL_RES_EVENT_SPRITE_SLOTS || (size_t)l > PAL_RES_SPRITE_SLOT_BYTES
+#endif
+         )
+         {
+            gpResources->lppEventObjectSprites[i] = NULL;
+            continue;
+         }
+
+#ifdef PAL_NO_RUNTIME_HEAP
+         memset(pal_psram_res_event_sprite_data[eventSpriteSlotsUsed], 0, PAL_RES_SPRITE_SLOT_BYTES);
+         gpResources->lppEventObjectSprites[i] = pal_psram_res_event_sprite_data[eventSpriteSlotsUsed++];
+#else
          gpResources->lppEventObjectSprites[i] = (LPSPRITE)UTIL_malloc(l);
+#endif
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         if (PAL_MKFReadChunk(gpResources->lppEventObjectSprites[i], l, n, gpGlobals->f.fpMGO) > 0)
+#else
          if (PAL_MKFDecompressChunk(gpResources->lppEventObjectSprites[i], l,
             n, gpGlobals->f.fpMGO) > 0)
+#endif
          {
             gpGlobals->g.lprgEventObject[index].nSpriteFramesAuto =
                PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
@@ -324,12 +410,30 @@ PAL_LoadResources(
          //
          wSpriteNum = gpGlobals->g.PlayerRoles.rgwSpriteNum[wPlayerID];
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         l = PAL_MKFGetChunkSize(wSpriteNum, gpGlobals->f.fpMGO);
+#else
          l = PAL_MKFGetDecompressedSize(wSpriteNum, gpGlobals->f.fpMGO);
+#endif
 
+         if (l <= 0
+#ifdef PAL_NO_RUNTIME_HEAP
+            || (size_t)l > PAL_RES_SPRITE_SLOT_BYTES
+#endif
+         )
+         {
+            continue;
+         }
+
+#ifdef PAL_NO_RUNTIME_HEAP
+         memset(pal_psram_res_player_sprite_data[i], 0, PAL_RES_SPRITE_SLOT_BYTES);
+         gpResources->rglpPlayerSprite[i] = pal_psram_res_player_sprite_data[i];
+         PAL_MKFReadChunk(gpResources->rglpPlayerSprite[i], l, wSpriteNum, gpGlobals->f.fpMGO);
+#else
          gpResources->rglpPlayerSprite[i] = (LPSPRITE)UTIL_malloc(l);
-
          PAL_MKFDecompressChunk(gpResources->rglpPlayerSprite[i], l, wSpriteNum,
             gpGlobals->f.fpMGO);
+#endif
       }
 
       for (i = 1; i <= gpGlobals->nFollower; i++)
@@ -339,12 +443,32 @@ PAL_LoadResources(
          //
          wSpriteNum = gpGlobals->rgParty[(short)gpGlobals->wMaxPartyMemberIndex+i].wPlayerRole;
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         l = PAL_MKFGetChunkSize(wSpriteNum, gpGlobals->f.fpMGO);
+#else
          l = PAL_MKFGetDecompressedSize(wSpriteNum, gpGlobals->f.fpMGO);
+#endif
 
+         if (l <= 0
+#ifdef PAL_NO_RUNTIME_HEAP
+            || (size_t)l > PAL_RES_SPRITE_SLOT_BYTES
+#endif
+         )
+         {
+            continue;
+         }
+
+#ifdef PAL_NO_RUNTIME_HEAP
+         memset(pal_psram_res_player_sprite_data[(short)gpGlobals->wMaxPartyMemberIndex+i], 0, PAL_RES_SPRITE_SLOT_BYTES);
+         gpResources->rglpPlayerSprite[(short)gpGlobals->wMaxPartyMemberIndex+i] =
+            pal_psram_res_player_sprite_data[(short)gpGlobals->wMaxPartyMemberIndex+i];
+         PAL_MKFReadChunk(gpResources->rglpPlayerSprite[(short)gpGlobals->wMaxPartyMemberIndex+i], l, wSpriteNum,
+            gpGlobals->f.fpMGO);
+#else
          gpResources->rglpPlayerSprite[(short)gpGlobals->wMaxPartyMemberIndex+i] = (LPSPRITE)UTIL_malloc(l);
-
          PAL_MKFDecompressChunk(gpResources->rglpPlayerSprite[(short)gpGlobals->wMaxPartyMemberIndex+i], l, wSpriteNum,
             gpGlobals->f.fpMGO);
+#endif
       }
    }
 
