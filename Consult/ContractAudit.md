@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=211280 data=4322 bss=1288224
-.text=170406 .rodata=8402 .data=226 .bss=1288224
-pal_sram_ total=10638 limit=307200
-pal_psram_ total=1178888 limit=8388608
+text=211451 data=4330 bss=1672224
+.text=170470 .rodata=8402 .data=226 .bss=1672224
+pal_sram_ total=74638 limit=307200
+pal_psram_ total=1498888 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -686,6 +686,8 @@ The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFI
 This is still only a reduced native contract profile, not the finished embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. Remaining engineering work is to continue replacing desktop resource paths with the generated pack/static-buffer slices and target display/input backends.
 
 The reduced profile's music path is no longer silent. `unix/contract_music.cpp` maps generated MUS/RIX tracks from the NOR pack as `const uint8_t *` spans, feeds them to a `PAL_NO_RUNTIME_HEAP` `CrixPlayer::load_buffer()` path, and renders one 70Hz tick at a time into `pal_sram_contract_rix_tick`. `unix/contract_opl2.cpp` links only the DOSBox OPL2 core used by this path. The OPL output is generated at the configured game audio rate, so the contract profile still excludes `resampler.c` and its large LUTs.
+
+The contract SDL2 video startup now wraps named static pixel buffers with SDL surfaces instead of asking SDL to allocate the large pixel arrays. `pal_sram_video_screen` is the 320x200 indexed `gpScreen` pixel store, `pal_psram_video_screen_bak` is the backup screen pixel store, and `pal_psram_video_screen_real` is the host SDL2 32-bit presentation surface pixel store. SDL still creates small wrapper objects and the renderer/texture for host verification, but the large project video buffers are now visible in `nm -S --size-sort`.
 
 Contract-mode `palcommon.c` now provides generated-pack archive handles through the legacy MKF read API. `PAL_MKFOpenPackArchive()` returns fixed sentinel handles for generated pack archives, `PAL_MKFGetChunkCount()`, `PAL_MKFGetChunkSize()`, and `PAL_MKFReadChunk()` service those handles from read-only mapped NOR/TF packs, and `PAL_MKFMapChunk()` exposes a `const uint8_t *` view for code that can parse a native chunk in place. `UTIL_CloseFile()` ignores these handles.
 
@@ -741,10 +743,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=211280 data=4322 bss=1288224
-.text=170406 .rodata=8402 .data=226 .bss=1288224
-pal_sram_ total=10638 / 307200
-pal_psram_ total=1178888 / 8388608
+text=211451 data=4330 bss=1672224
+.text=170470 .rodata=8402 .data=226 .bss=1672224
+pal_sram_ total=74638 / 307200
+pal_psram_ total=1498888 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

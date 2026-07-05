@@ -53,6 +53,20 @@ SDL_Surface       *gpScreenReal       = NULL;
 
 volatile BOOL g_bRenderPaused = FALSE;
 
+#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(__GNUC__)
+#define PAL_VIDEO_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#define PAL_VIDEO_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_VIDEO_SRAM
+#define PAL_VIDEO_PSRAM
+#endif
+
+static uint8_t pal_sram_video_screen[320u * 200u] PAL_VIDEO_SRAM;
+static uint8_t pal_psram_video_screen_bak[320u * 200u] PAL_VIDEO_PSRAM;
+static uint8_t pal_psram_video_screen_real[320u * 200u * 4u] PAL_VIDEO_PSRAM;
+#endif
+
 static BOOL bScaleScreen = PAL_SCALE_SCREEN;
 
 // Shake times and level
@@ -248,10 +262,17 @@ VIDEO_Startup(
    //
    // Create the screen buffer and the backup screen buffer.
    //
+#ifdef PAL_NO_RUNTIME_HEAP
+   gpScreen = SDL_CreateRGBSurfaceFrom(pal_sram_video_screen, 320, 200, 8, 320, 0, 0, 0, 0);
+   gpScreenBak = SDL_CreateRGBSurfaceFrom(pal_psram_video_screen_bak, 320, 200, 8, 320, 0, 0, 0, 0);
+   gpScreenReal = SDL_CreateRGBSurfaceFrom(pal_psram_video_screen_real, 320, 200, 32, 320 * 4,
+                                           0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+#else
    gpScreen = SDL_CreateRGBSurface(SDL_SWSURFACE, 320, 200, 8, 0, 0, 0, 0);
    gpScreenBak = SDL_CreateRGBSurface(SDL_SWSURFACE, 320, 200, 8, 0, 0, 0, 0);
    gpScreenReal = SDL_CreateRGBSurface(SDL_SWSURFACE, 320, 200, 32,
                                        0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+#endif
 
    //
    // Create texture for screen.
