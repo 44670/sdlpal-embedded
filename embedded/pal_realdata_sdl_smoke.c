@@ -1,4 +1,5 @@
 #include "pal_battle_cache.h"
+#include "pal_audio_static.h"
 #include "pal_font_cache.h"
 #include "pal_global_cache.h"
 #include "pal_memory.h"
@@ -175,7 +176,7 @@ static int exercise_tf_reads(const PalPack *tf)
     if (copied == 0 || copied > PAL_PSRAM_GOP_COPY_BYTES) {
         return 6;
     }
-    if (!PalPack_CopyRaw(tf, PAL_PACK_ARCHIVE_VOC, 1, pal_psram_sfx_bank, PAL_PSRAM_SFX_BANK_BYTES, &copied)) {
+    if (!PalPack_CopyRaw(tf, PAL_PACK_ARCHIVE_SFX, 1, pal_psram_sfx_bank, PAL_PSRAM_SFX_BANK_BYTES, &copied)) {
         return 7;
     }
     if (copied == 0 || copied > PAL_PSRAM_SFX_BANK_BYTES) {
@@ -324,7 +325,7 @@ static int check_rng_frame(
 static int check_sfx_bank(const PalPack *tf)
 {
     static const uint16_t chunks[] = { 1, 62, 192, 213, 214, 255, 272 };
-    static const uint32_t sizes[] = { 1748, 28406, 33768, 52006, 37702, 38334, 50954 };
+    static const uint32_t sizes[] = { 12622, 111738, 132856, 204664, 148342, 211152, 200526 };
     PalSfxBank bank;
     uint32_t used = 0;
     uint16_t i;
@@ -337,8 +338,10 @@ static int check_sfx_bank(const PalPack *tf)
     }
 
     for (i = 0; i < bank.entry_count; i++) {
+        PalAudioSfx sfx;
         const uint8_t *data = 0;
         uint32_t size = 0;
+        uint32_t cursor = 0;
 
         used = (used + 3u) & ~3u;
         if (!PalSfx_Get(&bank, chunks[i], &data, &size)) {
@@ -347,11 +350,18 @@ static int check_sfx_bank(const PalPack *tf)
         if (size != sizes[i] || data != pal_psram_sfx_bank + used || checksum32(data, size) == 0) {
             return 4;
         }
+        if (!PalAudio_OpenSfx(data, size, &sfx) || sfx.sample_count == 0 || sfx.pcm == 0) {
+            return 5;
+        }
+        PalAudio_Clear(512);
+        if (!PalAudio_MixSfx(&sfx, &cursor, 512) || cursor != 512 || checksum32((const uint8_t *)PalAudio_MixBuffer(), 1024) == 0) {
+            return 6;
+        }
         used += size;
     }
 
-    if (bank.used_bytes != 242926u || used != bank.used_bytes) {
-        return 5;
+    if (bank.used_bytes != 1021906u || used != bank.used_bytes) {
+        return 7;
     }
     return 0;
 }
@@ -503,7 +513,8 @@ int main(int argc, char **argv)
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_MAP, 226) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_GOP, 226) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_RNG, 12) ||
-        expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_VOC, 276);
+        expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_VOC, 276) ||
+        expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_SFX, 276);
     if (rc == 0) {
         rc =
             map_native_nonempty(&nor.pack, PAL_PACK_ARCHIVE_MGO, 1) ||

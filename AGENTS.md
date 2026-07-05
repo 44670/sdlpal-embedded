@@ -41,7 +41,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - Full pre-decompression of all assets into 16MB NOR is not feasible for the current data set, so large decoded/native resources should live in TF-backed resource packs.
 - TF card can hold the original files and generated cache files, but runtime TF random access should be minimized. Prefer sequential reads of already-decoded/native chunks.
 - Favor reproducible tools for dataset inspection and conversion.
-- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode is allowed there because it is host-side pack generation, not runtime.
+- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode and VOC-to-PCM conversion are allowed there because they are host-side pack generation, not runtime.
 - `tools/pal_pack_check.c` is a host-side mmap checker for generated packs using the same `embedded/pal_pack.c` reader.
 - The audited data path has no loose `.ogg`, `.opus`, `.mp3`, `.wav`, `.mid`, or `.avi` files. Audio is in `MIDI.MKF`, `MUS.MKF`, and `VOC.MKF`.
 - Scene/event sprite deduplication is high value: worst measured scene resources drop from about 909KB to about 143KB when repeated event-object sprite numbers share one decoded sprite.
@@ -59,11 +59,12 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_memory.c` intentionally declares normal named static-storage buffers such as `pal_sram_framebuffer` and `pal_psram_map_tiles`; there is no memory pool API.
 - `embedded/pal_native_sdl_smoke.c` is the native SDL fixed-memory smoke test. It wraps `pal_sram_framebuffer` with an SDL surface and reads from a `const uint8_t` pack; run it through `make -C embedded check` with `SDL_VIDEODRIVER=dummy`.
 - `embedded/pal_realdata_sdl_smoke.c` is the native SDL real-data smoke test. It maps generated NOR/TF packs read-only, copies TF chunks into named SRAM/PSRAM arrays, reads real save files into static PSRAM storage, and is run with `make -C embedded realdata-check`.
-- `make -C embedded contract-check` runs the embedded source/binary budget gate with heap/decoder scans and named `pal_sram_`, `pal_psram_`, `pal_scene_`, `pal_battle_`, `pal_sfx_`, `pal_global_`, `pal_save_`, and `pal_video_` symbol totals.
+- `make -C embedded contract-check` runs the embedded source/binary budget gate with heap/decoder scans and named `pal_sram_`, `pal_psram_`, `pal_scene_`, `pal_battle_`, `pal_sfx_`, `pal_audio_`, `pal_global_`, `pal_save_`, and `pal_video_` symbol totals.
 - `embedded/pal_scene_cache.c` is the static scene-loading slice. It copies decoded MAP/GOP chunks into named PSRAM arrays and deduplicates event-object MGO sprites as `const uint8_t *` references into the NOR pack.
 - `embedded/pal_battle_cache.c` is the static battle-loading slice. It copies decoded FBP backgrounds into PSRAM and keeps F/ABC/FIRE sprites as `const uint8_t *` views into the NOR pack, with enemy sprite deduplication.
 - `embedded/pal_rng_cache.c` is the static RNG-frame slice. It reads predecoded RNG frame records from the TF pack and copies frames into `pal_psram_rng_frame_a` / `pal_psram_rng_frame_b`.
-- `embedded/pal_sfx_cache.c` is the static sound-effect bank slice. It copies selected VOC chunks from the TF pack into `pal_psram_sfx_bank` and tracks spans with a small fixed `pal_sfx_` metadata table.
+- `embedded/pal_sfx_cache.c` is the static sound-effect bank slice. It copies selected preconverted SFX PCM16 chunks from the TF pack into `pal_psram_sfx_bank` and tracks spans with a small fixed `pal_sfx_` metadata table.
+- `embedded/pal_audio_static.c` is the static audio mix slice. It validates host-converted 22050Hz mono PCM16 SFX payloads and mixes them into `pal_sram_audio` without runtime resampling or heap allocation.
 - `embedded/pal_global_cache.c` is the static global-data slice. It copies mutable default event/scene/object/player-role data into `pal_psram_save_state` and maps read-only scripts/DATA tables as `const uint8_t *` pack views.
 - `embedded/pal_text_cache.c` is the static text slice. The pack builder converts `WORD.DAT` and `M.MSG` to UTF-16LE in the NOR pack; runtime maps it read-only with no text heap or codepage conversion.
 - `embedded/pal_font_cache.c` is the static font slice. The pack builder converts `WOR16.ASC`/`WOR16.FON` into a read-only NOR glyph table with sorted UTF-16 codepoints and 32-byte glyph payloads; runtime maps it as `const uint8_t *` data with no `unicode_font` allocation.

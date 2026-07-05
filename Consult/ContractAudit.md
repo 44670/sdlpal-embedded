@@ -33,6 +33,8 @@ embedded/pal_rng_cache.c
 embedded/pal_rng_cache.h
 embedded/pal_sfx_cache.c
 embedded/pal_sfx_cache.h
+embedded/pal_audio_static.c
+embedded/pal_audio_static.h
 embedded/pal_global_cache.c
 embedded/pal_global_cache.h
 embedded/pal_text_cache.c
@@ -88,7 +90,7 @@ Current default pack sizes from the audited data:
 
 ```text
 /tmp/pal_nor_default.pak: 10,446,724 bytes
-/tmp/pal_tf_default.pak: 40,069,156 bytes
+/tmp/pal_tf_default.pak: 49,309,874 bytes
 ```
 
 Default NOR archives:
@@ -100,10 +102,10 @@ ABC,BALL,DATA,F,FIRE,MGO,MIDI,MUS,PAT,RGM,SSS,TEXT,FONT
 Default TF archives:
 
 ```text
-FBP,GOP,MAP,RNG,VOC
+FBP,GOP,MAP,RNG,VOC,SFX
 ```
 
-`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `WOR16.ASC` and `WOR16.FON` are converted to a sorted read-only glyph table by the host tool. `GOP` and most audio/data chunks are already raw/native and are copied as raw chunks.
+`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `WOR16.ASC` and `WOR16.FON` are converted to a sorted read-only glyph table by the host tool. `VOC.MKF` is converted to 22050Hz mono PCM16 chunks in the generated SFX archive. `GOP` and most remaining audio/data chunks are already raw/native and are copied as raw chunks.
 
 The generated packs can also be checked with the C runtime reader through the host-side mmap checker:
 
@@ -132,13 +134,14 @@ Current C-reader summary:
   TEXT chunks=    1 payload=254762
   FONT chunks=    1 payload=88432
   archives=13 payload=10422642
-/tmp/pal_tf_default.pak: size=40069156
+/tmp/pal_tf_default.pak: size=49309874
   FBP  chunks=   72 payload=4608000
   GOP  chunks=  226 payload=11529414
   MAP  chunks=  226 payload=14614528
   RNG  chunks=   12 payload=7307725
   VOC  chunks=  276 payload=1995936
-  archives=5 payload=40055603
+  SFX  chunks=  276 payload=9236076
+  archives=6 payload=49291679
 ```
 
 ## Contract Runtime Slice
@@ -160,6 +163,8 @@ embedded/pal_rng_cache.c
 embedded/pal_rng_cache.h
 embedded/pal_sfx_cache.c
 embedded/pal_sfx_cache.h
+embedded/pal_audio_static.c
+embedded/pal_audio_static.h
 embedded/pal_global_cache.c
 embedded/pal_global_cache.h
 embedded/pal_text_cache.c
@@ -334,19 +339,19 @@ The smoke also exercises `embedded/pal_rng_cache.c` on large real RNG frames:
 
 These are already decoded by `tools/pal_pack_build.py`; runtime only copies the selected frame into a named PSRAM buffer.
 
-The smoke also exercises `embedded/pal_sfx_cache.c` on representative large VOC chunks from the TF pack:
+The smoke also exercises `embedded/pal_sfx_cache.c` and `embedded/pal_audio_static.c` on representative large SFX chunks from the TF pack. The host pack builder converts VOC data to 22050Hz mono PCM16 before writing the SFX archive; runtime only copies, validates, and mixes PCM16 samples:
 
-| VOC chunk | Bytes |
+| SFX chunk | PCM16 pack bytes |
 | ---: | ---: |
-| 1 | 1,748 |
-| 62 | 28,406 |
-| 192 | 33,768 |
-| 213 | 52,006 |
-| 214 | 37,702 |
-| 255 | 38,334 |
-| 272 | 50,954 |
+| 1 | 12,622 |
+| 62 | 111,738 |
+| 192 | 132,856 |
+| 213 | 204,664 |
+| 214 | 148,342 |
+| 255 | 211,152 |
+| 272 | 200,526 |
 
-The bank copies these chunks into `pal_psram_sfx_bank` with 4-byte alignment and uses 242,926 bytes total for this checked set.
+The bank copies these chunks into `pal_psram_sfx_bank` with 4-byte alignment and uses 1,021,906 bytes total for this checked set. `PalAudio_MixSfx()` mixes checked chunks into the fixed `pal_sram_audio` buffer; no runtime resampler is linked into this slice.
 
 The smoke also exercises `embedded/pal_global_cache.c` against real SSS/DATA tables. It copies mutable default state into `pal_psram_save_state`:
 
@@ -419,12 +424,13 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=16050 data=720 bss=7197792
+text=16738 data=720 bss=7197792
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
 pal_battle_ total=334 limit=2048
 pal_sfx_ total=384 limit=4096
+pal_audio_ total=0 limit=4096
 pal_global_ total=232 limit=4096
 pal_save_ total=512 limit=4096
 pal_video_ total=512 limit=4096

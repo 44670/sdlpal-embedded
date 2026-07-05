@@ -31,6 +31,7 @@ static const char *archive_name(uint16_t archive_id)
     case PAL_PACK_ARCHIVE_VOC: return "VOC";
     case PAL_PACK_ARCHIVE_TEXT: return "TEXT";
     case PAL_PACK_ARCHIVE_FONT: return "FONT";
+    case PAL_PACK_ARCHIVE_SFX: return "SFX";
     default: return "?";
     }
 }
@@ -70,7 +71,7 @@ static int check_pack(const char *path)
     }
 
     printf("%s: size=%" PRIdMAX "\n", path, (intmax_t)st.st_size);
-    for (archive_id = PAL_PACK_ARCHIVE_ABC; archive_id <= PAL_PACK_ARCHIVE_FONT; archive_id++) {
+    for (archive_id = PAL_PACK_ARCHIVE_ABC; archive_id <= PAL_PACK_ARCHIVE_SFX; archive_id++) {
         uint16_t chunk_count = 0;
         uint16_t chunk_id;
         uint64_t archive_bytes = 0;

@@ -128,6 +128,13 @@ These sizes are relevant for a shared decompression scratch buffer and for decid
   - #255: 38,334 bytes
   - #214: 37,702 bytes
   - #192: 33,768 bytes
-- The static SFX smoke banks VOC chunks `{1, 62, 192, 213, 214, 255, 272}` into `pal_psram_sfx_bank`; this checked subset uses 242,926 bytes after 4-byte alignment.
+- Generated SFX archive payload: 9,236,076 bytes. It contains 276 host-converted 22050Hz mono PCM16 chunks derived from `VOC.MKF`.
+- Largest checked converted SFX chunks:
+  - #255: 211,152 bytes
+  - #213: 204,664 bytes
+  - #272: 200,526 bytes
+  - #214: 148,342 bytes
+  - #192: 132,856 bytes
+- The static SFX smoke banks converted SFX chunks `{1, 62, 192, 213, 214, 255, 272}` into `pal_psram_sfx_bank`; this checked subset uses 1,021,906 bytes after 4-byte alignment and mixes samples through `pal_sram_audio`.
 
-Main conclusion: for this data set, OGG/OPUS/MP3/loose-WAV/AVI support is not needed for base gameplay. The relevant audio formats are the PAL MKF containers, especially RIX/MUS-style music and VOC sound effects.
+Main conclusion: for this data set, OGG/OPUS/MP3/loose-WAV/AVI support is not needed for base gameplay. The relevant audio formats are the PAL MKF containers, especially RIX/MUS-style music and VOC-derived sound effects. Runtime SFX playback can use the generated PCM16 SFX archive instead of parsing/resampling VOC data on target.

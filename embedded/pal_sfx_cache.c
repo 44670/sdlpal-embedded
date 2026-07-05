@@ -33,12 +33,12 @@ bool PalSfx_LoadBank(const PalPack *tf_pack, const uint16_t *chunk_nums, uint16_
         uint32_t copied = 0;
         uint32_t offset = align4(cursor);
 
-        if (!PalPack_MapConst(tf_pack, PAL_PACK_ARCHIVE_VOC, chunk_nums[i], &span)) {
+        if (!PalPack_MapConst(tf_pack, PAL_PACK_ARCHIVE_SFX, chunk_nums[i], &span)) {
             sfx_bank->entry_count = 0;
             sfx_bank->used_bytes = 0;
             return false;
         }
-        if (span.format != PAL_PACK_FORMAT_RAW && span.format != PAL_PACK_FORMAT_NATIVE) {
+        if (span.format != PAL_PACK_FORMAT_SFX_PCM16) {
             sfx_bank->entry_count = 0;
             sfx_bank->used_bytes = 0;
             return false;
@@ -48,7 +48,7 @@ bool PalSfx_LoadBank(const PalPack *tf_pack, const uint16_t *chunk_nums, uint16_
             sfx_bank->used_bytes = 0;
             return false;
         }
-        if (!PalPack_CopyRaw(tf_pack, PAL_PACK_ARCHIVE_VOC, chunk_nums[i], pal_psram_sfx_bank + offset, span.size, &copied)) {
+        if (!PalPack_CopyRaw(tf_pack, PAL_PACK_ARCHIVE_SFX, chunk_nums[i], pal_psram_sfx_bank + offset, span.size, &copied)) {
             sfx_bank->entry_count = 0;
             sfx_bank->used_bytes = 0;
             return false;

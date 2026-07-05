@@ -24,6 +24,7 @@ FORMAT_NATIVE = 1
 FORMAT_RNG_FRAMES = 2
 FORMAT_TEXT_UTF16 = 3
 FORMAT_FONT_GLYPHS = 4
+FORMAT_SFX_PCM16 = 5
 
 TEXT_MAGIC = 0x54585450
 TEXT_VERSION = 1
@@ -34,6 +35,10 @@ FONT_HEADER_SIZE = 32
 FONT_GLYPH_SOURCE_OFFSET = 0x682
 FONT_GLYPH_SOURCE_BYTES = 30
 FONT_GLYPH_BYTES = 32
+SFX_MAGIC = 0x58465350
+SFX_VERSION = 1
+SFX_HEADER_SIZE = 24
+SFX_TARGET_SAMPLE_RATE = 22050
 
 ARCHIVE_IDS = {
     "ABC": 1,
@@ -54,10 +59,11 @@ ARCHIVE_IDS = {
     "VOC": 16,
     "TEXT": 17,
     "FONT": 18,
+    "SFX": 19,
 }
 
 DEFAULT_NOR = ["ABC", "BALL", "DATA", "F", "FIRE", "MGO", "MIDI", "MUS", "PAT", "RGM", "SSS", "TEXT", "FONT"]
-DEFAULT_TF = ["FBP", "GOP", "MAP", "RNG", "VOC"]
+DEFAULT_TF = ["FBP", "GOP", "MAP", "RNG", "VOC", "SFX"]
 
 
 @dataclass(frozen=True)
@@ -348,11 +354,86 @@ def encode_font_pack(data_dir: Path) -> bytes:
     return bytes(out)
 
 
+def encode_sfx_payload(pcm: bytes, source_rate: int) -> bytes:
+    if source_rate <= 0:
+        raise ValueError(f"bad VOC source rate: {source_rate}")
+
+    if not pcm:
+        out_pcm = b""
+    else:
+        out_samples = (len(pcm) * SFX_TARGET_SAMPLE_RATE + source_rate // 2) // source_rate
+        out = bytearray(out_samples * 2)
+        for sample_index in range(out_samples):
+            pos = sample_index * source_rate
+            src_index = pos // SFX_TARGET_SAMPLE_RATE
+            frac = pos % SFX_TARGET_SAMPLE_RATE
+            if src_index >= len(pcm) - 1:
+                sample = (pcm[-1] - 128) << 8
+            else:
+                s0 = (pcm[src_index] - 128) << 8
+                s1 = (pcm[src_index + 1] - 128) << 8
+                sample = (s0 * (SFX_TARGET_SAMPLE_RATE - frac) + s1 * frac) // SFX_TARGET_SAMPLE_RATE
+            struct.pack_into("<h", out, sample_index * 2, max(-32768, min(32767, sample)))
+        out_pcm = bytes(out)
+
+    return struct.pack(
+        "<IHHIIII",
+        SFX_MAGIC,
+        SFX_VERSION,
+        SFX_HEADER_SIZE,
+        SFX_TARGET_SAMPLE_RATE,
+        len(out_pcm) // 2,
+        SFX_HEADER_SIZE,
+        len(out_pcm),
+    ) + out_pcm
+
+
+def encode_voc_sfx_chunk(raw: bytes) -> bytes:
+    if not raw:
+        return encode_sfx_payload(b"", SFX_TARGET_SAMPLE_RATE)
+    if len(raw) < 26 or raw[:20] != b"Creative Voice File\x1a":
+        raise ValueError("not a VOC chunk")
+
+    data_offset = u16(raw, 20)
+    if data_offset >= len(raw):
+        raise ValueError("bad VOC data offset")
+
+    cursor = data_offset
+    while cursor < len(raw) and raw[cursor] != 0:
+        if cursor + 4 > len(raw):
+            raise ValueError("short VOC block")
+        block_type = raw[cursor]
+        block_size = raw[cursor + 1] | (raw[cursor + 2] << 8) | (raw[cursor + 3] << 16)
+        block_start = cursor + 4
+        block_end = block_start + block_size
+        if block_end > len(raw):
+            raise ValueError("VOC block out of range")
+        if block_type == 1:
+            if block_size < 2:
+                raise ValueError("short VOC sound block")
+            time_constant = raw[block_start]
+            codec = raw[block_start + 1]
+            if codec != 0:
+                raise ValueError(f"unsupported VOC codec: {codec}")
+            source_rate = ((1000000 // (256 - time_constant) + 99) // 100) * 100
+            return encode_sfx_payload(raw[block_start + 2 : block_end], source_rate)
+        cursor = block_end
+
+    return encode_sfx_payload(b"", SFX_TARGET_SAMPLE_RATE)
+
+
+def encode_sfx_pack(data_dir: Path) -> list[Chunk]:
+    voc_path = find_data_file(data_dir, "VOC.MKF")
+    return [Chunk(encode_voc_sfx_chunk(raw), FORMAT_SFX_PCM16) for raw in read_mkf(voc_path)]
+
+
 def load_archive(data_dir: Path, name: str) -> list[Chunk]:
     if name == "TEXT":
         return [Chunk(encode_text_pack(data_dir), FORMAT_TEXT_UTF16)]
     if name == "FONT":
         return [Chunk(encode_font_pack(data_dir), FORMAT_FONT_GLYPHS)]
+    if name == "SFX":
+        return encode_sfx_pack(data_dir)
 
     path = data_dir / f"{name}.MKF"
     if not path.exists():
