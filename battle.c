@@ -23,6 +23,16 @@
 
 BATTLE          g_Battle;
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(__GNUC__)
+#define PAL_BATTLE_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_BATTLE_PSRAM
+#endif
+static uint8_t pal_psram_battle_background_static[320 * 200] PAL_BATTLE_PSRAM;
+static uint8_t pal_psram_battle_effect_static[32768] PAL_BATTLE_PSRAM;
+#endif
+
 WORD
 g_rgPlayerPos[3][3][2] = {
    {{240, 170}},                         // one player
@@ -964,7 +974,11 @@ PAL_LoadBattleBackground(
 
 --*/
 {
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+   BYTE                    *buf = pal_psram_battle_background_static;
+#else
    PAL_LARGE BYTE           buf[320 * 200];
+#endif
 
    //
    // Create the surface
@@ -979,7 +993,14 @@ PAL_LoadBattleBackground(
    //
    // Load the picture
    //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (PAL_MKFReadChunk(buf, 320 * 200, gpGlobals->wNumBattleField, gpGlobals->f.fpFBP) != 320 * 200)
+   {
+      TerminateOnError("PAL_LoadBattleBackground(): battle background is not native FBP data!");
+   }
+#else
    PAL_MKFDecompressChunk(buf, 320 * 200, gpGlobals->wNumBattleField, gpGlobals->f.fpFBP);
+#endif
 
    //
    // Draw the picture to the surface.
@@ -1785,7 +1806,15 @@ PAL_StartBattle(
    // Load the battle effect sprite.
    //
    i = PAL_MKFGetChunkSize(10, gpGlobals->f.fpDATA);
+#ifdef PAL_NO_RUNTIME_HEAP
+   if (i <= 0 || (size_t)i > sizeof(pal_psram_battle_effect_static))
+   {
+      TerminateOnError("PAL_StartBattle(): battle effect sprite is too large!");
+   }
+   g_Battle.lpEffectSprite = pal_psram_battle_effect_static;
+#else
    g_Battle.lpEffectSprite = UTIL_malloc(i);
+#endif
 
    PAL_MKFReadChunk(g_Battle.lpEffectSprite, i, 10, gpGlobals->f.fpDATA);
 
@@ -1833,7 +1862,9 @@ PAL_StartBattle(
    // Free all the battle sprites
    //
    PAL_FreeBattleSprites();
+#ifndef PAL_NO_RUNTIME_HEAP
    free(g_Battle.lpEffectSprite);
+#endif
 
    //
    // Free the surfaces for the background picture and scene buffer

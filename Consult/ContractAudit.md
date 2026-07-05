@@ -646,10 +646,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=273853 data=3808 bss=471544
-.text=149845 .rodata=95464 .data=144 .bss=471544
+text=273933 data=3808 bss=568312
+.text=149845 .rodata=95592 .data=144 .bss=568312
 pal_sram_ total=64000 limit=307200
-pal_psram_ total=328272 limit=8388608
+pal_psram_ total=425040 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`:
@@ -665,6 +665,8 @@ The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_
 The full-engine splash path in `main.c` now also uses static `uint8_t` SRAM/PSRAM buffers in contract mode and accepts only already-native splash FBP/MGO chunks. The old 128KB heap block and `Decompress()` calls remain only for non-contract desktop builds.
 
 The full-engine menu-background paths in `uigame.c` now also avoid runtime decompression in contract mode. Opening-menu, status, and equipment menu paths use shared static `uint8_t` PSRAM buffers for FBP/image/box scratch and read already-native 64KB FBP chunks.
+
+The full-engine battle background/effect path in `battle.c` now uses static `uint8_t` PSRAM buffers in contract mode. `PAL_LoadBattleBackground()` requires already-native FBP data, and `PAL_StartBattle()` copies `DATA.MKF #10` into a fixed effect buffer instead of allocating it.
 
 ## Current Contract Failures
 
