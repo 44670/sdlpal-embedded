@@ -55,6 +55,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - Use `python3 -B tools/embedded_contract_check.py --root .` as the repeatable source/binary contract audit. Add `--binary unix/sdlpal` after producing a native SDL build. Use `--max-symbol-prefix pal_sram_=307200 --max-symbol-prefix pal_psram_=8388608` to budget normal static buffers by scanning ELF symbols.
 - `embedded/pal_pack.c` is the first native runtime slice following the contract: no heap, no decompressor, `const uint8_t` pack reads, fixed `uint8_t` copy destination, and objdump/nm/size verification through `embedded/Makefile`.
 - `embedded/pal_memory.c` intentionally declares normal named static-storage buffers such as `pal_sram_framebuffer` and `pal_psram_map_tiles`; there is no memory pool API.
+- `embedded/pal_native_sdl_smoke.c` is the native SDL fixed-memory smoke test. It wraps `pal_sram_framebuffer` with an SDL surface and reads from a `const uint8_t` pack; run it through `make -C embedded check` with `SDL_VIDEODRIVER=dummy`.
 
 ## Known Memory Pressure Points
 

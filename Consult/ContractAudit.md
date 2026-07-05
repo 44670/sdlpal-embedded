@@ -22,6 +22,7 @@ embedded/pal_pack_smoke.c
 embedded/pal_memory.c
 embedded/pal_memory.h
 embedded/pal_memory_smoke.c
+embedded/pal_native_sdl_smoke.c
 ```
 
 Source scan:
@@ -93,6 +94,7 @@ embedded/pal_pack.c
 embedded/pal_pack.h
 embedded/pal_memory.c
 embedded/pal_memory.h
+embedded/pal_native_sdl_smoke.c
 ```
 
 Properties:
@@ -174,6 +176,44 @@ pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 PASS
 ```
+
+## Native SDL Fixed-Memory Smoke
+
+The embedded makefile now builds a native SDL2 smoke binary that uses the same static SRAM declarations and pack reader:
+
+```text
+embedded/build/pal_native_sdl_smoke
+```
+
+It maps a `const uint8_t` native pack chunk, fills `pal_sram_framebuffer`, and wraps that exact buffer with `SDL_CreateRGBSurfaceFrom()`. SDL may allocate internally; the project-side smoke code does not use heap allocation and contains no decoder path.
+
+Build and verify:
+
+```sh
+make -C embedded clean check artifact-check
+python3 -B tools/embedded_contract_check.py \
+  --root embedded \
+  --fail-on-source \
+  --binary embedded/build/pal_native_sdl_smoke \
+  --max text=65536 \
+  --max data=4096 \
+  --max bss=7200000 \
+  --max-symbol-prefix pal_sram_=307200 \
+  --max-symbol-prefix pal_psram_=8388608
+```
+
+Current result:
+
+```text
+source heap hits: 0
+source decompress hits: 0
+text=3927 data=624 bss=182792
+pal_sram_ total=182784 limit=307200
+pal_psram_ total=0 limit=8388608
+PASS
+```
+
+`pal_psram_` is zero in this binary because the SDL smoke only exercises the framebuffer path; `pal_memory_smoke` is the artifact that forces all declared PSRAM buffers into the ELF for symbol-budget verification.
 
 ## Native SDL Build Attempt
 
