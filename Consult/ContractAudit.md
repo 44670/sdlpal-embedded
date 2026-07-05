@@ -33,6 +33,8 @@ embedded/pal_rng_cache.c
 embedded/pal_rng_cache.h
 embedded/pal_sfx_cache.c
 embedded/pal_sfx_cache.h
+embedded/pal_global_cache.c
+embedded/pal_global_cache.h
 ```
 
 Source scan:
@@ -148,6 +150,8 @@ embedded/pal_rng_cache.c
 embedded/pal_rng_cache.h
 embedded/pal_sfx_cache.c
 embedded/pal_sfx_cache.h
+embedded/pal_global_cache.c
+embedded/pal_global_cache.h
 ```
 
 Properties:
@@ -323,6 +327,17 @@ The smoke also exercises `embedded/pal_sfx_cache.c` on representative large VOC 
 
 The bank copies these chunks into `pal_psram_sfx_bank` with 4-byte alignment and uses 242,926 bytes total for this checked set.
 
+The smoke also exercises `embedded/pal_global_cache.c` against real SSS/DATA tables. It copies mutable default state into `pal_psram_save_state`:
+
+| Data | Records | Bytes |
+| --- | ---: | ---: |
+| Event objects | 5,369 | 171,808 |
+| Scenes | 300 | 2,400 |
+| DOS object table | 589 | 7,068 |
+| Player roles | 1 | 900 |
+
+With 4-byte alignment this uses 182,176 bytes of the 640KB save-state PSRAM buffer. Scripts, stores, enemies, enemy teams, magic, battlefields, level-up magic, battle-effect indexes, enemy positions, and level-up EXP remain `const uint8_t *` views into the NOR pack.
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -347,7 +362,8 @@ python3 -B tools/embedded_contract_check.py \
   --max-symbol-prefix pal_psram_=8388608 \
   --max-symbol-prefix pal_scene_=8192 \
   --max-symbol-prefix pal_battle_=2048 \
-  --max-symbol-prefix pal_sfx_=4096
+  --max-symbol-prefix pal_sfx_=4096 \
+  --max-symbol-prefix pal_global_=4096
 ```
 
 Current result:
@@ -355,12 +371,13 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=9714 data=704 bss=7196512
+text=11826 data=704 bss=7196744
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
 pal_battle_ total=334 limit=2048
 pal_sfx_ total=384 limit=4096
+pal_global_ total=232 limit=4096
 PASS
 ```
 

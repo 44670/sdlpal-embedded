@@ -1,4 +1,5 @@
 #include "pal_battle_cache.h"
+#include "pal_global_cache.h"
 #include "pal_memory.h"
 #include "pal_pack.h"
 #include "pal_rng_cache.h"
@@ -284,6 +285,40 @@ static int check_sfx_bank(const PalPack *tf)
     return 0;
 }
 
+static int check_global_cache(const PalPack *nor)
+{
+    const PalGlobalCache *cache = 0;
+
+    if (!PalGlobal_LoadDefault(nor, &cache)) {
+        return 1;
+    }
+    if (cache == 0 || cache->mutable_bytes != 182176u) {
+        return 2;
+    }
+    if (cache->event_objects.data != pal_psram_save_state || cache->event_objects.count != 5369u) {
+        return 3;
+    }
+    if (cache->scenes.count != 300u || cache->objects_dos.count != 589u || cache->player_roles.size != PAL_GLOBAL_PLAYER_ROLES_BYTES) {
+        return 4;
+    }
+    if (cache->script_entries.count != 42494u || cache->stores.count != 21u || cache->enemies.count != 350u) {
+        return 5;
+    }
+    if (cache->enemy_teams.count != 390u || cache->magics.count != 114u || cache->battlefields.count != 130u) {
+        return 6;
+    }
+    if (cache->levelup_magics.count != 50u || cache->battle_effect_index.size != 40u ||
+        cache->enemy_positions.size != 100u || cache->levelup_exp.count != 100u) {
+        return 7;
+    }
+    if (checksum32(cache->event_objects.data, cache->event_objects.size) == 0 ||
+        checksum32(cache->script_entries.data, cache->script_entries.size) == 0 ||
+        checksum32(cache->player_roles.data, cache->player_roles.size) == 0) {
+        return 8;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
@@ -340,6 +375,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_sfx_bank(&tf.pack);
+    }
+    if (rc == 0) {
+        rc = check_global_cache(&nor.pack);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();
