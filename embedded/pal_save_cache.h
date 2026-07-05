@@ -24,6 +24,7 @@ typedef struct PalSaveSlot {
 } PalSaveSlot;
 
 bool PalSave_ReadFile(const char *path, PalSaveSlot *slot);
+bool PalSave_WriteFile(const char *path, const uint8_t *data, uint32_t size);
 
 #ifdef __cplusplus
 }

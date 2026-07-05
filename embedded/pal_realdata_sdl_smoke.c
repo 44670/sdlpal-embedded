@@ -572,9 +572,34 @@ static int check_save_file(
 
 static int check_save_cache(const char *data_dir)
 {
-    return check_save_file(data_dir, "1.rpg", 184672u, 1u, 1u, 0u) ||
-           check_save_file(data_dir, "2.rpg", 188864u, 8u, 17u, 580u) ||
-           check_save_file(data_dir, "4.RPG", 183488u, 1u, 1u, 899999u);
+    static const char roundtrip_path[] = "/tmp/sdlpal-embedded-save-roundtrip.rpg";
+    PalSaveSlot slot;
+    PalSaveSlot roundtrip;
+    uint32_t checksum;
+
+    if (check_save_file(data_dir, "1.rpg", 184672u, 1u, 1u, 0u) != 0 ||
+        check_save_file(data_dir, "2.rpg", 188864u, 8u, 17u, 580u) != 0 ||
+        check_save_file(data_dir, "4.RPG", 183488u, 1u, 1u, 899999u) != 0) {
+        return 1;
+    }
+    if (make_data_path(data_dir, "2.rpg") != 0 || !PalSave_ReadFile(pal_save_path, &slot)) {
+        return 2;
+    }
+    checksum = slot.checksum;
+    unlink(roundtrip_path);
+    if (!PalSave_WriteFile(roundtrip_path, slot.data, slot.size)) {
+        return 3;
+    }
+    if (!PalSave_ReadFile(roundtrip_path, &roundtrip)) {
+        unlink(roundtrip_path);
+        return 4;
+    }
+    unlink(roundtrip_path);
+    if (roundtrip.size != 188864u || roundtrip.checksum != checksum ||
+        roundtrip.saved_times != 8u || roundtrip.scene_num != 17u || roundtrip.cash != 580u) {
+        return 5;
+    }
+    return 0;
 }
 
 static int check_music_track_pair(const PalPack *nor, uint16_t track_num, uint32_t expected_midi_size, uint32_t expected_mus_size)

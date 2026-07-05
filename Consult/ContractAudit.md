@@ -431,7 +431,7 @@ The smoke also exercises `embedded/pal_font_cache.c` against the generated FONT 
 
 Runtime only validates the header/table and binary-searches codepoints to return `const uint8_t *` glyph spans. The checked glyphs include U+7D93, U+9A57, and U+503C from the word "經驗值"; ASCII digit U+0030 is intentionally absent from this WOR16 CJK pack.
 
-The smoke also exercises `embedded/pal_save_cache.c` against real save files in `/mnt/hgfs/deb13/PAL`. It reads each file into the existing `pal_psram_save_state` fixed buffer, checks that no heap-backed `SAVEDGAME_DOS`/`SAVEDGAME_WIN` object is needed, and validates common header fields:
+The smoke also exercises `embedded/pal_save_cache.c` against real save files in `/mnt/hgfs/deb13/PAL`. It reads each file into the existing `pal_psram_save_state` fixed buffer, checks that no heap-backed `SAVEDGAME_DOS`/`SAVEDGAME_WIN` object is needed, validates common header fields, then writes `2.rpg` back out through the same fixed buffer and reads it again for a byte-preserving checksum round trip:
 
 | Save file | Bytes | Saved times | Scene | Cash |
 | --- | ---: | ---: | ---: | ---: |
@@ -521,7 +521,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=26310 .rodata=160 data=720 bss=7460512
+text=27407 .rodata=224 data=736 bss=7460512
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -547,7 +547,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=610881
+size=611752
 PASS
 ```
 

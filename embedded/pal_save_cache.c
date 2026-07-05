@@ -48,6 +48,20 @@ static bool read_exact(int fd, uint8_t *dst, uint32_t size)
     return true;
 }
 
+static bool write_exact(int fd, const uint8_t *src, uint32_t size)
+{
+    uint32_t total = 0;
+
+    while (total < size) {
+        ssize_t wrote = write(fd, src + total, (size_t)(size - total));
+        if (wrote <= 0) {
+            return false;
+        }
+        total += (uint32_t)wrote;
+    }
+    return true;
+}
+
 bool PalSave_ReadFile(const char *path, PalSaveSlot *slot)
 {
     int fd;
@@ -100,4 +114,25 @@ bool PalSave_ReadFile(const char *path, PalSaveSlot *slot)
     slot->cash = read_le32(pal_psram_save_state + PAL_SAVE_CASH_OFFSET);
     slot->checksum = checksum32(pal_psram_save_state, size);
     return true;
+}
+
+bool PalSave_WriteFile(const char *path, const uint8_t *data, uint32_t size)
+{
+    int fd;
+    bool ok;
+
+    if (path == NULL || (data == NULL && size != 0u) || size > PAL_PSRAM_SAVE_STATE_BYTES) {
+        return false;
+    }
+
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        return false;
+    }
+
+    ok = write_exact(fd, data, size);
+    if (close(fd) != 0) {
+        ok = false;
+    }
+    return ok;
 }
