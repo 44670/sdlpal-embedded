@@ -25,7 +25,7 @@ static BOOL __buymenu_firsttime_render;
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
 #if defined(__GNUC__)
-#define PAL_UIGAME_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#define PAL_UIGAME_PSRAM __attribute__((section(".bss.pal_psram"), aligned(8)))
 #else
 #define PAL_UIGAME_PSRAM
 #endif
@@ -34,6 +34,62 @@ static uint8_t pal_psram_uigame_background[320 * 200] PAL_UIGAME_PSRAM;
 static uint8_t pal_psram_uigame_image[PAL_RLEBUFSIZE] PAL_UIGAME_PSRAM;
 #endif
 static uint8_t pal_psram_uigame_box[72 * 72] PAL_UIGAME_PSRAM;
+#endif
+
+#ifdef PAL_NO_RUNTIME_HEAP
+#define PAL_UIGAME_CASH_PIXELS (128u * 48u)
+#define PAL_UIGAME_SYSTEM_PIXELS (320u * 144u)
+#define PAL_UIGAME_SELECT_PIXELS (320u * 40u)
+#ifndef PAL_CLASSIC
+#define PAL_UIGAME_BATTLE_SPEED_PIXELS (160u * 48u)
+#endif
+
+static uint8_t pal_psram_uigame_cash_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_cash_pixels[PAL_UIGAME_CASH_PIXELS] PAL_UIGAME_PSRAM;
+#ifndef PAL_CLASSIC
+static uint8_t pal_psram_uigame_battle_speed_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_battle_speed_pixels[PAL_UIGAME_BATTLE_SPEED_PIXELS] PAL_UIGAME_PSRAM;
+#endif
+static uint8_t pal_psram_uigame_system_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_system_pixels[PAL_UIGAME_SYSTEM_PIXELS] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select0_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select0_pixels[PAL_UIGAME_SELECT_PIXELS] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select1_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select1_pixels[PAL_UIGAME_SELECT_PIXELS] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select2_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select2_pixels[PAL_UIGAME_SELECT_PIXELS] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select3_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_psram_uigame_select3_pixels[PAL_UIGAME_SELECT_PIXELS] PAL_UIGAME_PSRAM;
+
+static LPBOX
+PAL_UIGameCreateSelectionBox(
+   INT            iBox,
+   PAL_POS        pos,
+   INT            nLen
+)
+{
+   switch (iBox)
+   {
+   case 0:
+      return PAL_CreateSingleLineBoxWithBuffer(pos, nLen,
+         (LPBOX)pal_psram_uigame_select0_box,
+         pal_psram_uigame_select0_pixels, PAL_UIGAME_SELECT_PIXELS);
+   case 1:
+      return PAL_CreateSingleLineBoxWithBuffer(pos, nLen,
+         (LPBOX)pal_psram_uigame_select1_box,
+         pal_psram_uigame_select1_pixels, PAL_UIGAME_SELECT_PIXELS);
+   case 2:
+      return PAL_CreateSingleLineBoxWithBuffer(pos, nLen,
+         (LPBOX)pal_psram_uigame_select2_box,
+         pal_psram_uigame_select2_pixels, PAL_UIGAME_SELECT_PIXELS);
+   case 3:
+      return PAL_CreateSingleLineBoxWithBuffer(pos, nLen,
+         (LPBOX)pal_psram_uigame_select3_box,
+         pal_psram_uigame_select3_pixels, PAL_UIGAME_SELECT_PIXELS);
+   default:
+      return NULL;
+   }
+}
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -349,7 +405,12 @@ PAL_SelectionMenu(
 	dx[1] = dx[0]; dx[3] = dx[2]; dx[0] = dx[2] = 0;
 	for (i = 0; i < nWords; i++)
 	{
+#ifdef PAL_NO_RUNTIME_HEAP
+		rgpBox[i] = PAL_UIGameCreateSelectionBox(i,
+			PAL_XY(130 + 75 * (i % 2) + dx[i], 100 + 50 * (i / 2)), w[i] + 1);
+#else
 		rgpBox[i] = PAL_CreateSingleLineBox(PAL_XY(130 + 75 * (i % 2) + dx[i], 100 + 50 * (i / 2)), w[i] + 1, TRUE);
+#endif
 	}
 
 	//
@@ -478,7 +539,13 @@ PAL_BattleSpeedMenu(
    //
    // Create the boxes
    //
+#ifdef PAL_NO_RUNTIME_HEAP
+   lpBox = PAL_CreateSingleLineBoxWithBuffer(PAL_XY(131, 100), 8,
+      (LPBOX)pal_psram_uigame_battle_speed_box,
+      pal_psram_uigame_battle_speed_pixels, PAL_UIGAME_BATTLE_SPEED_PIXELS);
+#else
    lpBox = PAL_CreateSingleLineBox(PAL_XY(131, 100), 8, TRUE);
+#endif
 
    //
    // Activate the menu
@@ -525,7 +592,13 @@ PAL_ShowCash(
    //
    // Create the box.
    //
+#ifdef PAL_NO_RUNTIME_HEAP
+   lpBox = PAL_CreateSingleLineBoxWithBuffer(PAL_XY(0, 0), 5,
+      (LPBOX)pal_psram_uigame_cash_box,
+      pal_psram_uigame_cash_pixels, PAL_UIGAME_CASH_PIXELS);
+#else
    lpBox = PAL_CreateSingleLineBox(PAL_XY(0, 0), 5, TRUE);
+#endif
    if (lpBox == NULL)
    {
       return NULL;
@@ -610,7 +683,14 @@ PAL_SystemMenu(
    //
    // Create the menu box.
    //
+#ifdef PAL_NO_RUNTIME_HEAP
+   lpMenuBox = PAL_CreateBoxWithBuffer(PAL_XY(40, 60), nSystemMenuItem - 1,
+      PAL_MenuTextMaxWidth(rgSystemMenuItem, nSystemMenuItem) - 1, 0,
+      (LPBOX)pal_psram_uigame_system_box,
+      pal_psram_uigame_system_pixels, PAL_UIGAME_SYSTEM_PIXELS);
+#else
    lpMenuBox = PAL_CreateBox(PAL_XY(40, 60), nSystemMenuItem - 1, PAL_MenuTextMaxWidth(rgSystemMenuItem, nSystemMenuItem) - 1, 0, TRUE);
+#endif
 
    //
    // Perform the menu.

@@ -204,6 +204,31 @@ PAL_CreateBoxWithShadow(
    INT            nShadowOffset
 );
 
+#ifdef PAL_NO_RUNTIME_HEAP
+LPBOX
+PAL_CreateBoxWithBuffer(
+   PAL_POS        pos,
+   INT            nRows,
+   INT            nColumns,
+   INT            iStyle,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+);
+
+LPBOX
+PAL_CreateBoxWithShadowBuffer(
+   PAL_POS        pos,
+   INT            nRows,
+   INT            nColumns,
+   INT            iStyle,
+   INT            nShadowOffset,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+);
+#endif
+
 LPBOX
 PAL_CreateSingleLineBox(
    PAL_POS        pos,
@@ -218,7 +243,28 @@ PAL_CreateSingleLineBoxWithShadow(
    BOOL           fSaveScreen,
    INT            nShadowOffset
 );
-    
+
+#ifdef PAL_NO_RUNTIME_HEAP
+LPBOX
+PAL_CreateSingleLineBoxWithBuffer(
+   PAL_POS        pos,
+   INT            nLen,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+);
+
+LPBOX
+PAL_CreateSingleLineBoxWithShadowBuffer(
+   PAL_POS        pos,
+   INT            nLen,
+   INT            nShadowOffset,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+);
+#endif
+
 VOID
 PAL_DeleteBox(
    LPBOX          lpBox

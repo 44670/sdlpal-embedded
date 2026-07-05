@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=186226 data=3728 bss=1890840
-.text=150821 .rodata=7368 .data=144 .bss=1890840
+text=186730 data=3728 bss=1469400
+.text=151141 .rodata=7368 .data=144 .bss=1469400
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=1581392 limit=8388608
+pal_psram_ total=1159944 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -693,7 +693,7 @@ The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_
 
 The full-engine splash path in `main.c` now uses static `uint8_t` SRAM for FBP staging, maps title/crane sprites as `const uint8_t` NOR views, uses a clipped RLE blit for title reveal instead of mutating sprite data, and accepts only already-native splash FBP/MGO chunks. The old 128KB heap block and `Decompress()` calls remain only for non-contract desktop builds.
 
-The full-engine menu paths in `uigame.c` now avoid runtime decompression in contract mode. Opening-menu, status, and equipment paths use shared static `uint8_t` PSRAM buffers for FBP background and box scratch, while RGM/BALL menu images are mapped as read-only `const uint8_t` NOR views.
+The full-engine menu paths in `uigame.c` now avoid runtime decompression in contract mode. Opening-menu, status, and equipment paths use shared static `uint8_t` PSRAM buffers for FBP background and box scratch; saved cash/system/selection boxes use named per-call-site PSRAM buffers. RGM/BALL menu images are mapped as read-only `const uint8_t` NOR views.
 
 The full-engine battle path in `battle.c` now maps player/enemy F/ABC battle sprites and `DATA.MKF #10` effect sprites as `const uint8_t` views into the native NOR pack under contract mode. Battle backgrounds still use a fixed PSRAM buffer. The old F/ABC/FBP decompression and battle-effect allocation paths remain only for non-contract desktop builds.
 
@@ -719,13 +719,13 @@ The contract `audio.c`, `global.c`, and `util.c` paths no longer keep active loo
 
 The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It compiles out config-file parsing in the reduced profile, uses default/static config strings, keeps fixed static `uint8_t` config buffers for string setters, and uses case-sensitive no-heap path lookup.
 
-The contract `ui.c` path now maps `DATA.MKF #9` UI sprite data as a read-only `const uint8_t` NOR pack view. UI box metadata and eight 320x200 box save/restore buffers remain in named `uint8_t` PSRAM storage, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
+The contract `ui.c` path now maps `DATA.MKF #9` UI sprite data as a read-only `const uint8_t` NOR pack view. Saved UI boxes use caller-owned named `uint8_t` PSRAM metadata/pixel buffers declared for the concrete `uigame.c` menus, avoiding `calloc`, `free`, project-side duplicate-surface allocation, and a generic UI box pool.
 
 The contract `ui.c` object-description load/free path is intentionally a no-heap `NULL` path for the current data set because no `DESC.DAT` exists. Description-bearing data should be handled by generated read-only text/object-description data rather than the legacy linked-list loader.
 
 The contract `palette.c` path now reads `PAT` chunks through the generated pack bridge and stores loaded/current/work palette colors in named SRAM `uint8_t` buffers (`pal_sram_palette_base`, `pal_sram_palette_work`, `pal_sram_palette_next`). It no longer opens the original `pat.mkf` in contract mode, and palette fades no longer use `PAL_LARGE SDL_Color[256]` local arrays.
 
-The contract `global.c` and `ui.c` mutable storage now follows the same `uint8_t` buffer rule as the embedded slices: mutable global buffers and UI box metadata are named byte arrays that are cast at the use site, and the contract checker rejects active typed `pal_sram_`/`pal_psram_` declarations.
+The contract `global.c`, `ui.c`, and `uigame.c` mutable storage now follows the same `uint8_t` buffer rule as the embedded slices: mutable global buffers and UI box metadata/pixels are named byte arrays that are cast at the use site, and the contract checker rejects active typed `pal_sram_`/`pal_psram_` declarations.
 
 ## Current Contract Status
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=186226 data=3728 bss=1890840
-.text=150821 .rodata=7368 .data=144 .bss=1890840
+text=186730 data=3728 bss=1469400
+.text=151141 .rodata=7368 .data=144 .bss=1469400
 pal_sram_ total=230912 / 307200
-pal_psram_ total=1581392 / 8388608
+pal_psram_ total=1159944 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

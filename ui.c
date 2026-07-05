@@ -24,23 +24,6 @@
 LPCSPRITE     gpSpriteUI = NULL;
 
 #ifdef PAL_NO_RUNTIME_HEAP
-#if defined(__GNUC__)
-#define PAL_UI_PSRAM __attribute__((section(".bss.pal_psram"), aligned(8)))
-#else
-#define PAL_UI_PSRAM
-#endif
-#define PAL_UI_BOX_SLOTS 8
-static uint8_t pal_psram_ui_box_static[PAL_UI_BOX_SLOTS][sizeof(BOX)] PAL_UI_PSRAM;
-static uint8_t pal_psram_ui_box_saved_pixels[PAL_UI_BOX_SLOTS][320 * 200] PAL_UI_PSRAM;
-
-static LPBOX
-PAL_StaticBoxSlot(
-   int slot
-)
-{
-   return (LPBOX)pal_psram_ui_box_static[slot];
-}
-
 static BOOL
 PAL_CopyBoxPixels(
    const SDL_Rect *rect,
@@ -85,22 +68,24 @@ PAL_CopyBoxPixels(
 static LPBOX
 PAL_CreateBoxInternal(
 	const SDL_Rect *rect
+#ifdef PAL_NO_RUNTIME_HEAP
+	, LPBOX lpBox,
+	LPBYTE lpSavedPixels,
+	UINT uiSavedPixelBytes
+#endif
 )
 {
 #ifdef PAL_NO_RUNTIME_HEAP
-	int slot;
-	LPBOX lpBox = NULL;
+	UINT uiNeededBytes;
 
-	for (slot = 0; slot < PAL_UI_BOX_SLOTS; slot++)
+	if (rect == NULL || rect->w <= 0 || rect->h <= 0 ||
+		lpBox == NULL || lpSavedPixels == NULL)
 	{
-		LPBOX slotBox = PAL_StaticBoxSlot(slot);
-		if (slotBox->lpSavedPixels == NULL)
-		{
-			lpBox = slotBox;
-			break;
-		}
+		return NULL;
 	}
-	if (lpBox == NULL)
+
+	uiNeededBytes = (UINT)rect->w * (UINT)rect->h;
+	if (uiSavedPixelBytes < uiNeededBytes)
 	{
 		return NULL;
 	}
@@ -109,9 +94,9 @@ PAL_CreateBoxInternal(
 
 	lpBox->pos = PAL_XY(rect->x, rect->y);
 	lpBox->lpSavedArea = NULL;
-	lpBox->lpSavedPixels = pal_psram_ui_box_saved_pixels[slot];
-	lpBox->wHeight = (WORD)rect->w;
-	lpBox->wWidth = (WORD)rect->h;
+	lpBox->lpSavedPixels = lpSavedPixels;
+	lpBox->wWidth = (WORD)rect->w;
+	lpBox->wHeight = (WORD)rect->h;
 
 	if (!PAL_CopyBoxPixels(rect, lpBox->lpSavedPixels, FALSE))
 	{
@@ -129,8 +114,8 @@ PAL_CreateBoxInternal(
 
 	lpBox->pos = PAL_XY(rect->x, rect->y);
 	lpBox->lpSavedArea = VIDEO_DuplicateSurface(gpScreen, rect);
-	lpBox->wHeight = (WORD)rect->w;
-	lpBox->wWidth = (WORD)rect->h;
+	lpBox->wWidth = (WORD)rect->w;
+	lpBox->wHeight = (WORD)rect->h;
 
 	if (lpBox->lpSavedArea == NULL)
 	{
@@ -243,14 +228,17 @@ PAL_CreateBox(
     return PAL_CreateBoxWithShadow( pos, nRows, nColumns, iStyle, fSaveScreen, 6 );
 }
 
-LPBOX
-PAL_CreateBoxWithShadow(
+static LPBOX
+PAL_CreateBoxWithShadowInternal(
    PAL_POS        pos,
    INT            nRows,
    INT            nColumns,
    INT            iStyle,
    BOOL           fSaveScreen,
-   INT            nShadowOffset
+   INT            nShadowOffset,
+   LPBOX          lpSaveBox,
+   LPBYTE         lpSavePixels,
+   UINT           uiSavePixelBytes
 )
 /*++
   Purpose:
@@ -323,7 +311,14 @@ PAL_CreateBoxWithShadow(
       //
       // Save the used part of the screen
       //
+#ifdef PAL_NO_RUNTIME_HEAP
+      lpBox = PAL_CreateBoxInternal(&rect, lpSaveBox, lpSavePixels, uiSavePixelBytes);
+#else
+      (void)lpSaveBox;
+      (void)lpSavePixels;
+      (void)uiSavePixelBytes;
       lpBox = PAL_CreateBoxInternal(&rect);
+#endif
    }
 
    //
@@ -355,6 +350,53 @@ PAL_CreateBoxWithShadow(
 }
 
 LPBOX
+PAL_CreateBoxWithShadow(
+   PAL_POS        pos,
+   INT            nRows,
+   INT            nColumns,
+   INT            iStyle,
+   BOOL           fSaveScreen,
+   INT            nShadowOffset
+)
+{
+   return PAL_CreateBoxWithShadowInternal(pos, nRows, nColumns, iStyle,
+      fSaveScreen, nShadowOffset, NULL, NULL, 0);
+}
+
+#ifdef PAL_NO_RUNTIME_HEAP
+LPBOX
+PAL_CreateBoxWithBuffer(
+   PAL_POS        pos,
+   INT            nRows,
+   INT            nColumns,
+   INT            iStyle,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+)
+{
+   return PAL_CreateBoxWithShadowInternal(pos, nRows, nColumns, iStyle,
+      TRUE, 6, lpBox, lpSavedPixels, uiSavedPixelBytes);
+}
+
+LPBOX
+PAL_CreateBoxWithShadowBuffer(
+   PAL_POS        pos,
+   INT            nRows,
+   INT            nColumns,
+   INT            iStyle,
+   INT            nShadowOffset,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+)
+{
+   return PAL_CreateBoxWithShadowInternal(pos, nRows, nColumns, iStyle,
+      TRUE, nShadowOffset, lpBox, lpSavedPixels, uiSavedPixelBytes);
+}
+#endif
+
+LPBOX
 PAL_CreateSingleLineBox(
    PAL_POS        pos,
    INT            nLen,
@@ -364,12 +406,15 @@ PAL_CreateSingleLineBox(
     return PAL_CreateSingleLineBoxWithShadow(pos, nLen, fSaveScreen, 6);
 }
 
-LPBOX
-PAL_CreateSingleLineBoxWithShadow(
+static LPBOX
+PAL_CreateSingleLineBoxWithShadowInternal(
    PAL_POS        pos,
    INT            nLen,
    BOOL           fSaveScreen,
-   INT            nShadowOffset
+   INT            nShadowOffset,
+   LPBOX          lpSaveBox,
+   LPBYTE         lpSavePixels,
+   UINT           uiSavePixelBytes
 )
 /*++
   Purpose:
@@ -429,7 +474,14 @@ PAL_CreateSingleLineBoxWithShadow(
       //
       // Save the used part of the screen
       //
+#ifdef PAL_NO_RUNTIME_HEAP
+      lpBox = PAL_CreateBoxInternal(&rect, lpSaveBox, lpSavePixels, uiSavePixelBytes);
+#else
+      (void)lpSaveBox;
+      (void)lpSavePixels;
+      (void)uiSavePixelBytes;
       lpBox = PAL_CreateBoxInternal(&rect);
+#endif
    }
    xSaved = rect.x;
 
@@ -466,6 +518,47 @@ PAL_CreateSingleLineBoxWithShadow(
 
    return lpBox;
 }
+
+LPBOX
+PAL_CreateSingleLineBoxWithShadow(
+   PAL_POS        pos,
+   INT            nLen,
+   BOOL           fSaveScreen,
+   INT            nShadowOffset
+)
+{
+   return PAL_CreateSingleLineBoxWithShadowInternal(pos, nLen, fSaveScreen,
+      nShadowOffset, NULL, NULL, 0);
+}
+
+#ifdef PAL_NO_RUNTIME_HEAP
+LPBOX
+PAL_CreateSingleLineBoxWithBuffer(
+   PAL_POS        pos,
+   INT            nLen,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+)
+{
+   return PAL_CreateSingleLineBoxWithShadowInternal(pos, nLen, TRUE, 6,
+      lpBox, lpSavedPixels, uiSavedPixelBytes);
+}
+
+LPBOX
+PAL_CreateSingleLineBoxWithShadowBuffer(
+   PAL_POS        pos,
+   INT            nLen,
+   INT            nShadowOffset,
+   LPBOX          lpBox,
+   LPBYTE         lpSavedPixels,
+   UINT           uiSavedPixelBytes
+)
+{
+   return PAL_CreateSingleLineBoxWithShadowInternal(pos, nLen, TRUE,
+      nShadowOffset, lpBox, lpSavedPixels, uiSavedPixelBytes);
+}
+#endif
 
 VOID
 PAL_DeleteBox(
