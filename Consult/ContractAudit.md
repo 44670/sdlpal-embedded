@@ -614,10 +614,9 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The remaining audio/video/font/text entry points are inert stubs:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The desktop text/font replacement maps the generated NOR pack read-only and uses the existing `PalTextCache` / `PalFontCache` readers:
 
 ```text
-resampler_init
 PAL_InitFont
 PAL_FreeFont
 PAL_DrawCharOnSurface
@@ -628,6 +627,12 @@ PAL_FreeText
 PAL_GetWord
 PAL_GetMsg
 PAL_DrawText
+```
+
+Unsupported desktop audio/video backends remain inert in this reduced profile:
+
+```text
+resampler_init
 PAL_MultiByteToWideCharCP
 PAL_DetectCodePageForString
 MP3_Init
@@ -646,9 +651,9 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=179649 data=3672 bss=7406008
-.text=146261 .rodata=7368 .data=144 .bss=7406008
-pal_sram_ total=195072 limit=307200
+text=184173 data=3728 bss=7438904
+.text=149525 .rodata=7432 .data=144 .bss=7438904
+pal_sram_ total=227840 limit=307200
 pal_psram_ total=7131664 limit=8388608
 ```
 
@@ -661,9 +666,9 @@ objdump -t forbidden symbols: 0
 forbidden call targets: 0
 ```
 
-The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress patterns.
+The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress patterns. The same target rebuilds and verifies the generated NOR/TF packs and manifest, rejects raw `VOC` in runtime packs, and enforces the 16MB NOR pack budget.
 
-This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the stubbed desktop resource paths with the generated pack/static-buffer slices.
+This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the remaining stubbed desktop resource paths with the generated pack/static-buffer slices.
 
 The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, it uses static `uint8_t` PSRAM buffers for the `PALMAP` object and GOP sprite data, and it accepts only already-native 64KB map chunks. The old compressed-MAP path remains only for non-contract desktop builds.
 

@@ -9,6 +9,10 @@ HOST =
 PYTHON ?= python3
 TEST_CCFLAGS =
 EMBEDDED_CONTRACT ?= 0
+PACK_NOR ?= /tmp/pal_nor_default.pak
+PACK_TF ?= /tmp/pal_tf_default.pak
+PACK_MANIFEST ?= /tmp/pal_pack_default_manifest.json
+PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
 
 GENERATED = -DPAL_HAS_GIT_REVISION $(shell ../scripts/gengitrev)
 
@@ -37,7 +41,7 @@ ifeq ($(EMBEDDED_CONTRACT),1)
 	SOURCES = .. ../sdl_compat
 	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../font.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../mp3play.c ../oggplay.c ../opusplay.c ../resampler.c ../sound.c ../text.c ../video_glsl.c ../yj1.c
 	CONTRACT_CPPFILE_EXCLUDES = ../rixplay.cpp
-	CONTRACT_CFILES = embedded_contract_stubs.c ../embedded/pal_noheap.c
+	CONTRACT_CFILES = embedded_contract_stubs.c ../embedded/pal_noheap.c ../embedded/pal_pack.c ../embedded/pal_text_cache.c ../embedded/pal_font_cache.c
 	EMBEDDED_CCFLAGS = -ffunction-sections -fdata-sections -UUSE_SDL3 -DUSE_SDL3=0 -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI -DPAL_NO_RUNTIME_DECOMPRESS=1 -DPAL_NO_RUNTIME_HEAP=1
 	EMBEDDED_LDFLAGS = -Wl,--gc-sections -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free
 else
@@ -97,7 +101,7 @@ endif
 
 POSTCOMPILE = @mv -f $*$(INTER).Td $*$(INTER).d && touch $@
 
-.PHONY : all clean check contract-check
+.PHONY : all clean check contract-pack-build contract-check
 
 all: $(TARGET)
 
@@ -141,8 +145,11 @@ check: $(TEST_TARGET)
 	@chmod +x $(TEST_TARGET)
 	@exec $(TEST_TARGET)
 
-contract-check: $(TARGET)
+contract-pack-build:
+	$(PYTHON) -B ../tools/pal_pack_build.py $(PAL_DATA_DIR) --out-nor $(PACK_NOR) --out-tf $(PACK_TF) --manifest $(PACK_MANIFEST)
+
 ifeq ($(EMBEDDED_CONTRACT),1)
+contract-check: $(TARGET) contract-pack-build
 	$(PYTHON) -B ../tools/embedded_contract_check.py \
 		--root .. \
 		--fail-on-source \
@@ -163,12 +170,18 @@ ifeq ($(EMBEDDED_CONTRACT),1)
 		--source-exclude native_midi.cpp \
 		--source-exclude native_midi_alsa.c \
 		--binary $(TARGET) \
+		--pack $(PACK_NOR) \
+		--pack $(PACK_TF) \
+		--manifest $(PACK_MANIFEST) \
+		--forbid-pack-archive VOC \
+		--max-pack-size $(PACK_NOR)=16777216 \
 		--max text=500000 \
 		--max data=524288 \
 		--max bss=9000000 \
 		--max-symbol-prefix pal_sram_=307200 \
 		--max-symbol-prefix pal_psram_=8388608
 else
+contract-check:
 	@echo "Run as: make -C unix EMBEDDED_CONTRACT=1 contract-check"
 	@exit 1
 endif
