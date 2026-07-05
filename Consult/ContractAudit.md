@@ -592,12 +592,15 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, and launcher UI objects from the full-engine build. The remaining codec-facing entry points are inert stubs:
+This profile excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, and adplug objects from the full-engine build. The remaining audio/video entry points are inert stubs:
 
 ```text
+resampler_init
 MP3_Init
 OGG_Init
 OPUS_Init
+RIX_Init
+SOUND_Init
 TIMIDITY_Init
 TSF_Init
 PAL_AVIInit
@@ -609,8 +612,8 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=1674770 data=2172210 bss=353664
-.text=317205 .rodata=1290792 .data=2163074 .bss=353664
+text=1496653 data=2166780 bss=83760
+.text=178133 .rodata=1285304 .data=2162900 .bss=83760
 ```
 
 This is still not an embedded-contract binary. It still links the desktop heap and YJ paths:

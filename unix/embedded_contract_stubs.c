@@ -1,5 +1,10 @@
 #include "aviplay.h"
 #include "players.h"
+#include "resampler.h"
+
+void resampler_init(void)
+{
+}
 
 LPAUDIOPLAYER TIMIDITY_Init(VOID)
 {
@@ -7,6 +12,32 @@ LPAUDIOPLAYER TIMIDITY_Init(VOID)
 }
 
 LPAUDIOPLAYER TSF_Init(VOID)
+{
+    return NULL;
+}
+
+LPAUDIOPLAYER MP3_Init(VOID)
+{
+    return NULL;
+}
+
+LPAUDIOPLAYER OGG_Init(VOID)
+{
+    return NULL;
+}
+
+LPAUDIOPLAYER OPUS_Init(VOID)
+{
+    return NULL;
+}
+
+LPAUDIOPLAYER RIX_Init(LPCSTR szFileName)
+{
+    (void)szFileName;
+    return NULL;
+}
+
+LPAUDIOPLAYER SOUND_Init(VOID)
 {
     return NULL;
 }

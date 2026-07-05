@@ -33,19 +33,21 @@ ifeq ($(EMBEDDED_CONTRACT),1)
 	MIDI_CFILES =
 	MIDI_CPPFILES =
 	MIDI_LDFLAGS =
-	SOURCES = .. ../sdl_compat ../adplug
-	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../video_glsl.c
+	SOURCES = .. ../sdl_compat
+	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../mp3play.c ../oggplay.c ../opusplay.c ../resampler.c ../sound.c ../video_glsl.c
+	CONTRACT_CPPFILE_EXCLUDES = ../rixplay.cpp
 	CONTRACT_CFILES = embedded_contract_stubs.c
 	EMBEDDED_CCFLAGS = -UUSE_SDL3 -DUSE_SDL3=0 -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI
 else
 	SOURCES = .. ../sdl_compat ../adplug ../liboggvorbis/src ../libopusfile/src ../libopusfile/celt ../libopusfile/silk ../libopusfile/silk/float ../libmad ../timidity
 	CONTRACT_CFILE_EXCLUDES =
+	CONTRACT_CPPFILE_EXCLUDES =
 	CONTRACT_CFILES =
 	EMBEDDED_CCFLAGS =
 endif
 
 CFILES = $(filter-out $(CONTRACT_CFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.c))) $(MIDI_CFILES) $(CONTRACT_CFILES)
-CPPFILES = $(foreach dir, $(SOURCES), $(wildcard $(dir)/*.cpp)) unix.cpp $(MIDI_CPPFILES)
+CPPFILES = $(filter-out $(CONTRACT_CPPFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.cpp))) unix.cpp $(MIDI_CPPFILES)
 TOBJFILES = $(CFILES:.c=$(INTER).o) $(CPPFILES:.cpp=$(INTER).o)
 DEPFILES = $(OBJFILES:.o=.d)
 TEST_CPPFILES = $(wildcard ../tests/*.cpp)
