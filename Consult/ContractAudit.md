@@ -651,8 +651,8 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185821 data=3736 bss=7439032
-.text=150693 .rodata=7464 .data=144 .bss=7439032
+text=187093 data=3736 bss=7439096
+.text=151685 .rodata=7400 .data=144 .bss=7439096
 pal_sram_ total=227840 limit=307200
 pal_psram_ total=7131664 limit=8388608
 ```
@@ -669,6 +669,10 @@ forbidden call targets: 0
 The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress patterns. The same target rebuilds and verifies the generated NOR/TF packs and manifest, rejects raw `VOC` in runtime packs, and enforces the 16MB NOR pack budget.
 
 This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the remaining stubbed desktop resource paths with the generated pack/static-buffer slices.
+
+Contract-mode `palcommon.c` now provides generated-pack archive handles through the legacy MKF read API. `PAL_MKFOpenPackArchive()` returns fixed sentinel handles for generated pack archives, `PAL_MKFGetChunkCount()`, `PAL_MKFGetChunkSize()`, and `PAL_MKFReadChunk()` service those handles from read-only mapped NOR/TF packs, and `PAL_MKFMapChunk()` exposes a `const uint8_t *` view for code that can parse a native chunk in place. `UTIL_CloseFile()` ignores these handles.
+
+With that bridge in place, the contract `global.c` path opens FBP/MGO/BALL/DATA/F/FIRE/RGM/SSS from generated packs, `res.c` opens MAP/GOP from generated packs, `battle.c` opens ABC from generated packs, and `rngplay.c` opens RNG from generated packs. These paths no longer depend on the original MKF files in the native contract profile; they require host-built native chunks in `/tmp/pal_nor_default.pak` and `/tmp/pal_tf_default.pak` or the `PAL_CONTRACT_NOR_PACK` / `PAL_CONTRACT_TF_PACK` overrides.
 
 The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, it uses static `uint8_t` PSRAM buffers for the `PALMAP` object and GOP sprite data, and it accepts only already-native 64KB map chunks. The old compressed-MAP path remains only for non-contract desktop builds.
 
@@ -700,38 +704,24 @@ The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprit
 
 The contract `ui.c` object-description load/free path is a no-heap stub for now. Final UI parity should load object descriptions from generated read-only text/object-description data rather than the legacy linked-list loader.
 
-## Current Contract Failures
+## Current Contract Status
 
-Source scan after stripping C comments:
-
-- Heap hits: 300
-- Decompression hits: 49
-
-Binary scan of `unix/sdlpal`:
+`make -C unix EMBEDDED_CONTRACT=1 contract-check` passes for the reduced full-engine contract profile:
 
 ```text
-text    3165745
-data    2287010
-bss     1179232
+source heap hits: 0
+source decompress hits: 0
+objdump -t forbidden symbols: 0
+forbidden call targets: 0
+text=187093 data=3736 bss=7439096
+.text=151685 .rodata=7400 .data=144 .bss=7439096
+pal_sram_ total=227840 / 307200
+pal_psram_ total=7131664 / 8388608
+NOR pack=10446724 / 16777216
+TF pack=47309294
 ```
 
-Important forbidden symbols still present:
-
-```text
-Decompress
-PAL_MKFDecompressChunk
-PAL_MKFGetDecompressedSize
-UTIL_calloc
-UTIL_malloc
-YJ1_Decompress
-YJ2_Decompress
-calloc@GLIBC_2.2.5
-free@GLIBC_2.2.5
-malloc@GLIBC_2.2.5
-realloc@GLIBC_2.2.5
-```
-
-The large `.data` footprint is expected from the current desktop build and is not target-acceptable. Major contributors include the existing full font tables and codec/audio support.
+The normal native SDL2 desktop build still passes as a regression check, but it is not the target profile and still includes desktop heap, codec, and large-table paths. Target work should continue against `unix/sdlpal-embedded-contract` and `embedded/pal_realdata_sdl_smoke`.
 
 ## Next Engineering Cuts
 

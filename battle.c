@@ -894,7 +894,15 @@ PAL_LoadBattleSprites(
 
    PAL_FreeBattleSprites();
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   fp = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_ABC);
+   if (fp == NULL)
+   {
+      TerminateOnError("Resource pack open error!\n");
+   }
+#else
    fp = UTIL_OpenRequiredFile("abc.mkf");
+#endif
 
    //
    // Load battle sprites for players
@@ -1003,7 +1011,7 @@ PAL_LoadBattleSprites(
       g_Battle.rgEnemy[i].pos = PAL_XY(x, y);
    }
 
-   fclose(fp);
+   UTIL_CloseFile(fp);
 }
 
 static VOID

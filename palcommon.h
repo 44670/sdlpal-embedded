@@ -24,6 +24,10 @@
 
 #include "common.h"
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+#include "embedded/pal_pack.h"
+#endif
+
 typedef LPBYTE      LPSPRITE, LPBITMAPRLE;
 typedef LPCBYTE     LPCSPRITE, LPCBITMAPRLE;
 
@@ -243,6 +247,24 @@ PAL_MKFReadChunk(
 );
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
+
+FILE *
+PAL_MKFOpenPackArchive(
+   UINT            uiArchiveID
+);
+
+BOOL
+PAL_MKFIsPackArchive(
+   FILE           *fp
+);
+
+BOOL
+PAL_MKFMapChunk(
+   FILE           *fp,
+   UINT            uiChunkNum,
+   LPCBYTE        *lplpData,
+   UINT           *lpSize
+);
 
 INT
 PAL_MKFCompressedChunkSizeUnavailable(

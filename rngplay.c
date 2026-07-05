@@ -33,6 +33,19 @@
 static uint8_t pal_psram_rng_frame_static[65000] PAL_RNG_PSRAM;
 #endif
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+static UINT
+PAL_RNGReadLe32(
+   LPCBYTE         data
+)
+{
+   return (UINT)data[0] |
+      ((UINT)data[1] << 8) |
+      ((UINT)data[2] << 16) |
+      ((UINT)data[3] << 24);
+}
+#endif
+
 static INT
 PAL_RNGReadFrame(
    LPBYTE          lpBuffer,
@@ -66,17 +79,56 @@ PAL_RNGReadFrame(
 
 --*/
 {
-   UINT         uiOffset       = 0;
    UINT         uiSubOffset    = 0;
    UINT         uiNextOffset   = 0;
    UINT         uiChunkCount   = 0;
    INT          iChunkLen      = 0;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPCBYTE      lpMovie        = NULL;
+   UINT         uiMovieSize    = 0;
+#else
+   UINT         uiOffset       = 0;
+#endif
 
    if (lpBuffer == NULL || fpRngMKF == NULL || uiBufferSize == 0)
    {
       return -1;
    }
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (!PAL_MKFMapChunk(fpRngMKF, uiRngNum, &lpMovie, &uiMovieSize) || uiMovieSize < 4)
+   {
+      return -1;
+   }
+
+   uiChunkCount = PAL_RNGReadLe32(lpMovie);
+   if (uiFrameNum >= uiChunkCount ||
+      uiChunkCount > (UINT_MAX - 8u) / 4u ||
+      uiMovieSize < 4u + (uiChunkCount + 1u) * 4u)
+   {
+      return -1;
+   }
+
+   uiSubOffset = PAL_RNGReadLe32(lpMovie + 4u + 4u * uiFrameNum);
+   uiNextOffset = PAL_RNGReadLe32(lpMovie + 4u + 4u * (uiFrameNum + 1u));
+   if (uiSubOffset > uiNextOffset || uiNextOffset > uiMovieSize)
+   {
+      return -1;
+   }
+
+   iChunkLen = (INT)(uiNextOffset - uiSubOffset);
+   if ((UINT)iChunkLen > uiBufferSize)
+   {
+      return -2;
+   }
+   if (iChunkLen != 0)
+   {
+      memcpy(lpBuffer, lpMovie + uiSubOffset, (size_t)iChunkLen);
+      return iChunkLen;
+   }
+
+   return -1;
+#else
    //
    // Get the total number of chunks.
    //
@@ -164,6 +216,7 @@ PAL_RNGReadFrame(
    }
 
    return -1;
+#endif
 }
 
 static INT
@@ -433,8 +486,19 @@ PAL_RNGPlay(
    uint8_t        *rng = (uint8_t *)malloc(65000);
    uint8_t        *buf = (uint8_t *)malloc(65000);
 #endif
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   FILE           *fp = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_RNG);
+#else
    FILE           *fp = UTIL_OpenRequiredFile("rng.mkf");
+#endif
    INT             frameLen;
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (fp == NULL)
+   {
+      TerminateOnError("Resource pack open error!\n");
+   }
+#endif
 
    //
    // Avoid losing the last frame
@@ -488,7 +552,7 @@ PAL_RNGPlay(
 	  PAL_DelayUntilPC(iTime);
    }
 
-   fclose(fp);
+   UTIL_CloseFile(fp);
 #if !defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    free(rng);
    free(buf);

@@ -23,6 +23,241 @@
 #include "global.h"
 #include "palcfg.h"
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+#define PAL_MKF_PACK_FILE_TAG  ((uintptr_t)0x504c0000u)
+#define PAL_MKF_PACK_FILE_MASK ((uintptr_t)0xffff0000u)
+#define PAL_MKF_PACK_FILE_LAST ((uintptr_t)0x504cffffu)
+
+static PalPack pal_mkf_nor_pack;
+static PalPack pal_mkf_tf_pack;
+static bool pal_mkf_nor_pack_tried;
+static bool pal_mkf_tf_pack_tried;
+static bool pal_mkf_nor_pack_ready;
+static bool pal_mkf_tf_pack_ready;
+
+#ifndef _WIN32
+static bool
+PAL_MKFMapPackPath(
+   PalPack        *pack,
+   const char     *path
+)
+{
+   int fd;
+   struct stat st;
+   const uint8_t *image;
+
+   if (pack == NULL || path == NULL || path[0] == '\0')
+   {
+      return false;
+   }
+
+   fd = open(path, O_RDONLY);
+   if (fd < 0)
+   {
+      return false;
+   }
+   if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > UINT32_MAX)
+   {
+      close(fd);
+      return false;
+   }
+
+   image = (const uint8_t *)mmap(NULL, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+   close(fd);
+   if (image == MAP_FAILED)
+   {
+      return false;
+   }
+   if (!PalPack_OpenConst(pack, image, (uint32_t)st.st_size))
+   {
+      munmap((void *)image, (size_t)st.st_size);
+      return false;
+   }
+
+   return true;
+}
+#endif
+
+static bool
+PAL_MKFOpenNorPack(
+   VOID
+)
+{
+   const char *path;
+
+   if (pal_mkf_nor_pack_tried)
+   {
+      return pal_mkf_nor_pack_ready;
+   }
+   pal_mkf_nor_pack_tried = true;
+
+#ifndef _WIN32
+   path = getenv("PAL_CONTRACT_NOR_PACK");
+   if (PAL_MKFMapPackPath(&pal_mkf_nor_pack, path) ||
+      PAL_MKFMapPackPath(&pal_mkf_nor_pack, "/tmp/pal_nor_default.pak"))
+   {
+      pal_mkf_nor_pack_ready = true;
+   }
+#else
+   path = NULL;
+   (void)path;
+#endif
+
+   return pal_mkf_nor_pack_ready;
+}
+
+static bool
+PAL_MKFOpenTfPack(
+   VOID
+)
+{
+   const char *path;
+
+   if (pal_mkf_tf_pack_tried)
+   {
+      return pal_mkf_tf_pack_ready;
+   }
+   pal_mkf_tf_pack_tried = true;
+
+#ifndef _WIN32
+   path = getenv("PAL_CONTRACT_TF_PACK");
+   if (PAL_MKFMapPackPath(&pal_mkf_tf_pack, path) ||
+      PAL_MKFMapPackPath(&pal_mkf_tf_pack, "/tmp/pal_tf_default.pak"))
+   {
+      pal_mkf_tf_pack_ready = true;
+   }
+#else
+   path = NULL;
+   (void)path;
+#endif
+
+   return pal_mkf_tf_pack_ready;
+}
+
+static BOOL
+PAL_MKFArchiveIsTf(
+   UINT            uiArchiveID
+)
+{
+   switch (uiArchiveID)
+   {
+   case PAL_PACK_ARCHIVE_FBP:
+   case PAL_PACK_ARCHIVE_GOP:
+   case PAL_PACK_ARCHIVE_MAP:
+   case PAL_PACK_ARCHIVE_RNG:
+   case PAL_PACK_ARCHIVE_SFX:
+      return TRUE;
+   default:
+      return FALSE;
+   }
+}
+
+static PalPack *
+PAL_MKFSelectPack(
+   UINT            uiArchiveID
+)
+{
+   if (PAL_MKFArchiveIsTf(uiArchiveID))
+   {
+      return PAL_MKFOpenTfPack() ? &pal_mkf_tf_pack : NULL;
+   }
+
+   return PAL_MKFOpenNorPack() ? &pal_mkf_nor_pack : NULL;
+}
+
+static UINT
+PAL_MKFArchiveFromFile(
+   FILE           *fp
+)
+{
+   uintptr_t value = (uintptr_t)fp;
+
+   if (value < PAL_MKF_PACK_FILE_TAG || value > PAL_MKF_PACK_FILE_LAST ||
+      (value & PAL_MKF_PACK_FILE_MASK) != PAL_MKF_PACK_FILE_TAG)
+   {
+      return 0;
+   }
+
+   return (UINT)(value & 0xffffu);
+}
+
+FILE *
+PAL_MKFOpenPackArchive(
+   UINT            uiArchiveID
+)
+{
+   PalPack *pack;
+   uint16_t count;
+
+   if (uiArchiveID == 0 || uiArchiveID > 0xffffu)
+   {
+      return NULL;
+   }
+
+   pack = PAL_MKFSelectPack(uiArchiveID);
+   if (pack == NULL || !PalPack_GetChunkCount(pack, (uint16_t)uiArchiveID, &count))
+   {
+      return NULL;
+   }
+
+   return (FILE *)(uintptr_t)(PAL_MKF_PACK_FILE_TAG | (uintptr_t)uiArchiveID);
+}
+
+BOOL
+PAL_MKFIsPackArchive(
+   FILE           *fp
+)
+{
+   return PAL_MKFArchiveFromFile(fp) != 0;
+}
+
+BOOL
+PAL_MKFMapChunk(
+   FILE           *fp,
+   UINT            uiChunkNum,
+   LPCBYTE        *lplpData,
+   UINT           *lpSize
+)
+{
+   UINT archive_id;
+   PalPack *pack;
+   PalPackSpan span;
+
+   if (lplpData == NULL || lpSize == NULL)
+   {
+      return FALSE;
+   }
+
+   archive_id = PAL_MKFArchiveFromFile(fp);
+   if (archive_id == 0)
+   {
+      return FALSE;
+   }
+   if (uiChunkNum > 0xffffu)
+   {
+      return FALSE;
+   }
+
+   pack = PAL_MKFSelectPack(archive_id);
+   if (pack == NULL ||
+      !PalPack_MapConst(pack, (uint16_t)archive_id, (uint16_t)uiChunkNum, &span))
+   {
+      return FALSE;
+   }
+
+   *lplpData = span.data;
+   *lpSize = span.size;
+   return TRUE;
+}
+#endif
+
 PAL_FORCE_INLINE
 BYTE
 PAL_CalcShadowColor(
@@ -871,10 +1106,29 @@ PAL_MKFGetChunkCount(
 --*/
 {
    INT iNumChunk;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   UINT archive_id;
+   PalPack *pack;
+   uint16_t count;
+#endif
+
    if (fp == NULL)
    {
       return 0;
    }
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   archive_id = PAL_MKFArchiveFromFile(fp);
+   if (archive_id != 0)
+   {
+      pack = PAL_MKFSelectPack(archive_id);
+      if (pack == NULL || !PalPack_GetChunkCount(pack, (uint16_t)archive_id, &count))
+      {
+         return 0;
+      }
+      return (INT)count;
+   }
+#endif
 
    fseek(fp, 0, SEEK_SET);
    if (fread(&iNumChunk, sizeof(INT), 1, fp) == 1)
@@ -909,6 +1163,16 @@ PAL_MKFGetChunkSize(
    UINT    uiOffset       = 0;
    UINT    uiNextOffset   = 0;
    UINT    uiChunkCount   = 0;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPCBYTE lpData;
+   UINT    uiSize;
+
+   if (PAL_MKFMapChunk(fp, uiChunkNum, &lpData, &uiSize))
+   {
+      (void)lpData;
+      return (INT)uiSize;
+   }
+#endif
 
    //
    // Get the total number of chunks.
@@ -969,11 +1233,31 @@ PAL_MKFReadChunk(
    UINT     uiNextOffset   = 0;
    UINT     uiChunkCount;
    UINT     uiChunkLen;
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPCBYTE  lpData;
+   UINT     uiSize;
+#endif
 
    if (lpBuffer == NULL || fp == NULL || uiBufferSize == 0)
    {
       return -1;
    }
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (PAL_MKFMapChunk(fp, uiChunkNum, &lpData, &uiSize))
+   {
+      if (uiSize > uiBufferSize)
+      {
+         return -2;
+      }
+      if (uiSize != 0)
+      {
+         memcpy(lpBuffer, lpData, uiSize);
+         return (INT)uiSize;
+      }
+      return -1;
+   }
+#endif
 
    //
    // Get the total number of chunks.

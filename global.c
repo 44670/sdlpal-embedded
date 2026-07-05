@@ -205,6 +205,23 @@ PAL_InitGlobals(
    //
    // Open files
    //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   gpGlobals->f.fpFBP = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_FBP);
+   gpGlobals->f.fpMGO = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_MGO);
+   gpGlobals->f.fpBALL = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_BALL);
+   gpGlobals->f.fpDATA = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_DATA);
+   gpGlobals->f.fpF = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_F);
+   gpGlobals->f.fpFIRE = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_FIRE);
+   gpGlobals->f.fpRGM = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_RGM);
+   gpGlobals->f.fpSSS = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_SSS);
+   if (gpGlobals->f.fpFBP == NULL || gpGlobals->f.fpMGO == NULL ||
+      gpGlobals->f.fpBALL == NULL || gpGlobals->f.fpDATA == NULL ||
+      gpGlobals->f.fpF == NULL || gpGlobals->f.fpFIRE == NULL ||
+      gpGlobals->f.fpRGM == NULL || gpGlobals->f.fpSSS == NULL)
+   {
+      TerminateOnError("Resource pack open error!\n");
+   }
+#else
    gpGlobals->f.fpFBP = UTIL_OpenRequiredFile("fbp.mkf");
    gpGlobals->f.fpMGO = UTIL_OpenRequiredFile("mgo.mkf");
    gpGlobals->f.fpBALL = UTIL_OpenRequiredFile("ball.mkf");
@@ -213,6 +230,7 @@ PAL_InitGlobals(
    gpGlobals->f.fpFIRE = UTIL_OpenRequiredFile("fire.mkf");
    gpGlobals->f.fpRGM = UTIL_OpenRequiredFile("rgm.mkf");
    gpGlobals->f.fpSSS = UTIL_OpenRequiredFile("sss.mkf");
+#endif
 
    //
    // Retrieve game resource version

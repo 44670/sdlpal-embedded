@@ -615,6 +615,12 @@ UTIL_CloseFile(
 {
    if (fp != NULL)
    {
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      if (PAL_MKFIsPackArchive(fp))
+      {
+         return;
+      }
+#endif
       fclose(fp);
    }
 }

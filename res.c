@@ -262,8 +262,17 @@ PAL_LoadResources(
    {
       FILE              *fpMAP, *fpGOP;
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      fpMAP = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_MAP);
+      fpGOP = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_GOP);
+      if (fpMAP == NULL || fpGOP == NULL)
+      {
+         TerminateOnError("Resource pack open error!\n");
+      }
+#else
       fpMAP = UTIL_OpenRequiredFile("map.mkf");
       fpGOP = UTIL_OpenRequiredFile("gop.mkf");
+#endif
 
       if (gpGlobals->fEnteringScene)
       {
@@ -286,8 +295,8 @@ PAL_LoadResources(
 
       if (gpResources->lpMap == NULL)
       {
-         fclose(fpMAP);
-         fclose(fpGOP);
+         UTIL_CloseFile(fpMAP);
+         UTIL_CloseFile(fpGOP);
 
          TerminateOnError("PAL_LoadResources(): Fail to load map #%d (scene #%d) !",
             gpGlobals->g.rgScene[i].wMapNum, gpGlobals->wNumScene);
@@ -386,8 +395,8 @@ PAL_LoadResources(
 
       gpGlobals->partyoffset = PAL_XY(160, 112);
 
-      fclose(fpGOP);
-      fclose(fpMAP);
+      UTIL_CloseFile(fpGOP);
+      UTIL_CloseFile(fpMAP);
    }
 
    //
