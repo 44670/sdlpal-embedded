@@ -836,7 +836,7 @@ PAL_BattlePostActionCheck(
          g_Battle.rgEnemy[i].wObjectID = 0;
 #ifndef PAL_NO_RUNTIME_HEAP
          if (g_Battle.rgEnemy[i].lpSprite)
-             free(g_Battle.rgEnemy[i].lpSprite);
+             free((void *)g_Battle.rgEnemy[i].lpSprite);
 #endif
          g_Battle.rgEnemy[i].lpSprite = NULL;
          fFade = TRUE;

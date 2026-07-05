@@ -74,7 +74,7 @@ typedef struct tagBATTLEENEMY
    WORD               rgwStatus[kStatusAll];  // status effects
    FLOAT              flTimeMeter;            // time-charging meter (0 = empty, 100 = full).
    POISONSTATUS       rgPoisons[MAX_POISONS]; // poisons
-   LPSPRITE           lpSprite;
+   LPCSPRITE          lpSprite;
    PAL_POS            pos;                    // current position on the screen
    PAL_POS            posOriginal;            // original position on the screen
    WORD               wCurrentFrame;          // current frame number
@@ -102,7 +102,7 @@ typedef struct tagBATTLEPLAYER
    FLOAT              flTimeMeter;          // time-charging meter (0 = empty, 100 = full).
    FLOAT              flTimeSpeedModifier;
    WORD               wHidingTime;          // remaining hiding time
-   LPSPRITE           lpSprite;
+   LPCSPRITE          lpSprite;
    PAL_POS            pos;                  // current position on the screen
    PAL_POS            posOriginal;          // original position on the screen
    WORD               wCurrentFrame;        // current frame number

@@ -31,8 +31,6 @@ BATTLE          g_Battle;
 #endif
 static uint8_t pal_psram_battle_background_static[320 * 200] PAL_BATTLE_PSRAM;
 static uint8_t pal_psram_battle_effect_static[32768] PAL_BATTLE_PSRAM;
-static uint8_t pal_psram_battle_player_sprite[MAX_PLAYERS_IN_PARTY][65536] PAL_BATTLE_PSRAM;
-static uint8_t pal_psram_battle_enemy_sprite[MAX_ENEMIES_IN_TEAM][65536] PAL_BATTLE_PSRAM;
 #endif
 
 WORD
@@ -844,7 +842,7 @@ PAL_FreeBattleSprites(
 #ifndef PAL_NO_RUNTIME_HEAP
       if (g_Battle.rgPlayer[i].lpSprite != NULL)
       {
-         free(g_Battle.rgPlayer[i].lpSprite);
+         free((void *)g_Battle.rgPlayer[i].lpSprite);
       }
 #endif
       g_Battle.rgPlayer[i].lpSprite = NULL;
@@ -855,7 +853,7 @@ PAL_FreeBattleSprites(
 #ifndef PAL_NO_RUNTIME_HEAP
       if (g_Battle.rgEnemy[i].lpSprite != NULL)
       {
-         free(g_Battle.rgEnemy[i].lpSprite);
+         free((void *)g_Battle.rgEnemy[i].lpSprite);
       }
 #endif
       g_Battle.rgEnemy[i].lpSprite = NULL;
@@ -917,31 +915,36 @@ PAL_LoadBattleSprites(
       l = PAL_MKFGetDecompressedSize(s, gpGlobals->f.fpF);
 #endif
 
-      if (l <= 0
-#ifdef PAL_NO_RUNTIME_HEAP
-         || (size_t)l > sizeof(pal_psram_battle_player_sprite[i])
-#endif
-      )
+      if (l <= 0)
       {
          continue;
       }
 
 #ifdef PAL_NO_RUNTIME_HEAP
-      memset(pal_psram_battle_player_sprite[i], 0, sizeof(pal_psram_battle_player_sprite[i]));
-      g_Battle.rgPlayer[i].lpSprite = pal_psram_battle_player_sprite[i];
+      {
+         LPCBYTE lpSpriteData;
+         UINT uiSpriteSize;
+         if (!PAL_MKFMapChunk(gpGlobals->f.fpF, s, &lpSpriteData, &uiSpriteSize) ||
+            uiSpriteSize != (UINT)l)
+         {
+            g_Battle.rgPlayer[i].lpSprite = NULL;
+            continue;
+         }
+         g_Battle.rgPlayer[i].lpSprite = lpSpriteData;
+      }
 #else
       g_Battle.rgPlayer[i].lpSprite = UTIL_calloc(l, 1);
-#endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-      if (PAL_MKFReadChunk(g_Battle.rgPlayer[i].lpSprite, l, s, gpGlobals->f.fpF) < 0)
+      if (PAL_MKFReadChunk((LPBYTE)g_Battle.rgPlayer[i].lpSprite, l, s, gpGlobals->f.fpF) < 0)
       {
          g_Battle.rgPlayer[i].lpSprite = NULL;
          continue;
       }
 #else
-      PAL_MKFDecompressChunk(g_Battle.rgPlayer[i].lpSprite, l,
+      PAL_MKFDecompressChunk((LPBYTE)g_Battle.rgPlayer[i].lpSprite, l,
          s, gpGlobals->f.fpF);
+#endif
 #endif
 
       //
@@ -972,31 +975,36 @@ PAL_LoadBattleSprites(
       l = PAL_MKFGetDecompressedSize(s, fp);
 #endif
 
-      if (l <= 0
-#ifdef PAL_NO_RUNTIME_HEAP
-         || (size_t)l > sizeof(pal_psram_battle_enemy_sprite[i])
-#endif
-      )
+      if (l <= 0)
       {
          continue;
       }
 
 #ifdef PAL_NO_RUNTIME_HEAP
-      memset(pal_psram_battle_enemy_sprite[i], 0, sizeof(pal_psram_battle_enemy_sprite[i]));
-      g_Battle.rgEnemy[i].lpSprite = pal_psram_battle_enemy_sprite[i];
+      {
+         LPCBYTE lpSpriteData;
+         UINT uiSpriteSize;
+         if (!PAL_MKFMapChunk(fp, s, &lpSpriteData, &uiSpriteSize) ||
+            uiSpriteSize != (UINT)l)
+         {
+            g_Battle.rgEnemy[i].lpSprite = NULL;
+            continue;
+         }
+         g_Battle.rgEnemy[i].lpSprite = lpSpriteData;
+      }
 #else
       g_Battle.rgEnemy[i].lpSprite = UTIL_calloc(l, 1);
-#endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-      if (PAL_MKFReadChunk(g_Battle.rgEnemy[i].lpSprite, l, s, fp) < 0)
+      if (PAL_MKFReadChunk((LPBYTE)g_Battle.rgEnemy[i].lpSprite, l, s, fp) < 0)
       {
          g_Battle.rgEnemy[i].lpSprite = NULL;
          continue;
       }
 #else
-      PAL_MKFDecompressChunk(g_Battle.rgEnemy[i].lpSprite, l,
+      PAL_MKFDecompressChunk((LPBYTE)g_Battle.rgEnemy[i].lpSprite, l,
          s, fp);
+#endif
 #endif
 
       //
