@@ -4,7 +4,7 @@
 This is a host-side audit tool. It does not prove the port is finished, but it
 turns the main hard requirements into repeatable checks:
 
-- no project-side heap allocation in selected runtime sources,
+- no project-side C/C++ heap allocation in selected runtime sources,
 - no runtime decompression path in selected runtime sources,
 - no PAL_LARGE local scratch buffers in selected runtime sources,
 - no typed static pal_sram_/pal_psram_ storage declarations in selected runtime sources,
@@ -105,6 +105,10 @@ HEAP_PATTERNS = (
     r"\bSDL_calloc\s*\(",
     r"\bSDL_realloc\s*\(",
     r"\bSDL_free\s*\(",
+    r"\bnew\b",
+    r"\bdelete\b",
+    r"\boperator\s+new\b",
+    r"\boperator\s+delete\b",
 )
 
 DECOMPRESS_PATTERNS = (
@@ -142,6 +146,10 @@ FORBIDDEN_SYMBOL_PATTERNS = (
     r"YJ1_Decompress",
     r"YJ2_Decompress",
     r"Decompress",
+    r"operator new",
+    r"operator delete",
+    r"(^|[^\w])_Zn[aw]m($|[^\w])",
+    r"(^|[^\w])_Zd[al]Pv(m)?($|[^\w])",
 )
 
 FORBIDDEN_CALL_TARGETS = {
@@ -158,6 +166,12 @@ FORBIDDEN_CALL_TARGETS = {
     "PAL_MKFCompressedChunkSizeUnavailable",
     "PAL_MKFCompressedChunkReadUnavailable",
     "PAL_RuntimeCodecUnavailable",
+    "_Znwm",
+    "_Znam",
+    "_ZdlPv",
+    "_ZdaPv",
+    "_ZdlPvm",
+    "_ZdaPvm",
 }
 
 

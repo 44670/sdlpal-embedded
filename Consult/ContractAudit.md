@@ -77,7 +77,7 @@ python3 -B tools/embedded_contract_check.py \
   --max bss=8388608
 ```
 
-The tool scans selected project sources for heap/decompression use, active `PAL_LARGE` scratch buffers, typed `pal_sram_`/`pal_psram_` storage declarations, and loose original PAL data filename references, and when given a binary, runs `size`, `objdump -h`, `objdump -t`, and `nm -C` to report sections and forbidden symbols.
+The tool scans selected project sources for C/C++ heap use, decompression use, active `PAL_LARGE` scratch buffers, typed `pal_sram_`/`pal_psram_` storage declarations, and loose original PAL data filename references. When given a binary, it runs `size`, `objdump -h`, `objdump -t`, `objdump -d`, `nm -C`, and `nm -S --size-sort` to report sections, forbidden symbols/call targets, and named static-buffer totals.
 It can also sum normal static-storage buffers from ELF symbols with `nm -S --size-sort`, for example:
 
 ```sh
@@ -626,7 +626,7 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The desktop text/font/music/SFX replacement maps generated NOR/TF packs read-only, uses the existing `PalTextCache`, `PalFontCache`, and `PalMusicCache` readers, and copies SFX PCM from the TF pack into a fixed PSRAM buffer before mixing:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The checker also rejects active C++ `new`/`delete` use and linked `operator new`/`operator delete` symbols. The desktop text/font/music/SFX replacement maps generated NOR/TF packs read-only, uses the existing `PalTextCache`, `PalFontCache`, and `PalMusicCache` readers, and copies SFX PCM from the TF pack into a fixed PSRAM buffer before mixing:
 
 ```text
 PAL_InitFont
@@ -669,7 +669,7 @@ pal_sram_ total=230912 limit=307200
 pal_psram_ total=7393808 limit=8388608
 ```
 
-The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets:
+The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
 
 ```text
 source heap hits: 0
