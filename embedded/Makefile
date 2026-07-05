@@ -2,6 +2,7 @@ CC ?= gcc
 OBJDUMP ?= objdump
 NM ?= nm
 SIZE ?= size
+PYTHON ?= python3
 SDL_CONFIG ?= pkg-config sdl2
 PACK_NOR ?= /tmp/pal_nor_default.pak
 PACK_TF ?= /tmp/pal_tf_default.pak
@@ -19,7 +20,7 @@ NATIVE_SDL_SMOKE := $(BUILD_DIR)/pal_native_sdl_smoke
 REALDATA_SDL_SMOKE := $(BUILD_DIR)/pal_realdata_sdl_smoke
 PACK_CHECK := $(BUILD_DIR)/pal_pack_check
 
-.PHONY: all clean check realdata-check artifact-check
+.PHONY: all clean check realdata-check artifact-check contract-check
 
 all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK)
 
@@ -49,6 +50,23 @@ check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE)
 realdata-check: $(PACK_CHECK) $(REALDATA_SDL_SMOKE)
 	$(PACK_CHECK) $(PACK_NOR) $(PACK_TF)
 	SDL_VIDEODRIVER=dummy $(REALDATA_SDL_SMOKE) $(PACK_NOR) $(PACK_TF) $(PAL_DATA_DIR)
+
+contract-check: $(REALDATA_SDL_SMOKE)
+	$(PYTHON) -B ../tools/embedded_contract_check.py \
+		--root . \
+		--fail-on-source \
+		--binary $(REALDATA_SDL_SMOKE) \
+		--max text=65536 \
+		--max data=4096 \
+		--max bss=7200000 \
+		--max-symbol-prefix pal_sram_=307200 \
+		--max-symbol-prefix pal_psram_=8388608 \
+		--max-symbol-prefix pal_scene_=8192 \
+		--max-symbol-prefix pal_battle_=2048 \
+		--max-symbol-prefix pal_sfx_=4096 \
+		--max-symbol-prefix pal_global_=4096 \
+		--max-symbol-prefix pal_save_=4096 \
+		--max-symbol-prefix pal_video_=4096
 
 artifact-check: check $(REALDATA_SDL_SMOKE) $(PACK_CHECK)
 	$(SIZE) $(SMOKE)

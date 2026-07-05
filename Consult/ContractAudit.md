@@ -409,22 +409,10 @@ make -C embedded realdata-check PAL_DATA_DIR=/mnt/hgfs/deb13/PAL
 Verify the artifact:
 
 ```sh
-python3 -B tools/embedded_contract_check.py \
-  --root embedded \
-  --fail-on-source \
-  --binary embedded/build/pal_realdata_sdl_smoke \
-  --max text=65536 \
-  --max data=4096 \
-  --max bss=7200000 \
-  --max-symbol-prefix pal_sram_=307200 \
-  --max-symbol-prefix pal_psram_=8388608 \
-  --max-symbol-prefix pal_scene_=8192 \
-  --max-symbol-prefix pal_battle_=2048 \
-  --max-symbol-prefix pal_sfx_=4096 \
-  --max-symbol-prefix pal_global_=4096 \
-  --max-symbol-prefix pal_save_=4096 \
-  --max-symbol-prefix pal_video_=4096
+make -C embedded contract-check
 ```
+
+The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump`, and symbol-prefix budgets from `nm -S --size-sort`.
 
 Current result:
 
