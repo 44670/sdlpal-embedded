@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 #define DATA_ENEMY_TEAM_CHUNK 2u
+#define DATA_BATTLE_EFFECT_CHUNK 10u
 #define SSS_OBJECT_CHUNK 2u
 #define ENEMY_TEAM_BYTES 10u
 #define OBJECT_DOS_BYTES 12u
@@ -165,6 +166,7 @@ bool PalBattle_LoadSnapshot(
     uint16_t unique_enemy_count = 0;
     uint32_t unique_enemy_bytes = 0;
     PalPackSpan effect_span;
+    PalPackSpan battle_effect_span;
 
     if (snapshot == NULL) {
         return false;
@@ -187,6 +189,12 @@ bool PalBattle_LoadSnapshot(
     if (effect_span.data == NULL || effect_span.size == 0 || effect_span.format != PAL_PACK_FORMAT_NATIVE) {
         return false;
     }
+    if (!PalPack_MapConst(nor_pack, PAL_PACK_ARCHIVE_DATA, DATA_BATTLE_EFFECT_CHUNK, &battle_effect_span)) {
+        return false;
+    }
+    if (battle_effect_span.data == NULL || battle_effect_span.size == 0 || battle_effect_span.format != PAL_PACK_FORMAT_NATIVE) {
+        return false;
+    }
 
     snapshot->team_num = team_num;
     snapshot->battlefield_num = battlefield_num;
@@ -198,8 +206,10 @@ bool PalBattle_LoadSnapshot(
     snapshot->player_sprite_bytes = player_sprite_bytes;
     snapshot->unique_enemy_sprite_bytes = unique_enemy_bytes;
     snapshot->effect_size = effect_span.size;
+    snapshot->battle_effect_size = battle_effect_span.size;
     snapshot->player_sprites = pal_battle_player_sprites;
     snapshot->enemy_sprites = pal_battle_enemy_sprites;
     snapshot->effect_data = effect_span.data;
+    snapshot->battle_effect_data = battle_effect_span.data;
     return true;
 }

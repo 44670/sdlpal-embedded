@@ -365,7 +365,7 @@ The smoke also exercises `embedded/pal_battle_cache.c` on real high-pressure bat
 | 342 | 3 | 2 |
 | 385 | 3 | 1 |
 
-For each team it reads the enemy-team table from `DATA`, resolves enemy sprite ids through the `SSS` object table, copies a decoded `FBP` background from the TF pack into `pal_psram_fbp_background`, maps player sprites from `F`, maps enemy sprites from `ABC`, and maps one `FIRE` effect as read-only `const uint8_t` data.
+For each team it reads the enemy-team table from `DATA`, resolves enemy sprite ids through the `SSS` object table, copies a decoded `FBP` background from the TF pack into `pal_psram_fbp_background`, maps player sprites from `F`, maps enemy sprites from `ABC`, maps one `FIRE` effect, and maps `DATA.MKF #10` battle effects as read-only `const uint8_t` data.
 
 The smoke also exercises `embedded/pal_rng_cache.c` on large real RNG frames:
 
@@ -513,7 +513,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=25190 .rodata=160 data=720 bss=7460512
+text=25331 .rodata=160 data=720 bss=7460512
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_scene_ total=4736 limit=8192

@@ -32,9 +32,11 @@ typedef struct PalBattleSnapshot {
     uint32_t player_sprite_bytes;
     uint32_t unique_enemy_sprite_bytes;
     uint32_t effect_size;
+    uint32_t battle_effect_size;
     const PalBattleSpriteRef *player_sprites;
     const PalBattleSpriteRef *enemy_sprites;
     const uint8_t *effect_data;
+    const uint8_t *battle_effect_data;
 } PalBattleSnapshot;
 
 bool PalBattle_LoadSnapshot(

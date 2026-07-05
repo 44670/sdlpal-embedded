@@ -315,8 +315,12 @@ static int check_battle(const PalPack *nor, const PalPack *tf, uint16_t team_num
     if (snapshot.unique_enemy_sprite_bytes == 0 || snapshot.effect_size == 0 || snapshot.effect_data == 0) {
         return 5;
     }
-    if (snapshot.player_sprites == 0 || snapshot.enemy_sprites == 0) {
+    if (snapshot.battle_effect_size != 17478u || snapshot.battle_effect_data == 0 ||
+        checksum32(snapshot.battle_effect_data, snapshot.battle_effect_size) == 0) {
         return 6;
+    }
+    if (snapshot.player_sprites == 0 || snapshot.enemy_sprites == 0) {
+        return 7;
     }
     return 0;
 }
