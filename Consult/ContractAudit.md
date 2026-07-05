@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185706 data=3728 bss=2656984
-.text=150437 .rodata=7304 .data=144 .bss=2656984
+text=185770 data=3728 bss=2525912
+.text=150501 .rodata=7304 .data=144 .bss=2525912
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=2347536 limit=8388608
+pal_psram_ total=2216464 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -697,7 +697,7 @@ The full-engine menu-background paths in `uigame.c` now also avoid runtime decom
 
 The full-engine battle path in `battle.c` now maps player/enemy F/ABC battle sprites as `const uint8_t` views into the native NOR pack under contract mode. Battle backgrounds and `DATA.MKF #10` effect storage use fixed PSRAM buffers. The old F/ABC/FBP decompression and battle-effect allocation paths remain only for non-contract desktop builds.
 
-The full-engine magic/summon paths in `fight.c` now use static `uint8_t` PSRAM buffers in contract mode for FIRE effect sprites and F.MKF summon sprites. These paths require the host-built packs to provide native chunks and avoid `PAL_MKFDecompressChunk()` / `UTIL_malloc()` at runtime.
+The full-engine magic/summon paths in `fight.c` now map FIRE effect sprites and F.MKF summon sprites as `const uint8_t` views into the native NOR pack in contract mode. These paths require the host-built packs to provide native chunks and avoid `PAL_MKFDecompressChunk()` / `UTIL_malloc()` at runtime.
 
 The full-engine ending paths in `ending.c` now use static `uint8_t` PSRAM buffers in contract mode for FBP/MGO scratch. FBP and MGO chunks must already be native, so ending screens and animations avoid heap allocation and runtime decompression.
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=185706 data=3728 bss=2656984
-.text=150437 .rodata=7304 .data=144 .bss=2656984
+text=185770 data=3728 bss=2525912
+.text=150501 .rodata=7304 .data=144 .bss=2525912
 pal_sram_ total=230912 / 307200
-pal_psram_ total=2347536 / 8388608
+pal_psram_ total=2216464 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

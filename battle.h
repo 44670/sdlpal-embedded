@@ -179,7 +179,7 @@ typedef struct tagBATTLE
 
    SHORT            sBackgroundColorShift;
 
-   LPSPRITE         lpSummonSprite;       // sprite of summoned god
+   LPCSPRITE        lpSummonSprite;       // sprite of summoned god
    PAL_POS          posSummon;
    INT              iSummonFrame;         // current frame of the summoned god
    BOOL             fSummonColorShift;

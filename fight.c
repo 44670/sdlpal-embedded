@@ -25,38 +25,24 @@
 //#define INVINCIBLE 1
 extern WORD g_rgPlayerPos[3][3][2];
 
-#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
-#if defined(__GNUC__)
-#define PAL_FIGHT_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
-#else
-#define PAL_FIGHT_PSRAM
-#endif
-static uint8_t pal_psram_fight_effect_sprite[65536] PAL_FIGHT_PSRAM;
-static uint8_t pal_psram_fight_summon_sprite[65536] PAL_FIGHT_PSRAM;
-#define PAL_FIGHT_EFFECT_BUFFER pal_psram_fight_effect_sprite
-#define PAL_FIGHT_SUMMON_BUFFER pal_psram_fight_summon_sprite
-#define PAL_FIGHT_EFFECT_BUFFER_BYTES sizeof(pal_psram_fight_effect_sprite)
-#define PAL_FIGHT_SUMMON_BUFFER_BYTES sizeof(pal_psram_fight_summon_sprite)
-#else
 #define PAL_FIGHT_EFFECT_BUFFER NULL
 #define PAL_FIGHT_SUMMON_BUFFER NULL
 #define PAL_FIGHT_EFFECT_BUFFER_BYTES 0
 #define PAL_FIGHT_SUMMON_BUFFER_BYTES 0
-#endif
 
 static VOID
 PAL_FreeFightTempSprite(
-   LPSPRITE    lpSprite
+   LPCSPRITE   lpSprite
 )
 {
 #ifdef PAL_NO_RUNTIME_HEAP
    (void)lpSprite;
 #else
-   free(lpSprite);
+   free((void *)lpSprite);
 #endif
 }
 
-static LPSPRITE
+static LPCSPRITE
 PAL_LoadFightTempSprite(
    FILE       *fp,
    INT         iChunkNum,
@@ -65,7 +51,7 @@ PAL_LoadFightTempSprite(
 )
 {
    int        l;
-   LPSPRITE   lpSprite;
+   LPCSPRITE  lpSprite;
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
    l = PAL_MKFGetChunkSize(iChunkNum, fp);
@@ -79,16 +65,32 @@ PAL_LoadFightTempSprite(
    }
 
 #ifdef PAL_NO_RUNTIME_HEAP
-   if ((size_t)l > staticBufferSize)
    {
-      return NULL;
+      LPCBYTE lpSpriteData;
+      UINT uiSpriteSize;
+      (void)staticBuffer;
+      (void)staticBufferSize;
+      if (!PAL_MKFMapChunk(fp, iChunkNum, &lpSpriteData, &uiSpriteSize) ||
+         uiSpriteSize != (UINT)l)
+      {
+         return NULL;
+      }
+      return lpSpriteData;
    }
-   memset(staticBuffer, 0, staticBufferSize);
-   lpSprite = (LPSPRITE)staticBuffer;
 #else
-   (void)staticBuffer;
-   (void)staticBufferSize;
-   lpSprite = (LPSPRITE)UTIL_malloc(l);
+   if (staticBuffer != NULL && staticBufferSize != 0)
+   {
+      if ((size_t)l > staticBufferSize)
+      {
+         return NULL;
+      }
+      memset(staticBuffer, 0, staticBufferSize);
+      lpSprite = (LPSPRITE)staticBuffer;
+   }
+   else
+   {
+      lpSprite = (LPSPRITE)UTIL_malloc(l);
+   }
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -983,7 +985,7 @@ end:
       PAL_BattleDelay(1, 0, FALSE);
 
 #ifndef PAL_NO_RUNTIME_HEAP
-      free(g_Battle.lpSummonSprite);
+      free((void *)g_Battle.lpSummonSprite);
 #endif
       g_Battle.lpSummonSprite = NULL;
 
@@ -2552,7 +2554,7 @@ PAL_BattleShowPlayerDefMagicAnim(
 
 --*/
 {
-   LPSPRITE   lpSpriteEffect;
+   LPCSPRITE  lpSpriteEffect;
    int        l, iMagicNum, iEffectNum, n, i, j, x, y;
    DWORD      dwTime = SDL_GetTicks();
    SHORT      sLayerOffset;
@@ -2711,7 +2713,7 @@ PAL_BattleShowPlayerOffMagicAnim(
 
 --*/
 {
-   LPSPRITE   lpSpriteEffect;
+   LPCSPRITE  lpSpriteEffect;
    int        l, iMagicNum, iEffectNum, n, i, k, x, y, wave, blow;
    DWORD      dwTime = SDL_GetTicks();
    SHORT      sLayerOffset;
@@ -2943,7 +2945,7 @@ PAL_BattleShowEnemyMagicAnim(
 
 --*/
 {
-   LPSPRITE   lpSpriteEffect;
+   LPCSPRITE  lpSpriteEffect;
    int        l, iMagicNum, iEffectNum, n, i, k, x, y, wave, blow;
    DWORD      dwTime = SDL_GetTicks();
    SHORT      sLayerOffset;

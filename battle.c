@@ -862,7 +862,7 @@ PAL_FreeBattleSprites(
 #ifndef PAL_NO_RUNTIME_HEAP
    if (g_Battle.lpSummonSprite != NULL)
    {
-      free(g_Battle.lpSummonSprite);
+      free((void *)g_Battle.lpSummonSprite);
    }
 #endif
    g_Battle.lpSummonSprite = NULL;
