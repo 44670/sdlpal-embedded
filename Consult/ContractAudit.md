@@ -357,6 +357,14 @@ The same smoke also exercises `embedded/pal_scene_cache.c` on high-pressure real
 
 For each scene it reads the scene/event tables from `SSS`, copies decoded `MAP` and raw `GOP` chunks from the TF pack into named PSRAM buffers, and keeps event-object MGO sprites as deduplicated `const uint8_t *` views into the NOR pack.
 
+The smoke also checks the PSRAM sprite-pin fallback for a high-sprite scene:
+
+| Scene | Sprite refs | Unique sprites | Unique bytes | Pinned bytes |
+| ---: | ---: | ---: | ---: | ---: |
+| 153 | 14 | 7 | 65,150 | 65,156 |
+
+This copies the scene's unique `MGO` sprites into `pal_psram_sprite_pin`, so the same fixed-buffer path can be used if a build demotes MGO sprites from NOR to a TF-backed pack.
+
 The smoke also exercises `embedded/pal_battle_cache.c` on real high-pressure battle teams:
 
 | Team | Enemy refs | Unique enemy sprites |
@@ -513,7 +521,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=25742 .rodata=160 data=720 bss=7460512
+text=26310 .rodata=160 data=720 bss=7460512
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -539,7 +547,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=610199
+size=610881
 PASS
 ```
 

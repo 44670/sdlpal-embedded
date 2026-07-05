@@ -19,6 +19,7 @@
 
 #include <SDL.h>
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -293,6 +294,55 @@ static int check_scene(const PalPack *nor, const PalPack *tf, uint16_t scene_num
         return 5;
     }
     return 0;
+}
+
+static int check_scene_pinned(
+    const PalPack *nor,
+    const PalPack *tf,
+    uint16_t scene_num,
+    uint16_t expected_events,
+    uint16_t expected_refs,
+    uint16_t expected_unique,
+    uint32_t expected_unique_bytes,
+    uint32_t expected_pin_bytes)
+{
+    PalSceneSnapshot snapshot;
+    uint16_t i;
+    bool saw_sprite = false;
+
+    if (!PalScene_LoadPinnedSnapshot(nor, tf, nor, scene_num, &snapshot)) {
+        return 1;
+    }
+    if (snapshot.scene_num != scene_num || snapshot.event_count != expected_events) {
+        return 2;
+    }
+    if (snapshot.sprite_ref_count != expected_refs || snapshot.unique_sprite_count != expected_unique) {
+        return 3;
+    }
+    if (snapshot.unique_sprite_bytes != expected_unique_bytes || snapshot.sprite_pin_bytes != expected_pin_bytes) {
+        return 4;
+    }
+    if (snapshot.sprite_refs == 0 || snapshot.sprite_pin_bytes == 0 || snapshot.sprite_pin_bytes > PAL_PSRAM_SPRITE_PIN_BYTES) {
+        return 5;
+    }
+    for (i = 0; i < snapshot.event_count; i++) {
+        const PalSceneSpriteRef *ref = snapshot.sprite_refs + i;
+        uintptr_t data = (uintptr_t)ref->data;
+        uintptr_t begin = (uintptr_t)pal_psram_sprite_pin;
+        uintptr_t end = begin + snapshot.sprite_pin_bytes;
+
+        if (ref->sprite_num == 0) {
+            continue;
+        }
+        saw_sprite = true;
+        if (ref->data == 0 || ref->size == 0 || data < begin || data > end || ref->size > end - data) {
+            return 6;
+        }
+        if (checksum32(ref->data, ref->size) == 0) {
+            return 7;
+        }
+    }
+    return saw_sprite ? 0 : 8;
 }
 
 static int check_battle(const PalPack *nor, const PalPack *tf, uint16_t team_num, uint16_t expected_refs, uint16_t expected_unique)
@@ -802,6 +852,9 @@ int main(int argc, char **argv)
             check_scene(&nor.pack, &tf.pack, 65, 120, 91, 8) ||
             check_scene(&nor.pack, &tf.pack, 156, 130, 123, 10) ||
             check_scene(&nor.pack, &tf.pack, 260, 72, 58, 11);
+    }
+    if (rc == 0) {
+        rc = check_scene_pinned(&nor.pack, &tf.pack, 153, 14, 14, 7, 65150u, 65156u);
     }
     if (rc == 0) {
         rc =

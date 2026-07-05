@@ -3,6 +3,7 @@
 #include "pal_memory.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #define SSS_EVENT_OBJECT_CHUNK 0u
 #define SSS_SCENE_CHUNK 1u
@@ -67,7 +68,18 @@ static int find_unique_sprite(uint16_t unique_count, uint16_t sprite_num)
     return -1;
 }
 
-bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint16_t scene_num, PalSceneSnapshot *snapshot)
+static uint32_t align4(uint32_t value)
+{
+    return (value + 3u) & ~3u;
+}
+
+static bool load_snapshot(
+    const PalPack *nor_pack,
+    const PalPack *tf_pack,
+    const PalPack *sprite_pack,
+    uint16_t scene_num,
+    bool pin_sprites,
+    PalSceneSnapshot *snapshot)
 {
     PalPackSpan event_span;
     uint16_t map_num;
@@ -78,6 +90,7 @@ bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint
     uint16_t sprite_ref_count = 0;
     uint32_t copied = 0;
     uint32_t unique_sprite_bytes = 0;
+    uint32_t pin_cursor = 0;
 
     if (snapshot == NULL) {
         return false;
@@ -125,11 +138,22 @@ bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint
             if (unique_count >= PAL_SCENE_MAX_UNIQUE_SPRITES) {
                 return false;
             }
-            if (!PalPack_MapConst(nor_pack, PAL_PACK_ARCHIVE_MGO, sprite_num, &sprite_span)) {
+            if (!PalPack_MapConst(sprite_pack, PAL_PACK_ARCHIVE_MGO, sprite_num, &sprite_span)) {
                 return false;
             }
             if (sprite_span.data == NULL || sprite_span.size == 0 || sprite_span.format != PAL_PACK_FORMAT_NATIVE) {
                 return false;
+            }
+            if (pin_sprites) {
+                uint32_t pin_offset = align4(pin_cursor);
+
+                if (pin_offset > PAL_PSRAM_SPRITE_PIN_BYTES ||
+                    sprite_span.size > PAL_PSRAM_SPRITE_PIN_BYTES - pin_offset) {
+                    return false;
+                }
+                memcpy(pal_psram_sprite_pin + pin_offset, sprite_span.data, sprite_span.size);
+                pin_cursor = pin_offset + sprite_span.size;
+                sprite_span.data = pal_psram_sprite_pin + pin_offset;
             }
 
             unique_index = (int)unique_count;
@@ -153,6 +177,22 @@ bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint
     snapshot->unique_sprite_count = unique_count;
     snapshot->gop_size = copied;
     snapshot->unique_sprite_bytes = unique_sprite_bytes;
+    snapshot->sprite_pin_bytes = pin_sprites ? pin_cursor : 0u;
     snapshot->sprite_refs = pal_scene_sprite_refs;
     return true;
+}
+
+bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint16_t scene_num, PalSceneSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, tf_pack, nor_pack, scene_num, false, snapshot);
+}
+
+bool PalScene_LoadPinnedSnapshot(
+    const PalPack *nor_pack,
+    const PalPack *tf_pack,
+    const PalPack *sprite_pack,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, tf_pack, sprite_pack, scene_num, true, snapshot);
 }

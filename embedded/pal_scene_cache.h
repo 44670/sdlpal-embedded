@@ -29,10 +29,17 @@ typedef struct PalSceneSnapshot {
     uint16_t unique_sprite_count;
     uint32_t gop_size;
     uint32_t unique_sprite_bytes;
+    uint32_t sprite_pin_bytes;
     const PalSceneSpriteRef *sprite_refs;
 } PalSceneSnapshot;
 
 bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint16_t scene_num, PalSceneSnapshot *snapshot);
+bool PalScene_LoadPinnedSnapshot(
+    const PalPack *nor_pack,
+    const PalPack *tf_pack,
+    const PalPack *sprite_pack,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot);
 
 #ifdef __cplusplus
 }
