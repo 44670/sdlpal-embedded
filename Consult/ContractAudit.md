@@ -646,8 +646,8 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=274205 data=3808 bss=1357656
-.text=150165 .rodata=95592 .data=144 .bss=1357656
+text=185464 data=3760 bss=1357656
+.text=149909 .rodata=7640 .data=144 .bss=1357656
 pal_sram_ total=64000 limit=307200
 pal_psram_ total=1214400 limit=8388608
 ```
@@ -671,6 +671,8 @@ The full-engine battle path in `battle.c` now uses static `uint8_t` PSRAM buffer
 The full-engine magic/summon paths in `fight.c` now use static `uint8_t` PSRAM buffers in contract mode for FIRE effect sprites and F.MKF summon sprites. These paths require the host-built packs to provide native chunks and avoid `PAL_MKFDecompressChunk()` / `UTIL_malloc()` at runtime.
 
 The full-engine ending paths in `ending.c` now use static `uint8_t` PSRAM buffers in contract mode for FBP/MGO scratch. FBP and MGO chunks must already be native, so ending screens and animations avoid heap allocation and runtime decompression.
+
+The contract `VIDEO_Startup()` path now omits the YJ1-compressed touch-overlay BMP decode. Overlay art for target builds must be preconverted/offline-packed; the old `bmpData` decode remains only in non-contract desktop builds.
 
 ## Current Contract Failures
 

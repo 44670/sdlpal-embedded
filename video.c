@@ -283,6 +283,7 @@ VIDEO_Startup(
    //
    // Create texture for overlay.
    //
+#ifndef PAL_NO_RUNTIME_DECOMPRESS
    if (gConfig.fUseTouchOverlay)
    {
       extern const unsigned char bmpData[];
@@ -329,6 +330,7 @@ VIDEO_Startup(
 		SDL_FreeSurface(temp);
 	}
 # endif
+#endif
 #else
 
 # if APPIMAGE
