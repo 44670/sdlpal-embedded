@@ -13,6 +13,8 @@ turns the main hard requirements into repeatable checks:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -367,6 +369,153 @@ def parse_pack_chunks(path: Path) -> tuple[bytes, list[PackChunk]]:
     return data, chunks
 
 
+def hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fp:
+        while True:
+            data = fp.read(1024 * 1024)
+            if not data:
+                break
+            digest.update(data)
+    return digest.hexdigest()
+
+
+def pack_manifest_summary(path: Path) -> dict[str, object]:
+    data, chunks = parse_pack_chunks(path)
+    archive_chunks: dict[int, list[PackChunk]] = {}
+    for chunk in chunks:
+        archive_chunks.setdefault(chunk.archive_id, []).append(chunk)
+
+    archive_entries = []
+    for archive_id in sorted(archive_chunks):
+        grouped = sorted(archive_chunks[archive_id], key=lambda chunk: chunk.chunk_id)
+        format_counts: dict[str, int] = {}
+        chunk_entries = []
+        for chunk in grouped:
+            format_name = PACK_FORMAT_NAMES.get(chunk.fmt, str(chunk.fmt))
+            format_counts[format_name] = format_counts.get(format_name, 0) + 1
+            chunk_entries.append(
+                {
+                    "id": chunk.chunk_id,
+                    "format": format_name,
+                    "payload_bytes": chunk.size,
+                }
+            )
+        archive_entries.append(
+            {
+                "name": PACK_ARCHIVE_NAMES.get(archive_id, str(archive_id)),
+                "id": archive_id,
+                "chunk_count": len(grouped),
+                "payload_bytes": sum(chunk.size for chunk in grouped),
+                "max_payload_bytes": max((chunk.size for chunk in grouped), default=0),
+                "format_counts": dict(sorted(format_counts.items())),
+                "chunks": chunk_entries,
+            }
+        )
+
+    return {
+        "path": str(path.resolve()),
+        "size": len(data),
+        "archive_count": len(archive_entries),
+        "chunk_count": len(chunks),
+        "payload_bytes": sum(chunk.size for chunk in chunks),
+        "max_payload_bytes": max((chunk.size for chunk in chunks), default=0),
+        "archive_summaries": archive_entries,
+    }
+
+
+def compare_manifest_pack(label: str, expected: dict[str, object], actual: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    for key in ("size", "archive_count", "chunk_count", "payload_bytes", "max_payload_bytes"):
+        if expected.get(key) != actual.get(key):
+            errors.append(f"{label}: manifest {key}={expected.get(key)} actual={actual.get(key)}")
+
+    expected_archives = expected.get("archive_summaries")
+    actual_archives = actual.get("archive_summaries")
+    if expected_archives != actual_archives:
+        errors.append(f"{label}: archive decoded-size summary does not match pack")
+    return errors
+
+
+def check_manifest(path: Path) -> tuple[list[str], str]:
+    errors: list[str] = []
+    report: list[str] = [f"## manifest {path}"]
+
+    try:
+        manifest = json.loads(path.read_text())
+    except OSError as exc:
+        return [f"{path}: cannot read manifest: {exc}"], ""
+    except json.JSONDecodeError as exc:
+        return [f"{path}: invalid JSON: {exc}"], ""
+
+    if manifest.get("schema") != "sdlpal-embedded-pack-manifest" or manifest.get("version") != 1:
+        errors.append(f"{path}: unknown manifest schema/version")
+
+    runtime = manifest.get("runtime", {})
+    if runtime.get("runtime_decompression_required") is not False:
+        errors.append(f"{path}: manifest does not declare runtime_decompression_required=false")
+    if runtime.get("payloads_are_runtime_native") is not True:
+        errors.append(f"{path}: manifest does not declare runtime-native payloads")
+
+    data_dir = Path(str(manifest.get("data_dir", "")))
+    source_files = manifest.get("source_files", [])
+    if not isinstance(source_files, list):
+        errors.append(f"{path}: source_files is not a list")
+        source_files = []
+
+    checked_sources = 0
+    for item in source_files:
+        if not isinstance(item, dict):
+            errors.append(f"{path}: malformed source file item")
+            continue
+        rel = item.get("path")
+        if not isinstance(rel, str):
+            errors.append(f"{path}: source file without path")
+            continue
+        source_path = data_dir / rel
+        try:
+            size = source_path.stat().st_size
+            digest = hash_file(source_path)
+        except OSError as exc:
+            errors.append(f"{path}: cannot read source file {source_path}: {exc}")
+            continue
+        checked_sources += 1
+        if item.get("size") != size:
+            errors.append(f"{path}: source file {rel} size changed: manifest={item.get('size')} actual={size}")
+        if item.get("sha256") != digest:
+            errors.append(f"{path}: source file {rel} sha256 changed")
+
+    packs = manifest.get("packs", {})
+    if not isinstance(packs, dict):
+        errors.append(f"{path}: packs is not an object")
+        packs = {}
+
+    checked_packs = 0
+    for label in ("nor", "tf"):
+        item = packs.get(label)
+        if not isinstance(item, dict):
+            errors.append(f"{path}: missing pack manifest for {label}")
+            continue
+        pack_path_raw = item.get("path")
+        if not isinstance(pack_path_raw, str):
+            errors.append(f"{path}: pack {label} has no path")
+            continue
+        pack_path = Path(pack_path_raw)
+        try:
+            actual = pack_manifest_summary(pack_path)
+        except OSError as exc:
+            errors.append(f"{path}: cannot read pack {pack_path}: {exc}")
+            continue
+        except ValueError as exc:
+            errors.append(f"{path}: bad pack {pack_path}: {exc}")
+            continue
+        checked_packs += 1
+        errors.extend(compare_manifest_pack(f"{path}:{label}", item, actual))
+
+    report.append(f"source_files={checked_sources} packs={checked_packs}")
+    return errors, "\n".join(report)
+
+
 def check_pack(path: Path, max_size: int | None, forbidden_archives: set[int]) -> tuple[list[str], str]:
     errors: list[str] = []
     report: list[str] = []
@@ -570,6 +719,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--link-map", type=Path, action="append", default=[])
     parser.add_argument("--pack", type=Path, action="append", default=[])
+    parser.add_argument("--manifest", type=Path, action="append", default=[])
     parser.add_argument(
         "--forbid-pack-archive",
         action="append",
@@ -636,6 +786,14 @@ def main() -> int:
         if pack_report:
             print()
             print(pack_report)
+
+    for raw_manifest_path in args.manifest:
+        manifest_path = raw_manifest_path.resolve()
+        manifest_errors, manifest_report = check_manifest(manifest_path)
+        errors.extend(manifest_errors)
+        if manifest_report:
+            print()
+            print(manifest_report)
 
     for raw_map_path in args.link_map:
         map_path = raw_map_path.resolve()

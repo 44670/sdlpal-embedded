@@ -98,7 +98,8 @@ The host-side pack builder decodes YJ1 chunks before writing runtime packs:
 python3 -B tools/pal_pack_build.py \
   /mnt/hgfs/deb13/PAL \
   --out-nor /tmp/pal_nor_default.pak \
-  --out-tf /tmp/pal_tf_default.pak
+  --out-tf /tmp/pal_tf_default.pak \
+  --manifest /tmp/pal_pack_default_manifest.json
 ```
 
 The embedded makefile wraps that default command as:
@@ -127,6 +128,8 @@ FBP,GOP,MAP,RNG,SFX
 ```
 
 `MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `WOR16.ASC` and `WOR16.FON` are converted to a sorted read-only glyph table by the host tool. `VOC.MKF` is converted to 22050Hz mono PCM16 chunks in the generated SFX archive, and raw `VOC.MKF` chunks are omitted from the default runtime packs. `GOP` is already raw/native and is copied as raw chunks.
+
+The pack builder also writes a JSON manifest. It records the `PAL_DATA_DIR`, SHA-256 and byte size for every source file used by the generated packs, and the decoded/native chunk sizes and formats for each generated archive. `make -C embedded contract-check` passes that manifest back into `tools/embedded_contract_check.py`, which rehashes the source files and compares the manifest's decoded-size summary against the actual pack files.
 
 The generated packs can also be checked with the C runtime reader through the host-side mmap checker:
 

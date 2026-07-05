@@ -6,6 +6,7 @@ PYTHON ?= python3
 SDL_CONFIG ?= pkg-config sdl2
 PACK_NOR ?= /tmp/pal_nor_default.pak
 PACK_TF ?= /tmp/pal_tf_default.pak
+PACK_MANIFEST ?= /tmp/pal_pack_default_manifest.json
 PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
 
 CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections
@@ -50,7 +51,7 @@ check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE)
 	SDL_VIDEODRIVER=dummy $(NATIVE_SDL_SMOKE)
 
 pack-build:
-	$(PYTHON) -B ../tools/pal_pack_build.py $(PAL_DATA_DIR) --out-nor $(PACK_NOR) --out-tf $(PACK_TF)
+	$(PYTHON) -B ../tools/pal_pack_build.py $(PAL_DATA_DIR) --out-nor $(PACK_NOR) --out-tf $(PACK_TF) --manifest $(PACK_MANIFEST)
 
 realdata-check: pack-build $(PACK_CHECK) $(REALDATA_SDL_SMOKE)
 	$(PACK_CHECK) $(PACK_NOR) $(PACK_TF)
@@ -64,6 +65,7 @@ contract-check: pack-build $(REALDATA_SDL_SMOKE)
 		--link-map $(REALDATA_SDL_SMOKE).map \
 		--pack $(PACK_NOR) \
 		--pack $(PACK_TF) \
+		--manifest $(PACK_MANIFEST) \
 		--forbid-pack-archive VOC \
 		--max-pack-size $(PACK_NOR)=16777216 \
 		--max text=65536 \

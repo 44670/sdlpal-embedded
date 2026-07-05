@@ -8,6 +8,8 @@ raw/native. YJ1 decoding happens here, on the host, never in target code.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +27,14 @@ FORMAT_RNG_FRAMES = 2
 FORMAT_TEXT_UTF16 = 3
 FORMAT_FONT_GLYPHS = 4
 FORMAT_SFX_PCM16 = 5
+FORMAT_NAMES = {
+    FORMAT_RAW: "RAW",
+    FORMAT_NATIVE: "NATIVE",
+    FORMAT_RNG_FRAMES: "RNG_FRAMES",
+    FORMAT_TEXT_UTF16: "TEXT_UTF16",
+    FORMAT_FONT_GLYPHS: "FONT_GLYPHS",
+    FORMAT_SFX_PCM16: "SFX_PCM16",
+}
 
 TEXT_MAGIC = 0x54585450
 TEXT_VERSION = 1
@@ -450,6 +460,125 @@ def load_archive(data_dir: Path, name: str) -> list[Chunk]:
     return chunks
 
 
+def source_paths_for_archive(data_dir: Path, name: str) -> list[Path]:
+    if name == "TEXT":
+        return [
+            find_data_file(data_dir, "WORD.DAT"),
+            find_data_file(data_dir, "M.MSG"),
+            find_data_file(data_dir, "SSS.MKF"),
+        ]
+    if name == "FONT":
+        return [
+            find_data_file(data_dir, "WOR16.ASC"),
+            find_data_file(data_dir, "WOR16.FON"),
+        ]
+    if name == "SFX":
+        return [find_data_file(data_dir, "VOC.MKF")]
+    return [find_data_file(data_dir, f"{name}.MKF")]
+
+
+def hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fp:
+        while True:
+            data = fp.read(1024 * 1024)
+            if not data:
+                break
+            digest.update(data)
+    return digest.hexdigest()
+
+
+def source_file_manifest(data_dir: Path, names: list[str]) -> list[dict[str, object]]:
+    paths: dict[str, Path] = {}
+    for name in names:
+        for path in source_paths_for_archive(data_dir, name):
+            rel = path.relative_to(data_dir).as_posix()
+            paths[rel] = path
+
+    result = []
+    for rel, path in sorted(paths.items()):
+        result.append(
+            {
+                "path": rel,
+                "size": path.stat().st_size,
+                "sha256": hash_file(path),
+            }
+        )
+    return result
+
+
+def summarize_archives(archives: dict[str, list[Chunk]]) -> list[dict[str, object]]:
+    result = []
+    for name in sorted(archives, key=lambda item: ARCHIVE_IDS[item]):
+        chunks = archives[name]
+        format_counts: dict[str, int] = {}
+        chunk_entries = []
+        for index, chunk in enumerate(chunks):
+            format_name = FORMAT_NAMES.get(chunk.fmt, str(chunk.fmt))
+            format_counts[format_name] = format_counts.get(format_name, 0) + 1
+            chunk_entries.append(
+                {
+                    "id": index,
+                    "format": format_name,
+                    "payload_bytes": len(chunk.payload),
+                }
+            )
+        result.append(
+            {
+                "name": name,
+                "id": ARCHIVE_IDS[name],
+                "chunk_count": len(chunks),
+                "payload_bytes": sum(len(chunk.payload) for chunk in chunks),
+                "max_payload_bytes": max((len(chunk.payload) for chunk in chunks), default=0),
+                "format_counts": dict(sorted(format_counts.items())),
+                "chunks": chunk_entries,
+            }
+        )
+    return result
+
+
+def summarize_pack(path: Path, names: list[str], pack: bytes, archives: dict[str, list[Chunk]]) -> dict[str, object]:
+    archive_entries = summarize_archives(archives)
+    return {
+        "path": str(path.resolve()),
+        "size": len(pack),
+        "archives": names,
+        "archive_count": len(archive_entries),
+        "chunk_count": sum(int(archive["chunk_count"]) for archive in archive_entries),
+        "payload_bytes": sum(int(archive["payload_bytes"]) for archive in archive_entries),
+        "max_payload_bytes": max((int(archive["max_payload_bytes"]) for archive in archive_entries), default=0),
+        "archive_summaries": archive_entries,
+    }
+
+
+def write_manifest(
+    data_dir: Path,
+    manifest_path: Path,
+    nor_summary: dict[str, object],
+    tf_summary: dict[str, object],
+    nor_names: list[str],
+    tf_names: list[str],
+) -> None:
+    manifest = {
+        "schema": "sdlpal-embedded-pack-manifest",
+        "version": 1,
+        "data_dir": str(data_dir.resolve()),
+        "runtime": {
+            "heap_required": False,
+            "runtime_decompression_required": False,
+            "payloads_are_runtime_native": True,
+        },
+        "source_files": source_file_manifest(data_dir, [*nor_names, *tf_names]),
+        "packs": {
+            "nor": nor_summary,
+            "tf": tf_summary,
+        },
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    print(f"{manifest_path}: manifest source_files={len(manifest['source_files'])}")
+
+
 def align4(value: int) -> int:
     return (value + 3) & ~3
 
@@ -548,13 +677,14 @@ def parse_names(raw: str | None, default: list[str]) -> list[str]:
     return names
 
 
-def write_pack(data_dir: Path, out_path: Path, names: list[str]) -> None:
+def write_pack(data_dir: Path, out_path: Path, names: list[str]) -> dict[str, object]:
     archives = {name: load_archive(data_dir, name) for name in names}
     pack = build_pack(archives)
     verify_pack(pack)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(pack)
     print(f"{out_path}: {len(pack)} bytes, archives={','.join(names)}")
+    return summarize_pack(out_path, names, pack, archives)
 
 
 def main() -> int:
@@ -564,6 +694,7 @@ def main() -> int:
     parser.add_argument("--out-tf", type=Path, required=True)
     parser.add_argument("--nor", help="comma-separated archives for NOR pack")
     parser.add_argument("--tf", help="comma-separated archives for TF pack")
+    parser.add_argument("--manifest", type=Path, help="write a source-hash and decoded-size manifest")
     args = parser.parse_args()
 
     data_dir = args.data_dir
@@ -573,8 +704,10 @@ def main() -> int:
     if overlap:
         raise SystemExit(f"archives listed in both packs: {', '.join(overlap)}")
 
-    write_pack(data_dir, args.out_nor, nor_names)
-    write_pack(data_dir, args.out_tf, tf_names)
+    nor_summary = write_pack(data_dir, args.out_nor, nor_names)
+    tf_summary = write_pack(data_dir, args.out_tf, tf_names)
+    if args.manifest:
+        write_manifest(data_dir, args.manifest, nor_summary, tf_summary, nor_names, tf_names)
     return 0
 
 
