@@ -1354,7 +1354,11 @@ PAL_ItemUseMenu(
 --*/
 {
    BYTE           bColor, bSelectedColor;
+#ifdef PAL_NO_RUNTIME_HEAP
+   BYTE           *bufImage = pal_psram_uigame_image;
+#else
    PAL_LARGE BYTE bufImage[2048];
+#endif
    DWORD          dwColorChangeTime;
    static SHORT   sSelectedPlayer = 0;
    SDL_Rect       rect = {110, 2, 200, 180};
@@ -1570,7 +1574,11 @@ PAL_BuyMenu_OnItemChange(
 {
    const SDL_Rect      rect = {20, 8, 300, 175};
    int                 i, j, n, iPlayerID, x, y;
+#ifdef PAL_NO_RUNTIME_HEAP
+   BYTE               *bufImage = pal_psram_uigame_image;
+#else
    PAL_LARGE BYTE      bufImage[2048];
+#endif
 
    //
    // Prepare item bakcground box pos
