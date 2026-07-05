@@ -646,10 +646,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=179585 data=3672 bss=6957816
-.text=146197 .rodata=7368 .data=144 .bss=6957816
+text=179649 data=3672 bss=7406008
+.text=146261 .rodata=7368 .data=144 .bss=7406008
 pal_sram_ total=195072 limit=307200
-pal_psram_ total=6683496 limit=8388608
+pal_psram_ total=7131664 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets:
@@ -687,7 +687,7 @@ The contract `global.c` path now uses named PSRAM storage for mutable global tab
 
 The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It uses default/static config strings and case-sensitive no-heap path lookup in the reduced profile.
 
-The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprite data and a 320x200 box save/restore buffer, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
+The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprite data and eight 320x200 box save/restore buffers, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
 
 ## Current Contract Failures
 

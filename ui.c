@@ -29,8 +29,9 @@ LPSPRITE      gpSpriteUI = NULL;
 #else
 #define PAL_UI_PSRAM
 #endif
-static BOX pal_psram_ui_box_static PAL_UI_PSRAM;
-static uint8_t pal_psram_ui_box_saved_pixels[320 * 200] PAL_UI_PSRAM;
+#define PAL_UI_BOX_SLOTS 8
+static BOX pal_psram_ui_box_static[PAL_UI_BOX_SLOTS] PAL_UI_PSRAM;
+static uint8_t pal_psram_ui_box_saved_pixels[PAL_UI_BOX_SLOTS][320 * 200] PAL_UI_PSRAM;
 static uint8_t pal_psram_ui_sprite_static[32768] PAL_UI_PSRAM;
 
 static BOOL
@@ -80,12 +81,27 @@ PAL_CreateBoxInternal(
 )
 {
 #ifdef PAL_NO_RUNTIME_HEAP
-	LPBOX lpBox = &pal_psram_ui_box_static;
+	int slot;
+	LPBOX lpBox = NULL;
+
+	for (slot = 0; slot < PAL_UI_BOX_SLOTS; slot++)
+	{
+		if (pal_psram_ui_box_static[slot].lpSavedPixels == NULL)
+		{
+			lpBox = &pal_psram_ui_box_static[slot];
+			break;
+		}
+	}
+	if (lpBox == NULL)
+	{
+		return NULL;
+	}
+
 	memset(lpBox, 0, sizeof(*lpBox));
 
 	lpBox->pos = PAL_XY(rect->x, rect->y);
 	lpBox->lpSavedArea = NULL;
-	lpBox->lpSavedPixels = pal_psram_ui_box_saved_pixels;
+	lpBox->lpSavedPixels = pal_psram_ui_box_saved_pixels[slot];
 	lpBox->wHeight = (WORD)rect->w;
 	lpBox->wWidth = (WORD)rect->h;
 
