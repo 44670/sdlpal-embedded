@@ -663,9 +663,9 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=186730 data=3728 bss=1469400
-.text=151141 .rodata=7368 .data=144 .bss=1469400
-pal_sram_ total=230912 limit=307200
+text=187146 data=3728 bss=1342424
+.text=151525 .rodata=7368 .data=144 .bss=1342424
+pal_sram_ total=103936 limit=307200
 pal_psram_ total=1159944 limit=8388608
 ```
 
@@ -709,7 +709,7 @@ The contract `res.c` path now uses static `uint8_t` PSRAM storage for the resour
 
 The contract `rngplay.c` path now reads host-predecoded native RNG frame records into `pal_psram_rng_frame_static` and blits them directly without heap allocation or `Decompress()`.
 
-The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 128KB SRAM mix buffer, instead of allocating `gAudioDevice.pSoundBuffer`.
+The contract `audio.c` path now uses `pal_sram_audio_mix_static`, a named 4KB SRAM mix buffer, instead of allocating `gAudioDevice.pSoundBuffer`. If SDL requests a larger callback buffer, the sound-effect mixer processes it in fixed-size chunks.
 
 The Unix contract SFX replacement copies the requested host-converted PCM16 SFX chunk from the generated TF pack into `pal_psram_contract_sfx`, a 256KB static PSRAM buffer, before handing it to the mixer. The largest generated SFX payload in the current data set is chunk #255 at 211,152 bytes, so single-effect playback fits without reading TF-backed data from the audio callback.
 
@@ -739,9 +739,9 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=186730 data=3728 bss=1469400
-.text=151141 .rodata=7368 .data=144 .bss=1469400
-pal_sram_ total=230912 / 307200
+text=187146 data=3728 bss=1342424
+.text=151525 .rodata=7368 .data=144 .bss=1342424
+pal_sram_ total=103936 / 307200
 pal_psram_ total=1159944 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294

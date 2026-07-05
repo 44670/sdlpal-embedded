@@ -45,7 +45,8 @@ AUDIODEVICE gAudioDevice;
 #else
 #define PAL_AUDIO_SRAM
 #endif
-static uint8_t pal_sram_audio_mix_static[32768 * 2 * sizeof(short)] PAL_AUDIO_SRAM;
+#define PAL_AUDIO_STATIC_MIX_BYTES (PAL_AUDIO_DEFAULT_BUFFER_SIZE * 2u * sizeof(short))
+static uint8_t pal_sram_audio_mix_static[PAL_AUDIO_STATIC_MIX_BYTES] PAL_AUDIO_SRAM;
 #endif
 
 PAL_FORCE_INLINE
@@ -139,6 +140,33 @@ AUDIO_FillBuffer(
    //
    if (gAudioDevice.fSoundEnabled && gAudioDevice.pSoundPlayer && gAudioDevice.iSoundVolume > 0)
    {
+#ifdef PAL_NO_RUNTIME_HEAP
+      LPBYTE dst = stream;
+      INT remaining = len;
+      INT frame_bytes = (gAudioDevice.spec.channels > 0 ? gAudioDevice.spec.channels : 1) * (INT)sizeof(short);
+
+      while (remaining > 0)
+      {
+         INT chunk = remaining;
+         if (chunk > (INT)sizeof(pal_sram_audio_mix_static))
+         {
+            chunk = (INT)sizeof(pal_sram_audio_mix_static);
+         }
+         chunk -= chunk % frame_bytes;
+         if (chunk <= 0)
+         {
+            break;
+         }
+
+         memset(gAudioDevice.pSoundBuffer, 0, chunk);
+         gAudioDevice.pSoundPlayer->FillBuffer(gAudioDevice.pSoundPlayer, gAudioDevice.pSoundBuffer, chunk);
+         AUDIO_AdjustVolume((short *)gAudioDevice.pSoundBuffer, gAudioDevice.iSoundVolume, chunk >> 1);
+         AUDIO_MixNative((short *)dst, gAudioDevice.pSoundBuffer, chunk >> 1);
+
+         dst += chunk;
+         remaining -= chunk;
+      }
+#else
 	   memset(gAudioDevice.pSoundBuffer, 0, len);
 
 	   gAudioDevice.pSoundPlayer->FillBuffer(gAudioDevice.pSoundPlayer, gAudioDevice.pSoundBuffer, len);
@@ -152,6 +180,7 @@ AUDIO_FillBuffer(
 	   // Mix sound & music
 	   //
 	   AUDIO_MixNative((short *)stream, gAudioDevice.pSoundBuffer, len >> 1);
+#endif
    }
 
    //
@@ -296,12 +325,6 @@ AUDIO_OpenDevice(
 # define MULTIPLIER 1
 #endif
 #ifdef PAL_NO_RUNTIME_HEAP
-      if ((size_t)gConfig.wAudioBufferSize * (size_t)gConfig.iAudioChannels * sizeof(short) >
-          sizeof(pal_sram_audio_mix_static))
-      {
-         SDL_CloseAudio();
-         return -4;
-      }
       gAudioDevice.pSoundBuffer = pal_sram_audio_mix_static;
 #else
       gAudioDevice.pSoundBuffer = malloc(gConfig.wAudioBufferSize * MULTIPLIER * gConfig.iAudioChannels * sizeof(short));
