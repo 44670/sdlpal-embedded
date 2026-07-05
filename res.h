@@ -58,7 +58,7 @@ PAL_GetCurrentMap(
    VOID
 );
 
-LPSPRITE
+LPCSPRITE
 PAL_GetPlayerSprite(
    BYTE      bPlayerIndex
 );
@@ -68,7 +68,7 @@ PAL_GetBattleSprite(
    BYTE      bPlayerIndex
 );
 
-LPSPRITE
+LPCSPRITE
 PAL_GetEventObjectSprite(
    WORD      wEventObjectID
 );

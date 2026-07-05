@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=185706 data=3728 bss=7703256
-.text=150437 .rodata=7304 .data=144 .bss=7703256
+text=185706 data=3728 bss=3181272
+.text=150437 .rodata=7304 .data=144 .bss=3181272
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=7393808 limit=8388608
+pal_psram_ total=2871824 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -705,7 +705,7 @@ The contract `VIDEO_Startup()` path now omits the YJ1-compressed touch-overlay B
 
 The contract `global.c` path skips the legacy heap-loaded object-description list. This matches the audited `/mnt/hgfs/deb13/PAL` data set, which has no `DESC.DAT`; future data sets that include descriptions should generate read-only object-description data instead of using `PAL_LoadObjectDesc()`.
 
-The contract `res.c` path now uses static `uint8_t` PSRAM storage for the resource manager, event-sprite pointer table, 64 unique event-sprite slots, and player sprite slots. Duplicate event sprite references share a slot. MGO chunks must already be native.
+The contract `res.c` path now uses static `uint8_t` PSRAM storage for the resource manager and event-sprite pointer table. Event and player MGO sprites are `const uint8_t` views into the native NOR pack, and duplicate event sprite references share the same view. MGO chunks must already be native.
 
 The contract `rngplay.c` path now reads host-predecoded native RNG frame records into `pal_psram_rng_frame_static` and blits them directly without heap allocation or `Decompress()`.
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=185706 data=3728 bss=7703256
-.text=150437 .rodata=7304 .data=144 .bss=7703256
+text=185706 data=3728 bss=3181272
+.text=150437 .rodata=7304 .data=144 .bss=3181272
 pal_sram_ total=230912 / 307200
-pal_psram_ total=7393808 / 8388608
+pal_psram_ total=2871824 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```
