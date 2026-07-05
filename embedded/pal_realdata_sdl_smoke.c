@@ -129,6 +129,75 @@ static uint32_t checksum32(const uint8_t *data, uint32_t size)
     return sum;
 }
 
+typedef struct ArchiveSweepExpectation {
+    uint16_t archive_id;
+    uint16_t chunk_count;
+    uint16_t format;
+    uint32_t total_payload;
+    uint32_t max_payload;
+} ArchiveSweepExpectation;
+
+static int sweep_mapped_archive(const PalPack *pack, const ArchiveSweepExpectation *expect)
+{
+    uint16_t chunk_count = 0;
+    uint32_t total = 0;
+    uint32_t max_size = 0;
+
+    if (expect == 0 || !PalPack_GetChunkCount(pack, expect->archive_id, &chunk_count) ||
+        chunk_count != expect->chunk_count) {
+        return 1;
+    }
+
+    for (uint16_t chunk_id = 0; chunk_id < chunk_count; chunk_id++) {
+        PalPackSpan span;
+
+        if (!PalPack_MapConst(pack, expect->archive_id, chunk_id, &span)) {
+            return 2;
+        }
+        if (span.format != expect->format || span.flags != 0u) {
+            return 3;
+        }
+        if (span.size != 0u && (span.data == 0 || checksum32(span.data, span.size) == 0u)) {
+            return 4;
+        }
+
+        total += span.size;
+        if (span.size > max_size) {
+            max_size = span.size;
+        }
+    }
+
+    return (total == expect->total_payload && max_size == expect->max_payload) ? 0 : 5;
+}
+
+static int sweep_all_nor_payloads_mapped(const PalPack *nor)
+{
+    static const ArchiveSweepExpectation archives[] = {
+        { PAL_PACK_ARCHIVE_ABC, 160u, PAL_PACK_FORMAT_NATIVE, 2154538u, 59516u },
+        { PAL_PACK_ARCHIVE_BALL, 231u, PAL_PACK_FORMAT_NATIVE, 133776u, 1876u },
+        { PAL_PACK_ARCHIVE_DATA, 15u, PAL_PACK_FORMAT_NATIVE, 70784u, 25532u },
+        { PAL_PACK_ARCHIVE_F, 19u, PAL_PACK_FORMAT_NATIVE, 329624u, 58116u },
+        { PAL_PACK_ARCHIVE_FIRE, 55u, PAL_PACK_FORMAT_NATIVE, 1909992u, 65502u },
+        { PAL_PACK_ARCHIVE_MGO, 637u, PAL_PACK_FORMAT_NATIVE, 3363230u, 59516u },
+        { PAL_PACK_ARCHIVE_MIDI, 88u, PAL_PACK_FORMAT_NATIVE, 762086u, 31034u },
+        { PAL_PACK_ARCHIVE_MUS, 88u, PAL_PACK_FORMAT_NATIVE, 330928u, 10108u },
+        { PAL_PACK_ARCHIVE_PAT, 9u, PAL_PACK_FORMAT_NATIVE, 8448u, 1536u },
+        { PAL_PACK_ARCHIVE_RGM, 92u, PAL_PACK_FORMAT_NATIVE, 452830u, 8024u },
+        { PAL_PACK_ARCHIVE_SSS, 5u, PAL_PACK_FORMAT_NATIVE, 563212u, 339952u },
+        { PAL_PACK_ARCHIVE_TEXT, 1u, PAL_PACK_FORMAT_TEXT_UTF16, 254762u, 254762u },
+        { PAL_PACK_ARCHIVE_FONT, 1u, PAL_PACK_FORMAT_FONT_GLYPHS, 88432u, 88432u },
+    };
+    uint16_t i;
+
+    for (i = 0; i < (uint16_t)(sizeof(archives) / sizeof(archives[0])); i++) {
+        int rc = sweep_mapped_archive(nor, &archives[i]);
+        if (rc != 0) {
+            return (int)(i + 1u) * 10 + rc;
+        }
+    }
+    return 0;
+}
+
 static int make_data_path(const char *data_dir, const char *name)
 {
     uint32_t i = 0;
@@ -1498,6 +1567,9 @@ int main(int argc, char **argv)
             map_native_nonempty(&nor.pack, PAL_PACK_ARCHIVE_MGO, 1) ||
             map_native_nonempty(&nor.pack, PAL_PACK_ARCHIVE_ABC, 1) ||
             map_native_nonempty(&nor.pack, PAL_PACK_ARCHIVE_FIRE, 0);
+    }
+    if (rc == 0) {
+        rc = sweep_all_nor_payloads_mapped(&nor.pack);
     }
     if (rc == 0) {
         rc = exercise_tf_reads(&tf.pack);

@@ -163,6 +163,8 @@ Current C-reader summary:
   archives=5 payload=47295743
 ```
 
+The real-data SDL smoke also sweeps every generated NOR payload through `PalPack_MapConst()` as read-only `const uint8_t` views: 1,401 chunks, 10,422,642 payload bytes, and per-archive count/format/maximum-size checks matching the generated pack summary.
+
 ## Contract Runtime Slice
 
 The first runtime slices are a pack reader and a plain static-buffer declaration unit:
@@ -528,7 +530,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=39474 .rodata=224 data=744 bss=7493280
+text=40662 .rodata=448 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -554,7 +556,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=619178
+size=619392
 PASS
 ```
 
