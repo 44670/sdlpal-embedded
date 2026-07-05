@@ -23,6 +23,38 @@
 
 static WORD g_wCurEffectSprite = 0;
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(__GNUC__)
+#define PAL_ENDING_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_ENDING_PSRAM
+#endif
+static uint8_t pal_psram_ending_fbp_static[320 * 200] PAL_ENDING_PSRAM;
+static uint8_t pal_psram_ending_sprite_static[320 * 200] PAL_ENDING_PSRAM;
+static uint8_t pal_psram_ending_girl_static[6000] PAL_ENDING_PSRAM;
+#endif
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+static BOOL
+PAL_EndingReadNativeFbp(
+   LPBYTE         buf,
+   WORD           wChunkNum
+)
+{
+   return PAL_MKFReadChunk(buf, 320 * 200, wChunkNum, gpGlobals->f.fpFBP) == 320 * 200;
+}
+
+static BOOL
+PAL_EndingReadNativeMgo(
+   LPBYTE         buf,
+   UINT           uiBufferSize,
+   WORD           wChunkNum
+)
+{
+   return PAL_MKFReadChunk(buf, uiBufferSize, wChunkNum, gpGlobals->f.fpMGO) > 0;
+}
+#endif
+
 VOID
 PAL_EndingSetEffectSprite(
    WORD         wSpriteNum
@@ -67,20 +99,33 @@ PAL_ShowFBP(
 
 --*/
 {
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+   BYTE                     *buf = pal_psram_ending_fbp_static;
+   BYTE                     *bufSprite = pal_psram_ending_sprite_static;
+#else
    PAL_LARGE BYTE            buf[320 * 200];
    PAL_LARGE BYTE            bufSprite[320 * 200];
+#endif
    const int                 rgIndex[6] = {0, 3, 1, 5, 2, 4};
    int                       i, j, k;
    BYTE                      a, b;
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (!PAL_EndingReadNativeFbp(buf, wChunkNum))
+#else
    if (PAL_MKFDecompressChunk(buf, 320 * 200, wChunkNum, gpGlobals->f.fpFBP) <= 0)
+#endif
    {
-      memset(buf, 0, sizeof(buf));
+      memset(buf, 0, 320 * 200);
    }
 
    if (g_wCurEffectSprite != 0)
    {
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      PAL_EndingReadNativeMgo(bufSprite, 320 * 200, g_wCurEffectSprite);
+#else
       PAL_MKFDecompressChunk(bufSprite, 320 * 200, g_wCurEffectSprite, gpGlobals->f.fpMGO);
+#endif
    }
 
    if (wFade)
@@ -175,19 +220,32 @@ PAL_ScrollFBP(
 --*/
 {
    SDL_Surface          *p;
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+   BYTE                 *buf = pal_psram_ending_fbp_static;
+   BYTE                 *bufSprite = pal_psram_ending_sprite_static;
+#else
    PAL_LARGE BYTE        buf[320 * 200];
    PAL_LARGE BYTE        bufSprite[320 * 200];
+#endif
    int                   i, l;
    SDL_Rect              rect, dstrect;
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (!PAL_EndingReadNativeFbp(buf, wChunkNum))
+#else
    if (PAL_MKFDecompressChunk(buf, 320 * 200, wChunkNum, gpGlobals->f.fpFBP) <= 0)
+#endif
    {
       return;
    }
 
    if (g_wCurEffectSprite != 0)
    {
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      PAL_EndingReadNativeMgo(bufSprite, 320 * 200, g_wCurEffectSprite);
+#else
       PAL_MKFDecompressChunk(bufSprite, 320 * 200, g_wCurEffectSprite, gpGlobals->f.fpMGO);
+#endif
    }
 
    p = VIDEO_CreateCompatibleSurface(gpScreen);
@@ -297,8 +355,13 @@ PAL_EndingAnimation(
 
 --*/
 {
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+   LPBYTE            buf = pal_psram_ending_sprite_static;
+   LPBYTE            bufGirl = pal_psram_ending_girl_static;
+#else
    LPBYTE            buf;
    LPBYTE            bufGirl;
+#endif
    SDL_Surface      *pUpper;
    SDL_Surface      *pLower;
    SDL_Rect          srcrect, dstrect;
@@ -306,20 +369,35 @@ PAL_EndingAnimation(
    int               yPosGirl = 180;
    int               i;
 
+#if !defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    buf = (LPBYTE)UTIL_calloc(1, 64000);
    bufGirl = (LPBYTE)UTIL_calloc(1, 6000);
+#endif
 
    pUpper = VIDEO_CreateCompatibleSurface(gpScreen);
    pLower = VIDEO_CreateCompatibleSurface(gpScreen);
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   PAL_EndingReadNativeFbp(buf, gConfig.fIsWIN95 ? 69 : 61);
+#else
    PAL_MKFDecompressChunk(buf, 64000, gConfig.fIsWIN95 ? 69 : 61, gpGlobals->f.fpFBP);
+#endif
    PAL_FBPBlitToSurface(buf, pUpper);
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   PAL_EndingReadNativeFbp(buf, gConfig.fIsWIN95 ? 70 : 62);
+#else
    PAL_MKFDecompressChunk(buf, 64000, gConfig.fIsWIN95 ? 70 : 62, gpGlobals->f.fpFBP);
+#endif
    PAL_FBPBlitToSurface(buf, pLower);
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   PAL_EndingReadNativeMgo(buf, 64000, 571);
+   PAL_EndingReadNativeMgo(bufGirl, 6000, 572);
+#else
    PAL_MKFDecompressChunk(buf, 64000, 571, gpGlobals->f.fpMGO);
    PAL_MKFDecompressChunk(bufGirl, 6000, 572, gpGlobals->f.fpMGO);
+#endif
 
    srcrect.x = 0;
    dstrect.x = 0;
@@ -388,8 +466,10 @@ PAL_EndingAnimation(
    VIDEO_FreeSurface(pUpper);
    VIDEO_FreeSurface(pLower);
 
+#if !defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    free(buf);
    free(bufGirl);
+#endif
 }
 
 VOID

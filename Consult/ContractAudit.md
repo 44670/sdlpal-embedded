@@ -646,10 +646,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=274277 data=3808 bss=1223672
-.text=150229 .rodata=95592 .data=144 .bss=1223672
+text=274205 data=3808 bss=1357656
+.text=150165 .rodata=95592 .data=144 .bss=1357656
 pal_sram_ total=64000 limit=307200
-pal_psram_ total=1080400 limit=8388608
+pal_psram_ total=1214400 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`:
@@ -669,6 +669,8 @@ The full-engine menu-background paths in `uigame.c` now also avoid runtime decom
 The full-engine battle path in `battle.c` now uses static `uint8_t` PSRAM buffers in contract mode for player/enemy battle sprites, battle backgrounds, and `DATA.MKF #10` effect storage. The old F/ABC/FBP decompression and battle-effect allocation paths remain only for non-contract desktop builds.
 
 The full-engine magic/summon paths in `fight.c` now use static `uint8_t` PSRAM buffers in contract mode for FIRE effect sprites and F.MKF summon sprites. These paths require the host-built packs to provide native chunks and avoid `PAL_MKFDecompressChunk()` / `UTIL_malloc()` at runtime.
+
+The full-engine ending paths in `ending.c` now use static `uint8_t` PSRAM buffers in contract mode for FBP/MGO scratch. FBP and MGO chunks must already be native, so ending screens and animations avoid heap allocation and runtime decompression.
 
 ## Current Contract Failures
 
