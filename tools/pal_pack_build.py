@@ -252,7 +252,7 @@ def build_pack(archives: dict[str, list[Chunk]]) -> bytes:
             cursor += len(chunk.payload)
 
     header = struct.pack(
-        "<IHHHHIIII",
+        "<IHHHHIIIII",
         MAGIC,
         VERSION,
         HEADER_SIZE,
@@ -260,10 +260,55 @@ def build_pack(archives: dict[str, list[Chunk]]) -> bytes:
         0,
         archive_table_offset,
         data_offset,
+        0,
         cursor,
         0,
     )
     return header + archive_entries + chunk_entries + payload
+
+
+def checked_range(offset: int, size: int, total: int) -> bool:
+    return 0 <= offset <= total and 0 <= size <= total - offset
+
+
+def verify_pack(pack: bytes) -> None:
+    if len(pack) < HEADER_SIZE:
+        raise ValueError("short pack header")
+    magic, version, header_size, archive_count, _reserved0 = struct.unpack_from("<IHHHH", pack, 0)
+    archive_table_offset = u32(pack, 12)
+    pack_size = u32(pack, 24)
+
+    if magic != MAGIC:
+        raise ValueError("bad pack magic")
+    if version != VERSION:
+        raise ValueError(f"bad pack version: {version}")
+    if header_size != HEADER_SIZE:
+        raise ValueError(f"bad pack header size: {header_size}")
+    if pack_size != len(pack):
+        raise ValueError(f"pack size field is {pack_size}, actual {len(pack)}")
+    if not checked_range(archive_table_offset, archive_count * ARCHIVE_ENTRY_SIZE, len(pack)):
+        raise ValueError("archive table out of range")
+
+    seen_archives: set[int] = set()
+    for archive_index in range(archive_count):
+        archive_entry_offset = archive_table_offset + archive_index * ARCHIVE_ENTRY_SIZE
+        archive_id, chunk_count = struct.unpack_from("<HH", pack, archive_entry_offset)
+        chunk_table_offset = u32(pack, archive_entry_offset + 4)
+        if archive_id in seen_archives:
+            raise ValueError(f"duplicate archive id: {archive_id}")
+        seen_archives.add(archive_id)
+        if not checked_range(chunk_table_offset, chunk_count * CHUNK_ENTRY_SIZE, len(pack)):
+            raise ValueError(f"chunk table out of range for archive {archive_id}")
+
+        for chunk_index in range(chunk_count):
+            chunk_entry_offset = chunk_table_offset + chunk_index * CHUNK_ENTRY_SIZE
+            payload_offset = u32(pack, chunk_entry_offset)
+            payload_size = u32(pack, chunk_entry_offset + 4)
+            flags = u16(pack, chunk_entry_offset + 10)
+            if flags != 0:
+                raise ValueError(f"runtime chunk has flags 0x{flags:04x}: archive {archive_id} chunk {chunk_index}")
+            if not checked_range(payload_offset, payload_size, len(pack)):
+                raise ValueError(f"payload out of range: archive {archive_id} chunk {chunk_index}")
 
 
 def parse_names(raw: str | None, default: list[str]) -> list[str]:
@@ -279,6 +324,7 @@ def parse_names(raw: str | None, default: list[str]) -> list[str]:
 def write_pack(data_dir: Path, out_path: Path, names: list[str]) -> None:
     archives = {name: load_archive(data_dir, name) for name in names}
     pack = build_pack(archives)
+    verify_pack(pack)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(pack)
     print(f"{out_path}: {len(pack)} bytes, archives={','.join(names)}")

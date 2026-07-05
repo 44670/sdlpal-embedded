@@ -66,8 +66,8 @@ python3 -B tools/pal_pack_build.py \
 Current default pack sizes from the audited data:
 
 ```text
-/tmp/pal_nor_default.pak: 10,103,468 bytes
-/tmp/pal_tf_default.pak: 40,069,152 bytes
+/tmp/pal_nor_default.pak: 10,103,472 bytes
+/tmp/pal_tf_default.pak: 40,069,156 bytes
 ```
 
 Default NOR archives:
