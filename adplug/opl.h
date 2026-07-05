@@ -35,7 +35,11 @@ public:
    Copl() : currChip(0), currType(TYPE_OPL2) { }
    Copl(ChipType type) : currChip(0), currType(type) { }
 
+#ifdef PAL_NO_RUNTIME_HEAP
+   ~Copl() {}
+#else
    virtual ~Copl() {}
+#endif
 
    virtual void init(void) = 0; // reinitialize OPL chip(s)
    virtual void write(int reg, int val) = 0; // combined register select + data write

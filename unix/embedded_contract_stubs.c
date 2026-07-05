@@ -41,14 +41,16 @@ static PalPack pal_contract_nor_pack;
 static PalPack pal_contract_tf_pack;
 static PalTextCache pal_contract_text;
 static PalFontCache pal_contract_font;
-static PalMusicTrack pal_contract_music_track;
 static bool pal_contract_pack_ready;
 static bool pal_contract_pack_tried;
 static bool pal_contract_tf_pack_ready;
 static bool pal_contract_tf_pack_tried;
 static bool pal_contract_text_ready;
 static bool pal_contract_font_ready;
+#ifndef PAL_CONTRACT_EXTERNAL_RIX
+static PalMusicTrack pal_contract_music_track;
 static AUDIOPLAYER pal_contract_music_player;
+#endif
 static AUDIOPLAYER pal_contract_sound_player;
 static const uint8_t *pal_contract_sfx_pcm;
 static uint32_t pal_contract_sfx_samples;
@@ -297,6 +299,7 @@ PalContract_PlayerShutdown(
     (void)player;
 }
 
+#ifndef PAL_CONTRACT_EXTERNAL_RIX
 static BOOL
 PalContract_MusicPlay(
     VOID *player,
@@ -335,6 +338,7 @@ PalContract_MusicFillBuffer(
     (void)stream;
     (void)len;
 }
+#endif
 
 static BOOL
 PalContract_SoundPlay(
@@ -680,6 +684,7 @@ LPAUDIOPLAYER OPUS_Init(VOID)
     return NULL;
 }
 
+#ifndef PAL_CONTRACT_EXTERNAL_RIX
 LPAUDIOPLAYER RIX_Init(LPCSTR szFileName)
 {
     (void)szFileName;
@@ -690,6 +695,7 @@ LPAUDIOPLAYER RIX_Init(LPCSTR szFileName)
     pal_contract_music_player.FillBuffer = PalContract_MusicFillBuffer;
     return &pal_contract_music_player;
 }
+#endif
 
 LPAUDIOPLAYER SOUND_Init(VOID)
 {

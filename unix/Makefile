@@ -42,19 +42,21 @@ ifeq ($(EMBEDDED_CONTRACT),1)
 	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../font.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../mp3play.c ../oggplay.c ../opusplay.c ../resampler.c ../sound.c ../text.c ../video_glsl.c ../yj1.c
 	CONTRACT_CPPFILE_EXCLUDES = ../rixplay.cpp
 	CONTRACT_CFILES = embedded_contract_stubs.c ../embedded/pal_noheap.c ../embedded/pal_pack.c ../embedded/pal_text_cache.c ../embedded/pal_font_cache.c ../embedded/pal_music_cache.c
-	EMBEDDED_CCFLAGS = -ffunction-sections -fdata-sections -UUSE_SDL3 -DUSE_SDL3=0 -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI -DPAL_NO_RUNTIME_DECOMPRESS=1 -DPAL_NO_RUNTIME_HEAP=1
+	CONTRACT_CPPFILES = contract_music.cpp contract_opl2.cpp ../adplug/player.cpp ../adplug/rix.cpp
+	EMBEDDED_CCFLAGS = -ffunction-sections -fdata-sections -UUSE_SDL3 -DUSE_SDL3=0 -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI -DPAL_NO_RUNTIME_DECOMPRESS=1 -DPAL_NO_RUNTIME_HEAP=1 -DPAL_CONTRACT_EXTERNAL_RIX=1 -DUSE_RIX_EXTRA_INIT=0
 	EMBEDDED_LDFLAGS = -Wl,--gc-sections -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free
 else
 	SOURCES = .. ../sdl_compat ../adplug ../liboggvorbis/src ../libopusfile/src ../libopusfile/celt ../libopusfile/silk ../libopusfile/silk/float ../libmad ../timidity
 	CONTRACT_CFILE_EXCLUDES =
 	CONTRACT_CPPFILE_EXCLUDES =
 	CONTRACT_CFILES =
+	CONTRACT_CPPFILES =
 	EMBEDDED_CCFLAGS =
 	EMBEDDED_LDFLAGS =
 endif
 
 CFILES = $(filter-out $(CONTRACT_CFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.c))) $(MIDI_CFILES) $(CONTRACT_CFILES)
-CPPFILES = $(filter-out $(CONTRACT_CPPFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.cpp))) unix.cpp $(MIDI_CPPFILES)
+CPPFILES = $(filter-out $(CONTRACT_CPPFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.cpp))) unix.cpp $(MIDI_CPPFILES) $(CONTRACT_CPPFILES)
 TOBJFILES = $(CFILES:.c=$(INTER).o) $(CPPFILES:.cpp=$(INTER).o)
 CONTRACT_SOURCE_ARGS = $(foreach src,$(CFILES) $(CPPFILES),--source-file $(src))
 DEPFILES = $(OBJFILES:.o=.d)
@@ -139,6 +141,7 @@ clean:
 ../liboggvorbis/%$(INTER).o: EXTRA_CCFLAGS := -I../liboggvorbis/include -I../liboggvorbis/src
 ../libopusfile/%$(INTER).o: EXTRA_CCFLAGS := -I../liboggvorbis/include -I../libopusfile/include -I../libopusfile/src -I../libopusfile/celt -I../libopusfile/silk -I../libopusfile/silk/float -DHAVE_CONFIG_H
 %$(INTER).o: EXTRA_CCFLAGS := -I. -I.. -I../liboggvorbis/include -I../libopusfile/include -I../timidity -DPAL_HAS_PLATFORM_SPECIFIC_UTILS
+contract_opl2$(INTER).o: EXTRA_CCFLAGS += -Wno-array-bounds
 check: TEST_CCFLAGS = -I. -I.. -DUNIT_TEST=1 -isystem $(GTEST_DIR)/include
 check: $(TEST_TARGET)
 	@echo [EXEC] $(TEST_TARGET)
@@ -156,6 +159,8 @@ contract-check: $(TARGET) contract-pack-build
 		$(CONTRACT_SOURCE_ARGS) \
 		--source-define PAL_NO_RUNTIME_HEAP=1 \
 		--source-define PAL_NO_RUNTIME_DECOMPRESS=1 \
+		--source-define PAL_CONTRACT_EXTERNAL_RIX=1 \
+		--source-define USE_RIX_EXTRA_INIT=0 \
 		--source-define PAL_NO_LAUNCH_UI \
 		--source-define PAL_HAS_MP3=0 \
 		--source-define PAL_HAS_OGG=0 \

@@ -626,7 +626,7 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The checker also rejects active C++ `new`/`delete` use and linked `operator new`/`operator delete` symbols. The desktop text/font/music/SFX replacement maps generated NOR/TF packs read-only, uses the existing `PalTextCache`, `PalFontCache`, and `PalMusicCache` readers, and copies SFX PCM from the TF pack into a fixed PSRAM buffer before mixing:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, desktop font, desktop text, codepage-table, and `yj1.c` decompressor objects from the full-engine build. The checker also rejects active C++ `new`/`delete` use and linked `operator new`/`operator delete` symbols. The desktop text/font/music/SFX replacement maps generated NOR/TF packs read-only, uses the existing `PalTextCache`, `PalFontCache`, and `PalMusicCache` readers, synthesizes MUS/RIX through a fixed-storage OPL2 path without the desktop resampler, and copies SFX PCM from the TF pack into a fixed PSRAM buffer before mixing:
 
 ```text
 PAL_InitFont
@@ -663,9 +663,9 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=187146 data=3728 bss=1266648
-.text=151525 .rodata=7368 .data=144 .bss=1266648
-pal_sram_ total=9216 limit=307200
+text=211280 data=4322 bss=1288224
+.text=170406 .rodata=8402 .data=226 .bss=1288224
+pal_sram_ total=10638 limit=307200
 pal_psram_ total=1178888 limit=8388608
 ```
 
@@ -683,7 +683,9 @@ forbidden call targets: 0
 
 The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress/`PAL_LARGE` scratch/typed SRAM-PSRAM storage/loose-resource patterns. The same target rebuilds and verifies the generated NOR/TF packs and manifest, rejects raw `VOC` in runtime packs, and enforces the 16MB NOR pack budget.
 
-This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the remaining stubbed desktop resource paths with the generated pack/static-buffer slices.
+This is still only a reduced native contract profile, not the finished embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. Remaining engineering work is to continue replacing desktop resource paths with the generated pack/static-buffer slices and target display/input backends.
+
+The reduced profile's music path is no longer silent. `unix/contract_music.cpp` maps generated MUS/RIX tracks from the NOR pack as `const uint8_t *` spans, feeds them to a `PAL_NO_RUNTIME_HEAP` `CrixPlayer::load_buffer()` path, and renders one 70Hz tick at a time into `pal_sram_contract_rix_tick`. `unix/contract_opl2.cpp` links only the DOSBox OPL2 core used by this path. The OPL output is generated at the configured game audio rate, so the contract profile still excludes `resampler.c` and its large LUTs.
 
 Contract-mode `palcommon.c` now provides generated-pack archive handles through the legacy MKF read API. `PAL_MKFOpenPackArchive()` returns fixed sentinel handles for generated pack archives, `PAL_MKFGetChunkCount()`, `PAL_MKFGetChunkSize()`, and `PAL_MKFReadChunk()` service those handles from read-only mapped NOR/TF packs, and `PAL_MKFMapChunk()` exposes a `const uint8_t *` view for code that can parse a native chunk in place. `UTIL_CloseFile()` ignores these handles.
 
@@ -739,9 +741,9 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=187146 data=3728 bss=1266648
-.text=151525 .rodata=7368 .data=144 .bss=1266648
-pal_sram_ total=9216 / 307200
+text=211280 data=4322 bss=1288224
+.text=170406 .rodata=8402 .data=226 .bss=1288224
+pal_sram_ total=10638 / 307200
 pal_psram_ total=1178888 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
@@ -751,7 +753,6 @@ The normal native SDL2 desktop build still passes as a regression check, but it 
 
 ## Next Engineering Cuts
 
-1. Replace the reduced profile's silent RIX/music synthesis stub with a fixed-storage player or an offline-converted music format.
-2. If a future data set includes `DESC.DAT`, generate read-only object-description data instead of enabling the heap linked-list loader.
-3. Continue wiring static pack/resource slices into the full gameplay path while keeping source/binary contract checks at zero heap, zero runtime decompression, zero active `PAL_LARGE`, and zero loose-resource references.
-4. Keep running `tools/embedded_contract_check.py` after each cut until source and binary checks pass.
+1. If a future data set includes `DESC.DAT`, generate read-only object-description data instead of enabling the heap linked-list loader.
+2. Continue wiring static pack/resource slices into the full gameplay path while keeping source/binary contract checks at zero heap, zero runtime decompression, zero active `PAL_LARGE`, and zero loose-resource references.
+3. Keep running `tools/embedded_contract_check.py` after each cut until source and binary checks pass.

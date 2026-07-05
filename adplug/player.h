@@ -30,7 +30,11 @@
 class CPlayer {
 public:
    CPlayer(Copl *newopl);
+#ifdef PAL_NO_RUNTIME_HEAP
+   ~CPlayer();
+#else
    virtual ~CPlayer();
+#endif
 
    /***** Operational methods *****/
    void seek(unsigned long ms);

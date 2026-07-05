@@ -40,6 +40,9 @@ class CrixPlayer: public CPlayer
   ~CrixPlayer();
 
   bool load(const std::string &filename, const CFileProvider &fp);
+#ifdef PAL_NO_RUNTIME_HEAP
+  bool load_buffer(const uint8_t *data, uint32_t size);
+#endif
   bool update();
   void rewind(int subsong);
   void rewindReInit(int subsong, bool reinit); /* For seamless continuous */
@@ -47,7 +50,13 @@ class CrixPlayer: public CPlayer
   unsigned int getsubsongs();
 
   std::string gettype()
-    { return std::string("Softstar RIX OPL Music Format"); };
+    {
+#ifdef PAL_NO_RUNTIME_HEAP
+      return std::string();
+#else
+      return std::string("Softstar RIX OPL Music Format");
+#endif
+    };
 
 #if USE_RIX_EXTRA_INIT
   void set_extra_init(uint32_t* regs, uint8_t* datas, int n);
@@ -68,7 +77,11 @@ class CrixPlayer: public CPlayer
 #endif
   FILE *fp;
   int subsongs;
+#ifdef PAL_NO_RUNTIME_HEAP
+  const uint8_t *rix_buf;  /* rix files' f_buffer */
+#else
   uint8_t *rix_buf;  /* rix files' f_buffer */
+#endif
   uint16_t f_buffer[300];//9C0h-C18h
   uint16_t a0b0_data2[11];
   uint8_t a0b0_data3[18];
@@ -134,5 +147,7 @@ class CrixPlayer: public CPlayer
   void set_new_int();
   void switch_ad_bd(uint16_t);           /**/
 
+#ifndef PAL_NO_RUNTIME_HEAP
   void read_file_to(uint8_t *&);
+#endif
 };

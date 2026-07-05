@@ -75,7 +75,12 @@ const uint16_t CrixPlayer::mus_time = 0x4268;
 
 CPlayer *CrixPlayer::factory(Copl *newopl)
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+  (void)newopl;
+  return NULL;
+#else
   return new CrixPlayer(newopl);
+#endif
 }
 
 CrixPlayer::CrixPlayer(Copl *newopl)
@@ -92,17 +97,19 @@ CrixPlayer::CrixPlayer(Copl *newopl)
 
 CrixPlayer::~CrixPlayer()
 {
+#ifndef PAL_NO_RUNTIME_HEAP
 #ifdef USE_RIX_MKF_FILE_BUFFER
     if (file_buffer)
         delete[] file_buffer;
 #else
   fclose(fp);
   if(rix_buf)
-    free(rix_buf);
+    free((void *)rix_buf);
 #endif
 #if USE_RIX_EXTRA_INIT
   if (extra_regs) delete[] extra_regs;
   if (extra_vals) delete[] extra_vals;
+#endif
 #endif
 }
 
@@ -128,6 +135,7 @@ void CrixPlayer::set_extra_init(uint32_t* regs, uint8_t* datas, int n)
 }
 #endif
 
+#ifndef PAL_NO_RUNTIME_HEAP
 void CrixPlayer::read_file_to(uint8_t *&buf) {
     fseek(fp, 0, SEEK_END);
     length = (uint32_t)ftell(fp);
@@ -138,9 +146,15 @@ void CrixPlayer::read_file_to(uint8_t *&buf) {
     fread(buf, length, 1, fp);
     return;
 }
+#endif
 
 bool CrixPlayer::load(const std::string &filename, const CFileProvider &cfp)
 {
+#ifdef PAL_NO_RUNTIME_HEAP
+  (void)filename;
+  (void)cfp;
+  return false;
+#else
   fp = fopen(filename.c_str(),"rb"); if(!fp) return false;
 
   if(SDL_strcasecmp(filename.substr(filename.length()-4,4).c_str(),".mkf")==0)
@@ -176,7 +190,24 @@ bool CrixPlayer::load(const std::string &filename, const CFileProvider &cfp)
     }
   rewind(0);
   return true;
+#endif
 }
+
+#ifdef PAL_NO_RUNTIME_HEAP
+bool CrixPlayer::load_buffer(const uint8_t *data, uint32_t size)
+{
+  if (data == NULL || size < 16 || RIX_SWAP16((uint16_t)(data[0] | ((uint16_t)data[1] << 8))) != 0x55aa) {
+    return false;
+  }
+  flag_mkf = 0;
+  fp = NULL;
+  subsongs = 1;
+  rix_buf = data;
+  length = size;
+  rewind(0);
+  return true;
+}
+#endif
 
 bool CrixPlayer::update()
 {
@@ -220,13 +251,18 @@ void CrixPlayer::rewindReInit(int subsong, bool reinit)
 
 	if (flag_mkf)
 	{
+#ifndef PAL_NO_RUNTIME_HEAP
         int index,index2;
+#endif
 #ifdef USE_RIX_MKF_FILE_BUFFER
         uint32_t* buf_index = (uint32_t*)file_buffer;
         int offset1 = RIX_SWAP32(buf_index[subsong]), offset2;
         while ((offset2 = RIX_SWAP32(buf_index[++subsong])) == offset1);
         length = offset2 - offset1 + 1;
         rix_buf = file_buffer + offset1;
+#else
+#ifdef PAL_NO_RUNTIME_HEAP
+        return;
 #else
         fseek(fp,subsong*4,SEEK_SET);
         fread(&index,4,1,fp);
@@ -237,10 +273,11 @@ void CrixPlayer::rewindReInit(int subsong, bool reinit)
         if(length==0) return;
         fseek(fp,index,SEEK_SET);
         if(rix_buf)
-            free(rix_buf);
+            free((void *)rix_buf);
         rix_buf = (uint8_t *)calloc(1, length);
-        memset(rix_buf, 0, sizeof(rix_buf));
+        memset(rix_buf, 0, length);
         fread(rix_buf,length,1,fp);
+#endif
 #endif
 	}
 
@@ -406,7 +443,7 @@ RELEASE_INLINE uint16_t CrixPlayer::rix_proc()
 RELEASE_INLINE void CrixPlayer::rix_get_ins()
 {
   int		i;
-  uint8_t	*baddr = (&rix_buf[ins_block])+(band_low<<6);
+  const uint8_t	*baddr = (&rix_buf[ins_block])+(band_low<<6);
 
   for(i = 0; i < 28; i++)
     insbuf[i] = (baddr[i * 2 + 1] << 8) + baddr[i * 2];
