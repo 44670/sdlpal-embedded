@@ -19,7 +19,7 @@ int main(void)
     if (PAL_SRAM_DECLARED_BYTES != 182784u) {
         return 1;
     }
-    if (PAL_PSRAM_DECLARED_BYTES != 7141392u) {
+    if (PAL_PSRAM_DECLARED_BYTES != 7269392u) {
         return 2;
     }
 
@@ -89,6 +89,12 @@ int main(void)
     }
     if (CHECK_BUFFER(pal_psram_menu_box, 25u) != 0) {
         return 24;
+    }
+    if (CHECK_BUFFER(pal_psram_ending_fbp_a, 26u) != 0) {
+        return 25;
+    }
+    if (CHECK_BUFFER(pal_psram_ending_fbp_b, 27u) != 0) {
+        return 26;
     }
 
     return 0;

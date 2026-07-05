@@ -31,3 +31,5 @@ uint8_t pal_psram_sprite_pin[PAL_PSRAM_SPRITE_PIN_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_menu_background[PAL_PSRAM_MENU_BACKGROUND_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_menu_image[PAL_PSRAM_MENU_IMAGE_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_menu_box[PAL_PSRAM_MENU_BOX_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_ending_fbp_a[PAL_PSRAM_ENDING_FBP_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_ending_fbp_b[PAL_PSRAM_ENDING_FBP_BYTES] PAL_BSS_PSRAM;

@@ -1,5 +1,6 @@
 #include "pal_battle_cache.h"
 #include "pal_audio_static.h"
+#include "pal_ending_static.h"
 #include "pal_font_cache.h"
 #include "pal_global_cache.h"
 #include "pal_menu_static.h"
@@ -577,6 +578,49 @@ static int check_menu_static(const PalPack *nor, const PalPack *tf)
     return 0;
 }
 
+static int check_ending_static(const PalPack *nor, const PalPack *tf)
+{
+    PalEndingBuffer buffer;
+    PalEndingScreenPair pair;
+    PalEndingConstAsset asset;
+
+    if (!PalEnding_LoadFbp(tf, 68, &buffer) || buffer.data != pal_psram_ending_fbp_a || buffer.size != PAL_ENDING_FBP_BYTES) {
+        return 1;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0) {
+        return 2;
+    }
+    if (!PalEnding_LoadFbpPair(tf, 61, 62, &pair)) {
+        return 3;
+    }
+    if (pair.upper.data != pal_psram_ending_fbp_a || pair.upper.size != PAL_ENDING_FBP_BYTES ||
+        pair.lower.data != pal_psram_ending_fbp_b || pair.lower.size != PAL_ENDING_FBP_BYTES) {
+        return 4;
+    }
+    if (checksum32(pair.upper.data, pair.upper.size) == 0 || checksum32(pair.lower.data, pair.lower.size) == 0) {
+        return 5;
+    }
+    if (!PalEnding_MapSprite(nor, 571, &asset) || asset.data == 0 || asset.size != 59516u) {
+        return 6;
+    }
+    if (checksum32(asset.data, asset.size) == 0) {
+        return 7;
+    }
+    if (!PalEnding_MapSprite(nor, 572, &asset) || asset.data == 0 || asset.size != 5736u) {
+        return 8;
+    }
+    if (checksum32(asset.data, asset.size) == 0) {
+        return 9;
+    }
+    if (!PalEnding_MapSprite(nor, 627, &asset) || asset.data == 0 || asset.size != 3136u) {
+        return 10;
+    }
+    if (checksum32(asset.data, asset.size) == 0) {
+        return 11;
+    }
+    return 0;
+}
+
 static int check_ui_cache(const PalPack *nor)
 {
     PalUiAsset asset;
@@ -686,6 +730,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_menu_static(&nor.pack, &tf.pack);
+    }
+    if (rc == 0) {
+        rc = check_ending_static(&nor.pack, &tf.pack);
     }
     if (rc == 0) {
         rc = check_ui_cache(&nor.pack);
