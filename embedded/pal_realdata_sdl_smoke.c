@@ -299,6 +299,7 @@ static int check_battle(const PalPack *nor, const PalPack *tf, uint16_t team_num
 {
     static const uint16_t player_sprites[3] = { 0, 1, 2 };
     PalBattleSnapshot snapshot;
+    PalBattleBuffer effect;
 
     if (!PalBattle_LoadSnapshot(nor, tf, team_num, 0, player_sprites, 3, 7, &snapshot)) {
         return 1;
@@ -321,6 +322,12 @@ static int check_battle(const PalPack *nor, const PalPack *tf, uint16_t team_num
     }
     if (snapshot.player_sprites == 0 || snapshot.enemy_sprites == 0) {
         return 7;
+    }
+    if (!PalBattle_LoadEffectScratch(nor, 37, &effect) ||
+        effect.data != pal_psram_effect ||
+        effect.size != 65502u ||
+        checksum32(effect.data, effect.size) == 0) {
+        return 8;
     }
     return 0;
 }

@@ -3,6 +3,7 @@
 #include "pal_memory.h"
 
 #include <stddef.h>
+#include <string.h>
 
 #define DATA_ENEMY_TEAM_CHUNK 2u
 #define DATA_BATTLE_EFFECT_CHUNK 10u
@@ -211,5 +212,30 @@ bool PalBattle_LoadSnapshot(
     snapshot->enemy_sprites = pal_battle_enemy_sprites;
     snapshot->effect_data = effect_span.data;
     snapshot->battle_effect_data = battle_effect_span.data;
+    return true;
+}
+
+bool PalBattle_LoadEffectScratch(const PalPack *pack, uint16_t effect_num, PalBattleBuffer *buffer)
+{
+    PalPackSpan span;
+
+    if (buffer == NULL) {
+        return false;
+    }
+    buffer->data = NULL;
+    buffer->size = 0;
+
+    if (!PalPack_MapConst(pack, PAL_PACK_ARCHIVE_FIRE, effect_num, &span)) {
+        return false;
+    }
+    if (span.data == NULL || span.size == 0 ||
+        span.size > PAL_PSRAM_EFFECT_BYTES ||
+        span.format != PAL_PACK_FORMAT_NATIVE) {
+        return false;
+    }
+
+    memcpy(pal_psram_effect, span.data, span.size);
+    buffer->data = pal_psram_effect;
+    buffer->size = span.size;
     return true;
 }

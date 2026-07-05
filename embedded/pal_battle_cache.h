@@ -21,6 +21,11 @@ typedef struct PalBattleSpriteRef {
     uint32_t size;
 } PalBattleSpriteRef;
 
+typedef struct PalBattleBuffer {
+    uint8_t *data;
+    uint32_t size;
+} PalBattleBuffer;
+
 typedef struct PalBattleSnapshot {
     uint16_t team_num;
     uint16_t battlefield_num;
@@ -48,6 +53,8 @@ bool PalBattle_LoadSnapshot(
     uint16_t player_count,
     uint16_t effect_num,
     PalBattleSnapshot *snapshot);
+
+bool PalBattle_LoadEffectScratch(const PalPack *pack, uint16_t effect_num, PalBattleBuffer *buffer);
 
 #ifdef __cplusplus
 }

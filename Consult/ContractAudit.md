@@ -365,7 +365,7 @@ The smoke also exercises `embedded/pal_battle_cache.c` on real high-pressure bat
 | 342 | 3 | 2 |
 | 385 | 3 | 1 |
 
-For each team it reads the enemy-team table from `DATA`, resolves enemy sprite ids through the `SSS` object table, copies a decoded `FBP` background from the TF pack into `pal_psram_fbp_background`, maps player sprites from `F`, maps enemy sprites from `ABC`, maps one `FIRE` effect, and maps `DATA.MKF #10` battle effects as read-only `const uint8_t` data.
+For each team it reads the enemy-team table from `DATA`, resolves enemy sprite ids through the `SSS` object table, copies a decoded `FBP` background from the TF pack into `pal_psram_fbp_background`, maps player sprites from `F`, maps enemy sprites from `ABC`, maps one `FIRE` effect, and maps `DATA.MKF #10` battle effects as read-only `const uint8_t` data. It also copies the largest observed `FIRE.MKF` effect chunk (#37, 65,502 bytes) into `pal_psram_effect` to prove the fixed PSRAM effect scratch path.
 
 The smoke also exercises `embedded/pal_rng_cache.c` on large real RNG frames:
 
@@ -513,7 +513,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=25331 .rodata=160 data=720 bss=7460512
+text=25742 .rodata=160 data=720 bss=7460512
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -539,7 +539,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=609647
+size=610199
 PASS
 ```
 
