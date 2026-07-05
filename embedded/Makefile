@@ -11,6 +11,7 @@ PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
 CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections
 LDFLAGS ?= -Wl,--gc-sections
 MAP_LDFLAGS = -Wl,-Map,$@.map,--cref
+NOHEAP_LDFLAGS = -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free
 SDL_CFLAGS := $(shell $(SDL_CONFIG) --cflags)
 SDL_LIBS := $(shell $(SDL_CONFIG) --libs)
 
@@ -28,20 +29,20 @@ all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_C
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(SMOKE): pal_pack.c pal_pack.h pal_pack_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) pal_pack.c pal_pack_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS)
+$(SMOKE): pal_noheap.c pal_pack.c pal_pack.h pal_pack_smoke.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) pal_noheap.c pal_pack.c pal_pack_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
-$(MEMORY_SMOKE): pal_memory.c pal_memory.h pal_memory_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) pal_memory.c pal_memory_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS)
+$(MEMORY_SMOKE): pal_noheap.c pal_memory.c pal_memory.h pal_memory_smoke.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) pal_noheap.c pal_memory.c pal_memory_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
-$(NATIVE_SDL_SMOKE): pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_video_static.c pal_video_static.h pal_native_sdl_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_video_static.c pal_native_sdl_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS) $(SDL_LIBS)
+$(NATIVE_SDL_SMOKE): pal_noheap.c pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_video_static.c pal_video_static.h pal_native_sdl_smoke.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_noheap.c pal_memory.c pal_pack.c pal_video_static.c pal_native_sdl_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS) $(SDL_LIBS)
 
-$(REALDATA_SDL_SMOKE): pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_scene_cache.c pal_scene_cache.h pal_battle_cache.c pal_battle_cache.h pal_rng_cache.c pal_rng_cache.h pal_sfx_cache.c pal_sfx_cache.h pal_audio_static.c pal_audio_static.h pal_global_cache.c pal_global_cache.h pal_text_cache.c pal_text_cache.h pal_font_cache.c pal_font_cache.h pal_save_cache.c pal_save_cache.h pal_video_static.c pal_video_static.h pal_ui_cache.c pal_ui_cache.h pal_music_cache.c pal_music_cache.h pal_menu_static.c pal_menu_static.h pal_ending_static.c pal_ending_static.h pal_palette_static.c pal_palette_static.h pal_dialog_static.c pal_dialog_static.h pal_realdata_sdl_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_memory.c pal_pack.c pal_scene_cache.c pal_battle_cache.c pal_rng_cache.c pal_sfx_cache.c pal_audio_static.c pal_global_cache.c pal_text_cache.c pal_font_cache.c pal_save_cache.c pal_video_static.c pal_ui_cache.c pal_music_cache.c pal_menu_static.c pal_ending_static.c pal_palette_static.c pal_dialog_static.c pal_realdata_sdl_smoke.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS) $(SDL_LIBS)
+$(REALDATA_SDL_SMOKE): pal_noheap.c pal_memory.c pal_memory.h pal_pack.c pal_pack.h pal_scene_cache.c pal_scene_cache.h pal_battle_cache.c pal_battle_cache.h pal_rng_cache.c pal_rng_cache.h pal_sfx_cache.c pal_sfx_cache.h pal_audio_static.c pal_audio_static.h pal_global_cache.c pal_global_cache.h pal_text_cache.c pal_text_cache.h pal_font_cache.c pal_font_cache.h pal_save_cache.c pal_save_cache.h pal_video_static.c pal_video_static.h pal_ui_cache.c pal_ui_cache.h pal_music_cache.c pal_music_cache.h pal_menu_static.c pal_menu_static.h pal_ending_static.c pal_ending_static.h pal_palette_static.c pal_palette_static.h pal_dialog_static.c pal_dialog_static.h pal_realdata_sdl_smoke.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) pal_noheap.c pal_memory.c pal_pack.c pal_scene_cache.c pal_battle_cache.c pal_rng_cache.c pal_sfx_cache.c pal_audio_static.c pal_global_cache.c pal_text_cache.c pal_font_cache.c pal_save_cache.c pal_video_static.c pal_ui_cache.c pal_music_cache.c pal_menu_static.c pal_ending_static.c pal_palette_static.c pal_dialog_static.c pal_realdata_sdl_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS) $(SDL_LIBS)
 
-$(PACK_CHECK): pal_pack.c pal_pack.h ../tools/pal_pack_check.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I. pal_pack.c ../tools/pal_pack_check.c -o $@ $(LDFLAGS) $(MAP_LDFLAGS)
+$(PACK_CHECK): pal_noheap.c pal_pack.c pal_pack.h ../tools/pal_pack_check.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I. pal_noheap.c pal_pack.c ../tools/pal_pack_check.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
 check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE)
 	$(SMOKE)

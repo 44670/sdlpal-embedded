@@ -20,6 +20,7 @@ tools/pal_pack_check.c
 embedded/pal_pack.c
 embedded/pal_pack.h
 embedded/pal_pack_smoke.c
+embedded/pal_noheap.c
 embedded/pal_memory.c
 embedded/pal_memory.h
 embedded/pal_memory_smoke.c
@@ -172,6 +173,7 @@ The first runtime slices are a pack reader and a plain static-buffer declaration
 ```text
 embedded/pal_pack.c
 embedded/pal_pack.h
+embedded/pal_noheap.c
 embedded/pal_memory.c
 embedded/pal_memory.h
 embedded/pal_native_sdl_smoke.c
@@ -215,6 +217,7 @@ Properties:
 - maps pack payloads as `const uint8_t`,
 - copies TF-style raw chunks into caller-supplied `uint8_t` buffers,
 - uses no `malloc`, `calloc`, `realloc`, or `free`,
+- links embedded smoke artifacts with `--wrap=malloc/calloc/realloc/free`, with wrappers that trap if project objects call the heap,
 - contains no decompression path,
 - rejects chunks flagged as compressed,
 - keeps indexed video work in named SRAM/PSRAM buffers.
@@ -557,7 +560,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=619392
+size=620502
 PASS
 ```
 
