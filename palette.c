@@ -21,6 +21,45 @@
 
 #include "main.h"
 
+#define PAL_PALETTE_COLORS 256
+#define PAL_PALETTE_RGB_BYTES (PAL_PALETTE_COLORS * 3)
+#define PAL_PALETTE_PAT_BYTES (PAL_PALETTE_RGB_BYTES * 2)
+#define PAL_PALETTE_SDL_BYTES (PAL_PALETTE_COLORS * sizeof(SDL_Color))
+
+#if defined(__GNUC__) && (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS))
+#define PAL_PALETTE_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#else
+#define PAL_PALETTE_SRAM
+#endif
+
+static uint8_t pal_sram_palette_base[PAL_PALETTE_SDL_BYTES] PAL_PALETTE_SRAM;
+static uint8_t pal_sram_palette_work[PAL_PALETTE_SDL_BYTES] PAL_PALETTE_SRAM;
+static uint8_t pal_sram_palette_next[PAL_PALETTE_SDL_BYTES] PAL_PALETTE_SRAM;
+
+static SDL_Color *
+PAL_PaletteBase(
+   VOID
+)
+{
+   return (SDL_Color *)pal_sram_palette_base;
+}
+
+static SDL_Color *
+PAL_PaletteWork(
+   VOID
+)
+{
+   return (SDL_Color *)pal_sram_palette_work;
+}
+
+static SDL_Color *
+PAL_PaletteNext(
+   VOID
+)
+{
+   return (SDL_Color *)pal_sram_palette_next;
+}
+
 SDL_Color *
 PAL_GetPalette(
    INT         iPaletteNum,
@@ -43,13 +82,26 @@ PAL_GetPalette(
 
 --*/
 {
-   static SDL_Color      palette[256];
+   SDL_Color            *palette = PAL_PaletteBase();
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   LPCBYTE               buf;
+#else
    PAL_LARGE BYTE        buf[1536];
+#endif
    INT                   i;
+   UINT                  bufSize;
    FILE                 *fp;
 
-   memset(palette, 0xff, sizeof(SDL_Color)*256);
+   memset(palette, 0xff, PAL_PALETTE_SDL_BYTES);
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   fp = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_PAT);
+   if (fp == NULL || !PAL_MKFMapChunk(fp, iPaletteNum, &buf, &bufSize) ||
+      bufSize < PAL_PALETTE_RGB_BYTES)
+   {
+      return NULL;
+   }
+#else
    fp = UTIL_OpenRequiredFile("pat.mkf");
 
    //
@@ -66,7 +118,10 @@ PAL_GetPalette(
       //
       return NULL;
    }
-   else if (i <= 256 * 3)
+   bufSize = (UINT)i;
+#endif
+
+   if (bufSize <= PAL_PALETTE_RGB_BYTES)
    {
       //
       // There is no night colors in the palette
@@ -74,11 +129,11 @@ PAL_GetPalette(
       fNight = FALSE;
    }
 
-   for (i = 0; i < 256; i++)
+   for (i = 0; i < PAL_PALETTE_COLORS; i++)
    {
-      palette[i].r = buf[(fNight ? 256 * 3 : 0) + i * 3] << 2;
-      palette[i].g = buf[(fNight ? 256 * 3 : 0) + i * 3 + 1] << 2;
-      palette[i].b = buf[(fNight ? 256 * 3 : 0) + i * 3 + 2] << 2;
+      palette[i].r = buf[(fNight ? PAL_PALETTE_RGB_BYTES : 0) + i * 3] << 2;
+      palette[i].g = buf[(fNight ? PAL_PALETTE_RGB_BYTES : 0) + i * 3 + 1] << 2;
+      palette[i].b = buf[(fNight ? PAL_PALETTE_RGB_BYTES : 0) + i * 3 + 2] << 2;
 #if 0
       palette[i].r += (255 - palette[i].r) / 5;
       palette[i].g += (255 - palette[i].g) / 5;
@@ -144,18 +199,18 @@ PAL_FadeOut(
 {
    int                      i, j;
    UINT                     time;
-   PAL_LARGE SDL_Color      palette[256];
-   PAL_LARGE SDL_Color      newpalette[256];
+   SDL_Color               *palette = PAL_PaletteWork();
+   SDL_Color               *newpalette = PAL_PaletteNext();
 
    //
    // Get the original palette...
    //
-   for (i = 0; i < 256; i++)
+   for (i = 0; i < PAL_PALETTE_COLORS; i++)
    {
       palette[i] = VIDEO_GetPalette()[i];
    }
 
-   memset(newpalette, 0xff, sizeof(SDL_Color)*256);
+   memset(newpalette, 0xff, PAL_PALETTE_SDL_BYTES);
 
    //
    // Start fading out...
@@ -173,7 +228,7 @@ PAL_FadeOut(
          break;
       }
 
-      for (i = 0; i < 256; i++)
+      for (i = 0; i < PAL_PALETTE_COLORS; i++)
       {
          newpalette[i].r = (palette[i].r * j) >> 6;
          newpalette[i].g = (palette[i].g * j) >> 6;
@@ -185,7 +240,7 @@ PAL_FadeOut(
       UTIL_Delay(10);
    }
 
-   memset(newpalette, 0, sizeof(newpalette));
+   memset(newpalette, 0, PAL_PALETTE_SDL_BYTES);
    VIDEO_SetPalette(newpalette);
 }
 
@@ -217,14 +272,18 @@ PAL_FadeIn(
    int                      i, j;
    UINT                     time;
    SDL_Color               *palette;
-   PAL_LARGE SDL_Color      newpalette[256];
+   SDL_Color               *newpalette = PAL_PaletteNext();
     
-   memset(newpalette, 0xff, sizeof(SDL_Color)*256);
+   memset(newpalette, 0xff, PAL_PALETTE_SDL_BYTES);
 
    //
    // Get the new palette...
    //
    palette = PAL_GetPalette(iPaletteNum, fNight);
+   if (palette == NULL)
+   {
+      return;
+   }
 
    //
    // Start fading in...
@@ -243,7 +302,7 @@ PAL_FadeIn(
 
       j = 60 - j;
 
-      for (i = 0; i < 256; i++)
+      for (i = 0; i < PAL_PALETTE_COLORS; i++)
       {
          newpalette[i].r = (palette[i].r * j) >> 6;
          newpalette[i].g = (palette[i].g * j) >> 6;
@@ -283,11 +342,11 @@ PAL_SceneFade(
 
 --*/
 {
-   SDL_Color            *palette, newpalette[256];
+   SDL_Color            *palette, *newpalette = PAL_PaletteNext();
    int                   i, j;
    DWORD                 time;
 
-   memset(newpalette, 0xff, sizeof(SDL_Color)*256);
+   memset(newpalette, 0xff, PAL_PALETTE_SDL_BYTES);
 
    palette = PAL_GetPalette(iPaletteNum, fNight);
 
@@ -322,7 +381,7 @@ PAL_SceneFade(
          //
          // Calculate the current palette...
          //
-         for (j = 0; j < 256; j++)
+         for (j = 0; j < PAL_PALETTE_COLORS; j++)
          {
             newpalette[j].r = (palette[j].r * i) >> 6;
             newpalette[j].g = (palette[j].g * i) >> 6;
@@ -358,7 +417,7 @@ PAL_SceneFade(
          //
          // Calculate the current palette...
          //
-         for (j = 0; j < 256; j++)
+         for (j = 0; j < PAL_PALETTE_COLORS; j++)
          {
             newpalette[j].r = (palette[j].r * i) >> 6;
             newpalette[j].g = (palette[j].g * i) >> 6;
@@ -405,17 +464,17 @@ PAL_PaletteFade(
    int            i, j;
    UINT           time;
    SDL_Color     *newpalette = PAL_GetPalette(iPaletteNum, fNight);
-   PAL_LARGE SDL_Color      palette[256];
-   PAL_LARGE SDL_Color		t[256];
+   SDL_Color     *palette = PAL_PaletteWork();
+   SDL_Color     *t = PAL_PaletteNext();
 
-   memset(t, 0xff, sizeof(t));
+   memset(t, 0xff, PAL_PALETTE_SDL_BYTES);
 
    if (newpalette == NULL)
    {
       return;
    }
 
-   for (i = 0; i < 256; i++)
+   for (i = 0; i < PAL_PALETTE_COLORS; i++)
    {
       palette[i] = VIDEO_GetPalette()[i];
    }
@@ -427,7 +486,7 @@ PAL_PaletteFade(
    {
       time = SDL_GetTicks() + (fUpdateScene ? FRAME_TIME : FRAME_TIME / 4);
 
-      for (j = 0; j < 256; j++)
+      for (j = 0; j < PAL_PALETTE_COLORS; j++)
       {
          t[j].r =
             (BYTE)(((INT)(palette[j].r) * (31 - i) + (INT)(newpalette[j].r) * i) / 31);
@@ -484,12 +543,16 @@ PAL_ColorFade(
 --*/
 {
    SDL_Color       *palette;
-   PAL_LARGE SDL_Color        newpalette[256];
+   SDL_Color       *newpalette = PAL_PaletteNext();
    int              i, j;
 
-   memset(newpalette, 0xff, sizeof(SDL_Color)*255);
+   memset(newpalette, 0xff, PAL_PALETTE_SDL_BYTES);
 
    palette = PAL_GetPalette(gpGlobals->wNumPalette, gpGlobals->fNightPalette);
+   if (palette == NULL)
+   {
+      return;
+   }
 
    iDelay *= 10;
    if (iDelay == 0)
@@ -499,14 +562,14 @@ PAL_ColorFade(
 
    if (fFrom)
    {
-      for (i = 0; i < 256; i++)
+      for (i = 0; i < PAL_PALETTE_COLORS; i++)
       {
          newpalette[i] = palette[bColor];
       }
 
       for (i = 0; i < 64; i++)
       {
-         for (j = 0; j < 256; j++)
+         for (j = 0; j < PAL_PALETTE_COLORS; j++)
          {
             if (newpalette[j].r > palette[j].r)
             {
@@ -544,11 +607,11 @@ PAL_ColorFade(
    }
    else
    {
-      memcpy(newpalette, palette, sizeof(newpalette));
+      memcpy(newpalette, palette, PAL_PALETTE_SDL_BYTES);
 
       for (i = 0; i < 64; i++)
       {
-         for (j = 0; j < 256; j++)
+         for (j = 0; j < PAL_PALETTE_COLORS; j++)
          {
             if (newpalette[j].r > palette[bColor].r)
             {
@@ -582,7 +645,7 @@ PAL_ColorFade(
          UTIL_Delay(iDelay);
       }
 
-      for (i = 0; i < 256; i++)
+      for (i = 0; i < PAL_PALETTE_COLORS; i++)
       {
          newpalette[i] = palette[bColor];
       }
@@ -611,14 +674,18 @@ PAL_FadeToRed(
 --*/
 {
    SDL_Color                 *palette;
-   PAL_LARGE SDL_Color        newpalette[256];
+   SDL_Color                 *newpalette = PAL_PaletteNext();
    int                        i, j;
    BYTE                       color;
 
-   memset(newpalette, 0xff, sizeof(SDL_Color)*255);
+   memset(newpalette, 0xff, PAL_PALETTE_SDL_BYTES);
     
    palette = PAL_GetPalette(gpGlobals->wNumPalette, gpGlobals->fNightPalette);
-   memcpy(newpalette, palette, sizeof(newpalette));
+   if (palette == NULL)
+   {
+      return;
+   }
+   memcpy(newpalette, palette, PAL_PALETTE_SDL_BYTES);
 
    for (i = 0; i < gpScreen->pitch * gpScreen->h; i++)
    {
@@ -632,7 +699,7 @@ PAL_FadeToRed(
 
    for (i = 0; i < 32; i++)
    {
-      for (j = 0; j < 256; j++)
+      for (j = 0; j < PAL_PALETTE_COLORS; j++)
       {
          if (j == 0x4F)
          {

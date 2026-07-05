@@ -651,9 +651,9 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=187093 data=3736 bss=7439096
-.text=151685 .rodata=7400 .data=144 .bss=7439096
-pal_sram_ total=227840 limit=307200
+text=185674 data=3728 bss=7441112
+.text=150469 .rodata=7304 .data=144 .bss=7441112
+pal_sram_ total=230912 limit=307200
 pal_psram_ total=7131664 limit=8388608
 ```
 
@@ -704,6 +704,8 @@ The contract `ui.c` path now uses named PSRAM storage for `DATA.MKF #9` UI sprit
 
 The contract `ui.c` object-description load/free path is a no-heap stub for now. Final UI parity should load object descriptions from generated read-only text/object-description data rather than the legacy linked-list loader.
 
+The contract `palette.c` path now reads `PAT` chunks through the generated pack bridge and stores loaded/current/work palette colors in named SRAM `uint8_t` buffers (`pal_sram_palette_base`, `pal_sram_palette_work`, `pal_sram_palette_next`). It no longer opens the original `pat.mkf` in contract mode, and palette fades no longer use `PAL_LARGE SDL_Color[256]` local arrays.
+
 ## Current Contract Status
 
 `make -C unix EMBEDDED_CONTRACT=1 contract-check` passes for the reduced full-engine contract profile:
@@ -713,9 +715,9 @@ source heap hits: 0
 source decompress hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=187093 data=3736 bss=7439096
-.text=151685 .rodata=7400 .data=144 .bss=7439096
-pal_sram_ total=227840 / 307200
+text=185674 data=3728 bss=7441112
+.text=150469 .rodata=7304 .data=144 .bss=7441112
+pal_sram_ total=230912 / 307200
 pal_psram_ total=7131664 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
