@@ -1012,6 +1012,49 @@ PAL_MKFReadChunk(
    return -1;
 }
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+
+INT
+PAL_MKFCompressedChunkSizeUnavailable(
+   UINT    uiChunkNum,
+   FILE   *fp
+)
+{
+   (void)uiChunkNum;
+   (void)fp;
+   return -1;
+}
+
+INT
+PAL_MKFCompressedChunkReadUnavailable(
+   LPBYTE          lpBuffer,
+   UINT            uiBufferSize,
+   UINT            uiChunkNum,
+   FILE           *fp
+)
+{
+   (void)lpBuffer;
+   (void)uiBufferSize;
+   (void)uiChunkNum;
+   (void)fp;
+   return -1;
+}
+
+INT
+PAL_RuntimeCodecUnavailable(
+   LPCVOID      Source,
+   LPVOID       Destination,
+   INT          DestSize
+)
+{
+   (void)Source;
+   (void)Destination;
+   (void)DestSize;
+   return -1;
+}
+
+#else
+
 INT
 PAL_MKFGetDecompressedSize(
    UINT    uiChunkNum,
@@ -1134,3 +1177,5 @@ PAL_MKFDecompressChunk(
 
    return len;
 }
+
+#endif

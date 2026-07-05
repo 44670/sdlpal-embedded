@@ -344,6 +344,44 @@ TerminateOnError(
    PAL_Shutdown(255);
 }
 
+#ifdef PAL_NO_RUNTIME_HEAP
+
+static void
+PAL_RuntimeHeapTrap(
+   void
+)
+{
+#if defined(__GNUC__)
+   __builtin_trap();
+#else
+   PAL_Shutdown(255);
+#endif
+}
+
+void *
+PAL_RuntimeHeapAllocUnavailable(
+   size_t               buffer_size
+)
+{
+   (void)buffer_size;
+   PAL_RuntimeHeapTrap();
+   return NULL;
+}
+
+void *
+PAL_RuntimeHeapZeroAllocUnavailable(
+   size_t               n,
+   size_t               size
+)
+{
+   (void)n;
+   (void)size;
+   PAL_RuntimeHeapTrap();
+   return NULL;
+}
+
+#else
+
 void *
 UTIL_malloc(
    size_t               buffer_size
@@ -388,6 +426,8 @@ UTIL_calloc(
 
    return buffer; // nothing went wrong, so return buffer pointer
 }
+
+#endif
 
 FILE *
 UTIL_OpenRequiredFile(

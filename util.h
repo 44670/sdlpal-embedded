@@ -97,6 +97,24 @@ TerminateOnError(
    ...
 );
 
+#ifdef PAL_NO_RUNTIME_HEAP
+
+void *
+PAL_RuntimeHeapAllocUnavailable(
+   size_t               buffer_size
+);
+
+void *
+PAL_RuntimeHeapZeroAllocUnavailable(
+   size_t               n,
+   size_t               size
+);
+
+#define UTIL_malloc PAL_RuntimeHeapAllocUnavailable
+#define UTIL_calloc PAL_RuntimeHeapZeroAllocUnavailable
+
+#else
+
 void *
 UTIL_malloc(
    size_t               buffer_size
@@ -107,6 +125,8 @@ UTIL_calloc(
    size_t               n,
    size_t               size
 );
+
+#endif
 
 FILE *
 UTIL_OpenRequiredFile(

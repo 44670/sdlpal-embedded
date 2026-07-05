@@ -608,7 +608,7 @@ On this host it selects SDL2 and produces:
 unix/sdlpal-embedded-contract
 ```
 
-This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, and `--wrap=malloc/calloc/realloc/free`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, and codepage-table objects from the full-engine build. The remaining audio/video/font/text entry points are inert stubs:
+This profile builds with `-ffunction-sections`, `-fdata-sections`, `--gc-sections`, `--wrap=malloc/calloc/realloc/free`, `PAL_NO_RUNTIME_HEAP`, and `PAL_NO_RUNTIME_DECOMPRESS`. It excludes the MP3, OGG, OPUS, AVI, Timidity, TinySoundFont, GLSL, native MIDI, launcher UI, desktop sound, desktop RIX, high-quality resampler, adplug, desktop font, desktop text, and codepage-table objects from the full-engine build. The remaining audio/video/font/text entry points are inert stubs:
 
 ```text
 resampler_init
@@ -640,21 +640,17 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=277973 data=3808 bss=79320
-.text=153109 .rodata=95960 .data=144 .bss=79320
+text=274029 data=3808 bss=79288
+.text=150037 .rodata=95464 .data=144 .bss=79288
 ```
 
-This is still not an embedded-contract binary. Direct libc heap imports are gone from the linked reduced profile, but the full-engine heap wrapper functions and YJ paths are still present:
+The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`:
 
 ```text
-Decompress
-PAL_MKFDecompressChunk
-PAL_MKFGetDecompressedSize
-UTIL_calloc
-UTIL_malloc
-YJ1_Decompress
-YJ2_Decompress
+objdump -t forbidden symbols: 0
 ```
+
+This is still not a usable embedded runtime. The macros remove linked heap/decompress entry points by routing old call sites to unavailable traps; the remaining engineering work is to replace those desktop resource paths with the generated pack/static-buffer slices.
 
 ## Current Contract Failures
 

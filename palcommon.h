@@ -242,6 +242,37 @@ PAL_MKFReadChunk(
    FILE           *fp
 );
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+
+INT
+PAL_MKFCompressedChunkSizeUnavailable(
+   UINT    uiChunkNum,
+   FILE   *fp
+);
+
+INT
+PAL_MKFCompressedChunkReadUnavailable(
+   LPBYTE          lpBuffer,
+   UINT            uiBufferSize,
+   UINT            uiChunkNum,
+   FILE           *fp
+);
+
+INT
+PAL_RuntimeCodecUnavailable(
+   LPCVOID      Source,
+   LPVOID       Destination,
+   INT          DestSize
+);
+
+#define PAL_MKFGetDecompressedSize PAL_MKFCompressedChunkSizeUnavailable
+#define PAL_MKFDecompressChunk PAL_MKFCompressedChunkReadUnavailable
+#define Decompress PAL_RuntimeCodecUnavailable
+#define YJ1_Decompress PAL_RuntimeCodecUnavailable
+#define YJ2_Decompress PAL_RuntimeCodecUnavailable
+
+#else
+
 INT
 PAL_MKFGetDecompressedSize(
    UINT    uiChunkNum,
@@ -277,6 +308,8 @@ YJ2_Decompress(
    LPVOID       Destination,
    INT          DestSize
 );
+
+#endif
 
 PAL_C_LINKAGE_END
 

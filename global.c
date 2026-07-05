@@ -196,10 +196,9 @@ PAL_InitGlobals(
    //
    if (!gConfig.pszMsgFile) PAL_SetCodePage(PAL_DetectCodePage("word.dat"));
 
-   //
-   // Set decompress function
-   //
+#ifndef PAL_NO_RUNTIME_DECOMPRESS
    Decompress = gConfig.fIsWIN95 ? YJ2_Decompress : YJ1_Decompress;
+#endif
 
    gpGlobals->lpObjectDesc = gConfig.fIsWIN95 ? NULL : PAL_LoadObjectDesc("desc.dat");
    gpGlobals->bCurrentSaveSlot = 1;
