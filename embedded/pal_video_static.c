@@ -15,6 +15,24 @@ static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b)
            (uint16_t)(b >> 3);
 }
 
+static bool valid_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height)
+{
+    return width != 0 && height != 0 &&
+           x < PAL_VIDEO_WIDTH && y < PAL_VIDEO_HEIGHT &&
+           width <= PAL_VIDEO_WIDTH - x &&
+           height <= PAL_VIDEO_HEIGHT - y;
+}
+
+static void copy_rect(uint8_t *dst, const uint8_t *src, uint16_t x, uint16_t y, uint16_t width, uint16_t height)
+{
+    uint16_t row;
+
+    for (row = 0; row < height; row++) {
+        uint32_t offset = ((uint32_t)y + row) * PAL_VIDEO_WIDTH + x;
+        memcpy(dst + offset, src + offset, width);
+    }
+}
+
 void PalVideo_Clear(uint8_t color)
 {
     memset(pal_sram_framebuffer, color, PAL_VIDEO_FRAMEBUFFER_BYTES);
@@ -28,6 +46,24 @@ void PalVideo_SaveScreen(void)
 void PalVideo_RestoreScreen(void)
 {
     memcpy(pal_sram_framebuffer, pal_psram_screen_bak, PAL_VIDEO_FRAMEBUFFER_BYTES);
+}
+
+bool PalVideo_SaveRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height)
+{
+    if (!valid_rect(x, y, width, height)) {
+        return false;
+    }
+    copy_rect(pal_psram_screen_bak, pal_sram_framebuffer, x, y, width, height);
+    return true;
+}
+
+bool PalVideo_RestoreRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height)
+{
+    if (!valid_rect(x, y, width, height)) {
+        return false;
+    }
+    copy_rect(pal_sram_framebuffer, pal_psram_screen_bak, x, y, width, height);
+    return true;
 }
 
 bool PalVideo_SetPaletteRgb(uint16_t first_color, uint16_t color_count, const uint8_t *rgb)

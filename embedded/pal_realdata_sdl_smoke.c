@@ -203,6 +203,7 @@ static int exercise_sdl_surface(void)
     const uint16_t *line = 0;
     uint16_t pixels = 0;
     uint8_t saved_pixel;
+    uint8_t rect_pixel;
 
     if (!PalVideo_SetPaletteRgb(0, 8, kPaletteRgb)) {
         return 6;
@@ -211,6 +212,21 @@ static int exercise_sdl_surface(void)
     PalVideo_Clear(7);
     if (pal_sram_framebuffer[0] != 7u) {
         return 7;
+    }
+    PalVideo_RestoreScreen();
+    rect_pixel = pal_sram_framebuffer[PAL_VIDEO_WIDTH + 1u];
+    if (!PalVideo_SaveRect(1, 1, 8, 4)) {
+        return 12;
+    }
+    PalVideo_Clear(7);
+    if (!PalVideo_RestoreRect(1, 1, 8, 4)) {
+        return 13;
+    }
+    if (pal_sram_framebuffer[PAL_VIDEO_WIDTH + 1u] != rect_pixel ||
+        pal_sram_framebuffer[0] != 7u ||
+        PalVideo_SaveRect(319, 199, 2, 1) ||
+        PalVideo_RestoreRect(0, 0, 0, 1)) {
+        return 14;
     }
     PalVideo_RestoreScreen();
     saved_pixel = pal_sram_framebuffer[0];
