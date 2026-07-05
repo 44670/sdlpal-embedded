@@ -637,7 +637,6 @@ int main(int argc, char **argv)
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_MAP, 226) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_GOP, 226) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_RNG, 12) ||
-        expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_VOC, 276) ||
         expect_chunk_count(&tf.pack, PAL_PACK_ARCHIVE_SFX, 276);
     if (rc == 0) {
         rc =

@@ -63,7 +63,7 @@ ARCHIVE_IDS = {
 }
 
 DEFAULT_NOR = ["ABC", "BALL", "DATA", "F", "FIRE", "MGO", "MIDI", "MUS", "PAT", "RGM", "SSS", "TEXT", "FONT"]
-DEFAULT_TF = ["FBP", "GOP", "MAP", "RNG", "VOC", "SFX"]
+DEFAULT_TF = ["FBP", "GOP", "MAP", "RNG", "SFX"]
 
 
 @dataclass(frozen=True)

@@ -139,13 +139,13 @@ These sizes are relevant for a shared decompression scratch buffer and for decid
   - `MIDI.MKF`: 762,442 bytes
   - `MUS.MKF`: 331,284 bytes
   - `VOC.MKF`: 1,997,044 bytes
-- Largest `VOC.MKF` chunks measured in the generated TF pack:
+- Largest source `VOC.MKF` chunks measured before host conversion:
   - #213: 52,006 bytes
   - #272: 50,954 bytes
   - #255: 38,334 bytes
   - #214: 37,702 bytes
   - #192: 33,768 bytes
-- Generated SFX archive payload: 9,236,076 bytes. It contains 276 host-converted 22050Hz mono PCM16 chunks derived from `VOC.MKF`.
+- Generated SFX archive payload: 9,236,076 bytes. It contains 276 host-converted 22050Hz mono PCM16 chunks derived from `VOC.MKF`; the default runtime packs omit the raw VOC archive.
 - Largest checked converted SFX chunks:
   - #255: 211,152 bytes
   - #213: 204,664 bytes

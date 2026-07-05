@@ -26,6 +26,28 @@ PACK_HEADER_SIZE = 32
 PACK_ARCHIVE_ENTRY_SIZE = 12
 PACK_CHUNK_ENTRY_SIZE = 16
 PACK_CHUNK_F_COMPRESSED = 0x0001
+PACK_ARCHIVE_IDS = {
+    "ABC": 1,
+    "BALL": 2,
+    "DATA": 3,
+    "F": 4,
+    "FBP": 5,
+    "FIRE": 6,
+    "GOP": 7,
+    "MAP": 8,
+    "MGO": 9,
+    "MIDI": 10,
+    "MUS": 11,
+    "PAT": 12,
+    "RGM": 13,
+    "RNG": 14,
+    "SSS": 15,
+    "VOC": 16,
+    "TEXT": 17,
+    "FONT": 18,
+    "SFX": 19,
+}
+PACK_ARCHIVE_NAMES = {archive_id: name for name, archive_id in PACK_ARCHIVE_IDS.items()}
 PACK_FORMAT_NAMES = {
     0: "RAW",
     1: "NATIVE",
@@ -286,6 +308,23 @@ def parse_pack_size_budget(values: list[str]) -> dict[Path, int]:
     return result
 
 
+def parse_archive_ids(values: list[str]) -> set[int]:
+    result: set[int] = set()
+    for item in values:
+        for raw_name in item.split(","):
+            name = raw_name.strip().upper()
+            if not name:
+                continue
+            if name in PACK_ARCHIVE_IDS:
+                result.add(PACK_ARCHIVE_IDS[name])
+            else:
+                try:
+                    result.add(int(name, 0))
+                except ValueError as exc:
+                    raise SystemExit(f"unknown pack archive: {raw_name}") from exc
+    return result
+
+
 def parse_pack_chunks(path: Path) -> tuple[bytes, list[PackChunk]]:
     data = path.read_bytes()
     if len(data) < PACK_HEADER_SIZE:
@@ -328,7 +367,7 @@ def parse_pack_chunks(path: Path) -> tuple[bytes, list[PackChunk]]:
     return data, chunks
 
 
-def check_pack(path: Path, max_size: int | None) -> tuple[list[str], str]:
+def check_pack(path: Path, max_size: int | None, forbidden_archives: set[int]) -> tuple[list[str], str]:
     errors: list[str] = []
     report: list[str] = []
 
@@ -348,6 +387,7 @@ def check_pack(path: Path, max_size: int | None) -> tuple[list[str], str]:
     bad_flags: list[PackChunk] = []
     bad_magic: list[PackChunk] = []
     bad_formats: list[PackChunk] = []
+    forbidden_present: set[int] = set()
 
     for chunk in chunks:
         archive_payloads[chunk.archive_id] = archive_payloads.get(chunk.archive_id, 0) + chunk.size
@@ -357,6 +397,8 @@ def check_pack(path: Path, max_size: int | None) -> tuple[list[str], str]:
             bad_flags.append(chunk)
         if chunk.fmt not in PACK_FORMAT_NAMES:
             bad_formats.append(chunk)
+        if chunk.archive_id in forbidden_archives:
+            forbidden_present.add(chunk.archive_id)
         payload = data[chunk.offset : chunk.offset + min(chunk.size, 4)]
         if payload == b"YJ_1":
             bad_magic.append(chunk)
@@ -367,6 +409,9 @@ def check_pack(path: Path, max_size: int | None) -> tuple[list[str], str]:
         errors.append(f"{path}: chunks with unknown formats: {len(bad_formats)}")
     if bad_magic:
         errors.append(f"{path}: chunks still carrying YJ_1 payloads: {len(bad_magic)}")
+    if forbidden_present:
+        names = ", ".join(PACK_ARCHIVE_NAMES.get(archive_id, str(archive_id)) for archive_id in sorted(forbidden_present))
+        errors.append(f"{path}: forbidden archives present: {names}")
 
     report.append(f"## pack {path}")
     report.append(f"size={len(data)} chunks={len(chunks)} payload={sum(chunk.size for chunk in chunks)}")
@@ -379,6 +424,10 @@ def check_pack(path: Path, max_size: int | None) -> tuple[list[str], str]:
     ))
     if max_size is not None:
         report.append(f"max-size={max_size}")
+    if forbidden_present:
+        report.append("forbidden-archives " + " ".join(
+            PACK_ARCHIVE_NAMES.get(archive_id, str(archive_id)) for archive_id in sorted(forbidden_present)
+        ))
     for label, bad in (("flagged", bad_flags), ("unknown-format", bad_formats), ("yj1", bad_magic)):
         if bad:
             report.append(label)
@@ -508,6 +557,13 @@ def main() -> int:
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--link-map", type=Path, action="append", default=[])
     parser.add_argument("--pack", type=Path, action="append", default=[])
+    parser.add_argument(
+        "--forbid-pack-archive",
+        action="append",
+        default=[],
+        metavar="NAME[,NAME...]",
+        help="fail if any checked pack contains these archive IDs or names",
+    )
     parser.add_argument("--include-third-party", action="store_true")
     parser.add_argument("--max", action="append", default=[], metavar="NAME=BYTES")
     parser.add_argument("--max-pack-size", action="append", default=[], metavar="PATH=BYTES")
@@ -559,9 +615,10 @@ def main() -> int:
         print(binary_report)
 
     pack_size_budgets = parse_pack_size_budget(args.max_pack_size)
+    forbidden_archives = parse_archive_ids(args.forbid_pack_archive)
     for raw_pack_path in args.pack:
         pack_path = raw_pack_path.resolve()
-        pack_errors, pack_report = check_pack(pack_path, pack_size_budgets.get(pack_path))
+        pack_errors, pack_report = check_pack(pack_path, pack_size_budgets.get(pack_path), forbidden_archives)
         errors.extend(pack_errors)
         if pack_report:
             print()

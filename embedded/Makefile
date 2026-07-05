@@ -63,6 +63,7 @@ contract-check: pack-build $(REALDATA_SDL_SMOKE)
 		--link-map $(REALDATA_SDL_SMOKE).map \
 		--pack $(PACK_NOR) \
 		--pack $(PACK_TF) \
+		--forbid-pack-archive VOC \
 		--max-pack-size $(PACK_NOR)=16777216 \
 		--max text=65536 \
 		--max data=4096 \

@@ -41,7 +41,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - Full pre-decompression of all assets into 16MB NOR is not feasible for the current data set, so large decoded/native resources should live in TF-backed resource packs.
 - TF card can hold the original files and generated cache files, but runtime TF random access should be minimized. Prefer sequential reads of already-decoded/native chunks.
 - Favor reproducible tools for dataset inspection and conversion.
-- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode and VOC-to-PCM conversion are allowed there because they are host-side pack generation, not runtime. `make -C embedded pack-build` regenerates the default packs from `PAL_DATA_DIR`.
+- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images. YJ1 decode and VOC-to-PCM conversion are allowed there because they are host-side pack generation, not runtime. The default runtime packs contain the generated PCM SFX archive, not raw `VOC.MKF` chunks. `make -C embedded pack-build` regenerates the default packs from `PAL_DATA_DIR`.
 - `tools/pal_pack_check.c` is a host-side mmap checker for generated packs using the same `embedded/pal_pack.c` reader.
 - The audited data path has no loose `.ogg`, `.opus`, `.mp3`, `.wav`, `.mid`, or `.avi` files. Audio is in `MIDI.MKF`, `MUS.MKF`, and `VOC.MKF`.
 - Scene/event sprite deduplication is high value: worst measured scene resources drop from about 909KB to about 143KB when repeated event-object sprite numbers share one decoded sprite.

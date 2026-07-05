@@ -104,7 +104,7 @@ Current default pack sizes from the audited data:
 
 ```text
 /tmp/pal_nor_default.pak: 10,446,724 bytes
-/tmp/pal_tf_default.pak: 49,309,874 bytes
+/tmp/pal_tf_default.pak: 47,309,294 bytes
 ```
 
 Default NOR archives:
@@ -116,10 +116,10 @@ ABC,BALL,DATA,F,FIRE,MGO,MIDI,MUS,PAT,RGM,SSS,TEXT,FONT
 Default TF archives:
 
 ```text
-FBP,GOP,MAP,RNG,VOC,SFX
+FBP,GOP,MAP,RNG,SFX
 ```
 
-`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `WOR16.ASC` and `WOR16.FON` are converted to a sorted read-only glyph table by the host tool. `VOC.MKF` is converted to 22050Hz mono PCM16 chunks in the generated SFX archive. `GOP` and most remaining audio/data chunks are already raw/native and are copied as raw chunks.
+`MAP`, `FBP`, `MGO`, `ABC`, `F`, `FIRE`, and RNG frames are decoded by the host tool. `WORD.DAT` and `M.MSG` are converted to UTF-16LE by the host tool. `WOR16.ASC` and `WOR16.FON` are converted to a sorted read-only glyph table by the host tool. `VOC.MKF` is converted to 22050Hz mono PCM16 chunks in the generated SFX archive, and raw `VOC.MKF` chunks are omitted from the default runtime packs. `GOP` is already raw/native and is copied as raw chunks.
 
 The generated packs can also be checked with the C runtime reader through the host-side mmap checker:
 
@@ -148,14 +148,13 @@ Current C-reader summary:
   TEXT chunks=    1 payload=254762
   FONT chunks=    1 payload=88432
   archives=13 payload=10422642
-/tmp/pal_tf_default.pak: size=49309874
+/tmp/pal_tf_default.pak: size=47309294
   FBP  chunks=   72 payload=4608000
   GOP  chunks=  226 payload=11529414
   MAP  chunks=  226 payload=14614528
   RNG  chunks=   12 payload=7307725
-  VOC  chunks=  276 payload=1995936
   SFX  chunks=  276 payload=9236076
-  archives=6 payload=49291679
+  archives=5 payload=47295743
 ```
 
 ## Contract Runtime Slice
@@ -465,14 +464,14 @@ Verify the artifact:
 make -C embedded contract-check
 ```
 
-The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary/pack gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump`, symbol-prefix budgets from `nm -S --size-sort`, no generated-pack runtime flags or YJ1 payloads, and a 16MB NOR pack size limit.
+The `contract-check` target is the same `tools/embedded_contract_check.py` source/binary/pack gate: no project-side heap hits, no decoder hits, section budgets from `size`/`objdump`, symbol-prefix budgets from `nm -S --size-sort`, no generated-pack runtime flags or YJ1 payloads, no raw VOC archive in runtime packs, and a 16MB NOR pack size limit.
 
 Current result:
 
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=20766 data=720 bss=7330976
+text=20702 data=720 bss=7330976
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7141392 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -491,8 +490,8 @@ size=10446724 chunks=1401 payload=10422642 max-size=16777216
 formats NATIVE=1399 TEXT_UTF16=1 FONT_GLYPHS=1
 
 pack /tmp/pal_tf_default.pak:
-size=49309874 chunks=1088 payload=49291679
-formats NATIVE=800 RNG_FRAMES=12 SFX_PCM16=276
+size=47309294 chunks=812 payload=47295743
+formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
 size=602165
