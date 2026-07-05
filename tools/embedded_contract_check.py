@@ -7,7 +7,7 @@ turns the main hard requirements into repeatable checks:
 - no project-side heap allocation in selected runtime sources,
 - no runtime decompression path in selected runtime sources,
 - no forbidden heap/decompress symbols in a native verification binary,
-- section sizes visible through size/objdump/nm.
+- section sizes and symbols visible through size/objdump/nm.
 """
 
 from __future__ import annotations
@@ -524,9 +524,22 @@ def check_binary(
     for name, value in sorted(sections.items()):
         report.append(f"{name} {value}")
 
+    symbol_res = [re.compile(pattern) for pattern in FORBIDDEN_SYMBOL_PATTERNS]
+
+    objdump_symbols_output = run_tool(["objdump", "-t", str(binary)])
+    objdump_symbol_hits = []
+    for line in objdump_symbols_output.splitlines():
+        if any(expr.search(line) for expr in symbol_res):
+            objdump_symbol_hits.append(line)
+    report.append("\n## objdump -t forbidden symbols")
+    if objdump_symbol_hits:
+        errors.append(f"forbidden objdump symbols present: {len(objdump_symbol_hits)}")
+        report.extend(objdump_symbol_hits[:200])
+    else:
+        report.append("0")
+
     nm_output = run_tool(["nm", "-C", str(binary)])
     symbol_hits = []
-    symbol_res = [re.compile(pattern) for pattern in FORBIDDEN_SYMBOL_PATTERNS]
     for line in nm_output.splitlines():
         if any(expr.search(line) for expr in symbol_res):
             symbol_hits.append(line)

@@ -76,7 +76,7 @@ python3 -B tools/embedded_contract_check.py \
   --max bss=8388608
 ```
 
-The tool scans selected project sources for heap/decompression use and, when given a binary, runs `size`, `objdump -h`, and `nm -C` to report sections and forbidden symbols.
+The tool scans selected project sources for heap/decompression use and, when given a binary, runs `size`, `objdump -h`, `objdump -t`, and `nm -C` to report sections and forbidden symbols.
 It can also sum normal static-storage buffers from ELF symbols with `nm -S --size-sort`, for example:
 
 ```sh
@@ -530,6 +530,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
+objdump -t forbidden symbols: 0
 text=40662 .rodata=448 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
