@@ -21,7 +21,7 @@
 
 #include "main.h"
 
-LPSPRITE      gpSpriteUI = NULL;
+LPCSPRITE     gpSpriteUI = NULL;
 
 #ifdef PAL_NO_RUNTIME_HEAP
 #if defined(__GNUC__)
@@ -32,7 +32,6 @@ LPSPRITE      gpSpriteUI = NULL;
 #define PAL_UI_BOX_SLOTS 8
 static uint8_t pal_psram_ui_box_static[PAL_UI_BOX_SLOTS][sizeof(BOX)] PAL_UI_PSRAM;
 static uint8_t pal_psram_ui_box_saved_pixels[PAL_UI_BOX_SLOTS][320 * 200] PAL_UI_PSRAM;
-static uint8_t pal_psram_ui_sprite_static[32768] PAL_UI_PSRAM;
 
 static LPBOX
 PAL_StaticBoxSlot(
@@ -174,21 +173,32 @@ PAL_InitUI(
    }
 
 #ifdef PAL_NO_RUNTIME_HEAP
-   if ((size_t)iSize > sizeof(pal_psram_ui_sprite_static))
    {
-      return -1;
+      LPCBYTE lpSpriteData;
+      UINT uiSpriteSize;
+      if (!PAL_MKFMapChunk(gpGlobals->f.fpDATA, CHUNKNUM_SPRITEUI, &lpSpriteData, &uiSpriteSize) ||
+          uiSpriteSize != (UINT)iSize)
+      {
+         return -1;
+      }
+      gpSpriteUI = lpSpriteData;
    }
-   memset(pal_psram_ui_sprite_static, 0, sizeof(pal_psram_ui_sprite_static));
-   gpSpriteUI = (LPSPRITE)pal_psram_ui_sprite_static;
 #else
    gpSpriteUI = (LPSPRITE)calloc(1, iSize);
    if (gpSpriteUI == NULL)
    {
       return -1;
    }
-#endif
 
-   PAL_MKFReadChunk(gpSpriteUI, iSize, CHUNKNUM_SPRITEUI, gpGlobals->f.fpDATA);
+   if (PAL_MKFReadChunk((LPBYTE)gpSpriteUI, iSize, CHUNKNUM_SPRITEUI, gpGlobals->f.fpDATA) <= 0)
+   {
+#ifndef PAL_NO_RUNTIME_HEAP
+      free((void *)gpSpriteUI);
+      gpSpriteUI = NULL;
+#endif
+      return -1;
+   }
+#endif
 
    return 0;
 }
@@ -215,7 +225,7 @@ PAL_FreeUI(
    if (gpSpriteUI != NULL)
    {
 #ifndef PAL_NO_RUNTIME_HEAP
-      free(gpSpriteUI);
+      free((void *)gpSpriteUI);
 #endif
       gpSpriteUI = NULL;
    }

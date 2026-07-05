@@ -663,10 +663,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=186034 data=3728 bss=2154392
-.text=150693 .rodata=7368 .data=144 .bss=2154392
+text=186034 data=3728 bss=2121624
+.text=150693 .rodata=7368 .data=144 .bss=2121624
 pal_sram_ total=230912 limit=307200
-pal_psram_ total=1844928 limit=8388608
+pal_psram_ total=1812160 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/new/delete/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets or C++ allocation operators:
@@ -719,7 +719,7 @@ The contract `audio.c`, `global.c`, and `util.c` paths no longer keep active loo
 
 The contract `palcfg.c` / `util.c` path avoids heap config strings and heap path lookup helpers. It compiles out config-file parsing in the reduced profile, uses default/static config strings, keeps fixed static `uint8_t` config buffers for string setters, and uses case-sensitive no-heap path lookup.
 
-The contract `ui.c` path now uses named `uint8_t` PSRAM storage for `DATA.MKF #9` UI sprite data, UI box metadata, and eight 320x200 box save/restore buffers, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
+The contract `ui.c` path now maps `DATA.MKF #9` UI sprite data as a read-only `const uint8_t` NOR pack view. UI box metadata and eight 320x200 box save/restore buffers remain in named `uint8_t` PSRAM storage, avoiding `calloc`, `free`, and project-side duplicate-surface allocation in those UI paths.
 
 The contract `ui.c` object-description load/free path is intentionally a no-heap `NULL` path for the current data set because no `DESC.DAT` exists. Description-bearing data should be handled by generated read-only text/object-description data rather than the legacy linked-list loader.
 
@@ -739,10 +739,10 @@ source storage hits: 0
 source loose-resource hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
-text=186034 data=3728 bss=2154392
-.text=150693 .rodata=7368 .data=144 .bss=2154392
+text=186034 data=3728 bss=2121624
+.text=150693 .rodata=7368 .data=144 .bss=2121624
 pal_sram_ total=230912 / 307200
-pal_psram_ total=1844928 / 8388608
+pal_psram_ total=1812160 / 8388608
 NOR pack=10446724 / 16777216
 TF pack=47309294
 ```

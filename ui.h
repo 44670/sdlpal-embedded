@@ -280,7 +280,7 @@ PAL_GetObjectDesc(
    WORD           wObjectID
 );
 
-extern LPSPRITE gpSpriteUI;
+extern LPCSPRITE gpSpriteUI;
 
 PAL_C_LINKAGE_END
 
