@@ -144,6 +144,10 @@ contract-check: $(TARGET)
 ifeq ($(EMBEDDED_CONTRACT),1)
 	$(PYTHON) -B ../tools/embedded_contract_check.py \
 		--root . \
+		--fail-on-source \
+		--source-define PAL_NO_LAUNCH_UI \
+		--source-exclude native_midi.cpp \
+		--source-exclude native_midi_alsa.c \
 		--binary $(TARGET) \
 		--max text=500000 \
 		--max data=524288 \

@@ -14,6 +14,7 @@ turns the main hard requirements into repeatable checks:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import re
@@ -187,6 +188,19 @@ def iter_sources(root: Path, include_third_party: bool):
         yield path
 
 
+def source_label(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
+def source_is_excluded(path: Path, root: Path, patterns: list[str]) -> bool:
+    label = source_label(path, root)
+    name = path.name
+    return any(fnmatch.fnmatch(label, pattern) or fnmatch.fnmatch(name, pattern) for pattern in patterns)
+
+
 def strip_c_comments(text: str) -> str:
     out: list[str] = []
     i = 0
@@ -235,23 +249,93 @@ def strip_c_comments(text: str) -> str:
     return "".join(out)
 
 
-def scan_sources(root: Path, include_third_party: bool) -> list[Hit]:
+def eval_simple_if_expr(expr: str, defines: set[str]) -> bool | None:
+    expr = expr.strip()
+    if expr == "0":
+        return False
+    if expr == "1":
+        return True
+
+    match = re.fullmatch(r"defined\s*\(?\s*([A-Za-z_]\w*)\s*\)?", expr)
+    if match:
+        return match.group(1) in defines
+    match = re.fullmatch(r"!\s*defined\s*\(?\s*([A-Za-z_]\w*)\s*\)?", expr)
+    if match:
+        return match.group(1) not in defines
+    match = re.fullmatch(r"([A-Za-z_]\w*)", expr)
+    if match:
+        return match.group(1) in defines
+    match = re.fullmatch(r"!\s*([A-Za-z_]\w*)", expr)
+    if match:
+        return match.group(1) not in defines
+    return None
+
+
+def strip_inactive_preprocessor(text: str, defines: set[str]) -> str:
+    out: list[str] = []
+    active_stack: list[tuple[bool, bool]] = []
+    parent_active = True
+    current_active = True
+
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip()
+        directive = stripped[1:].strip() if stripped.startswith("#") else None
+        if directive is None:
+            out.append(line if current_active else "\n")
+            continue
+
+        tokens = directive.split(None, 1)
+        keyword = tokens[0] if tokens else ""
+        rest = tokens[1] if len(tokens) > 1 else ""
+
+        if keyword in {"ifdef", "ifndef", "if"}:
+            active_stack.append((parent_active, current_active))
+            parent_active = current_active
+            if keyword == "ifdef":
+                condition = rest.strip() in defines
+            elif keyword == "ifndef":
+                condition = rest.strip() not in defines
+            else:
+                value = eval_simple_if_expr(rest, defines)
+                condition = True if value is None else value
+            current_active = parent_active and condition
+            out.append("\n")
+        elif keyword == "else" and active_stack:
+            current_active = parent_active and not current_active
+            out.append("\n")
+        elif keyword == "elif" and active_stack:
+            value = eval_simple_if_expr(rest, defines)
+            condition = True if value is None else value
+            current_active = parent_active and condition
+            out.append("\n")
+        elif keyword == "endif" and active_stack:
+            parent_active, current_active = active_stack.pop()
+            out.append("\n")
+        else:
+            out.append(line if current_active else "\n")
+
+    return "".join(out)
+
+
+def scan_sources(root: Path, include_third_party: bool, source_excludes: list[str], source_defines: set[str]) -> list[Hit]:
     heap_res = [re.compile(p) for p in HEAP_PATTERNS]
     decomp_res = [re.compile(p, re.IGNORECASE) for p in DECOMPRESS_PATTERNS]
     hits: list[Hit] = []
 
     for path in sorted(set(iter_sources(root, include_third_party))):
+        if source_is_excluded(path, root, source_excludes):
+            continue
         try:
             raw_text = path.read_text(errors="ignore")
         except OSError:
             continue
         original_lines = raw_text.splitlines()
-        lines = strip_c_comments(raw_text).splitlines()
+        lines = strip_c_comments(strip_inactive_preprocessor(raw_text, source_defines)).splitlines()
         for lineno, line in enumerate(lines, 1):
             if any(expr.search(line) for expr in heap_res):
-                hits.append(Hit("heap", path.relative_to(root), lineno, original_lines[lineno - 1].strip()))
+                hits.append(Hit("heap", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
             if any(expr.search(line) for expr in decomp_res):
-                hits.append(Hit("decompress", path.relative_to(root), lineno, original_lines[lineno - 1].strip()))
+                hits.append(Hit("decompress", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
 
     return hits
 
@@ -772,6 +856,20 @@ def main() -> int:
         help="fail if any checked pack contains these archive IDs or names",
     )
     parser.add_argument("--include-third-party", action="store_true")
+    parser.add_argument(
+        "--source-exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="skip source paths or basenames matching GLOB during source scans",
+    )
+    parser.add_argument(
+        "--source-define",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="treat NAME as defined when stripping simple #ifdef/#ifndef blocks before source scans",
+    )
     parser.add_argument("--max", action="append", default=[], metavar="NAME=BYTES")
     parser.add_argument("--max-pack-size", action="append", default=[], metavar="PATH=BYTES")
     parser.add_argument(
@@ -792,7 +890,7 @@ def main() -> int:
     args = parser.parse_args()
 
     root = args.root.resolve()
-    hits = scan_sources(root, args.include_third_party)
+    hits = scan_sources(root, args.include_third_party, args.source_exclude, set(args.source_define))
 
     errors: list[str] = []
     print("# Embedded Contract Check")

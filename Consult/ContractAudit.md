@@ -655,9 +655,13 @@ pal_psram_ total=7131664 limit=8388608
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`, and no disassembly call sites to the heap/decompress trap targets:
 
 ```text
+source heap hits: 0
+source decompress hits: 0
 objdump -t forbidden symbols: 0
 forbidden call targets: 0
 ```
+
+The Unix contract source scan runs with `--fail-on-source`, strips simple inactive `#ifdef`/`#ifndef` blocks for contract-only defines, and excludes nonlinked native-MIDI sources before counting heap/decompress patterns.
 
 This is still not a usable embedded runtime. The macros make old heap/decompress call sites land on unavailable traps; the reduced profile now has no surviving calls to those traps. The remaining engineering work is to replace the stubbed desktop resource paths with the generated pack/static-buffer slices.
 
