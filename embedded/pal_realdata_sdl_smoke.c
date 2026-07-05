@@ -1,6 +1,7 @@
 #include "pal_battle_cache.h"
 #include "pal_memory.h"
 #include "pal_pack.h"
+#include "pal_rng_cache.h"
 #include "pal_scene_cache.h"
 
 #include <SDL.h>
@@ -216,6 +217,37 @@ static int check_battle(const PalPack *nor, const PalPack *tf, uint16_t team_num
     return 0;
 }
 
+static int check_rng_frame(
+    const PalPack *tf,
+    uint16_t movie_num,
+    uint16_t frame_num,
+    uint16_t expected_frame_count,
+    uint32_t expected_frame_size,
+    PalRngFrameBuffer frame_buffer)
+{
+    PalRngFrame frame;
+
+    if (!PalRng_LoadFrame(tf, movie_num, frame_num, frame_buffer, &frame)) {
+        return 1;
+    }
+    if (frame.movie_num != movie_num || frame.frame_num != frame_num) {
+        return 2;
+    }
+    if (frame.frame_count != expected_frame_count || frame.size != expected_frame_size) {
+        return 3;
+    }
+    if (frame.data == 0 || checksum32(frame.data, frame.size) == 0) {
+        return 4;
+    }
+    if (frame_buffer == PAL_RNG_FRAME_BUFFER_A && frame.data != pal_psram_rng_frame_a) {
+        return 5;
+    }
+    if (frame_buffer == PAL_RNG_FRAME_BUFFER_B && frame.data != pal_psram_rng_frame_b) {
+        return 6;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
@@ -263,6 +295,12 @@ int main(int argc, char **argv)
             check_battle(&nor.pack, &tf.pack, 156, 3, 1) ||
             check_battle(&nor.pack, &tf.pack, 342, 3, 2) ||
             check_battle(&nor.pack, &tf.pack, 385, 3, 1);
+    }
+    if (rc == 0) {
+        rc =
+            check_rng_frame(&tf.pack, 4, 0, 41, 64288, PAL_RNG_FRAME_BUFFER_A) ||
+            check_rng_frame(&tf.pack, 5, 0, 83, 64104, PAL_RNG_FRAME_BUFFER_B) ||
+            check_rng_frame(&tf.pack, 9, 0, 257, 61773, PAL_RNG_FRAME_BUFFER_A);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();

@@ -29,6 +29,8 @@ embedded/pal_scene_cache.c
 embedded/pal_scene_cache.h
 embedded/pal_battle_cache.c
 embedded/pal_battle_cache.h
+embedded/pal_rng_cache.c
+embedded/pal_rng_cache.h
 ```
 
 Source scan:
@@ -140,6 +142,8 @@ embedded/pal_scene_cache.c
 embedded/pal_scene_cache.h
 embedded/pal_battle_cache.c
 embedded/pal_battle_cache.h
+embedded/pal_rng_cache.c
+embedded/pal_rng_cache.h
 ```
 
 Properties:
@@ -291,6 +295,16 @@ The smoke also exercises `embedded/pal_battle_cache.c` on real high-pressure bat
 
 For each team it reads the enemy-team table from `DATA`, resolves enemy sprite ids through the `SSS` object table, copies a decoded `FBP` background from the TF pack into `pal_psram_fbp_background`, maps player sprites from `F`, maps enemy sprites from `ABC`, and maps one `FIRE` effect as read-only `const uint8_t` data.
 
+The smoke also exercises `embedded/pal_rng_cache.c` on large real RNG frames:
+
+| RNG movie | Frame | Frames in movie | Frame bytes | Destination |
+| ---: | ---: | ---: | ---: | --- |
+| 4 | 0 | 41 | 64,288 | `pal_psram_rng_frame_a` |
+| 5 | 0 | 83 | 64,104 | `pal_psram_rng_frame_b` |
+| 9 | 0 | 257 | 61,773 | `pal_psram_rng_frame_a` |
+
+These are already decoded by `tools/pal_pack_build.py`; runtime only copies the selected frame into a named PSRAM buffer.
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -322,7 +336,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=7798 data=688 bss=7196112
+text=8530 data=688 bss=7196112
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
