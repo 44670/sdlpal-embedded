@@ -3,6 +3,7 @@
 #include "pal_pack.h"
 #include "pal_rng_cache.h"
 #include "pal_scene_cache.h"
+#include "pal_sfx_cache.h"
 
 #include <SDL.h>
 #include <fcntl.h>
@@ -248,6 +249,41 @@ static int check_rng_frame(
     return 0;
 }
 
+static int check_sfx_bank(const PalPack *tf)
+{
+    static const uint16_t chunks[] = { 1, 62, 192, 213, 214, 255, 272 };
+    static const uint32_t sizes[] = { 1748, 28406, 33768, 52006, 37702, 38334, 50954 };
+    PalSfxBank bank;
+    uint32_t used = 0;
+    uint16_t i;
+
+    if (!PalSfx_LoadBank(tf, chunks, (uint16_t)(sizeof(chunks) / sizeof(chunks[0])), &bank)) {
+        return 1;
+    }
+    if (bank.entry_count != (uint16_t)(sizeof(chunks) / sizeof(chunks[0])) || bank.entries == 0 || bank.data != pal_psram_sfx_bank) {
+        return 2;
+    }
+
+    for (i = 0; i < bank.entry_count; i++) {
+        const uint8_t *data = 0;
+        uint32_t size = 0;
+
+        used = (used + 3u) & ~3u;
+        if (!PalSfx_Get(&bank, chunks[i], &data, &size)) {
+            return 3;
+        }
+        if (size != sizes[i] || data != pal_psram_sfx_bank + used || checksum32(data, size) == 0) {
+            return 4;
+        }
+        used += size;
+    }
+
+    if (bank.used_bytes != 242926u || used != bank.used_bytes) {
+        return 5;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     MappedPack nor = { 0, 0, { 0, 0, 0, 0 } };
@@ -301,6 +337,9 @@ int main(int argc, char **argv)
             check_rng_frame(&tf.pack, 4, 0, 41, 64288, PAL_RNG_FRAME_BUFFER_A) ||
             check_rng_frame(&tf.pack, 5, 0, 83, 64104, PAL_RNG_FRAME_BUFFER_B) ||
             check_rng_frame(&tf.pack, 9, 0, 257, 61773, PAL_RNG_FRAME_BUFFER_A);
+    }
+    if (rc == 0) {
+        rc = check_sfx_bank(&tf.pack);
     }
     if (rc == 0) {
         rc = exercise_sdl_surface();

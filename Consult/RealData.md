@@ -115,5 +115,12 @@ These sizes are relevant for a shared decompression scratch buffer and for decid
   - `MIDI.MKF`: 762,442 bytes
   - `MUS.MKF`: 331,284 bytes
   - `VOC.MKF`: 1,997,044 bytes
+- Largest `VOC.MKF` chunks measured in the generated TF pack:
+  - #213: 52,006 bytes
+  - #272: 50,954 bytes
+  - #255: 38,334 bytes
+  - #214: 37,702 bytes
+  - #192: 33,768 bytes
+- The static SFX smoke banks VOC chunks `{1, 62, 192, 213, 214, 255, 272}` into `pal_psram_sfx_bank`; this checked subset uses 242,926 bytes after 4-byte alignment.
 
 Main conclusion: for this data set, OGG/OPUS/MP3/loose-WAV/AVI support is not needed for base gameplay. The relevant audio formats are the PAL MKF containers, especially RIX/MUS-style music and VOC sound effects.

@@ -31,6 +31,8 @@ embedded/pal_battle_cache.c
 embedded/pal_battle_cache.h
 embedded/pal_rng_cache.c
 embedded/pal_rng_cache.h
+embedded/pal_sfx_cache.c
+embedded/pal_sfx_cache.h
 ```
 
 Source scan:
@@ -144,6 +146,8 @@ embedded/pal_battle_cache.c
 embedded/pal_battle_cache.h
 embedded/pal_rng_cache.c
 embedded/pal_rng_cache.h
+embedded/pal_sfx_cache.c
+embedded/pal_sfx_cache.h
 ```
 
 Properties:
@@ -305,6 +309,20 @@ The smoke also exercises `embedded/pal_rng_cache.c` on large real RNG frames:
 
 These are already decoded by `tools/pal_pack_build.py`; runtime only copies the selected frame into a named PSRAM buffer.
 
+The smoke also exercises `embedded/pal_sfx_cache.c` on representative large VOC chunks from the TF pack:
+
+| VOC chunk | Bytes |
+| ---: | ---: |
+| 1 | 1,748 |
+| 62 | 28,406 |
+| 192 | 33,768 |
+| 213 | 52,006 |
+| 214 | 37,702 |
+| 255 | 38,334 |
+| 272 | 50,954 |
+
+The bank copies these chunks into `pal_psram_sfx_bank` with 4-byte alignment and uses 242,926 bytes total for this checked set.
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -328,7 +346,8 @@ python3 -B tools/embedded_contract_check.py \
   --max-symbol-prefix pal_sram_=307200 \
   --max-symbol-prefix pal_psram_=8388608 \
   --max-symbol-prefix pal_scene_=8192 \
-  --max-symbol-prefix pal_battle_=2048
+  --max-symbol-prefix pal_battle_=2048 \
+  --max-symbol-prefix pal_sfx_=4096
 ```
 
 Current result:
@@ -336,11 +355,12 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=8530 data=688 bss=7196112
+text=9714 data=704 bss=7196512
 pal_sram_ total=182784 limit=307200
 pal_psram_ total=7008208 limit=8388608
 pal_scene_ total=4736 limit=8192
 pal_battle_ total=334 limit=2048
+pal_sfx_ total=384 limit=4096
 PASS
 ```
 
