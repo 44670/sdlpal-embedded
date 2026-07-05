@@ -646,10 +646,10 @@ AVI_GetPlayState
 Current reduced-profile artifact size:
 
 ```text
-text=273829 data=3808 bss=338360
-.text=149845 .rodata=95464 .data=144 .bss=338360
+text=273701 data=3808 bss=402360
+.text=149717 .rodata=95464 .data=144 .bss=402360
 pal_sram_ total=64000 limit=307200
-pal_psram_ total=195088 limit=8388608
+pal_psram_ total=259088 limit=8388608
 ```
 
 The reduced profile now has no forbidden heap/decompress symbols in `objdump -t` or `nm -C`:
@@ -663,6 +663,8 @@ This is still not a usable embedded runtime. The macros remove linked heap/decom
 The first full-engine loader cut is `map.c`: under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, it uses static `uint8_t` PSRAM buffers for the `PALMAP` object and GOP sprite data, and it accepts only already-native 64KB map chunks. The old compressed-MAP path remains only for non-contract desktop builds.
 
 The full-engine splash path in `main.c` now also uses static `uint8_t` SRAM/PSRAM buffers in contract mode and accepts only already-native splash FBP/MGO chunks. The old 128KB heap block and `Decompress()` calls remain only for non-contract desktop builds.
+
+The full-engine menu-background paths in `uigame.c` now also avoid runtime decompression in contract mode. Opening-menu FBP storage is a static `uint8_t` PSRAM buffer, while status/equipment backgrounds read already-native 64KB FBP chunks into their existing fixed buffers.
 
 ## Current Contract Failures
 

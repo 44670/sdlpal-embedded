@@ -23,6 +23,26 @@
 
 static BOOL __buymenu_firsttime_render;
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(__GNUC__)
+#define PAL_UIGAME_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_UIGAME_PSRAM
+#endif
+static uint8_t pal_psram_uigame_background[320 * 200] PAL_UIGAME_PSRAM;
+#endif
+
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+static BOOL
+PAL_ReadNativeFbpToBuffer(
+   LPBYTE         buf,
+   UINT          chunknum
+)
+{
+   return PAL_MKFReadChunk(buf, 320 * 200, chunknum, gpGlobals->f.fpFBP) == 320 * 200;
+}
+#endif
+
 static WORD GetSavedTimes(int iSaveSlot)
 {
 	FILE *fp = UTIL_OpenFileAtPath(gConfig.pszSavePath, PAL_va(0, "%d.rpg", iSaveSlot));
@@ -59,16 +79,27 @@ PAL_DrawOpeningMenuBackground(
 {
    LPBYTE        buf;
 
+#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+   buf = pal_psram_uigame_background;
+#else
    buf = (LPBYTE)malloc(320 * 200);
    if (buf == NULL)
    {
       return;
    }
+#endif
 
    //
    // Read the picture from fbp.mkf.
    //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (!PAL_ReadNativeFbpToBuffer(buf, MAINMENU_BACKGROUND_FBPNUM))
+   {
+      return;
+   }
+#else
    PAL_MKFDecompressChunk(buf, 320 * 200, MAINMENU_BACKGROUND_FBPNUM, gpGlobals->f.fpFBP);
+#endif
 
    //
    // ...and blit it to the screen buffer.
@@ -76,7 +107,9 @@ PAL_DrawOpeningMenuBackground(
    PAL_FBPBlitToSurface(buf, gpScreen);
    VIDEO_UpdateScreen(NULL);
 
+#if !defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    free(buf);
+#endif
 }
 
 INT
@@ -1086,7 +1119,14 @@ PAL_PlayerStatus(
    int              i, j;
    WORD             w;
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (!PAL_ReadNativeFbpToBuffer(bufBackground, STATUS_BACKGROUND_FBPNUM))
+   {
+      return;
+   }
+#else
    PAL_MKFDecompressChunk(bufBackground, 320 * 200, STATUS_BACKGROUND_FBPNUM, gpGlobals->f.fpFBP);
+#endif
    iCurrent = 0;
 
    if (gConfig.fUseCustomScreenLayout)
@@ -1819,8 +1859,15 @@ PAL_EquipItemMenu(
 
    gpGlobals->wLastUnequippedItem = wItem;
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   if (!PAL_ReadNativeFbpToBuffer(bufBackground, EQUIPMENU_BACKGROUND_FBPNUM))
+   {
+      return;
+   }
+#else
    PAL_MKFDecompressChunk(bufBackground, 320 * 200, EQUIPMENU_BACKGROUND_FBPNUM,
       gpGlobals->f.fpFBP);
+#endif
 
    if (gConfig.fUseCustomScreenLayout)
    {
