@@ -1138,6 +1138,53 @@ static int check_menu_static(const PalPack *nor, const PalPack *tf)
     return 0;
 }
 
+static int check_menu_static_readat(const char *path)
+{
+    PalPackToc toc;
+    PalMenuBuffer buffer;
+    struct stat st;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+
+    if (!PalMenu_LoadBackgroundReadAt(&toc, read_at_fd, &fd, 0, &buffer) ||
+        buffer.data != pal_psram_menu_background || buffer.size != PAL_MENU_BACKGROUND_BYTES) {
+        rc = 4;
+    }
+    if (rc == 0 && checksum32(buffer.data, buffer.size) == 0) {
+        rc = 5;
+    }
+    if (rc == 0 && (!PalMenu_LoadBackgroundReadAt(&toc, read_at_fd, &fd, 1, &buffer) ||
+        buffer.data != pal_psram_menu_background || buffer.size != PAL_MENU_BACKGROUND_BYTES)) {
+        rc = 6;
+    }
+    if (rc == 0 && checksum32(buffer.data, buffer.size) == 0) {
+        rc = 7;
+    }
+    if (rc == 0 && (!PalMenu_LoadBackgroundReadAt(&toc, read_at_fd, &fd, 60, &buffer) ||
+        buffer.data != pal_psram_menu_background || buffer.size != PAL_MENU_BACKGROUND_BYTES)) {
+        rc = 8;
+    }
+    if (rc == 0 && checksum32(buffer.data, buffer.size) == 0) {
+        rc = 9;
+    }
+
+    close(fd);
+    return rc;
+}
+
 static int check_ending_static(const PalPack *nor, const PalPack *tf)
 {
     PalEndingBuffer buffer;
@@ -1179,6 +1226,51 @@ static int check_ending_static(const PalPack *nor, const PalPack *tf)
         return 11;
     }
     return 0;
+}
+
+static int check_ending_static_readat(const char *path)
+{
+    PalPackToc toc;
+    PalEndingBuffer buffer;
+    PalEndingScreenPair pair;
+    struct stat st;
+    int fd;
+    int rc = 0;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return 1;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 2;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 3;
+    }
+
+    if (!PalEnding_LoadFbpReadAt(&toc, read_at_fd, &fd, 68, &buffer) ||
+        buffer.data != pal_psram_ending_fbp_a || buffer.size != PAL_ENDING_FBP_BYTES) {
+        rc = 4;
+    }
+    if (rc == 0 && checksum32(buffer.data, buffer.size) == 0) {
+        rc = 5;
+    }
+    if (rc == 0 && !PalEnding_LoadFbpPairReadAt(&toc, read_at_fd, &fd, 61, 62, &pair)) {
+        rc = 6;
+    }
+    if (rc == 0 && (pair.upper.data != pal_psram_ending_fbp_a || pair.upper.size != PAL_ENDING_FBP_BYTES ||
+        pair.lower.data != pal_psram_ending_fbp_b || pair.lower.size != PAL_ENDING_FBP_BYTES)) {
+        rc = 7;
+    }
+    if (rc == 0 && (checksum32(pair.upper.data, pair.upper.size) == 0 ||
+        checksum32(pair.lower.data, pair.lower.size) == 0)) {
+        rc = 8;
+    }
+
+    close(fd);
+    return rc;
 }
 
 static int check_palette_static(const PalPack *nor)
@@ -1397,7 +1489,13 @@ int main(int argc, char **argv)
         rc = check_menu_static(&nor.pack, &tf.pack);
     }
     if (rc == 0) {
+        rc = check_menu_static_readat(argv[2]);
+    }
+    if (rc == 0) {
         rc = check_ending_static(&nor.pack, &tf.pack);
+    }
+    if (rc == 0) {
+        rc = check_ending_static_readat(argv[2]);
     }
     if (rc == 0) {
         rc = check_palette_static(&nor.pack);

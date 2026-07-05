@@ -16,6 +16,17 @@ static bool map_native_asset(const PalPack *pack, uint16_t archive_id, uint16_t 
     return span->data != NULL && span->size != 0 && span->format == PAL_PACK_FORMAT_NATIVE;
 }
 
+static bool get_native_toc_asset(const PalPackToc *toc, uint16_t archive_id, uint16_t chunk_id, PalPackChunkInfo *info)
+{
+    if (info == NULL) {
+        return false;
+    }
+    if (!PalPackToc_GetChunkInfo(toc, archive_id, chunk_id, info)) {
+        return false;
+    }
+    return info->size != 0 && info->format == PAL_PACK_FORMAT_NATIVE && info->flags == 0u;
+}
+
 bool PalMenu_LoadBackground(const PalPack *tf_pack, uint16_t fbp_num, PalMenuBuffer *buffer)
 {
     PalPackSpan span;
@@ -31,6 +42,37 @@ bool PalMenu_LoadBackground(const PalPack *tf_pack, uint16_t fbp_num, PalMenuBuf
         return false;
     }
     if (!PalPack_CopyRaw(tf_pack, PAL_PACK_ARCHIVE_FBP, fbp_num, pal_psram_menu_background, PAL_PSRAM_MENU_BACKGROUND_BYTES, &copied)) {
+        return false;
+    }
+    if (copied != PAL_MENU_BACKGROUND_BYTES) {
+        return false;
+    }
+
+    buffer->data = pal_psram_menu_background;
+    buffer->size = copied;
+    return true;
+}
+
+bool PalMenu_LoadBackgroundReadAt(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t fbp_num,
+    PalMenuBuffer *buffer)
+{
+    PalPackChunkInfo info;
+    uint32_t copied = 0;
+
+    if (buffer == NULL || read_at == NULL) {
+        return false;
+    }
+    buffer->data = NULL;
+    buffer->size = 0;
+
+    if (!get_native_toc_asset(tf_toc, PAL_PACK_ARCHIVE_FBP, fbp_num, &info) || info.size != PAL_MENU_BACKGROUND_BYTES) {
+        return false;
+    }
+    if (!PalPackToc_CopyRawReadAt(tf_toc, read_at, user, PAL_PACK_ARCHIVE_FBP, fbp_num, pal_psram_menu_background, PAL_PSRAM_MENU_BACKGROUND_BYTES, &copied)) {
         return false;
     }
     if (copied != PAL_MENU_BACKGROUND_BYTES) {

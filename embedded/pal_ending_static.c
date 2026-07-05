@@ -15,6 +15,17 @@ static bool map_native_asset(const PalPack *pack, uint16_t archive_id, uint16_t 
     return span->data != NULL && span->size != 0 && span->format == PAL_PACK_FORMAT_NATIVE;
 }
 
+static bool get_native_toc_asset(const PalPackToc *toc, uint16_t archive_id, uint16_t chunk_id, PalPackChunkInfo *info)
+{
+    if (info == NULL) {
+        return false;
+    }
+    if (!PalPackToc_GetChunkInfo(toc, archive_id, chunk_id, info)) {
+        return false;
+    }
+    return info->size != 0 && info->format == PAL_PACK_FORMAT_NATIVE && info->flags == 0u;
+}
+
 static bool load_fbp_to_buffer(const PalPack *tf_pack, uint16_t fbp_num, uint8_t *dst, PalEndingBuffer *buffer)
 {
     PalPackSpan span;
@@ -41,9 +52,51 @@ static bool load_fbp_to_buffer(const PalPack *tf_pack, uint16_t fbp_num, uint8_t
     return true;
 }
 
+static bool load_fbp_to_buffer_readat(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t fbp_num,
+    uint8_t *dst,
+    PalEndingBuffer *buffer)
+{
+    PalPackChunkInfo info;
+    uint32_t copied = 0;
+
+    if (buffer == NULL || dst == NULL || read_at == NULL) {
+        return false;
+    }
+    buffer->data = NULL;
+    buffer->size = 0;
+
+    if (!get_native_toc_asset(tf_toc, PAL_PACK_ARCHIVE_FBP, fbp_num, &info) || info.size != PAL_ENDING_FBP_BYTES) {
+        return false;
+    }
+    if (!PalPackToc_CopyRawReadAt(tf_toc, read_at, user, PAL_PACK_ARCHIVE_FBP, fbp_num, dst, PAL_PSRAM_ENDING_FBP_BYTES, &copied)) {
+        return false;
+    }
+    if (copied != PAL_ENDING_FBP_BYTES) {
+        return false;
+    }
+
+    buffer->data = dst;
+    buffer->size = copied;
+    return true;
+}
+
 bool PalEnding_LoadFbp(const PalPack *tf_pack, uint16_t fbp_num, PalEndingBuffer *buffer)
 {
     return load_fbp_to_buffer(tf_pack, fbp_num, pal_psram_ending_fbp_a, buffer);
+}
+
+bool PalEnding_LoadFbpReadAt(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t fbp_num,
+    PalEndingBuffer *buffer)
+{
+    return load_fbp_to_buffer_readat(tf_toc, read_at, user, fbp_num, pal_psram_ending_fbp_a, buffer);
 }
 
 bool PalEnding_LoadFbpPair(const PalPack *tf_pack, uint16_t upper_fbp_num, uint16_t lower_fbp_num, PalEndingScreenPair *pair)
@@ -58,6 +111,26 @@ bool PalEnding_LoadFbpPair(const PalPack *tf_pack, uint16_t upper_fbp_num, uint1
 
     return load_fbp_to_buffer(tf_pack, upper_fbp_num, pal_psram_ending_fbp_a, &pair->upper) &&
            load_fbp_to_buffer(tf_pack, lower_fbp_num, pal_psram_ending_fbp_b, &pair->lower);
+}
+
+bool PalEnding_LoadFbpPairReadAt(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t upper_fbp_num,
+    uint16_t lower_fbp_num,
+    PalEndingScreenPair *pair)
+{
+    if (pair == NULL) {
+        return false;
+    }
+    pair->upper.data = NULL;
+    pair->upper.size = 0;
+    pair->lower.data = NULL;
+    pair->lower.size = 0;
+
+    return load_fbp_to_buffer_readat(tf_toc, read_at, user, upper_fbp_num, pal_psram_ending_fbp_a, &pair->upper) &&
+           load_fbp_to_buffer_readat(tf_toc, read_at, user, lower_fbp_num, pal_psram_ending_fbp_b, &pair->lower);
 }
 
 bool PalEnding_MapSprite(const PalPack *nor_pack, uint16_t mgo_num, PalEndingConstAsset *asset)

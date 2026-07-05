@@ -473,6 +473,8 @@ The smoke also exercises `embedded/pal_menu_static.c` against real menu/status a
 | Item image | `BALL.MKF #95` | 1,876 | `const uint8_t *` NOR view |
 | Menu box | 72x72 fill | 5,184 | `pal_psram_menu_box` |
 
+The FBP menu background copies are checked through both mapped-pack and TF-style file-backed read-at paths.
+
 The smoke also exercises `embedded/pal_ending_static.c` against real ending/splash assets:
 
 | Asset | Pack source | Bytes | Runtime placement |
@@ -483,6 +485,8 @@ The smoke also exercises `embedded/pal_ending_static.c` against real ending/spla
 | Ending beast sprite | `MGO.MKF #571` | 59,516 | `const uint8_t *` NOR view |
 | Ending girl sprite | `MGO.MKF #572` | 5,736 | `const uint8_t *` NOR view |
 | Ending effect sprite | `MGO.MKF #627` | 3,136 | `const uint8_t *` NOR view |
+
+The FBP ending/splash screen copies are checked through both mapped-pack and TF-style file-backed read-at paths.
 
 The smoke also exercises `embedded/pal_palette_static.c` against real palette/fade data:
 
@@ -524,7 +528,7 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=36498 .rodata=224 data=744 bss=7493280
+text=38394 .rodata=224 data=744 bss=7493280
 pal_sram_ total=184320 limit=307200
 pal_psram_ total=7302160 limit=8388608
 pal_scene_ total=4736 limit=8192
@@ -550,7 +554,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=617557
+size=619019
 PASS
 ```
 

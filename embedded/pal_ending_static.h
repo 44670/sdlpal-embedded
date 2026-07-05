@@ -28,7 +28,20 @@ typedef struct PalEndingScreenPair {
 } PalEndingScreenPair;
 
 bool PalEnding_LoadFbp(const PalPack *tf_pack, uint16_t fbp_num, PalEndingBuffer *buffer);
+bool PalEnding_LoadFbpReadAt(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t fbp_num,
+    PalEndingBuffer *buffer);
 bool PalEnding_LoadFbpPair(const PalPack *tf_pack, uint16_t upper_fbp_num, uint16_t lower_fbp_num, PalEndingScreenPair *pair);
+bool PalEnding_LoadFbpPairReadAt(
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    uint16_t upper_fbp_num,
+    uint16_t lower_fbp_num,
+    PalEndingScreenPair *pair);
 bool PalEnding_MapSprite(const PalPack *nor_pack, uint16_t mgo_num, PalEndingConstAsset *asset);
 
 #ifdef __cplusplus
