@@ -30,7 +30,9 @@ static BOOL __buymenu_firsttime_render;
 #define PAL_UIGAME_PSRAM
 #endif
 static uint8_t pal_psram_uigame_background[320 * 200] PAL_UIGAME_PSRAM;
+#if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
 static uint8_t pal_psram_uigame_image[PAL_RLEBUFSIZE] PAL_UIGAME_PSRAM;
+#endif
 static uint8_t pal_psram_uigame_box[72 * 72] PAL_UIGAME_PSRAM;
 #endif
 
@@ -42,6 +44,23 @@ PAL_ReadNativeFbpToBuffer(
 )
 {
    return PAL_MKFReadChunk(buf, 320 * 200, chunknum, gpGlobals->f.fpFBP) == 320 * 200;
+}
+
+static LPCBITMAPRLE
+PAL_MapNativeRleChunk(
+   FILE         *fp,
+   UINT          chunknum
+)
+{
+   LPCBYTE lpData;
+   UINT uiSize;
+
+   if (PAL_MKFMapChunk(fp, chunknum, &lpData, &uiSize) && uiSize > 0)
+   {
+      return lpData;
+   }
+
+   return NULL;
 }
 #endif
 
@@ -1103,7 +1122,9 @@ PAL_PlayerStatus(
 {
 #ifdef PAL_NO_RUNTIME_HEAP
    BYTE            *bufBackground = pal_psram_uigame_background;
+#ifndef PAL_NO_RUNTIME_DECOMPRESS
    BYTE            *bufImage = pal_psram_uigame_image;
+#endif
    BYTE            *bufImageBox = pal_psram_uigame_box;
 #else
    PAL_LARGE BYTE   bufBackground[320 * 200];
@@ -1177,10 +1198,20 @@ PAL_PlayerStatus(
       //
       // Draw the image of player role
       //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      {
+         LPCBITMAPRLE lpImage = PAL_MapNativeRleChunk(gpGlobals->f.fpRGM, gpGlobals->g.PlayerRoles.rgwAvatar[iPlayerRole]);
+         if (lpImage != NULL)
+         {
+            PAL_RLEBlitToSurface(lpImage, gpScreen, gConfig.ScreenLayout.RoleImage);
+         }
+      }
+#else
       if (PAL_MKFReadChunk(bufImage, PAL_RLEBUFSIZE, gpGlobals->g.PlayerRoles.rgwAvatar[iPlayerRole], gpGlobals->f.fpRGM) > 0)
       {
          PAL_RLEBlitToSurface(bufImage, gpScreen, gConfig.ScreenLayout.RoleImage);
       }
+#endif
 
       //
       // Draw the equipments
@@ -1199,12 +1230,24 @@ PAL_PlayerStatus(
          //
          // Draw the image
          //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         {
+            LPCBITMAPRLE lpImage = PAL_MapNativeRleChunk(gpGlobals->f.fpBALL,
+               gpGlobals->g.rgObject[w].item.wBitmap);
+            if (lpImage != NULL)
+            {
+               PAL_RLEBlitToSurface(lpImage, gpScreen,
+                  PAL_XY_OFFSET(gConfig.ScreenLayout.RoleEquipImageBoxes[i], 1, 1));
+            }
+         }
+#else
          if (PAL_MKFReadChunk(bufImage, PAL_RLEBUFSIZE,
             gpGlobals->g.rgObject[w].item.wBitmap, gpGlobals->f.fpBALL) > 0)
          {
             PAL_RLEBlitToSurface(bufImage, gpScreen,
                PAL_XY_OFFSET(gConfig.ScreenLayout.RoleEquipImageBoxes[i], 1, 1));
          }
+#endif
 
          //
          // Draw the text label
@@ -1354,9 +1397,9 @@ PAL_ItemUseMenu(
 --*/
 {
    BYTE           bColor, bSelectedColor;
-#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    BYTE           *bufImage = pal_psram_uigame_image;
-#else
+#elif !defined(PAL_NO_RUNTIME_DECOMPRESS)
    PAL_LARGE BYTE bufImage[2048];
 #endif
    DWORD          dwColorChangeTime;
@@ -1457,11 +1500,22 @@ PAL_ItemUseMenu(
          //
          // Draw the picture of the item
          //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+         {
+            LPCBITMAPRLE lpImage = PAL_MapNativeRleChunk(gpGlobals->f.fpBALL,
+               gpGlobals->g.rgObject[wItemToUse].item.wBitmap);
+            if (lpImage != NULL)
+            {
+               PAL_RLEBlitToSurface(lpImage, gpScreen, PAL_XY(127, 88));
+            }
+         }
+#else
          if (PAL_MKFReadChunk(bufImage, 2048,
             gpGlobals->g.rgObject[wItemToUse].item.wBitmap, gpGlobals->f.fpBALL) > 0)
          {
             PAL_RLEBlitToSurface(bufImage, gpScreen, PAL_XY(127, 88));
          }
+#endif
 
          //
          // Draw the amount and label of the item
@@ -1574,9 +1628,9 @@ PAL_BuyMenu_OnItemChange(
 {
    const SDL_Rect      rect = {20, 8, 300, 175};
    int                 i, j, n, iPlayerID, x, y;
-#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    BYTE               *bufImage = pal_psram_uigame_image;
-#else
+#elif !defined(PAL_NO_RUNTIME_DECOMPRESS)
    PAL_LARGE BYTE      bufImage[2048];
 #endif
 
@@ -1598,11 +1652,22 @@ PAL_BuyMenu_OnItemChange(
    //
    x = 48, y = 15;
 
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+   {
+      LPCBITMAPRLE lpImage = PAL_MapNativeRleChunk(gpGlobals->f.fpBALL,
+         gpGlobals->g.rgObject[wCurrentItem].item.wBitmap);
+      if (lpImage != NULL)
+      {
+         PAL_RLEBlitToSurface(lpImage, gpScreen, PAL_XY(x, y));
+      }
+   }
+#else
    if (PAL_MKFReadChunk(bufImage, 2048,
       gpGlobals->g.rgObject[wCurrentItem].item.wBitmap, gpGlobals->f.fpBALL) > 0)
    {
       PAL_RLEBlitToSurface(bufImage, gpScreen, PAL_XY(x, y));
    }
+#endif
 
    //
    // See how many of this item we have in the inventory
@@ -1868,7 +1933,9 @@ PAL_EquipItemMenu(
 #ifdef PAL_NO_RUNTIME_HEAP
    BYTE            *bufBackground = pal_psram_uigame_background;
    BYTE            *bufImageBox = pal_psram_uigame_box;
+#ifndef PAL_NO_RUNTIME_DECOMPRESS
    BYTE            *bufImage = pal_psram_uigame_image;
+#endif
 #else
    PAL_LARGE BYTE   bufBackground[320 * 200];
    PAL_LARGE BYTE   bufImageBox[72 * 72];
@@ -1935,11 +2002,22 @@ PAL_EquipItemMenu(
       //
       // Draw the item picture
       //
+#ifdef PAL_NO_RUNTIME_DECOMPRESS
+      {
+         LPCBITMAPRLE lpImage = PAL_MapNativeRleChunk(gpGlobals->f.fpBALL,
+            gpGlobals->g.rgObject[wItem].item.wBitmap);
+         if (lpImage != NULL)
+         {
+            PAL_RLEBlitToSurface(lpImage, gpScreen, PAL_XY_OFFSET(gConfig.ScreenLayout.EquipImageBox, 8, 8));
+         }
+      }
+#else
       if (PAL_MKFReadChunk(bufImage, 2048,
          gpGlobals->g.rgObject[wItem].item.wBitmap, gpGlobals->f.fpBALL) > 0)
       {
          PAL_RLEBlitToSurface(bufImage, gpScreen, PAL_XY_OFFSET(gConfig.ScreenLayout.EquipImageBox, 8, 8));
       }
+#endif
 
       if (gConfig.fUseCustomScreenLayout)
       {
