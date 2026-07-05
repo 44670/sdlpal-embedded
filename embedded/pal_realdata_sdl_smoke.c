@@ -7,6 +7,7 @@
 #include "pal_memory.h"
 #include "pal_music_cache.h"
 #include "pal_pack.h"
+#include "pal_palette_static.h"
 #include "pal_rng_cache.h"
 #include "pal_save_cache.h"
 #include "pal_scene_cache.h"
@@ -621,6 +622,55 @@ static int check_ending_static(const PalPack *nor, const PalPack *tf)
     return 0;
 }
 
+static int check_palette_static(const PalPack *nor)
+{
+    const uint8_t *rgb = 0;
+    const uint8_t *night_rgb = 0;
+    uint32_t size = 0;
+    uint32_t night_size = 0;
+    PalPaletteBuffer buffer;
+
+    if (!PalUi_LoadPaletteRgb(nor, 0, false, &rgb, &size) || rgb != pal_sram_misc || size != PAL_PALETTE_RGB_BYTES) {
+        return 1;
+    }
+    if (!PalPalette_LoadCurrentRgb(rgb, size, &buffer) || buffer.data != pal_sram_palette_current || buffer.size != PAL_PALETTE_RGB_BYTES) {
+        return 2;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0) {
+        return 3;
+    }
+    if (!PalUi_LoadPaletteRgb(nor, 0, true, &night_rgb, &night_size) || night_rgb != pal_sram_misc || night_size != PAL_PALETTE_RGB_BYTES) {
+        return 4;
+    }
+    if (!PalPalette_BlendRgb(night_rgb, night_size, 16, 32, &buffer) ||
+        buffer.data != pal_sram_palette_work || buffer.size != PAL_PALETTE_RGB_BYTES) {
+        return 5;
+    }
+    if (checksum32(buffer.data, buffer.size) == 0 || !PalVideo_SetPaletteRgb(0, PAL_PALETTE_COLORS, buffer.data)) {
+        return 6;
+    }
+    if (PalVideo_GetRgb565(1) == 0) {
+        return 7;
+    }
+    if (!PalPalette_ScaleCurrent(0, 32, &buffer) || buffer.data != pal_sram_palette_work || buffer.size != PAL_PALETTE_RGB_BYTES) {
+        return 8;
+    }
+    if (checksum32(buffer.data, buffer.size) != 0) {
+        return 9;
+    }
+    if (!PalPalette_FillColor(pal_sram_palette_current, PAL_PALETTE_RGB_BYTES, 1, &buffer) ||
+        buffer.data != pal_sram_palette_work || buffer.size != PAL_PALETTE_RGB_BYTES) {
+        return 10;
+    }
+    if (buffer.data[0] != pal_sram_palette_current[3] ||
+        buffer.data[1] != pal_sram_palette_current[4] ||
+        buffer.data[2] != pal_sram_palette_current[5] ||
+        checksum32(buffer.data, buffer.size) == 0) {
+        return 11;
+    }
+    return 0;
+}
+
 static int check_ui_cache(const PalPack *nor)
 {
     PalUiAsset asset;
@@ -733,6 +783,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_ending_static(&nor.pack, &tf.pack);
+    }
+    if (rc == 0) {
+        rc = check_palette_static(&nor.pack);
     }
     if (rc == 0) {
         rc = check_ui_cache(&nor.pack);

@@ -125,6 +125,8 @@ The static menu smoke copies decoded FBP backgrounds #0, #1, and #60 into `pal_p
 
 The static ending smoke copies FBP #68 into `pal_psram_ending_fbp_a`, copies the ending animation pair FBP #61/#62 into `pal_psram_ending_fbp_a` / `pal_psram_ending_fbp_b`, and maps MGO #571 (59,516 bytes), #572 (5,736 bytes), and #627 (3,136 bytes) as read-only `const uint8_t *` views from the NOR pack.
 
+The static palette smoke copies PAT #0 day/night palettes into fixed SRAM RGB buffers, blends day to night, scales to black, fills from one palette color, and feeds the result to the RGB565 video LUT. Runtime placement is `pal_sram_palette_current[768]` and `pal_sram_palette_work[768]`.
+
 ## Largest Single Runtime Chunks
 
 - `MGO.MKF #571`: compressed 33,944 bytes, runtime 59,516 bytes, YJ1

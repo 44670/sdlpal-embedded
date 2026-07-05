@@ -53,6 +53,8 @@ embedded/pal_menu_static.c
 embedded/pal_menu_static.h
 embedded/pal_ending_static.c
 embedded/pal_ending_static.h
+embedded/pal_palette_static.c
+embedded/pal_palette_static.h
 ```
 
 Source scan:
@@ -198,6 +200,8 @@ embedded/pal_menu_static.c
 embedded/pal_menu_static.h
 embedded/pal_ending_static.c
 embedded/pal_ending_static.h
+embedded/pal_palette_static.c
+embedded/pal_palette_static.h
 ```
 
 Properties:
@@ -239,6 +243,8 @@ pal_sram_audio[16384]
 pal_sram_display_dma[4096]
 pal_sram_hot_globals[24576]
 pal_sram_misc[8192]
+pal_sram_palette_current[768]
+pal_sram_palette_work[768]
 
 pal_psram_save_state[655360]
 pal_psram_map_tiles[65536]
@@ -280,8 +286,8 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=1541 data=520 bss=7452184
-pal_sram_ total=182784 limit=307200
+text=1557 data=520 bss=7453720
+pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 PASS
 ```
@@ -317,8 +323,8 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=5228 data=640 bss=7452704
-pal_sram_ total=182784 limit=307200
+text=5228 data=640 bss=7454240
+pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_video_ total=512 limit=4096
 PASS
@@ -463,6 +469,14 @@ The smoke also exercises `embedded/pal_ending_static.c` against real ending/spla
 | Ending girl sprite | `MGO.MKF #572` | 5,736 | `const uint8_t *` NOR view |
 | Ending effect sprite | `MGO.MKF #627` | 3,136 | `const uint8_t *` NOR view |
 
+The smoke also exercises `embedded/pal_palette_static.c` against real palette/fade data:
+
+| Asset | Pack source | Bytes | Runtime placement |
+| --- | --- | ---: | --- |
+| Day palette | `PAT.MKF #0` | 768 | `pal_sram_palette_current` |
+| Night palette | `PAT.MKF #0` | 768 | `pal_sram_misc`, then fade source |
+| Fade work palette | day/night blend, black scale, color fill | 768 | `pal_sram_palette_work` |
+
 Build packs and run the real-data smoke:
 
 ```sh
@@ -488,8 +502,8 @@ Current result:
 ```text
 source heap hits: 0
 source decompress hits: 0
-text=21942 data=720 bss=7458976
-pal_sram_ total=182784 limit=307200
+text=23462 data=720 bss=7460512
+pal_sram_ total=184320 limit=307200
 pal_psram_ total=7269392 limit=8388608
 pal_scene_ total=4736 limit=8192
 pal_battle_ total=334 limit=2048
@@ -502,6 +516,7 @@ pal_ui_ total=0 limit=4096
 pal_music_ total=0 limit=4096
 pal_menu_ total=0 limit=4096
 pal_ending_ total=0 limit=4096
+pal_palette_ total=0 limit=4096
 
 pack /tmp/pal_nor_default.pak:
 size=10446724 chunks=1401 payload=10422642 max-size=16777216
@@ -512,7 +527,7 @@ size=47309294 chunks=812 payload=47295743
 formats NATIVE=524 RNG_FRAMES=12 SFX_PCM16=276
 
 linker map build/pal_realdata_sdl_smoke.map:
-size=604467
+size=606998
 PASS
 ```
 

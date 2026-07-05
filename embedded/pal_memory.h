@@ -16,6 +16,7 @@ extern "C" {
 #define PAL_SRAM_DISPLAY_DMA_BYTES (4u * 1024u)
 #define PAL_SRAM_HOT_GLOBALS_BYTES (24u * 1024u)
 #define PAL_SRAM_MISC_BYTES (8u * 1024u)
+#define PAL_SRAM_PALETTE_RGB_BYTES (256u * 3u)
 
 #define PAL_PSRAM_SAVE_STATE_BYTES (640u * 1024u)
 #define PAL_PSRAM_MAP_TILES_BYTES 65536u
@@ -36,7 +37,8 @@ extern "C" {
 
 #define PAL_SRAM_DECLARED_BYTES \
     (PAL_SRAM_FRAMEBUFFER_BYTES + PAL_SRAM_BIG_BUFFER_BYTES + PAL_SRAM_AUDIO_BYTES + \
-     PAL_SRAM_DISPLAY_DMA_BYTES + PAL_SRAM_HOT_GLOBALS_BYTES + PAL_SRAM_MISC_BYTES)
+     PAL_SRAM_DISPLAY_DMA_BYTES + PAL_SRAM_HOT_GLOBALS_BYTES + PAL_SRAM_MISC_BYTES + \
+     PAL_SRAM_PALETTE_RGB_BYTES + PAL_SRAM_PALETTE_RGB_BYTES)
 
 #define PAL_PSRAM_DECLARED_BYTES \
     (PAL_PSRAM_SAVE_STATE_BYTES + PAL_PSRAM_MAP_TILES_BYTES + PAL_PSRAM_GOP_COPY_BYTES + \
@@ -56,6 +58,8 @@ extern uint8_t pal_sram_audio[PAL_SRAM_AUDIO_BYTES];
 extern uint8_t pal_sram_display_dma[PAL_SRAM_DISPLAY_DMA_BYTES];
 extern uint8_t pal_sram_hot_globals[PAL_SRAM_HOT_GLOBALS_BYTES];
 extern uint8_t pal_sram_misc[PAL_SRAM_MISC_BYTES];
+extern uint8_t pal_sram_palette_current[PAL_SRAM_PALETTE_RGB_BYTES];
+extern uint8_t pal_sram_palette_work[PAL_SRAM_PALETTE_RGB_BYTES];
 
 extern uint8_t pal_psram_save_state[PAL_PSRAM_SAVE_STATE_BYTES];
 extern uint8_t pal_psram_map_tiles[PAL_PSRAM_MAP_TILES_BYTES];

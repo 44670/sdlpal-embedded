@@ -59,7 +59,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_memory.c` intentionally declares normal named static-storage buffers such as `pal_sram_framebuffer` and `pal_psram_map_tiles`; there is no memory pool API.
 - `embedded/pal_native_sdl_smoke.c` is the native SDL fixed-memory smoke test. It wraps `pal_sram_framebuffer` with an SDL surface and reads from a `const uint8_t` pack; run it through `make -C embedded check` with `SDL_VIDEODRIVER=dummy`.
 - `embedded/pal_realdata_sdl_smoke.c` is the native SDL real-data smoke test. It maps generated NOR/TF packs read-only, copies TF chunks into named SRAM/PSRAM arrays, reads real save files into static PSRAM storage, and is run with `make -C embedded realdata-check`, which rebuilds the packs first.
-- `make -C embedded contract-check` runs the embedded source/binary/pack budget gate with heap/decoder scans, generated-pack checks, 16MB NOR pack budget, and named `pal_sram_`, `pal_psram_`, `pal_scene_`, `pal_battle_`, `pal_sfx_`, `pal_audio_`, `pal_global_`, `pal_save_`, `pal_video_`, `pal_ui_`, `pal_music_`, `pal_menu_`, and `pal_ending_` symbol totals.
+- `make -C embedded contract-check` runs the embedded source/binary/pack budget gate with heap/decoder scans, generated-pack checks, 16MB NOR pack budget, and named `pal_sram_`, `pal_psram_`, `pal_scene_`, `pal_battle_`, `pal_sfx_`, `pal_audio_`, `pal_global_`, `pal_save_`, `pal_video_`, `pal_ui_`, `pal_music_`, `pal_menu_`, `pal_ending_`, and `pal_palette_` symbol totals.
 - `embedded/pal_scene_cache.c` is the static scene-loading slice. It copies decoded MAP/GOP chunks into named PSRAM arrays and deduplicates event-object MGO sprites as `const uint8_t *` references into the NOR pack.
 - `embedded/pal_battle_cache.c` is the static battle-loading slice. It copies decoded FBP backgrounds into PSRAM and keeps F/ABC/FIRE sprites as `const uint8_t *` views into the NOR pack, with enemy sprite deduplication.
 - `embedded/pal_rng_cache.c` is the static RNG-frame slice. It reads predecoded RNG frame records from the TF pack and copies frames into `pal_psram_rng_frame_a` / `pal_psram_rng_frame_b`.
@@ -74,6 +74,7 @@ Use this path for dataset audits and memory estimates unless the user gives a di
 - `embedded/pal_music_cache.c` is the static music-data slice. It maps MIDI and MUS/RIX tracks from the NOR pack as read-only `const uint8_t *` views and does not allocate player state.
 - `embedded/pal_menu_static.c` is the static menu/status scratch slice. It copies decoded FBP menu backgrounds into `pal_psram_menu_background`, copies legacy mutable image scratch into `pal_psram_menu_image`, uses `pal_psram_menu_box` for fixed menu boxes, and maps item images as `const uint8_t *` when copying is unnecessary.
 - `embedded/pal_ending_static.c` is the static ending/splash slice. It copies two FBP screens into `pal_psram_ending_fbp_a` / `pal_psram_ending_fbp_b` and maps MGO ending/effect sprites as `const uint8_t *` NOR views.
+- `embedded/pal_palette_static.c` is the static palette/fade slice. It uses `pal_sram_palette_current` and `pal_sram_palette_work` for RGB palette copies and fade steps instead of local `SDL_Color[256]` scratch arrays.
 
 ## Known Memory Pressure Points
 

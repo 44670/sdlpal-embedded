@@ -16,7 +16,7 @@ static int check_buffer(uint8_t *data, size_t size, uint8_t tag)
 
 int main(void)
 {
-    if (PAL_SRAM_DECLARED_BYTES != 182784u) {
+    if (PAL_SRAM_DECLARED_BYTES != 184320u) {
         return 1;
     }
     if (PAL_PSRAM_DECLARED_BYTES != 7269392u) {
@@ -41,60 +41,66 @@ int main(void)
     if (CHECK_BUFFER(pal_sram_misc, 6u) != 0) {
         return 8;
     }
-
-    if (CHECK_BUFFER(pal_psram_save_state, 10u) != 0) {
+    if (CHECK_BUFFER(pal_sram_palette_current, 7u) != 0) {
         return 9;
     }
-    if (CHECK_BUFFER(pal_psram_map_tiles, 11u) != 0) {
+    if (CHECK_BUFFER(pal_sram_palette_work, 8u) != 0) {
         return 10;
     }
-    if (CHECK_BUFFER(pal_psram_gop_copy, 12u) != 0) {
+
+    if (CHECK_BUFFER(pal_psram_save_state, 10u) != 0) {
         return 11;
     }
-    if (CHECK_BUFFER(pal_psram_screen_bak, 13u) != 0) {
+    if (CHECK_BUFFER(pal_psram_map_tiles, 11u) != 0) {
         return 12;
     }
-    if (CHECK_BUFFER(pal_psram_resource_staging, 14u) != 0) {
+    if (CHECK_BUFFER(pal_psram_gop_copy, 12u) != 0) {
         return 13;
     }
-    if (CHECK_BUFFER(pal_psram_rng_frame_a, 15u) != 0) {
+    if (CHECK_BUFFER(pal_psram_screen_bak, 13u) != 0) {
         return 14;
     }
-    if (CHECK_BUFFER(pal_psram_rng_frame_b, 16u) != 0) {
+    if (CHECK_BUFFER(pal_psram_resource_staging, 14u) != 0) {
         return 15;
     }
-    if (CHECK_BUFFER(pal_psram_tf_readahead, 17u) != 0) {
+    if (CHECK_BUFFER(pal_psram_rng_frame_a, 15u) != 0) {
         return 16;
     }
-    if (CHECK_BUFFER(pal_psram_effect, 18u) != 0) {
+    if (CHECK_BUFFER(pal_psram_rng_frame_b, 16u) != 0) {
         return 17;
     }
-    if (CHECK_BUFFER(pal_psram_fbp_background, 19u) != 0) {
+    if (CHECK_BUFFER(pal_psram_tf_readahead, 17u) != 0) {
         return 18;
     }
-    if (CHECK_BUFFER(pal_psram_sfx_bank, 20u) != 0) {
+    if (CHECK_BUFFER(pal_psram_effect, 18u) != 0) {
         return 19;
     }
-    if (CHECK_BUFFER(pal_psram_text_misc, 21u) != 0) {
+    if (CHECK_BUFFER(pal_psram_fbp_background, 19u) != 0) {
         return 20;
     }
-    if (CHECK_BUFFER(pal_psram_sprite_pin, 22u) != 0) {
+    if (CHECK_BUFFER(pal_psram_sfx_bank, 20u) != 0) {
         return 21;
     }
-    if (CHECK_BUFFER(pal_psram_menu_background, 23u) != 0) {
+    if (CHECK_BUFFER(pal_psram_text_misc, 21u) != 0) {
         return 22;
     }
-    if (CHECK_BUFFER(pal_psram_menu_image, 24u) != 0) {
+    if (CHECK_BUFFER(pal_psram_sprite_pin, 22u) != 0) {
         return 23;
     }
-    if (CHECK_BUFFER(pal_psram_menu_box, 25u) != 0) {
+    if (CHECK_BUFFER(pal_psram_menu_background, 23u) != 0) {
         return 24;
     }
-    if (CHECK_BUFFER(pal_psram_ending_fbp_a, 26u) != 0) {
+    if (CHECK_BUFFER(pal_psram_menu_image, 24u) != 0) {
         return 25;
     }
-    if (CHECK_BUFFER(pal_psram_ending_fbp_b, 27u) != 0) {
+    if (CHECK_BUFFER(pal_psram_menu_box, 25u) != 0) {
         return 26;
+    }
+    if (CHECK_BUFFER(pal_psram_ending_fbp_a, 26u) != 0) {
+        return 27;
+    }
+    if (CHECK_BUFFER(pal_psram_ending_fbp_b, 27u) != 0) {
+        return 28;
     }
 
     return 0;
