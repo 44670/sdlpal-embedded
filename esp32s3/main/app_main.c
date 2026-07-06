@@ -38,6 +38,7 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define DEMO_MAP_PIXEL_HEIGHT (128 * 16)
 #define PLAYER_ROLE_COUNT 6u
 #define DEMO_PLAYABLE_PARTY_SLOTS 5u
+#define DEMO_SCENE_DRAW_ITEM_COUNT (PAL_SCENE_MAX_EVENT_OBJECTS + DEMO_PLAYABLE_PARTY_SLOTS)
 #define DEMO_MAX_PARTY_INDEX 2u
 #define PARTY_STRUCT_BYTES 10u
 #define PARTY_ROLE_OFFSET 0u
@@ -134,7 +135,7 @@ typedef struct DemoSpriteDraw {
     int sort_y;
 } DemoSpriteDraw;
 
-static DemoSpriteDraw pal_scene_draw_items[PAL_SCENE_MAX_EVENT_OBJECTS + 1u];
+static DemoSpriteDraw pal_scene_draw_items[DEMO_SCENE_DRAW_ITEM_COUNT];
 
 static void party_member_screen_position(uint16_t index, int *x, int *y, uint16_t *direction);
 
