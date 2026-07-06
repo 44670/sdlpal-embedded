@@ -59,6 +59,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define PLAYER_ROLE_MAX_MP_WORD_INDEX 8u
 #define PLAYER_ROLE_HP_WORD_INDEX 9u
 #define PLAYER_ROLE_MP_WORD_INDEX 10u
+#define PLAYER_ROLE_BATTLE_SPRITE_WORD_INDEX 1u
 #define PLAYER_ROLE_EQUIPMENT_OFFSET (11u * PLAYER_ROLE_WORD_ARRAY_BYTES)
 #define PLAYER_ROLE_EQUIPMENT_SLOTS 6u
 #define PLAYER_ROLE_MAGIC_OFFSET (32u * PLAYER_ROLE_WORD_ARRAY_BYTES)
@@ -87,6 +88,10 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SAVE_SCENE_OFFSET 8u
 #define SAVE_SAVED_TIMES_OFFSET 0u
 #define SAVE_PARTY_DIRECTION_OFFSET 12u
+#define SAVE_MUSIC_OFFSET 14u
+#define SAVE_BATTLE_MUSIC_OFFSET 16u
+#define SAVE_BATTLEFIELD_OFFSET 18u
+#define SAVE_SCREEN_WAVE_OFFSET 20u
 #define SAVE_FOLLOWER_COUNT_OFFSET 32u
 #define SAVE_PALETTE_OFFSET_OFFSET 10u
 #define SAVE_LAYER_OFFSET 26u
@@ -302,6 +307,11 @@ static char pal_save_path[] = "0:/1.rpg";
 static uint8_t pal_save_slot;
 static uint16_t pal_palette_num;
 static bool pal_palette_night;
+static uint16_t pal_music_num;
+static uint16_t pal_battle_music_num;
+static uint16_t pal_battlefield_num;
+static uint16_t pal_screen_wave;
+static uint16_t pal_battle_preview_ticks;
 
 static const uint16_t pal_battle_sample_player_sprites[3] = {0u, 1u, 2u};
 
@@ -581,6 +591,10 @@ static void sync_runtime_save_position(void)
     write_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET, (uint16_t)pal_viewport_y);
     write_le16(pal_psram_save_state + SAVE_PARTY_DIRECTION_OFFSET, pal_player_direction);
     write_le16(pal_psram_save_state + SAVE_LAYER_OFFSET, pal_party_layer);
+    write_le16(pal_psram_save_state + SAVE_MUSIC_OFFSET, pal_music_num);
+    write_le16(pal_psram_save_state + SAVE_BATTLE_MUSIC_OFFSET, pal_battle_music_num);
+    write_le16(pal_psram_save_state + SAVE_BATTLEFIELD_OFFSET, pal_battlefield_num);
+    write_le16(pal_psram_save_state + SAVE_SCREEN_WAVE_OFFSET, pal_screen_wave);
 
     for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         uint8_t *trail = pal_psram_save_state + SAVE_TRAIL_OFFSET + (uint32_t)i * TRAIL_STRUCT_BYTES;
@@ -882,6 +896,11 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_player_direction = DEMO_DIR_SOUTH;
     pal_palette_num = 0;
     pal_palette_night = false;
+    pal_music_num = 0;
+    pal_battle_music_num = 0;
+    pal_battlefield_num = 0;
+    pal_screen_wave = 0;
+    pal_battle_preview_ticks = 0;
     pal_save_player_roles = NULL;
     pal_save_scenes = NULL;
     pal_save_event_objects = NULL;
@@ -956,6 +975,10 @@ static bool load_startup_save_slot(uint8_t slot)
     }
     pal_player_role = pal_party_roles[0];
     pal_palette_night = read_le16(pal_psram_save_state + SAVE_PALETTE_OFFSET_OFFSET) != 0;
+    pal_music_num = read_le16(pal_psram_save_state + SAVE_MUSIC_OFFSET);
+    pal_battle_music_num = read_le16(pal_psram_save_state + SAVE_BATTLE_MUSIC_OFFSET);
+    pal_battlefield_num = read_le16(pal_psram_save_state + SAVE_BATTLEFIELD_OFFSET);
+    pal_screen_wave = read_le16(pal_psram_save_state + SAVE_SCREEN_WAVE_OFFSET);
     pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
     pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
     pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
@@ -1608,6 +1631,62 @@ static bool add_inventory_item(uint16_t item_id, int amount)
     return true;
 }
 
+static uint16_t current_battle_player_sprites(uint16_t *sprite_nums, uint16_t capacity)
+{
+    uint16_t i;
+    uint16_t count = 0;
+
+    if (sprite_nums == NULL || capacity == 0) {
+        return 0;
+    }
+    for (i = 0; i <= pal_max_party_member_index && i < DEMO_PLAYABLE_PARTY_SLOTS && count < capacity; i++) {
+        uint16_t role = pal_party_roles[i];
+        uint16_t sprite_num = role < PLAYER_ROLE_COUNT ?
+                              player_role_word_by_index(PLAYER_ROLE_BATTLE_SPRITE_WORD_INDEX, role) :
+                              0;
+
+        if (sprite_num != 0) {
+            sprite_nums[count++] = sprite_num;
+        }
+    }
+    if (count == 0) {
+        for (i = 0; i < 3u && i < capacity; i++) {
+            sprite_nums[count++] = pal_battle_sample_player_sprites[i];
+        }
+    }
+    return count;
+}
+
+static bool load_battle_preview(uint16_t team_num)
+{
+    uint16_t sprite_nums[PAL_BATTLE_MAX_PLAYERS];
+    uint16_t player_count = current_battle_player_sprites(sprite_nums, PAL_BATTLE_MAX_PLAYERS);
+    uint16_t battlefield_num = pal_battlefield_num;
+
+    pal_battle_ready = false;
+    memset(&pal_battle_snapshot, 0, sizeof(pal_battle_snapshot));
+    if (!pal_nor_ready || !pal_tf_ready || player_count == 0) {
+        return false;
+    }
+
+    if (!PalBattle_LoadSnapshotReadAt(
+            &pal_nor_pack,
+            &pal_tf_toc,
+            read_tf_pack_at,
+            &pal_tf_file,
+            team_num,
+            battlefield_num,
+            sprite_nums,
+            player_count,
+            7u,
+            &pal_battle_snapshot)) {
+        return false;
+    }
+    pal_battle_ready = true;
+    pal_battle_preview_ticks = 90u;
+    return true;
+}
+
 static void load_player_sprite(void)
 {
     uint16_t i;
@@ -2190,6 +2269,9 @@ static uint16_t execute_script_mutation(
             continue;
 
         case SCRIPT_START_BATTLE:
+            if (entry.operand[0] != 0) {
+                (void)load_battle_preview(entry.operand[0]);
+            }
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -2295,9 +2377,7 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SELL_MENU:
         case SCRIPT_SET_CURRENT_RNG:
         case SCRIPT_PLAY_RNG:
-        case SCRIPT_SET_BATTLEFIELD:
         case SCRIPT_CHASE_PLAYER:
-        case SCRIPT_SCREEN_WAVE:
         case SCRIPT_SHOW_FBP:
         case SCRIPT_STOP_MUSIC:
         case SCRIPT_UNKNOWN_0078:
@@ -2561,9 +2641,39 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
-        case SCRIPT_SET_MUSIC:
-        case SCRIPT_SET_BATTLE_MUSIC:
         case SCRIPT_PLAY_SOUND:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_MUSIC:
+            pal_music_num = entry.operand[0];
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_BATTLE_MUSIC:
+            pal_battle_music_num = entry.operand[0];
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_BATTLEFIELD:
+            pal_battlefield_num = entry.operand[0];
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SCREEN_WAVE:
+            pal_screen_wave = entry.operand[0];
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -3546,10 +3656,28 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
 static void draw_scene_background(uint32_t tick)
 {
     if (pal_tf_scene_ready) {
+        int wave = (pal_screen_wave != 0) ? (int)((tick & 7u) - 3u) : 0;
+        int y;
+
         memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
         draw_map_layer(0, pal_viewport_x, pal_viewport_y);
         draw_map_layer(1, pal_viewport_x, pal_viewport_y);
         draw_scene_event_sprites(pal_viewport_x, pal_viewport_y);
+        if (wave != 0) {
+            for (y = 0; y < PAL_VIDEO_HEIGHT; y++) {
+                uint8_t *row = pal_sram_framebuffer + (uint32_t)y * PAL_VIDEO_WIDTH;
+                int shift = ((y / 8) & 1) ? wave : -wave;
+
+                if (shift > 0) {
+                    memmove(row + shift, row, PAL_VIDEO_WIDTH - (uint32_t)shift);
+                    memset(row, 0, (uint32_t)shift);
+                } else if (shift < 0) {
+                    uint32_t amount = (uint32_t)(-shift);
+                    memmove(row, row + amount, PAL_VIDEO_WIDTH - amount);
+                    memset(row + PAL_VIDEO_WIDTH - amount, 0, amount);
+                }
+            }
+        }
     } else {
         uint32_t x;
         uint32_t y;
@@ -3563,6 +3691,37 @@ static void draw_scene_background(uint32_t tick)
                 dst[x] = (uint8_t)value;
             }
         }
+    }
+}
+
+static void draw_battle_preview(void)
+{
+    uint16_t i;
+
+    if (!pal_battle_ready || pal_battle_snapshot.background_size != PAL_SRAM_FRAMEBUFFER_BYTES) {
+        return;
+    }
+
+    memcpy(pal_sram_framebuffer, pal_psram_fbp_background, PAL_SRAM_FRAMEBUFFER_BYTES);
+    for (i = 0; i < pal_battle_snapshot.enemy_ref_count && i < PAL_BATTLE_MAX_ENEMIES; i++) {
+        const PalBattleSpriteRef *ref = &pal_battle_snapshot.enemy_sprites[i];
+        const uint8_t *frame = ref->data != NULL ? sprite_frame(ref->data, 0) : NULL;
+        uint16_t w = rle_width(frame);
+        uint16_t h = rle_height(frame);
+        int x = 190 + (int)(i % 3u) * 42 - (int)w / 2;
+        int y = 96 + (int)(i / 3u) * 38 - (int)h;
+
+        blit_rle_to_framebuffer(frame, x, y);
+    }
+    for (i = 0; i < pal_battle_snapshot.player_count && i < PAL_BATTLE_MAX_PLAYERS; i++) {
+        const PalBattleSpriteRef *ref = &pal_battle_snapshot.player_sprites[i];
+        const uint8_t *frame = ref->data != NULL ? sprite_frame(ref->data, 0) : NULL;
+        uint16_t w = rle_width(frame);
+        uint16_t h = rle_height(frame);
+        int x = 78 - (int)w / 2;
+        int y = 132 + (int)i * 16 - (int)h;
+
+        blit_rle_to_framebuffer(frame, x, y);
     }
 }
 
@@ -3681,8 +3840,13 @@ static void draw_dialog_overlay(void)
 
 static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t ty)
 {
-    draw_scene_background(tick);
+    if (pal_battle_preview_ticks != 0) {
+        draw_battle_preview();
+        pal_battle_preview_ticks--;
+        return;
+    }
 
+    draw_scene_background(tick);
     if (touched && ty >= CORES3SE_PAL_Y_OFFSET && ty < CORES3SE_PAL_Y_OFFSET + 200u) {
         const int cx = (int)tx;
         const int cy = (int)ty - (int)CORES3SE_PAL_Y_OFFSET;
@@ -3744,11 +3908,11 @@ void app_main(void)
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
         bool dialog_consumed = update_dialog_touch(touched);
 
-        if (!dialog_consumed) {
+        if (pal_battle_preview_ticks == 0 && !dialog_consumed) {
             update_scene_selection(touched, ty);
             update_demo_viewport(touched, tx, ty);
         }
-        if ((tick & 7u) == 0) {
+        if (pal_battle_preview_ticks == 0 && (tick & 7u) == 0) {
             advance_scene_auto_scripts();
             advance_scene_event_frames();
             advance_player_frame();
