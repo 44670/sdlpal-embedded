@@ -1,5 +1,6 @@
 #include "cores3se_board.h"
 
+#include "../../embedded/pal_global_cache.h"
 #include "../../embedded/pal_memory.h"
 #include "../../embedded/pal_pack.h"
 #include "../../embedded/pal_scene_cache.h"
@@ -37,6 +38,7 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
+static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static int pal_tf_fd = -1;
 static bool pal_nor_ready;
@@ -241,6 +243,24 @@ static void load_pack_palette_or_demo(void)
     load_demo_palette();
 }
 
+static void load_global_cache(void)
+{
+    pal_global_cache = NULL;
+    if (!pal_nor_ready) {
+        return;
+    }
+    if (!PalGlobal_LoadDefault(&pal_nor_pack, &pal_global_cache)) {
+        ESP_LOGW(TAG, "PAL global cache load failed");
+        pal_global_cache = NULL;
+        return;
+    }
+    ESP_LOGI(TAG,
+             "PAL global cache loaded: mutable=%" PRIu32 " events=%" PRIu32 " scenes=%" PRIu32,
+             pal_global_cache->mutable_bytes,
+             pal_global_cache->event_objects.count,
+             pal_global_cache->scenes.count);
+}
+
 static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
 {
     uint32_t i;
@@ -281,8 +301,14 @@ static void load_tf_scene_chunks(void)
         return;
     }
 
-    pal_scene_event_objects = event_span.data;
-    pal_scene_event_objects_size = event_span.size;
+    if (pal_global_cache != NULL &&
+        pal_global_cache->event_objects.size >= ((uint32_t)pal_scene_snapshot.event_start + pal_scene_snapshot.event_count) * SSS_EVENT_OBJECT_BYTES) {
+        pal_scene_event_objects = pal_global_cache->event_objects.data;
+        pal_scene_event_objects_size = pal_global_cache->event_objects.size;
+    } else {
+        pal_scene_event_objects = event_span.data;
+        pal_scene_event_objects_size = event_span.size;
+    }
     pal_tf_scene_checksum = sample_checksum(pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES) ^
                             sample_checksum(pal_psram_gop_copy, pal_scene_snapshot.gop_size);
     pal_viewport_x = 0;
@@ -683,6 +709,7 @@ void app_main(void)
     pal_nor_ready = open_nor_pack();
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     load_pack_palette_or_demo();
+    load_global_cache();
     load_tf_scene_chunks();
     for (;;) {
         uint16_t tx = 0;

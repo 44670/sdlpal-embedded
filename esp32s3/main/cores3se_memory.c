@@ -17,6 +17,7 @@ uint8_t pal_sram_palette_work[PAL_SRAM_PALETTE_RGB_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_palette_rgb565[PAL_SRAM_PALETTE_RGB565_BYTES] PAL_BSS_SRAM;
 
 uint8_t pal_psram_screen_bak[PAL_PSRAM_SCREEN_BAK_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_save_state[PAL_PSRAM_SAVE_STATE_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_map_tiles[PAL_PSRAM_MAP_TILES_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_gop_copy[PAL_PSRAM_GOP_COPY_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_tf_toc[PAL_PSRAM_TF_TOC_BYTES] PAL_BSS_PSRAM;
