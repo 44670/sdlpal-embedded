@@ -19,6 +19,7 @@ PACK_CHUNK_F_COMPRESSED = 0x0001
 PAL_NOR_PARTITION_BYTES = 0xB00000
 SRAM_BUDGET = 300 * 1024
 PSRAM_BUDGET = 8 * 1024 * 1024
+DRAM_STATIC_BUDGET = 300 * 1024
 
 SOURCE_FILES = (
     "esp32s3/main/app_main.c",
@@ -49,6 +50,23 @@ FORBIDDEN_SOURCE = (
     re.compile(r"\bYJ1_Decompress\s*\("),
     re.compile(r"\bYJ2_Decompress\s*\("),
     re.compile(r"\bDecompress\s*\("),
+)
+
+FORBIDDEN_LINKED_SYMBOLS = (
+    "PAL_MKFDecompressChunk",
+    "PAL_MKFGetDecompressedSize",
+    "YJ1_Decompress",
+    "YJ2_Decompress",
+    "Decompress",
+)
+
+KEY_SECTIONS = (
+    ".iram0.text",
+    ".dram0.data",
+    ".dram0.bss",
+    ".flash.text",
+    ".flash.rodata",
+    ".ext_ram.bss",
 )
 
 
@@ -105,6 +123,34 @@ def symbol_prefix_total(nm_output: str, prefix: str) -> tuple[int, list[tuple[in
             total += size
             rows.append((size, name))
     return total, sorted(rows, reverse=True)
+
+
+def parse_objdump_sections(output: str) -> dict[str, int]:
+    sections: dict[str, int] = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        if not parts[0].isdigit():
+            continue
+        try:
+            sections[parts[1]] = int(parts[2], 16)
+        except ValueError:
+            pass
+    return sections
+
+
+def linked_forbidden_symbols(nm_output: str) -> list[str]:
+    hits: list[str] = []
+    names = set()
+    for line in nm_output.splitlines():
+        parts = line.split()
+        if parts:
+            names.add(parts[-1])
+    for name in FORBIDDEN_LINKED_SYMBOLS:
+        if name in names:
+            hits.append(name)
+    return hits
 
 
 def check_pack(path: Path) -> list[str]:
@@ -179,9 +225,15 @@ def main() -> int:
     print("\n## size")
     print(size_output.rstrip())
 
+    objdump_sections = parse_objdump_sections(run(["xtensa-esp32s3-elf-objdump", "-h", str(elf)]))
+    print("\n## sections")
+    for section in KEY_SECTIONS:
+        print(f"{section:16s} {objdump_sections.get(section, 0):8d}")
+
     nm_output = run(["xtensa-esp32s3-elf-nm", "-S", "--size-sort", str(elf)])
     sram_total, sram_rows = symbol_prefix_total(nm_output, "pal_sram_")
     psram_total, psram_rows = symbol_prefix_total(nm_output, "pal_psram_")
+    linked_hits = linked_forbidden_symbols(nm_output)
     print(f"\npal_sram_ total={sram_total} / {SRAM_BUDGET}")
     for size, name in sram_rows:
         print(f"{size:8d} {name}")
@@ -193,6 +245,15 @@ def main() -> int:
         errors.append(f"pal_sram_ total {sram_total} exceeds {SRAM_BUDGET}")
     if psram_total > PSRAM_BUDGET:
         errors.append(f"pal_psram_ total {psram_total} exceeds {PSRAM_BUDGET}")
+    dram_static = objdump_sections.get(".dram0.data", 0) + objdump_sections.get(".dram0.bss", 0)
+    if dram_static > DRAM_STATIC_BUDGET:
+        errors.append(f"DRAM static sections {dram_static} exceed {DRAM_STATIC_BUDGET}")
+    if objdump_sections.get(".ext_ram.bss", 0) > PSRAM_BUDGET:
+        errors.append(f".ext_ram.bss {objdump_sections.get('.ext_ram.bss', 0)} exceeds {PSRAM_BUDGET}")
+    if objdump_sections.get(".ext_ram.bss", 0) < psram_total:
+        errors.append(f".ext_ram.bss {objdump_sections.get('.ext_ram.bss', 0)} is smaller than pal_psram_ total {psram_total}")
+    if linked_hits:
+        errors.extend(f"linked forbidden symbol: {name}" for name in linked_hits)
     if size_values.get("bss", 0) > 9000000:
         errors.append(f"bss exceeds broad target limit: {size_values.get('bss')}")
 
