@@ -35,6 +35,12 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define EVENT_CURRENT_FRAME_OFFSET 22u
 #define DEMO_MAP_PIXEL_WIDTH (64 * 32)
 #define DEMO_MAP_PIXEL_HEIGHT (128 * 16)
+#define PLAYER_ROLE_COUNT 6u
+#define PLAYER_ROLE_WORD_ARRAY_BYTES (PLAYER_ROLE_COUNT * 2u)
+#define PLAYER_ROLE_SPRITE_NUM_OFFSET (2u * PLAYER_ROLE_WORD_ARRAY_BYTES)
+#define PLAYER_ROLE_WALK_FRAMES_OFFSET 768u
+#define DEMO_PARTY_SCREEN_X 160
+#define DEMO_PARTY_SCREEN_Y 112
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -56,6 +62,11 @@ static bool pal_touch_tracking;
 static bool pal_touch_scene_gate;
 static uint16_t pal_touch_last_x;
 static uint16_t pal_touch_last_y;
+static const uint8_t *pal_player_sprite;
+static uint32_t pal_player_sprite_size;
+static uint16_t pal_player_walk_frames;
+static uint16_t pal_player_frame_num;
+static uint16_t pal_player_direction;
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -64,7 +75,7 @@ typedef struct DemoSpriteDraw {
     int sort_y;
 } DemoSpriteDraw;
 
-static DemoSpriteDraw pal_scene_draw_items[PAL_SCENE_MAX_EVENT_OBJECTS];
+static DemoSpriteDraw pal_scene_draw_items[PAL_SCENE_MAX_EVENT_OBJECTS + 1u];
 
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -268,6 +279,53 @@ static void load_global_cache(void)
              pal_global_cache->scenes.count);
 }
 
+static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
+{
+    uint32_t offset = field_offset + (uint32_t)role * 2u;
+    if (pal_global_cache == NULL ||
+        pal_global_cache->player_roles.data == NULL ||
+        role >= PLAYER_ROLE_COUNT ||
+        offset > pal_global_cache->player_roles.size ||
+        2u > pal_global_cache->player_roles.size - offset) {
+        return 0;
+    }
+    return read_le16(pal_global_cache->player_roles.data + offset);
+}
+
+static void load_player_sprite(void)
+{
+    PalPackSpan span;
+    uint16_t sprite_num;
+
+    pal_player_sprite = NULL;
+    pal_player_sprite_size = 0;
+    pal_player_walk_frames = 3;
+    pal_player_frame_num = 0;
+    pal_player_direction = 0;
+
+    if (!pal_nor_ready || pal_global_cache == NULL) {
+        return;
+    }
+
+    sprite_num = player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, 0);
+    pal_player_walk_frames = player_role_word(PLAYER_ROLE_WALK_FRAMES_OFFSET, 0);
+    if (pal_player_walk_frames == 0 || pal_player_walk_frames > 4u) {
+        pal_player_walk_frames = 3;
+    }
+
+    if (PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_MGO, sprite_num, &span) &&
+        span.format == PAL_PACK_FORMAT_NATIVE &&
+        span.data != NULL &&
+        span.size != 0) {
+        pal_player_sprite = span.data;
+        pal_player_sprite_size = span.size;
+        ESP_LOGI(TAG, "player sprite loaded: role=0 sprite=%u bytes=%" PRIu32 " walk_frames=%u",
+                 (unsigned)sprite_num,
+                 pal_player_sprite_size,
+                 (unsigned)pal_player_walk_frames);
+    }
+}
+
 static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
 {
     uint32_t i;
@@ -420,6 +478,14 @@ static void advance_scene_event_frames(void)
         frame = (uint16_t)((frame + 1u) % sprite_frames);
         write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, frame);
     }
+}
+
+static void advance_player_frame(void)
+{
+    if (pal_player_sprite == NULL || pal_player_walk_frames == 0) {
+        return;
+    }
+    pal_player_frame_num = (uint16_t)((pal_player_frame_num + 1u) % pal_player_walk_frames);
 }
 
 static uint16_t sprite_frame_count(const uint8_t *sprite)
@@ -685,12 +751,34 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
             continue;
         }
 
-        pal_scene_draw_items[draw_count].rle = rle;
-        pal_scene_draw_items[draw_count].x = x;
-        pal_scene_draw_items[draw_count].y = y;
-        pal_scene_draw_items[draw_count].sort_y =
-            (int)read_s16(event_object + EVENT_Y_OFFSET) - viewport_y + layer * 8 + 9;
-        draw_count++;
+        if (draw_count < (uint16_t)(sizeof(pal_scene_draw_items) / sizeof(pal_scene_draw_items[0]))) {
+            pal_scene_draw_items[draw_count].rle = rle;
+            pal_scene_draw_items[draw_count].x = x;
+            pal_scene_draw_items[draw_count].y = y;
+            pal_scene_draw_items[draw_count].sort_y =
+                (int)read_s16(event_object + EVENT_Y_OFFSET) - viewport_y + layer * 8 + 9;
+            draw_count++;
+        }
+    }
+
+    if (pal_player_sprite != NULL && draw_count < (uint16_t)(sizeof(pal_scene_draw_items) / sizeof(pal_scene_draw_items[0]))) {
+        uint16_t frame_index = (uint16_t)(pal_player_direction * pal_player_walk_frames + pal_player_frame_num);
+        const uint8_t *rle = sprite_frame(pal_player_sprite, frame_index);
+        uint16_t w;
+        uint16_t h;
+
+        if (rle == NULL) {
+            rle = sprite_frame(pal_player_sprite, (uint16_t)(pal_player_direction * pal_player_walk_frames));
+        }
+        w = rle_width(rle);
+        h = rle_height(rle);
+        if (rle != NULL && w != 0 && h != 0) {
+            pal_scene_draw_items[draw_count].rle = rle;
+            pal_scene_draw_items[draw_count].x = DEMO_PARTY_SCREEN_X - (int)w / 2;
+            pal_scene_draw_items[draw_count].y = DEMO_PARTY_SCREEN_Y + 10 - (int)h;
+            pal_scene_draw_items[draw_count].sort_y = DEMO_PARTY_SCREEN_Y + 6;
+            draw_count++;
+        }
     }
 
     for (i = 1; i < draw_count; i++) {
@@ -770,6 +858,7 @@ void app_main(void)
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     load_pack_palette_or_demo();
     load_global_cache();
+    load_player_sprite();
     load_tf_scene_chunks();
     for (;;) {
         uint16_t tx = 0;
@@ -779,6 +868,7 @@ void app_main(void)
         update_demo_viewport(touched, tx, ty);
         if ((tick & 7u) == 0) {
             advance_scene_event_frames();
+            advance_player_frame();
         }
         draw_demo_frame(tick, touched, tx, ty);
         if (!CoreS3Se_FlushPalFramebuffer()) {
