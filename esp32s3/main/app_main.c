@@ -85,6 +85,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define DEMO_DIR_EAST 3u
 #define SAVE_VIEWPORT_X_OFFSET 2u
 #define SAVE_VIEWPORT_Y_OFFSET 4u
+#define SAVE_PARTY_MEMBER_COUNT_OFFSET 6u
 #define SAVE_SCENE_OFFSET 8u
 #define SAVE_SAVED_TIMES_OFFSET 0u
 #define SAVE_PARTY_DIRECTION_OFFSET 12u
@@ -595,12 +596,15 @@ static void sync_runtime_save_position(void)
     write_le16(pal_psram_save_state + SAVE_SCENE_OFFSET, pal_scene_num);
     write_le16(pal_psram_save_state + SAVE_VIEWPORT_X_OFFSET, (uint16_t)pal_viewport_x);
     write_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET, (uint16_t)pal_viewport_y);
+    write_le16(pal_psram_save_state + SAVE_PARTY_MEMBER_COUNT_OFFSET, pal_max_party_member_index);
+    write_le16(pal_psram_save_state + SAVE_PALETTE_OFFSET_OFFSET, pal_palette_night ? 0x180u : 0u);
     write_le16(pal_psram_save_state + SAVE_PARTY_DIRECTION_OFFSET, pal_player_direction);
     write_le16(pal_psram_save_state + SAVE_LAYER_OFFSET, pal_party_layer);
     write_le16(pal_psram_save_state + SAVE_MUSIC_OFFSET, pal_music_num);
     write_le16(pal_psram_save_state + SAVE_BATTLE_MUSIC_OFFSET, pal_battle_music_num);
     write_le16(pal_psram_save_state + SAVE_BATTLEFIELD_OFFSET, pal_battlefield_num);
     write_le16(pal_psram_save_state + SAVE_SCREEN_WAVE_OFFSET, pal_screen_wave);
+    write_le16(pal_psram_save_state + SAVE_FOLLOWER_COUNT_OFFSET, pal_follower_count);
 
     for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         uint8_t *trail = pal_psram_save_state + SAVE_TRAIL_OFFSET + (uint32_t)i * TRAIL_STRUCT_BYTES;
@@ -961,7 +965,7 @@ static bool load_startup_save_slot(uint8_t slot)
     }
     reset_party_state();
     pal_party_layer = read_le16(pal_psram_save_state + SAVE_LAYER_OFFSET);
-    pal_max_party_member_index = read_le16(pal_psram_save_state + 6u);
+    pal_max_party_member_index = read_le16(pal_psram_save_state + SAVE_PARTY_MEMBER_COUNT_OFFSET);
     if (pal_max_party_member_index > DEMO_MAX_PARTY_INDEX) {
         pal_max_party_member_index = DEMO_MAX_PARTY_INDEX;
     }
