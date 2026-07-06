@@ -4,7 +4,6 @@ idf_component_register(
         "cores3se_board.c"
         "cores3se_memory.c"
         "pal_save_fatfs.c"
-        "../../embedded/pal_audio_static.c"
         "../../embedded/pal_battle_cache.c"
         "../../embedded/pal_dialog_static.c"
         "../../embedded/pal_ending_static.c"
@@ -17,7 +16,6 @@ idf_component_register(
         "../../embedded/pal_rng_cache.c"
         "../../embedded/pal_scene_cache.c"
         "../../embedded/pal_script_static.c"
-        "../../embedded/pal_sfx_cache.c"
         "../../embedded/pal_text_cache.c"
         "../../embedded/pal_ui_cache.c"
         "../../embedded/pal_video_static.c"
@@ -38,5 +36,6 @@ idf_component_register(
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     PAL_ESP_CORES3SE=1
     PAL_SCENE_ENABLE_PINNED=1
-    PAL_PSRAM_SFX_BANK_BYTES=2097152u
+    PAL_ESP_CORES3SE_NO_AUDIO=1
+    PAL_ESP_CORES3SE_NO_SFX=1
 )

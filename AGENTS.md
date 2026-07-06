@@ -14,7 +14,7 @@ disable_send_optional_commentary = True
 
 - 16MB Flash(custom partition table needed)
 - 8MB PSRAM
-- No audio, for now.
+- No audio, for now. The CoreS3 SE target app should not link `pal_audio_static.c` / `pal_sfx_cache.c` or reserve the SFX bank until audio hardware playback is in scope; native/embedded contract harnesses may still exercise those slices.
 
 References:
 ~/work/CardPuterADV/esp-walkie-talkie (CoreS3 SE port, copy/adapt its lcd/touch init code when useful)
