@@ -9,17 +9,14 @@
 #include <esp_log.h>
 #include <esp_partition.h>
 #include <esp_err.h>
+#include <ff.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <fcntl.h>
 #include <inttypes.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 static const char *TAG = "sdlpal_cores3se";
-static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
+static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 
 #define DEMO_INITIAL_SCENE_NUM 1u
 #define DEMO_LAST_SCENE_NUM (PAL_SCENE_COUNT - 1u)
@@ -79,13 +76,14 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define SAVE_EVENT_OBJECTS_OFFSET 12864u
 #define SAVE_SLOT_FIRST 1u
 #define SAVE_SLOT_LAST 5u
-#define SAVE_PATH_SLOT_INDEX 8u
+#define SAVE_PATH_SLOT_INDEX 3u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
-static int pal_tf_fd = -1;
+static FIL pal_tf_file;
+static bool pal_tf_file_open;
 static bool pal_nor_ready;
 static bool pal_tf_ready;
 static bool pal_tf_scene_ready;
@@ -123,7 +121,7 @@ static const uint8_t *pal_save_scenes;
 static const uint8_t *pal_save_event_objects;
 static uint32_t pal_save_event_objects_size;
 static uint32_t pal_save_state_size;
-static char pal_save_path[] = "/sdcard/1.rpg";
+static char pal_save_path[] = "0:/1.rpg";
 static uint8_t pal_save_slot;
 static uint8_t pal_save_header[SAVE_HEADER_BYTES];
 static bool pal_palette_night;
@@ -484,19 +482,27 @@ static void load_pack_palette_or_demo(void)
 
 static bool read_tf_pack_at(void *user, uint32_t offset, uint8_t *dst, uint32_t size)
 {
-    int fd = *(int *)user;
+    FIL *file = (FIL *)user;
     uint32_t done = 0;
 
     if (dst == NULL && size != 0) {
         return false;
     }
+    if (file == NULL || !pal_tf_file_open) {
+        return false;
+    }
     CoreS3Se_PrepareTfAccess();
     while (done < size) {
-        ssize_t got = pread(fd, dst + done, size - done, (off_t)offset + (off_t)done);
-        if (got <= 0) {
+        UINT got = 0;
+        FRESULT res = f_lseek(file, offset + done);
+        if (res != FR_OK) {
             return false;
         }
-        done += (uint32_t)got;
+        res = f_read(file, dst + done, size - done, &got);
+        if (res != FR_OK || got == 0) {
+            return false;
+        }
+        done += got;
     }
     return true;
 }
@@ -548,31 +554,33 @@ static bool open_nor_pack(void)
 
 static bool open_tf_pack(void)
 {
-    struct stat st;
+    FRESULT res;
+    uint32_t pack_size;
 
-    pal_tf_fd = open(TF_PACK_PATH, O_RDONLY);
-    if (pal_tf_fd < 0) {
-        ESP_LOGW(TAG, "TF pack missing: %s", TF_PACK_PATH);
+    res = f_open(&pal_tf_file, TF_PACK_PATH, FA_READ | FA_OPEN_EXISTING);
+    if (res != FR_OK) {
+        ESP_LOGW(TAG, "TF pack missing: %s (%d)", TF_PACK_PATH, (int)res);
         return false;
     }
 
-    if (fstat(pal_tf_fd, &st) != 0 || st.st_size <= 0 || st.st_size > UINT32_MAX) {
+    pack_size = (uint32_t)f_size(&pal_tf_file);
+    if (pack_size == 0 || f_size(&pal_tf_file) > UINT32_MAX) {
         ESP_LOGE(TAG, "bad TF pack size: %s", TF_PACK_PATH);
-        close(pal_tf_fd);
-        pal_tf_fd = -1;
+        f_close(&pal_tf_file);
         return false;
     }
+    pal_tf_file_open = true;
 
     if (!PalPack_OpenTocRead(
             &pal_tf_toc,
             read_tf_pack_at,
-            &pal_tf_fd,
-            (uint32_t)st.st_size,
+            &pal_tf_file,
+            pack_size,
             pal_psram_tf_toc,
             PAL_PSRAM_TF_TOC_BYTES)) {
         ESP_LOGE(TAG, "TF pack TOC open failed: %s", TF_PACK_PATH);
-        close(pal_tf_fd);
-        pal_tf_fd = -1;
+        f_close(&pal_tf_file);
+        pal_tf_file_open = false;
         return false;
     }
 
@@ -588,8 +596,9 @@ static void set_save_slot_path(uint8_t slot)
 
 static bool read_save_header(uint8_t slot, uint16_t *saved_times)
 {
-    int fd;
+    FIL file;
     uint32_t done = 0;
+    FRESULT res;
 
     if (saved_times == NULL) {
         return false;
@@ -597,19 +606,20 @@ static bool read_save_header(uint8_t slot, uint16_t *saved_times)
     *saved_times = 0;
     set_save_slot_path(slot);
     CoreS3Se_PrepareTfAccess();
-    fd = open(pal_save_path, O_RDONLY);
-    if (fd < 0) {
+    res = f_open(&file, pal_save_path, FA_READ | FA_OPEN_EXISTING);
+    if (res != FR_OK) {
         return false;
     }
     while (done < SAVE_HEADER_BYTES) {
-        ssize_t got = read(fd, pal_save_header + done, SAVE_HEADER_BYTES - done);
-        if (got <= 0) {
-            close(fd);
+        UINT got = 0;
+        res = f_read(&file, pal_save_header + done, SAVE_HEADER_BYTES - done, &got);
+        if (res != FR_OK || got == 0) {
+            f_close(&file);
             return false;
         }
-        done += (uint32_t)got;
+        done += got;
     }
-    close(fd);
+    f_close(&file);
     *saved_times = read_le16(pal_save_header);
     return true;
 }
@@ -644,14 +654,14 @@ static bool find_startup_save_slot(uint8_t *slot)
 
 static bool load_startup_save_slot(uint8_t slot)
 {
-    int fd;
-    struct stat st;
+    FIL file;
     uint32_t size;
     uint32_t done = 0;
     uint16_t scene_num;
     uint16_t viewport_x;
     uint16_t viewport_y;
     uint16_t i;
+    FRESULT res;
 
     pal_initial_viewport_x = 0;
     pal_initial_viewport_y = 0;
@@ -671,30 +681,31 @@ static bool load_startup_save_slot(uint8_t slot)
 
     set_save_slot_path(slot);
     CoreS3Se_PrepareTfAccess();
-    fd = open(pal_save_path, O_RDONLY);
-    if (fd < 0) {
-        ESP_LOGI(TAG, "startup save missing: %s", pal_save_path);
-        return false;
-    }
-    if (fstat(fd, &st) != 0 ||
-        st.st_size < (off_t)(SAVE_EVENT_OBJECTS_OFFSET + SSS_EVENT_OBJECT_BYTES) ||
-        st.st_size > (off_t)PAL_PSRAM_SAVE_STATE_BYTES) {
-        ESP_LOGW(TAG, "startup save size unsupported: %s", pal_save_path);
-        close(fd);
+    res = f_open(&file, pal_save_path, FA_READ | FA_OPEN_EXISTING);
+    if (res != FR_OK) {
+        ESP_LOGI(TAG, "startup save missing: %s (%d)", pal_save_path, (int)res);
         return false;
     }
 
-    size = (uint32_t)st.st_size;
+    if (f_size(&file) < SAVE_EVENT_OBJECTS_OFFSET + SSS_EVENT_OBJECT_BYTES ||
+        f_size(&file) > PAL_PSRAM_SAVE_STATE_BYTES) {
+        ESP_LOGW(TAG, "startup save size unsupported: %s", pal_save_path);
+        f_close(&file);
+        return false;
+    }
+
+    size = (uint32_t)f_size(&file);
     while (done < size) {
-        ssize_t got = read(fd, pal_psram_save_state + done, size - done);
-        if (got <= 0) {
+        UINT got = 0;
+        res = f_read(&file, pal_psram_save_state + done, size - done, &got);
+        if (res != FR_OK || got == 0) {
             ESP_LOGW(TAG, "startup save read failed: %s", pal_save_path);
-            close(fd);
+            f_close(&file);
             return false;
         }
-        done += (uint32_t)got;
+        done += got;
     }
-    close(fd);
+    f_close(&file);
 
     scene_num = read_le16(pal_psram_save_state + SAVE_SCENE_OFFSET);
     viewport_x = read_le16(pal_psram_save_state + SAVE_VIEWPORT_X_OFFSET);
@@ -935,7 +946,7 @@ static void load_tf_scene_chunks(void)
                 &pal_nor_pack,
                 &pal_tf_toc,
                 read_tf_pack_at,
-                &pal_tf_fd,
+                &pal_tf_file,
                 &pal_nor_pack,
                 pal_save_scenes,
                 SAVE_SCENES_BYTES,
@@ -951,7 +962,7 @@ static void load_tf_scene_chunks(void)
                 &pal_nor_pack,
                 &pal_tf_toc,
                 read_tf_pack_at,
-                &pal_tf_fd,
+                &pal_tf_file,
                 &pal_nor_pack,
                 event_objects,
                 event_objects_size,
@@ -964,7 +975,7 @@ static void load_tf_scene_chunks(void)
                 &pal_nor_pack,
                 &pal_tf_toc,
                 read_tf_pack_at,
-                &pal_tf_fd,
+                &pal_tf_file,
                 &pal_nor_pack,
                 pal_scene_num,
                 &pal_scene_snapshot)) {
