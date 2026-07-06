@@ -27,7 +27,7 @@ static bool pal_nor_ready;
 static bool pal_tf_ready;
 static bool pal_tf_background_ready;
 static bool pal_tf_scene_ready;
-static uint32_t pal_tf_scene_mark;
+static uint32_t pal_tf_scene_checksum;
 
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -238,11 +238,11 @@ static void load_tf_scene_chunks(void)
         return;
     }
 
-    pal_tf_scene_mark = sample_checksum(pal_psram_map_tiles, map_copied) ^
-                        sample_checksum(pal_psram_gop_copy, gop_copied);
+    pal_tf_scene_checksum = sample_checksum(pal_psram_map_tiles, map_copied) ^
+                            sample_checksum(pal_psram_gop_copy, gop_copied);
     pal_tf_scene_ready = true;
     ESP_LOGI(TAG, "TF scene chunks loaded: map=%" PRIu32 " gop=%" PRIu32 " mark=0x%08" PRIx32,
-             map_copied, gop_copied, pal_tf_scene_mark);
+             map_copied, gop_copied, pal_tf_scene_checksum);
 }
 
 static uint16_t sprite_frame_count(const uint8_t *sprite)
@@ -269,6 +269,31 @@ static const uint8_t *sprite_frame(const uint8_t *sprite, uint16_t frame)
         return NULL;
     }
     return sprite + offset;
+}
+
+static const uint8_t *map_tile_bitmap(int x, int y, int h, uint8_t layer)
+{
+    uint32_t tile;
+    uint16_t frame;
+    uint32_t offset;
+
+    if (x < 0 || x >= 64 || y < 0 || y >= 128 || h < 0 || h > 1) {
+        return NULL;
+    }
+
+    offset = ((((uint32_t)y * 64u) + (uint32_t)x) * 2u + (uint32_t)h) * 4u;
+    tile = read_le32(pal_psram_map_tiles + offset);
+    if (layer == 0) {
+        frame = (uint16_t)((tile & 0xFFu) | ((tile >> 4) & 0x100u));
+    } else {
+        tile >>= 16;
+        frame = (uint16_t)((tile & 0xFFu) | ((tile >> 4) & 0x100u));
+        if (frame == 0) {
+            return NULL;
+        }
+        frame--;
+    }
+    return sprite_frame(pal_psram_gop_copy, frame);
 }
 
 static uint16_t rle_width(const uint8_t *rle)
@@ -389,11 +414,60 @@ static void blit_rle_to_framebuffer(const uint8_t *rle, int dx, int dy)
     }
 }
 
+static void draw_map_layer(uint8_t layer, int viewport_x, int viewport_y)
+{
+    int sx = viewport_x / 32 - 1;
+    int dx = (viewport_x + 320) / 32 + 2;
+    int sy = viewport_y / 16 - 1;
+    int dy = (viewport_y + 200) / 16 + 2;
+    int y_pos = sy * 16 - 8 - viewport_y;
+    int y;
+
+    for (y = sy; y < dy; y++) {
+        int h;
+        for (h = 0; h < 2; h++, y_pos += 8) {
+            int x_pos = sx * 32 + h * 16 - 16 - viewport_x;
+            int x;
+            for (x = sx; x < dx; x++, x_pos += 32) {
+                const uint8_t *tile = map_tile_bitmap(x, y, h, layer);
+                if (tile == NULL && layer == 0) {
+                    tile = map_tile_bitmap(0, 0, 0, 0);
+                }
+                blit_rle_to_framebuffer(tile, x_pos, y_pos);
+            }
+        }
+    }
+}
+
+static void draw_scene_background(void)
+{
+    if (pal_tf_scene_ready) {
+        memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
+        draw_map_layer(0, 0, 0);
+        draw_map_layer(1, 0, 0);
+    } else if (pal_tf_background_ready) {
+        memcpy(pal_sram_framebuffer, pal_sram_big_buffer, PAL_SRAM_FRAMEBUFFER_BYTES);
+    } else {
+        uint32_t x;
+        uint32_t y;
+        for (y = 0; y < 200u; y++) {
+            uint8_t *dst = pal_sram_framebuffer + y * 320u;
+            for (x = 0; x < 320u; x++) {
+                uint32_t value = (x + y) & 0xFFu;
+                if (((x / 16u) ^ (y / 16u)) & 1u) {
+                    value = (value + 64u) & 0xFFu;
+                }
+                dst[x] = (uint8_t)value;
+            }
+        }
+    }
+}
+
 static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t ty)
 {
-    uint32_t x;
-    uint32_t y;
     PalPackSpan ui_sprite;
+
+    draw_scene_background();
 
     if (pal_nor_ready &&
         PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_DATA, 9, &ui_sprite) &&
@@ -404,35 +478,7 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
         uint16_t w = rle_width(rle);
         uint16_t h = rle_height(rle);
 
-        if (pal_tf_background_ready) {
-            memcpy(pal_sram_framebuffer, pal_sram_big_buffer, PAL_SRAM_FRAMEBUFFER_BYTES);
-        } else {
-            memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
-            for (y = 0; y < 200u; y += 8u) {
-                uint8_t color = (uint8_t)(8u + ((y + tick) & 0x1Fu));
-                memset(pal_sram_framebuffer + y * 320u, color, 320u);
-            }
-        }
         blit_rle_to_framebuffer(rle, (320 - (int)w) / 2, (200 - (int)h) / 2);
-    } else {
-        for (y = 0; y < 200u; y++) {
-            uint8_t *dst = pal_sram_framebuffer + y * 320u;
-            for (x = 0; x < 320u; x++) {
-                uint32_t value = (x + y + tick) & 0xFFu;
-                if (((x / 16u) ^ (y / 16u)) & 1u) {
-                    value = (value + 64u) & 0xFFu;
-                }
-                dst[x] = (uint8_t)value;
-            }
-        }
-    }
-
-    if (pal_tf_scene_ready) {
-        uint32_t mark = pal_tf_scene_mark + tick;
-        for (y = 0; y < 8u; y++) {
-            uint8_t color = (uint8_t)(0x20u + ((mark >> ((y & 3u) * 8u)) & 0x1Fu));
-            memset(pal_sram_framebuffer + y * 320u, color, 24u);
-        }
     }
 
     if (touched && ty >= CORES3SE_PAL_Y_OFFSET && ty < CORES3SE_PAL_Y_OFFSET + 200u) {
