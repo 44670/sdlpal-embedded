@@ -94,7 +94,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define EVENT_TRIGGER_SCRIPT_OFFSET 8u
 #define EVENT_AUTO_SCRIPT_OFFSET 10u
 #define EVENT_TRIGGER_MODE_OFFSET 14u
-#define EVENT_TRIGGER_IDLE_OFFSET 24u
 #define EVENT_AUTO_IDLE_OFFSET 30u
 #define SCRIPT_STOP 0x0000u
 #define SCRIPT_STOP_NEXT 0x0001u
@@ -109,7 +108,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_ANIMATE_EVENT 0x0087u
 #define SCRIPT_DIALOG_TEXT 0xFFFFu
 #define SCRIPT_AUTO_MAX_JUMPS 8u
-#define SCRIPT_TRIGGER_MAX_STEPS 16u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -202,7 +200,6 @@ static DemoSpriteDraw pal_scene_draw_items[DEMO_SCENE_DRAW_ITEM_COUNT];
 
 static void party_member_screen_position(uint16_t index, int *x, int *y, uint16_t *direction);
 static void set_save_slot_path(uint8_t slot);
-static void trigger_facing_event(void);
 
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -532,10 +529,7 @@ static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
     touch_dy = (int)local_y - DEMO_PARTY_SCREEN_Y;
     if (abs_int(touch_dx) + abs_int(touch_dy) < DEMO_TOUCH_DEADZONE) {
         pal_player_walking = false;
-        if (!pal_touch_scene_gate) {
-            trigger_facing_event();
-            pal_touch_scene_gate = true;
-        }
+        pal_touch_scene_gate = false;
         return;
     }
 
@@ -1571,24 +1565,19 @@ static void advance_event_object_frame(uint8_t *event_object)
     write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, frame);
 }
 
-static uint16_t execute_script_mutation(
-    uint16_t script_entry,
-    uint16_t event_object_id,
-    uint16_t idle_offset,
-    bool trigger_mode)
+static uint16_t run_auto_script_step(uint16_t script_entry, uint16_t event_object_id)
 {
     uint8_t *event_object = mutable_event_object_by_id(event_object_id);
     uint8_t *current;
-    uint16_t steps;
-    uint16_t max_steps = trigger_mode ? SCRIPT_TRIGGER_MAX_STEPS : SCRIPT_AUTO_MAX_JUMPS;
+    uint16_t jumps;
 
     if (!pal_script_ready || event_object == NULL || script_entry == 0) {
         return script_entry;
     }
 
-    for (steps = 0; steps < max_steps && script_entry != 0; steps++) {
+    for (jumps = 0; jumps < SCRIPT_AUTO_MAX_JUMPS && script_entry != 0; jumps++) {
         PalScriptEntry entry;
-        uint16_t idle = read_le16(event_object + idle_offset);
+        uint16_t idle = read_le16(event_object + EVENT_AUTO_IDLE_OFFSET);
 
         if (!PalScript_Read(&pal_script_view, script_entry, &entry)) {
             return script_entry;
@@ -1604,28 +1593,28 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_STOP_GOTO:
             if (entry.operand[1] == 0 || (uint16_t)(idle + 1u) < entry.operand[1]) {
-                write_le16(event_object + idle_offset, (uint16_t)(idle + 1u));
+                write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, (uint16_t)(idle + 1u));
                 return entry.operand[0];
             }
-            write_le16(event_object + idle_offset, 0);
+            write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, 0);
             return (uint16_t)(script_entry + 1u);
 
         case SCRIPT_GOTO:
             if (entry.operand[1] == 0 || (uint16_t)(idle + 1u) < entry.operand[1]) {
-                write_le16(event_object + idle_offset, (uint16_t)(idle + 1u));
+                write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, (uint16_t)(idle + 1u));
                 script_entry = entry.operand[0];
                 continue;
             }
-            write_le16(event_object + idle_offset, 0);
+            write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, 0);
             script_entry = (uint16_t)(script_entry + 1u);
             continue;
 
         case SCRIPT_WAIT:
             if ((uint16_t)(idle + 1u) >= entry.operand[0]) {
-                write_le16(event_object + idle_offset, 0);
+                write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, 0);
                 return (uint16_t)(script_entry + 1u);
             }
-            write_le16(event_object + idle_offset, (uint16_t)(idle + 1u));
+            write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, (uint16_t)(idle + 1u));
             return script_entry;
 
         case SCRIPT_SET_DIRECTION_FRAME:
@@ -1635,58 +1624,34 @@ static uint16_t execute_script_mutation(
             if (entry.operand[1] != 0xFFFFu) {
                 write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, entry.operand[1]);
             }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
+            return (uint16_t)(script_entry + 1u);
 
         case SCRIPT_SET_FRAME_SOUTH:
             write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, entry.operand[0]);
             write_le16(event_object + EVENT_DIRECTION_OFFSET, DEMO_DIR_SOUTH);
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
+            return (uint16_t)(script_entry + 1u);
 
         case SCRIPT_SET_AUTO_SCRIPT:
             if (current != NULL) {
                 write_le16(current + EVENT_AUTO_SCRIPT_OFFSET, entry.operand[1]);
             }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
+            return (uint16_t)(script_entry + 1u);
 
         case SCRIPT_SET_TRIGGER_SCRIPT:
             if (current != NULL) {
                 write_le16(current + EVENT_TRIGGER_SCRIPT_OFFSET, entry.operand[1]);
             }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
+            return (uint16_t)(script_entry + 1u);
 
         case SCRIPT_SET_TRIGGER_MODE:
             if (current != NULL) {
                 write_le16(current + EVENT_TRIGGER_MODE_OFFSET, entry.operand[1]);
             }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
+            return (uint16_t)(script_entry + 1u);
 
         case SCRIPT_ANIMATE_EVENT:
             advance_event_object_frame(current != NULL ? current : event_object);
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
+            return (uint16_t)(script_entry + 1u);
 
         case SCRIPT_DIALOG_TEXT:
             return (uint16_t)(script_entry + 1u);
@@ -1696,87 +1661,6 @@ static uint16_t execute_script_mutation(
         }
     }
     return script_entry;
-}
-
-static uint16_t run_auto_script_step(uint16_t script_entry, uint16_t event_object_id)
-{
-    return execute_script_mutation(script_entry, event_object_id, EVENT_AUTO_IDLE_OFFSET, false);
-}
-
-static uint16_t run_trigger_script_subset(uint16_t script_entry, uint16_t event_object_id)
-{
-    return execute_script_mutation(script_entry, event_object_id, EVENT_TRIGGER_IDLE_OFFSET, true);
-}
-
-static uint16_t find_facing_event_object(void)
-{
-    int player_x = pal_viewport_x + DEMO_PARTY_SCREEN_X;
-    int player_y = pal_viewport_y + DEMO_PARTY_SCREEN_Y;
-    int target_x = player_x;
-    int target_y = player_y;
-    uint16_t i;
-
-    switch (pal_player_direction) {
-    case DEMO_DIR_SOUTH:
-        target_x -= DEMO_STEP_X;
-        target_y += DEMO_STEP_Y;
-        break;
-    case DEMO_DIR_WEST:
-        target_x -= DEMO_STEP_X;
-        target_y -= DEMO_STEP_Y;
-        break;
-    case DEMO_DIR_NORTH:
-        target_x += DEMO_STEP_X;
-        target_y -= DEMO_STEP_Y;
-        break;
-    case DEMO_DIR_EAST:
-        target_x += DEMO_STEP_X;
-        target_y += DEMO_STEP_Y;
-        break;
-    default:
-        return 0;
-    }
-
-    for (i = 0; i < pal_scene_snapshot.event_count; i++) {
-        uint16_t event_object_id = (uint16_t)(pal_scene_snapshot.event_start + i + 1u);
-        uint8_t *event_object = mutable_event_object_by_id(event_object_id);
-        int event_x;
-        int event_y;
-
-        if (event_object == NULL || read_s16(event_object + EVENT_STATE_OFFSET) <= 0) {
-            continue;
-        }
-        event_x = read_s16(event_object + EVENT_X_OFFSET);
-        event_y = read_s16(event_object + EVENT_Y_OFFSET);
-        if (abs_int(event_x - target_x) + abs_int(event_y - target_y) * 2 < 32) {
-            return event_object_id;
-        }
-    }
-    return 0;
-}
-
-static void trigger_facing_event(void)
-{
-    uint16_t event_object_id = find_facing_event_object();
-    uint8_t *event_object;
-    uint16_t trigger_script;
-    uint16_t next_script;
-
-    if (event_object_id == 0) {
-        return;
-    }
-    event_object = mutable_event_object_by_id(event_object_id);
-    if (event_object == NULL) {
-        return;
-    }
-    trigger_script = read_le16(event_object + EVENT_TRIGGER_SCRIPT_OFFSET);
-    if (trigger_script != 0) {
-        next_script = run_trigger_script_subset(trigger_script, event_object_id);
-        write_le16(event_object + EVENT_TRIGGER_SCRIPT_OFFSET, next_script);
-        if (next_script != trigger_script) {
-            (void)persist_runtime_save("trigger");
-        }
-    }
 }
 
 static void advance_scene_auto_scripts(void)
