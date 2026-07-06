@@ -530,6 +530,7 @@ static bool read_tf_pack_at(void *user, uint32_t offset, uint8_t *dst, uint32_t 
 {
     FIL *file = (FIL *)user;
     uint32_t done = 0;
+    bool ok = false;
 
     if (dst == NULL && size != 0) {
         return false;
@@ -542,15 +543,19 @@ static bool read_tf_pack_at(void *user, uint32_t offset, uint8_t *dst, uint32_t 
         UINT got = 0;
         FRESULT res = f_lseek(file, offset + done);
         if (res != FR_OK) {
-            return false;
+            goto finish;
         }
         res = f_read(file, dst + done, size - done, &got);
         if (res != FR_OK || got == 0) {
-            return false;
+            goto finish;
         }
         done += got;
     }
-    return true;
+    ok = true;
+
+finish:
+    CoreS3Se_PrepareLcdAccess();
+    return ok;
 }
 
 static bool open_nor_pack(void)
@@ -602,18 +607,20 @@ static bool open_tf_pack(void)
 {
     FRESULT res;
     uint32_t pack_size;
+    bool ok = false;
 
+    CoreS3Se_PrepareTfAccess();
     res = f_open(&pal_tf_file, TF_PACK_PATH, FA_READ | FA_OPEN_EXISTING);
     if (res != FR_OK) {
         ESP_LOGW(TAG, "TF pack missing: %s (%d)", TF_PACK_PATH, (int)res);
-        return false;
+        goto finish;
     }
 
     pack_size = (uint32_t)f_size(&pal_tf_file);
     if (pack_size == 0 || f_size(&pal_tf_file) > UINT32_MAX) {
         ESP_LOGE(TAG, "bad TF pack size: %s", TF_PACK_PATH);
         f_close(&pal_tf_file);
-        return false;
+        goto finish;
     }
     pal_tf_file_open = true;
 
@@ -627,12 +634,16 @@ static bool open_tf_pack(void)
         ESP_LOGE(TAG, "TF pack TOC open failed: %s", TF_PACK_PATH);
         f_close(&pal_tf_file);
         pal_tf_file_open = false;
-        return false;
+        goto finish;
     }
 
     ESP_LOGI(TAG, "PAL TF pack opened: size=%" PRIu32 " toc=%" PRIu32 " archives=%u",
              pal_tf_toc.pack_size, pal_tf_toc.toc_size, (unsigned)pal_tf_toc.archive_count);
-    return true;
+    ok = true;
+
+finish:
+    CoreS3Se_PrepareLcdAccess();
+    return ok;
 }
 
 static void set_save_slot_path(uint8_t slot)

@@ -59,7 +59,7 @@ static bool write_exact(FIL *file, const uint8_t *src, uint32_t size)
 bool PalSaveFatFs_ReadHeader(const char *path, uint16_t *saved_times)
 {
     FRESULT res;
-    bool ok;
+    bool ok = false;
 
     if (path == NULL || saved_times == NULL) {
         return false;
@@ -69,17 +69,20 @@ bool PalSaveFatFs_ReadHeader(const char *path, uint16_t *saved_times)
     CoreS3Se_PrepareTfAccess();
     res = f_open(&pal_save_file, path, FA_READ | FA_OPEN_EXISTING);
     if (res != FR_OK) {
-        return false;
+        goto finish;
     }
     ok = f_size(&pal_save_file) >= PAL_SAVE_COMMON_PREFIX_BYTES &&
          read_exact(&pal_save_file, pal_sram_save_header, PAL_SAVE_COMMON_PREFIX_BYTES);
     f_close(&pal_save_file);
     if (!ok) {
-        return false;
+        goto finish;
     }
 
     *saved_times = read_le16(pal_sram_save_header);
-    return true;
+
+finish:
+    CoreS3Se_PrepareLcdAccess();
+    return ok;
 }
 
 bool PalSaveFatFs_ReadFile(const char *path, PalFatFsSaveSlot *slot)
@@ -87,6 +90,7 @@ bool PalSaveFatFs_ReadFile(const char *path, PalFatFsSaveSlot *slot)
     FSIZE_t file_size;
     uint32_t size;
     FRESULT res;
+    bool ok = false;
 
     if (path == NULL || slot == NULL) {
         return false;
@@ -103,19 +107,19 @@ bool PalSaveFatFs_ReadFile(const char *path, PalFatFsSaveSlot *slot)
     CoreS3Se_PrepareTfAccess();
     res = f_open(&pal_save_file, path, FA_READ | FA_OPEN_EXISTING);
     if (res != FR_OK) {
-        return false;
+        goto finish;
     }
 
     file_size = f_size(&pal_save_file);
     if (file_size < PAL_SAVE_COMMON_PREFIX_BYTES || file_size > PAL_PSRAM_SAVE_STATE_BYTES) {
         f_close(&pal_save_file);
-        return false;
+        goto finish;
     }
 
     size = (uint32_t)file_size;
     if (!read_exact(&pal_save_file, pal_psram_save_state, size)) {
         f_close(&pal_save_file);
-        return false;
+        goto finish;
     }
     f_close(&pal_save_file);
 
@@ -126,13 +130,17 @@ bool PalSaveFatFs_ReadFile(const char *path, PalFatFsSaveSlot *slot)
     slot->viewport_y = read_le16(pal_psram_save_state + 4u);
     slot->scene_num = read_le16(pal_psram_save_state + 8u);
     slot->cash = read_le32(pal_psram_save_state + PAL_SAVE_CASH_OFFSET);
-    return true;
+    ok = true;
+
+finish:
+    CoreS3Se_PrepareLcdAccess();
+    return ok;
 }
 
 bool PalSaveFatFs_WriteFile(const char *path, const uint8_t *data, uint32_t size)
 {
     FRESULT res;
-    bool ok;
+    bool ok = false;
 
     if (path == NULL || (data == NULL && size != 0u) || size > PAL_PSRAM_SAVE_STATE_BYTES) {
         return false;
@@ -141,12 +149,15 @@ bool PalSaveFatFs_WriteFile(const char *path, const uint8_t *data, uint32_t size
     CoreS3Se_PrepareTfAccess();
     res = f_open(&pal_save_file, path, FA_WRITE | FA_CREATE_ALWAYS);
     if (res != FR_OK) {
-        return false;
+        goto finish;
     }
 
     ok = write_exact(&pal_save_file, data, size);
     if (f_close(&pal_save_file) != FR_OK) {
         ok = false;
     }
+
+finish:
+    CoreS3Se_PrepareLcdAccess();
     return ok;
 }
