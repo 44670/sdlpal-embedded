@@ -5,6 +5,7 @@ idf_component_register(
         "cores3se_memory.c"
         "../../embedded/pal_global_cache.c"
         "../../embedded/pal_pack.c"
+        "../../embedded/pal_palette_static.c"
         "../../embedded/pal_scene_cache.c"
         "../../embedded/pal_video_static.c"
     INCLUDE_DIRS

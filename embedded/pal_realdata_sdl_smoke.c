@@ -1521,6 +1521,7 @@ static int check_palette_static(const PalPack *nor)
     const uint8_t *night_rgb = 0;
     uint32_t size = 0;
     uint32_t night_size = 0;
+    PalPackSpan raw_palette;
     PalPaletteBuffer buffer;
 
     if (!PalUi_LoadPaletteRgb(nor, 0, false, &rgb, &size) || rgb != pal_sram_misc || size != PAL_PALETTE_RGB_BYTES) {
@@ -1531,6 +1532,18 @@ static int check_palette_static(const PalPack *nor)
     }
     if (checksum32(buffer.data, buffer.size) == 0) {
         return 3;
+    }
+    if (!PalPack_MapConst(nor, PAL_PACK_ARCHIVE_PAT, 0, &raw_palette) ||
+        raw_palette.data == 0 ||
+        raw_palette.size < PAL_PALETTE_RGB_BYTES ||
+        !PalPalette_LoadCurrentRgb6(raw_palette.data, PAL_PALETTE_RGB_BYTES, &buffer) ||
+        buffer.data != pal_sram_palette_current ||
+        buffer.size != PAL_PALETTE_RGB_BYTES ||
+        buffer.data[3] != (uint8_t)(raw_palette.data[3] << 2)) {
+        return 12;
+    }
+    if (!PalPalette_LoadCurrentRgb(rgb, size, &buffer)) {
+        return 13;
     }
     if (!PalUi_LoadPaletteRgb(nor, 0, true, &night_rgb, &night_size) || night_rgb != pal_sram_misc || night_size != PAL_PALETTE_RGB_BYTES) {
         return 4;

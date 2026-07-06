@@ -17,6 +17,7 @@ typedef struct PalPaletteBuffer {
 } PalPaletteBuffer;
 
 bool PalPalette_LoadCurrentRgb(const uint8_t *rgb, uint32_t size, PalPaletteBuffer *buffer);
+bool PalPalette_LoadCurrentRgb6(const uint8_t *rgb6, uint32_t size, PalPaletteBuffer *buffer);
 bool PalPalette_BlendRgb(const uint8_t *target_rgb, uint32_t target_size, uint8_t step, uint8_t total, PalPaletteBuffer *buffer);
 bool PalPalette_ScaleCurrent(uint8_t step, uint8_t total, PalPaletteBuffer *buffer);
 bool PalPalette_FillColor(const uint8_t *rgb, uint32_t size, uint8_t color_index, PalPaletteBuffer *buffer);

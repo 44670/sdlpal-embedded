@@ -3,6 +3,7 @@
 #include "../../embedded/pal_global_cache.h"
 #include "../../embedded/pal_memory.h"
 #include "../../embedded/pal_pack.h"
+#include "../../embedded/pal_palette_static.h"
 #include "../../embedded/pal_scene_cache.h"
 #include "../../embedded/pal_video_static.h"
 
@@ -461,8 +462,8 @@ static void load_demo_palette(void)
 static void load_pack_palette_or_demo(void)
 {
     PalPackSpan span;
+    PalPaletteBuffer palette;
     uint32_t source_offset = 0;
-    uint32_t i;
 
     if (pal_nor_ready &&
         PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_PAT, 0, &span) &&
@@ -471,11 +472,10 @@ static void load_pack_palette_or_demo(void)
         if (pal_palette_night && span.size >= PAL_SRAM_PALETTE_RGB_BYTES * 2u) {
             source_offset = PAL_SRAM_PALETTE_RGB_BYTES;
         }
-        for (i = 0; i < PAL_SRAM_PALETTE_RGB_BYTES; i++) {
-            pal_sram_palette_work[i] = (uint8_t)(span.data[source_offset + i] << 2);
+        if (PalPalette_LoadCurrentRgb6(span.data + source_offset, PAL_SRAM_PALETTE_RGB_BYTES, &palette)) {
+            (void)PalVideo_SetPaletteRgb(0, 256, palette.data);
+            return;
         }
-        (void)PalVideo_SetPaletteRgb(0, 256, pal_sram_palette_work);
-        return;
     }
     load_demo_palette();
 }

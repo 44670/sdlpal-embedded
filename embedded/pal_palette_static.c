@@ -26,6 +26,23 @@ bool PalPalette_LoadCurrentRgb(const uint8_t *rgb, uint32_t size, PalPaletteBuff
     return true;
 }
 
+bool PalPalette_LoadCurrentRgb6(const uint8_t *rgb6, uint32_t size, PalPaletteBuffer *buffer)
+{
+    uint32_t i;
+
+    if (buffer == NULL || rgb6 == NULL || size != PAL_PALETTE_RGB_BYTES) {
+        reset_buffer(buffer);
+        return false;
+    }
+
+    for (i = 0; i < PAL_SRAM_PALETTE_RGB_BYTES; i++) {
+        pal_sram_palette_current[i] = (uint8_t)(rgb6[i] << 2);
+    }
+    buffer->data = pal_sram_palette_current;
+    buffer->size = PAL_SRAM_PALETTE_RGB_BYTES;
+    return true;
+}
+
 bool PalPalette_BlendRgb(const uint8_t *target_rgb, uint32_t target_size, uint8_t step, uint8_t total, PalPaletteBuffer *buffer)
 {
     uint32_t i;
