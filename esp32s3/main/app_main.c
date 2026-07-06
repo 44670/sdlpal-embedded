@@ -2291,58 +2291,6 @@ static void set_event_object_position(uint8_t *event_object, uint16_t x, uint16_
     advance_event_object_frame(event_object);
 }
 
-static void chase_event_object_to_party(uint8_t *event_object, uint16_t range, uint16_t speed, bool floating)
-{
-    int event_x;
-    int event_y;
-    int party_x = pal_viewport_x + DEMO_PARTY_SCREEN_X;
-    int party_y = pal_viewport_y + DEMO_PARTY_SCREEN_Y;
-    int dx;
-    int dy;
-    int step_x;
-    int step_y;
-    uint16_t direction;
-
-    if (event_object == NULL) {
-        return;
-    }
-    if (range == 0) {
-        range = 8;
-    }
-    if (speed == 0) {
-        speed = 4;
-    }
-
-    event_x = read_s16(event_object + EVENT_X_OFFSET);
-    event_y = read_s16(event_object + EVENT_Y_OFFSET);
-    dx = party_x - event_x;
-    dy = party_y - event_y;
-    if (abs_int(dx) + abs_int(dy) * 2 >= (int)range * 32) {
-        return;
-    }
-
-    if (dx < 0) {
-        direction = dy < 0 ? DEMO_DIR_WEST : DEMO_DIR_SOUTH;
-    } else {
-        direction = dy < 0 ? DEMO_DIR_NORTH : DEMO_DIR_EAST;
-    }
-    step_x = dx < 0 ? -((int)speed * 4) : ((int)speed * 4);
-    step_y = dy < 0 ? -((int)speed * 2) : ((int)speed * 2);
-    if (dx == 0) {
-        step_x = 0;
-    }
-    if (dy == 0) {
-        step_y = 0;
-    }
-
-    if (floating || !map_position_blocked(event_x + step_x, event_y + step_y)) {
-        write_le16(event_object + EVENT_X_OFFSET, (uint16_t)(event_x + step_x));
-        write_le16(event_object + EVENT_Y_OFFSET, (uint16_t)(event_y + step_y));
-    }
-    write_le16(event_object + EVENT_DIRECTION_OFFSET, direction);
-    advance_event_object_frame(event_object);
-}
-
 static uint16_t run_trigger_script_subset(uint16_t script_entry, uint16_t event_object_id);
 
 static uint16_t execute_script_mutation(
@@ -2508,7 +2456,10 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SHAKE_SCREEN:
         case SCRIPT_BUY_MENU:
         case SCRIPT_SELL_MENU:
+        case SCRIPT_CHASE_PLAYER:
+        case SCRIPT_STOP_MUSIC:
         case SCRIPT_UNKNOWN_0078:
+        case SCRIPT_PLAY_CD_MUSIC:
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -2517,14 +2468,6 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_SHOW_FBP:
             (void)show_fbp_preview(entry.operand[0], entry.operand[1]);
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_CHASE_PLAYER:
-            chase_event_object_to_party(event_object, entry.operand[0], entry.operand[1], entry.operand[2] != 0);
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -2793,22 +2736,6 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_SET_MUSIC:
             pal_music_num = entry.operand[0];
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_STOP_MUSIC:
-            pal_music_num = 0;
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_PLAY_CD_MUSIC:
-            pal_music_num = entry.operand[1];
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
