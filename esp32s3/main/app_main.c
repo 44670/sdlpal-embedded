@@ -2,6 +2,7 @@
 
 #include "../../embedded/pal_memory.h"
 #include "../../embedded/pal_pack.h"
+#include "../../embedded/pal_scene_cache.h"
 #include "../../embedded/pal_video_static.h"
 
 #include <esp_log.h>
@@ -19,6 +20,18 @@
 static const char *TAG = "sdlpal_cores3se";
 static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 
+#define DEMO_SCENE_NUM 1u
+#define SSS_EVENT_OBJECT_CHUNK 0u
+#define SSS_EVENT_OBJECT_BYTES 32u
+#define EVENT_VANISH_TIME_OFFSET 0u
+#define EVENT_X_OFFSET 2u
+#define EVENT_Y_OFFSET 4u
+#define EVENT_LAYER_OFFSET 6u
+#define EVENT_STATE_OFFSET 12u
+#define EVENT_SPRITE_FRAMES_OFFSET 18u
+#define EVENT_DIRECTION_OFFSET 20u
+#define EVENT_CURRENT_FRAME_OFFSET 22u
+
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
@@ -28,10 +41,27 @@ static bool pal_tf_ready;
 static bool pal_tf_background_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
+static PalSceneSnapshot pal_scene_snapshot;
+static const uint8_t *pal_scene_event_objects;
+static uint32_t pal_scene_event_objects_size;
+
+typedef struct DemoSpriteDraw {
+    const uint8_t *rle;
+    int x;
+    int y;
+    int sort_y;
+} DemoSpriteDraw;
+
+static DemoSpriteDraw pal_scene_draw_items[PAL_SCENE_MAX_EVENT_OBJECTS];
 
 static uint16_t read_le16(const uint8_t *p)
 {
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+
+static int16_t read_s16(const uint8_t *p)
+{
+    return (int16_t)read_le16(p);
 }
 
 static uint32_t read_le32(const uint8_t *p)
@@ -203,46 +233,45 @@ static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
 
 static void load_tf_scene_chunks(void)
 {
-    uint32_t map_copied = 0;
-    uint32_t gop_copied = 0;
+    PalPackSpan event_span;
 
     pal_tf_scene_ready = false;
-    if (!pal_tf_ready) {
+    pal_scene_event_objects = NULL;
+    pal_scene_event_objects_size = 0;
+
+    if (!pal_tf_ready || !pal_nor_ready) {
         return;
     }
-    if (!PalPackToc_CopyRawReadAt(
+    if (!PalScene_LoadSnapshotReadAt(
+            &pal_nor_pack,
             &pal_tf_toc,
             read_tf_pack_at,
             &pal_tf_fd,
-            PAL_PACK_ARCHIVE_MAP,
-            1,
-            pal_psram_map_tiles,
-            PAL_PSRAM_MAP_TILES_BYTES,
-            &map_copied) ||
-        map_copied != PAL_PSRAM_MAP_TILES_BYTES) {
-        ESP_LOGW(TAG, "TF MAP #1 load failed");
+            DEMO_SCENE_NUM,
+            &pal_scene_snapshot)) {
+        ESP_LOGW(TAG, "TF scene snapshot load failed");
         return;
     }
-    if (!PalPackToc_CopyRawReadAt(
-            &pal_tf_toc,
-            read_tf_pack_at,
-            &pal_tf_fd,
-            PAL_PACK_ARCHIVE_GOP,
-            1,
-            pal_psram_gop_copy,
-            PAL_PSRAM_GOP_COPY_BYTES,
-            &gop_copied) ||
-        gop_copied == 0 ||
-        gop_copied > PAL_PSRAM_GOP_COPY_BYTES) {
-        ESP_LOGW(TAG, "TF GOP #1 load failed");
+    if (!PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, &event_span) ||
+        event_span.format != PAL_PACK_FORMAT_NATIVE ||
+        event_span.size < ((uint32_t)pal_scene_snapshot.event_start + pal_scene_snapshot.event_count) * SSS_EVENT_OBJECT_BYTES) {
+        ESP_LOGW(TAG, "NOR event object span missing");
         return;
     }
 
-    pal_tf_scene_checksum = sample_checksum(pal_psram_map_tiles, map_copied) ^
-                            sample_checksum(pal_psram_gop_copy, gop_copied);
+    pal_scene_event_objects = event_span.data;
+    pal_scene_event_objects_size = event_span.size;
+    pal_tf_scene_checksum = sample_checksum(pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES) ^
+                            sample_checksum(pal_psram_gop_copy, pal_scene_snapshot.gop_size);
     pal_tf_scene_ready = true;
-    ESP_LOGI(TAG, "TF scene chunks loaded: map=%" PRIu32 " gop=%" PRIu32 " mark=0x%08" PRIx32,
-             map_copied, gop_copied, pal_tf_scene_checksum);
+    ESP_LOGI(TAG,
+             "TF scene loaded: scene=%u map=%u events=%u unique_sprites=%u gop=%" PRIu32 " mark=0x%08" PRIx32,
+             (unsigned)pal_scene_snapshot.scene_num,
+             (unsigned)pal_scene_snapshot.map_num,
+             (unsigned)pal_scene_snapshot.event_count,
+             (unsigned)pal_scene_snapshot.unique_sprite_count,
+             pal_scene_snapshot.gop_size,
+             pal_tf_scene_checksum);
 }
 
 static uint16_t sprite_frame_count(const uint8_t *sprite)
@@ -439,12 +468,105 @@ static void draw_map_layer(uint8_t layer, int viewport_x, int viewport_y)
     }
 }
 
+static void draw_scene_event_sprites(int viewport_x, int viewport_y)
+{
+    uint16_t i;
+    uint16_t draw_count = 0;
+
+    if (pal_scene_event_objects == NULL || pal_scene_snapshot.sprite_refs == NULL) {
+        return;
+    }
+
+    for (i = 0; i < pal_scene_snapshot.event_count; i++) {
+        uint32_t offset = ((uint32_t)pal_scene_snapshot.event_start + i) * SSS_EVENT_OBJECT_BYTES;
+        const uint8_t *event_object;
+        const PalSceneSpriteRef *sprite_ref;
+        const uint8_t *rle;
+        uint16_t sprite_frames;
+        uint16_t frame;
+        uint16_t direction;
+        int16_t state;
+        int16_t vanish_time;
+        int16_t layer;
+        int x;
+        int y;
+        uint16_t w;
+        uint16_t h;
+
+        if (offset > pal_scene_event_objects_size ||
+            SSS_EVENT_OBJECT_BYTES > pal_scene_event_objects_size - offset) {
+            break;
+        }
+
+        event_object = pal_scene_event_objects + offset;
+        state = read_s16(event_object + EVENT_STATE_OFFSET);
+        vanish_time = read_s16(event_object + EVENT_VANISH_TIME_OFFSET);
+        if (state <= 0 || vanish_time > 0) {
+            continue;
+        }
+
+        sprite_ref = &pal_scene_snapshot.sprite_refs[i];
+        if (sprite_ref->data == NULL || sprite_ref->size == 0) {
+            continue;
+        }
+
+        sprite_frames = read_le16(event_object + EVENT_SPRITE_FRAMES_OFFSET);
+        if (sprite_frames == 0) {
+            sprite_frames = 1;
+        }
+        frame = read_le16(event_object + EVENT_CURRENT_FRAME_OFFSET);
+        if (sprite_frames == 3u) {
+            if (frame == 2u) {
+                frame = 0u;
+            } else if (frame == 3u) {
+                frame = 2u;
+            }
+        }
+        direction = read_le16(event_object + EVENT_DIRECTION_OFFSET);
+        rle = sprite_frame(sprite_ref->data, (uint16_t)(direction * sprite_frames + frame));
+        if (rle == NULL) {
+            continue;
+        }
+
+        w = rle_width(rle);
+        h = rle_height(rle);
+        layer = read_s16(event_object + EVENT_LAYER_OFFSET);
+        x = (int)read_s16(event_object + EVENT_X_OFFSET) - viewport_x - (int)w / 2;
+        y = (int)read_s16(event_object + EVENT_Y_OFFSET) - viewport_y + 7 - (int)h;
+        if (x >= 320 || x < -(int)w || y >= 200 || y < -(int)h) {
+            continue;
+        }
+
+        pal_scene_draw_items[draw_count].rle = rle;
+        pal_scene_draw_items[draw_count].x = x;
+        pal_scene_draw_items[draw_count].y = y;
+        pal_scene_draw_items[draw_count].sort_y =
+            (int)read_s16(event_object + EVENT_Y_OFFSET) - viewport_y + layer * 8 + 9;
+        draw_count++;
+    }
+
+    for (i = 1; i < draw_count; i++) {
+        DemoSpriteDraw item = pal_scene_draw_items[i];
+        uint16_t j = i;
+        while (j > 0 && pal_scene_draw_items[j - 1u].sort_y > item.sort_y) {
+            pal_scene_draw_items[j] = pal_scene_draw_items[j - 1u];
+            j--;
+        }
+        pal_scene_draw_items[j] = item;
+    }
+
+    for (i = 0; i < draw_count; i++) {
+        blit_rle_to_framebuffer(pal_scene_draw_items[i].rle, pal_scene_draw_items[i].x, pal_scene_draw_items[i].y);
+    }
+}
+
 static void draw_scene_background(void)
 {
     if (pal_tf_scene_ready) {
         memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
         draw_map_layer(0, 0, 0);
         draw_map_layer(1, 0, 0);
+        draw_scene_event_sprites(0, 0);
     } else if (pal_tf_background_ready) {
         memcpy(pal_sram_framebuffer, pal_sram_big_buffer, PAL_SRAM_FRAMEBUFFER_BYTES);
     } else {

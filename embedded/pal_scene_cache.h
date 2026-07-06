@@ -24,6 +24,7 @@ typedef struct PalSceneSpriteRef {
 typedef struct PalSceneSnapshot {
     uint16_t scene_num;
     uint16_t map_num;
+    uint16_t event_start;
     uint16_t event_count;
     uint16_t sprite_ref_count;
     uint16_t unique_sprite_count;

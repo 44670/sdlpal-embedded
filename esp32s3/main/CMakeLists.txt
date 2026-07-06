@@ -4,6 +4,7 @@ idf_component_register(
         "cores3se_board.c"
         "cores3se_memory.c"
         "../../embedded/pal_pack.c"
+        "../../embedded/pal_scene_cache.c"
         "../../embedded/pal_video_static.c"
     INCLUDE_DIRS
         "."

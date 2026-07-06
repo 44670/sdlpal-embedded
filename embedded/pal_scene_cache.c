@@ -195,6 +195,7 @@ static bool load_snapshot(
 
     snapshot->scene_num = scene_num;
     snapshot->map_num = map_num;
+    snapshot->event_start = event_start;
     snapshot->event_count = event_count;
     snapshot->sprite_ref_count = sprite_ref_count;
     snapshot->unique_sprite_count = unique_count;

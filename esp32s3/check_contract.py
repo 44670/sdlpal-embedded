@@ -29,6 +29,8 @@ SOURCE_FILES = (
     "embedded/pal_memory.h",
     "embedded/pal_pack.c",
     "embedded/pal_pack.h",
+    "embedded/pal_scene_cache.c",
+    "embedded/pal_scene_cache.h",
     "embedded/pal_video_static.c",
     "embedded/pal_video_static.h",
 )
