@@ -17,7 +17,7 @@ Repeatable target-side contract check:
 make -C esp32s3 check
 ```
 
-That builds the ESP-IDF artifact, rebuilds the default resource packs from `/mnt/hgfs/deb13/PAL`, verifies the NOR pack fits the `pal_nor` partition, rejects compressed/YJ1 payloads in both NOR and TF packs, scans the target-side sources and linked project objects for heap/decompress calls, scans the generated `SSS` scene-enter/auto/trigger roots for unsupported bounded script opcodes, checks key ELF sections, and reports `pal_sram_` / `pal_psram_` symbol totals from the ESP32-S3 ELF.
+That builds the ESP-IDF artifact, rebuilds the default resource packs from `/mnt/hgfs/deb13/PAL`, verifies the NOR pack fits the `pal_nor` partition, rejects compressed/YJ1 payloads in both NOR and TF packs, scans the target-side sources and linked project objects for heap/decompress calls, scans the generated `SSS` scene-enter/auto/trigger roots for unsupported bounded branch-aware script opcodes, checks key ELF sections, and reports `pal_sram_` / `pal_psram_` symbol totals from the ESP32-S3 ELF.
 
 Flash app:
 

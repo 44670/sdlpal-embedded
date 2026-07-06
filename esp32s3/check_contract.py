@@ -28,7 +28,7 @@ SCENE_SCRIPT_ON_ENTER_OFFSET = 2
 SCENE_SCRIPT_ON_TELEPORT_OFFSET = 4
 EVENT_TRIGGER_SCRIPT_OFFSET = 8
 EVENT_AUTO_SCRIPT_OFFSET = 10
-SCRIPT_SCAN_MAX_STEPS = 32
+SCRIPT_SCAN_MAX_STEPS = 128
 PAL_NOR_PARTITION_BYTES = 0xB00000
 SRAM_BUDGET = 300 * 1024
 PSRAM_BUDGET = 8 * 1024 * 1024
@@ -376,26 +376,56 @@ def script_entry(script_data: bytes, entry_num: int) -> tuple[int, int, int, int
     )
 
 
+SCRIPT_BRANCH_OPERAND0 = {0x0074}
+SCRIPT_BRANCH_OPERAND1 = {0x0006, 0x0079, 0x0095}
+SCRIPT_BRANCH_OPERAND2 = {0x001E, 0x0020, 0x0058, 0x0083, 0x0086, 0x0094}
+SCRIPT_CALL_OPS = {0x0004}
+SCRIPT_GOTO_OPS = {0x0002, 0x0003}
+SCRIPT_STOP_OPS = {0x0000, 0x0001, 0xFFFF}
+
+
 def trace_script_ops(script_data: bytes, start_entry: int) -> list[tuple[int, int]]:
     rows: list[tuple[int, int]] = []
-    entry_num = start_entry
+    queue: list[tuple[int, int]] = [(start_entry, 0)]
+    seen: set[int] = set()
 
-    for _ in range(SCRIPT_SCAN_MAX_STEPS):
+    while queue and len(rows) < SCRIPT_SCAN_MAX_STEPS:
+        entry_num, depth = queue.pop(0)
+        if entry_num in seen:
+            continue
+        seen.add(entry_num)
         entry = script_entry(script_data, entry_num)
         if entry is None:
-            break
-        op, operand0, _, _ = entry
-        rows.append((entry_num, op))
-        if op == 0x0000:
-            break
-        if op == 0x0001:
-            break
-        if op == 0x0002 or op == 0x0003:
-            entry_num = operand0
             continue
-        if op == 0xFFFF:
-            break
-        entry_num += 1
+        op, operand0, operand1, operand2 = entry
+        rows.append((entry_num, op))
+        if op in SCRIPT_STOP_OPS:
+            continue
+        if op in SCRIPT_GOTO_OPS:
+            if operand0:
+                queue.append((operand0, depth + 1))
+            continue
+        if op in SCRIPT_CALL_OPS:
+            if operand0:
+                queue.append((operand0, depth + 1))
+            queue.append((entry_num + 1, depth + 1))
+            continue
+        if op in SCRIPT_BRANCH_OPERAND0:
+            if operand0:
+                queue.append((operand0, depth + 1))
+            queue.append((entry_num + 1, depth + 1))
+            continue
+        if op in SCRIPT_BRANCH_OPERAND1:
+            if operand1:
+                queue.append((operand1, depth + 1))
+            queue.append((entry_num + 1, depth + 1))
+            continue
+        if op in SCRIPT_BRANCH_OPERAND2:
+            if operand2:
+                queue.append((operand2, depth + 1))
+            queue.append((entry_num + 1, depth + 1))
+            continue
+        queue.append((entry_num + 1, depth + 1))
     return rows
 
 
