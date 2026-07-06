@@ -376,7 +376,7 @@ def script_entry(script_data: bytes, entry_num: int) -> tuple[int, int, int, int
     )
 
 
-SCRIPT_BRANCH_OPERAND0 = {0x0074}
+SCRIPT_BRANCH_OPERAND0 = {0x0038, 0x0074}
 SCRIPT_BRANCH_OPERAND1 = {0x0006, 0x0079, 0x0095}
 SCRIPT_BRANCH_OPERAND2 = {0x001E, 0x0020, 0x0058, 0x0083, 0x0086, 0x0094}
 SCRIPT_CALL_OPS = {0x0004}

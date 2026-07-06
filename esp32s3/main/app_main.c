@@ -151,6 +151,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_SELL_MENU 0x0027u
 #define SCRIPT_SET_CURRENT_RNG 0x0036u
 #define SCRIPT_PLAY_RNG 0x0037u
+#define SCRIPT_TELEPORT 0x0038u
 #define SCRIPT_SHAKE_SCREEN 0x0035u
 #define SCRIPT_DIALOG_CENTER 0x003Bu
 #define SCRIPT_DIALOG_UPPER 0x003Cu
@@ -2256,6 +2257,8 @@ static void set_event_object_position(uint8_t *event_object, uint16_t x, uint16_
     advance_event_object_frame(event_object);
 }
 
+static uint16_t run_trigger_script_subset(uint16_t script_entry, uint16_t event_object_id);
+
 static uint16_t execute_script_mutation(
     uint16_t script_entry,
     uint16_t event_object_id,
@@ -2737,6 +2740,27 @@ static uint16_t execute_script_mutation(
                 return script_entry;
             }
             continue;
+
+        case SCRIPT_TELEPORT:
+        {
+            uint8_t *scene = mutable_current_scene_record();
+            uint16_t teleport_script = scene != NULL ? read_le16(scene + SCENE_SCRIPT_ON_TELEPORT_OFFSET) : 0;
+
+            if (teleport_script != 0 && pal_script_call_depth < SCRIPT_CALL_MAX_DEPTH) {
+                pal_script_call_depth++;
+                (void)run_trigger_script_subset(teleport_script, 0xFFFFu);
+                pal_script_call_depth--;
+                script_entry = (uint16_t)(script_entry + 1u);
+            } else if (entry.operand[0] != 0) {
+                script_entry = entry.operand[0];
+            } else {
+                script_entry = (uint16_t)(script_entry + 1u);
+            }
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
 
         case SCRIPT_FADE_OUT:
             apply_current_palette_scale(0, 1);
