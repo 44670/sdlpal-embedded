@@ -112,7 +112,7 @@ static uint16_t pal_max_party_member_index;
 static uint16_t pal_follower_count;
 static uint16_t pal_party_layer;
 static uint16_t pal_player_walk_frames;
-static uint16_t pal_player_frame_num;
+static uint16_t pal_player_step_phase;
 static uint16_t pal_player_direction;
 static uint16_t pal_player_role;
 static bool pal_player_walking;
@@ -362,6 +362,24 @@ static void move_party_direction(uint16_t direction)
     }
 }
 
+static uint16_t walk_frame_for_phase(uint16_t walk_frames, bool follower)
+{
+    uint16_t leader_frame;
+
+    if (!pal_player_walking || walk_frames == 0) {
+        return 0;
+    }
+    if (walk_frames == 4u) {
+        return (uint16_t)(pal_player_step_phase & 3u);
+    }
+    if ((pal_player_step_phase & 1u) == 0) {
+        return 0;
+    }
+
+    leader_frame = (uint16_t)((pal_player_step_phase + 1u) / 2u);
+    return follower ? (uint16_t)(3u - leader_frame) : leader_frame;
+}
+
 static void sync_runtime_save_position(void)
 {
     uint16_t i;
@@ -379,7 +397,8 @@ static void sync_runtime_save_position(void)
         uint8_t *party = pal_psram_save_state + SAVE_PARTY_OFFSET + (uint32_t)i * PARTY_STRUCT_BYTES;
         uint16_t walk_frames = pal_party_walk_frames[i] == 0 ? 3u : pal_party_walk_frames[i];
         uint16_t draw_direction = pal_player_direction;
-        uint16_t frame_num = pal_player_walking ? (uint16_t)(pal_player_frame_num % walk_frames) : 0u;
+        bool follower = i > pal_max_party_member_index;
+        uint16_t frame_num;
         int px = DEMO_PARTY_SCREEN_X;
         int py = DEMO_PARTY_SCREEN_Y;
 
@@ -390,6 +409,7 @@ static void sync_runtime_save_position(void)
         if (i <= visible_party_last_index()) {
             party_member_screen_position(i, &px, &py, &draw_direction);
         }
+        frame_num = walk_frame_for_phase(walk_frames, follower);
         write_le16(party + PARTY_X_OFFSET, (uint16_t)px);
         write_le16(party + PARTY_Y_OFFSET, (uint16_t)py);
         write_le16(party + PARTY_FRAME_OFFSET, (uint16_t)(draw_direction * walk_frames + frame_num));
@@ -811,7 +831,7 @@ static void load_player_sprite(void)
     pal_player_sprite_size = 0;
     pal_party_sprite_pin_bytes = 0;
     pal_player_walk_frames = 3;
-    pal_player_frame_num = 0;
+    pal_player_step_phase = 0;
     pal_player_walking = false;
     for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         pal_party_sprites[i] = NULL;
@@ -1058,10 +1078,10 @@ static void advance_player_frame(void)
         return;
     }
     if (!pal_player_walking) {
-        pal_player_frame_num = 0;
+        pal_player_step_phase = 0;
         return;
     }
-    pal_player_frame_num = (uint16_t)((pal_player_frame_num + 1u) % pal_player_walk_frames);
+    pal_player_step_phase = (uint16_t)((pal_player_step_phase + 1u) & 3u);
 }
 
 static uint16_t sprite_frame_count(const uint8_t *sprite)
@@ -1402,7 +1422,7 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
 
         walk_frames = pal_party_walk_frames[i] == 0 ? 3u : pal_party_walk_frames[i];
         party_member_screen_position(i, &px, &py, &draw_direction);
-        frame_num = pal_player_walking ? (uint16_t)(pal_player_frame_num % walk_frames) : 0u;
+        frame_num = walk_frame_for_phase(walk_frames, i > pal_max_party_member_index);
         frame_index = (uint16_t)(draw_direction * walk_frames + frame_num);
         rle = sprite_frame(pal_party_sprites[i], frame_index);
         if (rle == NULL) {
