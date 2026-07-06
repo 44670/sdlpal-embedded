@@ -41,6 +41,10 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define PLAYER_ROLE_WALK_FRAMES_OFFSET 768u
 #define DEMO_PARTY_SCREEN_X 160
 #define DEMO_PARTY_SCREEN_Y 112
+#define DEMO_DIR_SOUTH 0u
+#define DEMO_DIR_WEST 1u
+#define DEMO_DIR_NORTH 2u
+#define DEMO_DIR_EAST 3u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -67,6 +71,7 @@ static uint32_t pal_player_sprite_size;
 static uint16_t pal_player_walk_frames;
 static uint16_t pal_player_frame_num;
 static uint16_t pal_player_direction;
+static bool pal_player_walking;
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -123,13 +128,31 @@ static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
         ty < CORES3SE_PAL_Y_OFFSET ||
         ty >= CORES3SE_PAL_Y_OFFSET + 200u) {
         pal_touch_tracking = false;
+        pal_player_walking = false;
         return;
     }
 
     local_y = (uint16_t)(ty - CORES3SE_PAL_Y_OFFSET);
     if (pal_touch_tracking) {
-        pal_viewport_x = clamp_int(pal_viewport_x + (int)pal_touch_last_x - (int)tx, 0, max_x);
-        pal_viewport_y = clamp_int(pal_viewport_y + (int)pal_touch_last_y - (int)local_y, 0, max_y);
+        int dx = (int)pal_touch_last_x - (int)tx;
+        int dy = (int)pal_touch_last_y - (int)local_y;
+        int mag_x = dx < 0 ? -dx : dx;
+        int mag_y = dy < 0 ? -dy : dy;
+        int old_x = pal_viewport_x;
+        int old_y = pal_viewport_y;
+
+        pal_viewport_x = clamp_int(pal_viewport_x + dx, 0, max_x);
+        pal_viewport_y = clamp_int(pal_viewport_y + dy, 0, max_y);
+        pal_player_walking = pal_viewport_x != old_x || pal_viewport_y != old_y;
+        if (pal_player_walking) {
+            if (mag_x > mag_y * 2) {
+                pal_player_direction = dx > 0 ? DEMO_DIR_EAST : DEMO_DIR_WEST;
+            } else if (mag_y > mag_x / 2) {
+                pal_player_direction = dy > 0 ? DEMO_DIR_SOUTH : DEMO_DIR_NORTH;
+            }
+        }
+    } else {
+        pal_player_walking = false;
     }
 
     pal_touch_last_x = tx;
@@ -301,7 +324,8 @@ static void load_player_sprite(void)
     pal_player_sprite_size = 0;
     pal_player_walk_frames = 3;
     pal_player_frame_num = 0;
-    pal_player_direction = 0;
+    pal_player_direction = DEMO_DIR_SOUTH;
+    pal_player_walking = false;
 
     if (!pal_nor_ready || pal_global_cache == NULL) {
         return;
@@ -483,6 +507,10 @@ static void advance_scene_event_frames(void)
 static void advance_player_frame(void)
 {
     if (pal_player_sprite == NULL || pal_player_walk_frames == 0) {
+        return;
+    }
+    if (!pal_player_walking) {
+        pal_player_frame_num = 0;
         return;
     }
     pal_player_frame_num = (uint16_t)((pal_player_frame_num + 1u) % pal_player_walk_frames);
