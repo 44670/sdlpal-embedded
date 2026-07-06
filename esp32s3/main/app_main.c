@@ -328,6 +328,9 @@ static uint16_t pal_music_num;
 static uint16_t pal_battle_music_num;
 static uint16_t pal_battlefield_num;
 static uint16_t pal_screen_wave;
+static uint16_t pal_screen_shake_ticks;
+static uint8_t pal_screen_shake_level;
+static uint8_t pal_screen_shake_phase;
 static uint16_t pal_fbp_preview_ticks;
 static uint16_t pal_battle_preview_ticks;
 static uint16_t pal_current_rng_num;
@@ -932,6 +935,9 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_battle_music_num = 0;
     pal_battlefield_num = 0;
     pal_screen_wave = 0;
+    pal_screen_shake_ticks = 0;
+    pal_screen_shake_level = 0;
+    pal_screen_shake_phase = 0;
     pal_battle_preview_ticks = 0;
     pal_current_rng_num = 0;
     pal_rng_current_frame = 0;
@@ -1096,6 +1102,9 @@ static bool load_default_runtime_state(void)
     pal_battle_music_num = 0;
     pal_battlefield_num = 0;
     pal_screen_wave = 0;
+    pal_screen_shake_ticks = 0;
+    pal_screen_shake_level = 0;
+    pal_screen_shake_phase = 0;
     pal_fbp_preview_ticks = 0;
     pal_battle_preview_ticks = 0;
     pal_current_rng_num = 0;
@@ -2717,8 +2726,17 @@ static uint16_t execute_script_mutation(
             continue;
 
         case SCRIPT_REDRAW:
-        case SCRIPT_SHAKE_SCREEN:
         case SCRIPT_UNKNOWN_0078:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SHAKE_SCREEN:
+            pal_screen_shake_ticks = entry.operand[0];
+            pal_screen_shake_level = (uint8_t)(entry.operand[1] == 0 ? 4u : clamp_int(entry.operand[1], 1, 8));
+            pal_screen_shake_phase = 0;
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -4522,6 +4540,38 @@ static void draw_dialog_overlay(void)
     draw_utf16_text(message, message_size, x + 8, y + 8, width - 16, height - 16, 0x2Fu);
 }
 
+static void apply_screen_shake(void)
+{
+    int shift = (int)pal_screen_shake_level;
+    int y;
+
+    if (pal_screen_shake_ticks == 0 || shift <= 0) {
+        return;
+    }
+    if ((pal_screen_shake_phase & 1u) == 0) {
+        for (y = PAL_VIDEO_HEIGHT - 1; y >= shift; y--) {
+            memmove(
+                pal_sram_framebuffer + (uint32_t)y * PAL_VIDEO_WIDTH,
+                pal_sram_framebuffer + (uint32_t)(y - shift) * PAL_VIDEO_WIDTH,
+                PAL_VIDEO_WIDTH);
+        }
+        memset(pal_sram_framebuffer, 0, (uint32_t)shift * PAL_VIDEO_WIDTH);
+    } else {
+        for (y = 0; y + shift < (int)PAL_VIDEO_HEIGHT; y++) {
+            memmove(
+                pal_sram_framebuffer + (uint32_t)y * PAL_VIDEO_WIDTH,
+                pal_sram_framebuffer + (uint32_t)(y + shift) * PAL_VIDEO_WIDTH,
+                PAL_VIDEO_WIDTH);
+        }
+        memset(
+            pal_sram_framebuffer + (uint32_t)(PAL_VIDEO_HEIGHT - shift) * PAL_VIDEO_WIDTH,
+            0,
+            (uint32_t)shift * PAL_VIDEO_WIDTH);
+    }
+    pal_screen_shake_phase++;
+    pal_screen_shake_ticks--;
+}
+
 static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t ty)
 {
     if (draw_rng_playback_frame()) {
@@ -4558,6 +4608,7 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
     }
     draw_dialog_overlay();
     draw_shop_overlay();
+    apply_screen_shake();
 }
 
 void app_main(void)
