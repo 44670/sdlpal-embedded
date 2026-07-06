@@ -93,6 +93,21 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCENE_SCRIPT_ON_TELEPORT_OFFSET 4u
 #define EVENT_TRIGGER_SCRIPT_OFFSET 8u
 #define EVENT_AUTO_SCRIPT_OFFSET 10u
+#define EVENT_TRIGGER_MODE_OFFSET 14u
+#define EVENT_AUTO_IDLE_OFFSET 30u
+#define SCRIPT_STOP 0x0000u
+#define SCRIPT_STOP_NEXT 0x0001u
+#define SCRIPT_STOP_GOTO 0x0002u
+#define SCRIPT_GOTO 0x0003u
+#define SCRIPT_WAIT 0x0009u
+#define SCRIPT_SET_DIRECTION_FRAME 0x000Fu
+#define SCRIPT_SET_FRAME_SOUTH 0x0014u
+#define SCRIPT_SET_AUTO_SCRIPT 0x0024u
+#define SCRIPT_SET_TRIGGER_SCRIPT 0x0025u
+#define SCRIPT_SET_TRIGGER_MODE 0x007Du
+#define SCRIPT_ANIMATE_EVENT 0x0087u
+#define SCRIPT_DIALOG_TEXT 0xFFFFu
+#define SCRIPT_AUTO_MAX_JUMPS 8u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -1499,6 +1514,180 @@ static void update_scene_selection(bool touched, uint16_t ty)
     }
 }
 
+static uint8_t *mutable_event_object_by_id(uint16_t event_object_id)
+{
+    uint32_t offset;
+
+    if (!pal_scene_event_objects_mutable || pal_scene_event_objects == NULL || event_object_id == 0) {
+        return NULL;
+    }
+    offset = (uint32_t)(event_object_id - 1u) * SSS_EVENT_OBJECT_BYTES;
+    if (offset > pal_scene_event_objects_size || SSS_EVENT_OBJECT_BYTES > pal_scene_event_objects_size - offset) {
+        return NULL;
+    }
+    return (uint8_t *)pal_scene_event_objects + offset;
+}
+
+static uint8_t *script_current_event_object(uint16_t current_event_object_id, uint16_t operand0)
+{
+    uint16_t event_object_id;
+    int index;
+
+    if (operand0 == 0 || operand0 == 0xFFFFu) {
+        event_object_id = current_event_object_id;
+    } else {
+        index = (int)operand0 - 1;
+        if (index > 0x9000) {
+            index -= 0x9000;
+        }
+        if (index < 0 || index >= 0xFFFF) {
+            return NULL;
+        }
+        event_object_id = (uint16_t)(index + 1);
+    }
+    return mutable_event_object_by_id(event_object_id);
+}
+
+static void advance_event_object_frame(uint8_t *event_object)
+{
+    uint16_t sprite_frames;
+    uint16_t frame;
+
+    if (event_object == NULL) {
+        return;
+    }
+    sprite_frames = read_le16(event_object + EVENT_SPRITE_FRAMES_OFFSET);
+    if (sprite_frames == 0) {
+        return;
+    }
+    frame = read_le16(event_object + EVENT_CURRENT_FRAME_OFFSET);
+    frame = (uint16_t)((frame + 1u) % sprite_frames);
+    write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, frame);
+}
+
+static uint16_t run_auto_script_step(uint16_t script_entry, uint16_t event_object_id)
+{
+    uint8_t *event_object = mutable_event_object_by_id(event_object_id);
+    uint8_t *current;
+    uint16_t jumps;
+
+    if (!pal_script_ready || event_object == NULL || script_entry == 0) {
+        return script_entry;
+    }
+
+    for (jumps = 0; jumps < SCRIPT_AUTO_MAX_JUMPS && script_entry != 0; jumps++) {
+        PalScriptEntry entry;
+        uint16_t idle = read_le16(event_object + EVENT_AUTO_IDLE_OFFSET);
+
+        if (!PalScript_Read(&pal_script_view, script_entry, &entry)) {
+            return script_entry;
+        }
+        current = script_current_event_object(event_object_id, entry.operand[0]);
+
+        switch (entry.operation) {
+        case SCRIPT_STOP:
+            return script_entry;
+
+        case SCRIPT_STOP_NEXT:
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_STOP_GOTO:
+            if (entry.operand[1] == 0 || (uint16_t)(idle + 1u) < entry.operand[1]) {
+                write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, (uint16_t)(idle + 1u));
+                return entry.operand[0];
+            }
+            write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, 0);
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_GOTO:
+            if (entry.operand[1] == 0 || (uint16_t)(idle + 1u) < entry.operand[1]) {
+                write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, (uint16_t)(idle + 1u));
+                script_entry = entry.operand[0];
+                continue;
+            }
+            write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, 0);
+            script_entry = (uint16_t)(script_entry + 1u);
+            continue;
+
+        case SCRIPT_WAIT:
+            if ((uint16_t)(idle + 1u) >= entry.operand[0]) {
+                write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, 0);
+                return (uint16_t)(script_entry + 1u);
+            }
+            write_le16(event_object + EVENT_AUTO_IDLE_OFFSET, (uint16_t)(idle + 1u));
+            return script_entry;
+
+        case SCRIPT_SET_DIRECTION_FRAME:
+            if (entry.operand[0] != 0xFFFFu) {
+                write_le16(event_object + EVENT_DIRECTION_OFFSET, entry.operand[0]);
+            }
+            if (entry.operand[1] != 0xFFFFu) {
+                write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, entry.operand[1]);
+            }
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_SET_FRAME_SOUTH:
+            write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, entry.operand[0]);
+            write_le16(event_object + EVENT_DIRECTION_OFFSET, DEMO_DIR_SOUTH);
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_SET_AUTO_SCRIPT:
+            if (current != NULL) {
+                write_le16(current + EVENT_AUTO_SCRIPT_OFFSET, entry.operand[1]);
+            }
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_SET_TRIGGER_SCRIPT:
+            if (current != NULL) {
+                write_le16(current + EVENT_TRIGGER_SCRIPT_OFFSET, entry.operand[1]);
+            }
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_SET_TRIGGER_MODE:
+            if (current != NULL) {
+                write_le16(current + EVENT_TRIGGER_MODE_OFFSET, entry.operand[1]);
+            }
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_ANIMATE_EVENT:
+            advance_event_object_frame(current != NULL ? current : event_object);
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_DIALOG_TEXT:
+            return (uint16_t)(script_entry + 1u);
+
+        default:
+            return script_entry;
+        }
+    }
+    return script_entry;
+}
+
+static void advance_scene_auto_scripts(void)
+{
+    uint16_t i;
+
+    if (!pal_tf_scene_ready || !pal_scene_event_objects_mutable || pal_scene_event_objects == NULL) {
+        return;
+    }
+
+    for (i = 0; i < pal_scene_snapshot.event_count; i++) {
+        uint16_t event_object_id = (uint16_t)(pal_scene_snapshot.event_start + i + 1u);
+        uint8_t *event_object = mutable_event_object_by_id(event_object_id);
+        uint16_t auto_script;
+
+        if (event_object == NULL ||
+            read_s16(event_object + EVENT_STATE_OFFSET) <= 0 ||
+            read_s16(event_object + EVENT_VANISH_TIME_OFFSET) != 0) {
+            continue;
+        }
+        auto_script = read_le16(event_object + EVENT_AUTO_SCRIPT_OFFSET);
+        if (auto_script != 0) {
+            write_le16(event_object + EVENT_AUTO_SCRIPT_OFFSET, run_auto_script_step(auto_script, event_object_id));
+        }
+    }
+}
+
 static void advance_scene_event_frames(void)
 {
     uint16_t i;
@@ -1510,8 +1699,6 @@ static void advance_scene_event_frames(void)
     for (i = 0; i < pal_scene_snapshot.event_count; i++) {
         uint32_t offset = ((uint32_t)pal_scene_snapshot.event_start + i) * SSS_EVENT_OBJECT_BYTES;
         uint8_t *event_object;
-        uint16_t sprite_frames;
-        uint16_t frame;
 
         if (offset > pal_scene_event_objects_size ||
             SSS_EVENT_OBJECT_BYTES > pal_scene_event_objects_size - offset) {
@@ -1519,13 +1706,7 @@ static void advance_scene_event_frames(void)
         }
 
         event_object = (uint8_t *)pal_scene_event_objects + offset;
-        sprite_frames = read_le16(event_object + EVENT_SPRITE_FRAMES_OFFSET);
-        if (sprite_frames == 0) {
-            continue;
-        }
-        frame = read_le16(event_object + EVENT_CURRENT_FRAME_OFFSET);
-        frame = (uint16_t)((frame + 1u) % sprite_frames);
-        write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, frame);
+        advance_event_object_frame(event_object);
     }
 }
 
@@ -1999,6 +2180,7 @@ void app_main(void)
         update_scene_selection(touched, ty);
         update_demo_viewport(touched, tx, ty);
         if ((tick & 7u) == 0) {
+            advance_scene_auto_scripts();
             advance_scene_event_frames();
             advance_player_frame();
         }
