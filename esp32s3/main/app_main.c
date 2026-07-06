@@ -100,16 +100,26 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_STOP_NEXT 0x0001u
 #define SCRIPT_STOP_GOTO 0x0002u
 #define SCRIPT_GOTO 0x0003u
+#define SCRIPT_REDRAW 0x0005u
+#define SCRIPT_REPLACE_WITH_NEXT 0x0008u
 #define SCRIPT_WAIT 0x0009u
 #define SCRIPT_SET_DIRECTION_FRAME 0x000Fu
 #define SCRIPT_SET_FRAME_SOUTH 0x0014u
+#define SCRIPT_SET_PARTY_DIRECTION_FRAME 0x0015u
 #define SCRIPT_SET_AUTO_SCRIPT 0x0024u
 #define SCRIPT_SET_TRIGGER_SCRIPT 0x0025u
+#define SCRIPT_SHAKE_SCREEN 0x0035u
+#define SCRIPT_DIALOG_CENTER 0x003Bu
+#define SCRIPT_DIALOG_UPPER 0x003Cu
+#define SCRIPT_DIALOG_LOWER 0x003Du
 #define SCRIPT_SET_TRIGGER_MODE 0x0040u
 #define SCRIPT_SET_MUSIC 0x0043u
 #define SCRIPT_SET_BATTLE_MUSIC 0x0045u
 #define SCRIPT_SET_PARTY_POSITION 0x0046u
 #define SCRIPT_PLAY_SOUND 0x0047u
+#define SCRIPT_SET_BATTLEFIELD 0x004Au
+#define SCRIPT_VANISH_EVENT 0x004Bu
+#define SCRIPT_CHASE_PLAYER 0x004Cu
 #define SCRIPT_SET_EVENT_STATE 0x0049u
 #define SCRIPT_FADE_OUT 0x0050u
 #define SCRIPT_FADE_IN 0x0051u
@@ -122,7 +132,11 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_MOVE_EVENT_ONE_STEP 0x006Cu
 #define SCRIPT_MOVE_EVENT 0x007Du
 #define SCRIPT_SET_EVENT_LAYER 0x007Eu
+#define SCRIPT_FADE_TO_SCENE 0x0073u
 #define SCRIPT_ANIMATE_EVENT 0x0087u
+#define SCRIPT_CHANGE_PALETTE 0x008Bu
+#define SCRIPT_SYNC_PARTY_TRAIL 0x008Cu
+#define SCRIPT_PLAY_CD_MUSIC 0x00A3u
 #define SCRIPT_DIALOG_TEXT 0xFFFFu
 #define SCRIPT_AUTO_MAX_JUMPS 8u
 #define SCRIPT_TRIGGER_MAX_STEPS 16u
@@ -1689,6 +1703,13 @@ static uint16_t execute_script_mutation(
         case SCRIPT_STOP_NEXT:
             return (uint16_t)(script_entry + 1u);
 
+        case SCRIPT_REPLACE_WITH_NEXT:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
         case SCRIPT_STOP_GOTO:
             if (entry.operand[1] == 0 || (uint16_t)(idle + 1u) < entry.operand[1]) {
                 if (scene_script) {
@@ -1739,6 +1760,22 @@ static uint16_t execute_script_mutation(
             }
             return script_entry;
 
+        case SCRIPT_REDRAW:
+        case SCRIPT_SHAKE_SCREEN:
+        case SCRIPT_DIALOG_CENTER:
+        case SCRIPT_DIALOG_UPPER:
+        case SCRIPT_DIALOG_LOWER:
+        case SCRIPT_SET_BATTLEFIELD:
+        case SCRIPT_CHASE_PLAYER:
+        case SCRIPT_FADE_TO_SCENE:
+        case SCRIPT_CHANGE_PALETTE:
+        case SCRIPT_PLAY_CD_MUSIC:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
         case SCRIPT_SET_DIRECTION_FRAME:
             if (event_object == NULL) {
                 return script_entry;
@@ -1761,6 +1798,16 @@ static uint16_t execute_script_mutation(
             }
             write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, entry.operand[0]);
             write_le16(event_object + EVENT_DIRECTION_OFFSET, DEMO_DIR_SOUTH);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_PARTY_DIRECTION_FRAME:
+            if (entry.operand[0] <= DEMO_DIR_EAST) {
+                pal_player_direction = entry.operand[0];
+            }
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -1802,6 +1849,16 @@ static uint16_t execute_script_mutation(
         case SCRIPT_PLAY_SOUND:
         case SCRIPT_FADE_OUT:
         case SCRIPT_FADE_IN:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_VANISH_EVENT:
+            if (event_object != NULL) {
+                write_le16(event_object + EVENT_VANISH_TIME_OFFSET, (uint16_t)(int16_t)-15);
+            }
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -1862,6 +1919,24 @@ static uint16_t execute_script_mutation(
             pal_max_party_member_index = (uint16_t)(count - 1u);
             if (pal_follower_count > DEMO_PLAYABLE_PARTY_SLOTS - 1u - pal_max_party_member_index) {
                 pal_follower_count = DEMO_PLAYABLE_PARTY_SLOTS - 1u - pal_max_party_member_index;
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
+
+        case SCRIPT_SYNC_PARTY_TRAIL:
+        {
+            int world_x = pal_viewport_x + DEMO_PARTY_SCREEN_X;
+            int world_y = pal_viewport_y + DEMO_PARTY_SCREEN_Y;
+            uint16_t i;
+
+            for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+                pal_trail_x[i] = (uint16_t)world_x;
+                pal_trail_y[i] = (uint16_t)world_y;
+                pal_trail_direction[i] = pal_player_direction;
             }
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
