@@ -274,7 +274,6 @@ static uint32_t pal_script_rng_state = 0x4C50414Cu;
 static bool pal_dialog_visible;
 static uint8_t pal_dialog_mode = PAL_DIALOG_MODE_LOWER;
 static uint16_t pal_dialog_message_id;
-static bool pal_dialog_touch_gate;
 static int pal_initial_viewport_x;
 static int pal_initial_viewport_y;
 static uint8_t *pal_save_player_roles;
@@ -1684,23 +1683,6 @@ static void update_scene_selection(bool touched, uint16_t ty)
         select_relative_scene(1);
         pal_touch_scene_gate = true;
     }
-}
-
-static bool update_dialog_touch(bool touched)
-{
-    if (!touched) {
-        pal_dialog_touch_gate = false;
-        return false;
-    }
-    if (!pal_dialog_visible) {
-        return false;
-    }
-    if (!pal_dialog_touch_gate) {
-        pal_dialog_visible = false;
-        pal_dialog_touch_gate = true;
-    }
-    pal_player_walking = false;
-    return true;
 }
 
 static uint8_t *mutable_event_object_by_id(uint16_t event_object_id)
@@ -3294,12 +3276,8 @@ void app_main(void)
         uint16_t tx = 0;
         uint16_t ty = 0;
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
-        bool dialog_consumed = update_dialog_touch(touched);
-
-        if (!dialog_consumed) {
-            update_scene_selection(touched, ty);
-            update_demo_viewport(touched, tx, ty);
-        }
+        update_scene_selection(touched, ty);
+        update_demo_viewport(touched, tx, ty);
         if ((tick & 7u) == 0) {
             advance_scene_auto_scripts();
             advance_scene_event_frames();
