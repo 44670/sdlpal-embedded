@@ -29,6 +29,7 @@ The target is the full SDLPAL game/script loop on M5Stack CoreS3 SE, not CoreS3 
 Primary consultation notes are in:
 
 - `Consult/Q1.md`
+- `Consult/Q2.md`
 - `Consult/RealData.md`
 - `Consult/ContractAudit.md`
 - `Consult/mkf_audit.py`
