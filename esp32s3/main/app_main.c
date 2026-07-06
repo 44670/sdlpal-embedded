@@ -31,6 +31,8 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define EVENT_SPRITE_FRAMES_OFFSET 18u
 #define EVENT_DIRECTION_OFFSET 20u
 #define EVENT_CURRENT_FRAME_OFFSET 22u
+#define DEMO_MAP_PIXEL_WIDTH (64 * 32)
+#define DEMO_MAP_PIXEL_HEIGHT (128 * 16)
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -44,6 +46,11 @@ static uint32_t pal_tf_scene_checksum;
 static PalSceneSnapshot pal_scene_snapshot;
 static const uint8_t *pal_scene_event_objects;
 static uint32_t pal_scene_event_objects_size;
+static int pal_viewport_x;
+static int pal_viewport_y;
+static bool pal_touch_tracking;
+static uint16_t pal_touch_last_x;
+static uint16_t pal_touch_last_y;
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -70,6 +77,42 @@ static uint32_t read_le32(const uint8_t *p)
            ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) |
            ((uint32_t)p[3] << 24);
+}
+
+static int clamp_int(int value, int min_value, int max_value)
+{
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
+static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
+{
+    const int max_x = DEMO_MAP_PIXEL_WIDTH - 320;
+    const int max_y = DEMO_MAP_PIXEL_HEIGHT - 200;
+    uint16_t local_y;
+
+    if (!pal_tf_scene_ready ||
+        !touched ||
+        ty < CORES3SE_PAL_Y_OFFSET ||
+        ty >= CORES3SE_PAL_Y_OFFSET + 200u) {
+        pal_touch_tracking = false;
+        return;
+    }
+
+    local_y = (uint16_t)(ty - CORES3SE_PAL_Y_OFFSET);
+    if (pal_touch_tracking) {
+        pal_viewport_x = clamp_int(pal_viewport_x + (int)pal_touch_last_x - (int)tx, 0, max_x);
+        pal_viewport_y = clamp_int(pal_viewport_y + (int)pal_touch_last_y - (int)local_y, 0, max_y);
+    }
+
+    pal_touch_last_x = tx;
+    pal_touch_last_y = local_y;
+    pal_touch_tracking = true;
 }
 
 static void load_demo_palette(void)
@@ -468,7 +511,7 @@ static void draw_map_layer(uint8_t layer, int viewport_x, int viewport_y)
     }
 }
 
-static void draw_scene_event_sprites(int viewport_x, int viewport_y)
+static void draw_scene_event_sprites(int viewport_x, int viewport_y, uint32_t tick)
 {
     uint16_t i;
     uint16_t draw_count = 0;
@@ -515,6 +558,7 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
             sprite_frames = 1;
         }
         frame = read_le16(event_object + EVENT_CURRENT_FRAME_OFFSET);
+        frame = (uint16_t)((frame + (uint16_t)(tick / 8u)) % sprite_frames);
         if (sprite_frames == 3u) {
             if (frame == 2u) {
                 frame = 0u;
@@ -560,13 +604,13 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
     }
 }
 
-static void draw_scene_background(void)
+static void draw_scene_background(uint32_t tick)
 {
     if (pal_tf_scene_ready) {
         memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
-        draw_map_layer(0, 0, 0);
-        draw_map_layer(1, 0, 0);
-        draw_scene_event_sprites(0, 0);
+        draw_map_layer(0, pal_viewport_x, pal_viewport_y);
+        draw_map_layer(1, pal_viewport_x, pal_viewport_y);
+        draw_scene_event_sprites(pal_viewport_x, pal_viewport_y, tick);
     } else if (pal_tf_background_ready) {
         memcpy(pal_sram_framebuffer, pal_sram_big_buffer, PAL_SRAM_FRAMEBUFFER_BYTES);
     } else {
@@ -589,7 +633,7 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
 {
     PalPackSpan ui_sprite;
 
-    draw_scene_background();
+    draw_scene_background(tick);
 
     if (pal_nor_ready &&
         PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_DATA, 9, &ui_sprite) &&
@@ -643,6 +687,7 @@ void app_main(void)
         uint16_t tx = 0;
         uint16_t ty = 0;
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
+        update_demo_viewport(touched, tx, ty);
         draw_demo_frame(tick, touched, tx, ty);
         if (!CoreS3Se_FlushPalFramebuffer()) {
             CoreS3Se_ShowError("LCD FAIL", "FLUSH");
