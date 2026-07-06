@@ -64,6 +64,7 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define SAVE_PARTY_DIRECTION_OFFSET 12u
 #define SAVE_FOLLOWER_COUNT_OFFSET 32u
 #define SAVE_PALETTE_OFFSET_OFFSET 10u
+#define SAVE_LAYER_OFFSET 26u
 #define SAVE_CASH_OFFSET 40u
 #define SAVE_PARTY_OFFSET 44u
 #define SAVE_TRAIL_OFFSET (SAVE_PARTY_OFFSET + DEMO_PLAYABLE_PARTY_SLOTS * PARTY_STRUCT_BYTES)
@@ -105,6 +106,7 @@ static uint16_t pal_trail_y[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint16_t pal_trail_direction[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint16_t pal_max_party_member_index;
 static uint16_t pal_follower_count;
+static uint16_t pal_party_layer;
 static uint16_t pal_player_walk_frames;
 static uint16_t pal_player_frame_num;
 static uint16_t pal_player_direction;
@@ -183,6 +185,7 @@ static void reset_party_state(void)
 
     pal_max_party_member_index = 0;
     pal_follower_count = 0;
+    pal_party_layer = 0;
     for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         pal_party_roles[i] = 0;
         pal_party_walk_frames[i] = 3;
@@ -655,6 +658,7 @@ static bool load_startup_save_slot(uint8_t slot)
         pal_player_direction = DEMO_DIR_SOUTH;
     }
     reset_party_state();
+    pal_party_layer = read_le16(pal_psram_save_state + SAVE_LAYER_OFFSET);
     pal_max_party_member_index = read_le16(pal_psram_save_state + 6u);
     if (pal_max_party_member_index > DEMO_MAX_PARTY_INDEX) {
         pal_max_party_member_index = DEMO_MAX_PARTY_INDEX;
@@ -1346,6 +1350,7 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
         uint16_t h;
         int px;
         int py;
+        int layer = (int)pal_party_layer;
 
         if (pal_party_sprites[i] == NULL ||
             draw_count >= (uint16_t)(sizeof(pal_scene_draw_items) / sizeof(pal_scene_draw_items[0]))) {
@@ -1365,8 +1370,8 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
         if (rle != NULL && w != 0 && h != 0) {
             pal_scene_draw_items[draw_count].rle = rle;
             pal_scene_draw_items[draw_count].x = px - (int)w / 2;
-            pal_scene_draw_items[draw_count].y = py + 10 - (int)h;
-            pal_scene_draw_items[draw_count].sort_y = py + 6;
+            pal_scene_draw_items[draw_count].y = py + layer + 10 - (int)h;
+            pal_scene_draw_items[draw_count].sort_y = py + layer + 6;
             draw_count++;
         }
     }
