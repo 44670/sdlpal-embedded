@@ -731,11 +731,12 @@ static void load_tf_scene_chunks(void)
     }
 
     if (pal_save_scenes != NULL && event_objects != NULL) {
-        if (!PalScene_LoadSnapshotReadAtWithSceneData(
+        if (!PalScene_LoadPinnedSnapshotReadAtWithSceneData(
                 &pal_nor_pack,
                 &pal_tf_toc,
                 read_tf_pack_at,
                 &pal_tf_fd,
+                &pal_nor_pack,
                 pal_save_scenes,
                 SAVE_SCENES_BYTES,
                 event_objects,
@@ -746,11 +747,12 @@ static void load_tf_scene_chunks(void)
             return;
         }
     } else if (event_objects != NULL) {
-        if (!PalScene_LoadSnapshotReadAtWithEvents(
+        if (!PalScene_LoadPinnedSnapshotReadAtWithEvents(
                 &pal_nor_pack,
                 &pal_tf_toc,
                 read_tf_pack_at,
                 &pal_tf_fd,
+                &pal_nor_pack,
                 event_objects,
                 event_objects_size,
                 pal_scene_num,
@@ -758,11 +760,12 @@ static void load_tf_scene_chunks(void)
             ESP_LOGW(TAG, "TF scene snapshot load failed");
             return;
         }
-    } else if (!PalScene_LoadSnapshotReadAt(
+    } else if (!PalScene_LoadPinnedSnapshotReadAt(
                 &pal_nor_pack,
                 &pal_tf_toc,
                 read_tf_pack_at,
                 &pal_tf_fd,
+                &pal_nor_pack,
                 pal_scene_num,
                 &pal_scene_snapshot)) {
         ESP_LOGW(TAG, "TF scene snapshot load failed");
@@ -789,11 +792,13 @@ static void load_tf_scene_chunks(void)
     pal_viewport_y = clamp_int(pal_initial_viewport_y, 0, DEMO_MAP_PIXEL_HEIGHT - 200);
     pal_tf_scene_ready = true;
     ESP_LOGI(TAG,
-             "TF scene loaded: scene=%u map=%u events=%u unique_sprites=%u gop=%" PRIu32 " mark=0x%08" PRIx32,
+             "TF scene loaded: scene=%u map=%u events=%u unique_sprites=%u sprite_bytes=%" PRIu32 " pinned=%" PRIu32 " gop=%" PRIu32 " mark=0x%08" PRIx32,
              (unsigned)pal_scene_snapshot.scene_num,
              (unsigned)pal_scene_snapshot.map_num,
              (unsigned)pal_scene_snapshot.event_count,
              (unsigned)pal_scene_snapshot.unique_sprite_count,
+             pal_scene_snapshot.unique_sprite_bytes,
+             pal_scene_snapshot.sprite_pin_bytes,
              pal_scene_snapshot.gop_size,
              pal_tf_scene_checksum);
 }

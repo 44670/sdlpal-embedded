@@ -23,5 +23,5 @@ idf_component_register(
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     PAL_ESP_CORES3SE=1
-    PAL_SCENE_ENABLE_PINNED=0
+    PAL_SCENE_ENABLE_PINNED=1
 )

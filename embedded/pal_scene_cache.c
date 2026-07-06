@@ -308,4 +308,34 @@ bool PalScene_LoadPinnedSnapshotReadAt(
 {
     return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, sprite_pack, NULL, 0, NULL, 0, scene_num, true, snapshot);
 }
+
+bool PalScene_LoadPinnedSnapshotReadAtWithEvents(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const PalPack *sprite_pack,
+    const uint8_t *event_objects,
+    uint32_t event_objects_size,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, sprite_pack, NULL, 0, event_objects, event_objects_size, scene_num, true, snapshot);
+}
+
+bool PalScene_LoadPinnedSnapshotReadAtWithSceneData(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const PalPack *sprite_pack,
+    const uint8_t *scene_records,
+    uint32_t scene_records_size,
+    const uint8_t *event_objects,
+    uint32_t event_objects_size,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, sprite_pack, scene_records, scene_records_size, event_objects, event_objects_size, scene_num, true, snapshot);
+}
 #endif

@@ -81,6 +81,28 @@ bool PalScene_LoadPinnedSnapshotReadAt(
     const PalPack *sprite_pack,
     uint16_t scene_num,
     PalSceneSnapshot *snapshot);
+bool PalScene_LoadPinnedSnapshotReadAtWithEvents(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const PalPack *sprite_pack,
+    const uint8_t *event_objects,
+    uint32_t event_objects_size,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot);
+bool PalScene_LoadPinnedSnapshotReadAtWithSceneData(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const PalPack *sprite_pack,
+    const uint8_t *scene_records,
+    uint32_t scene_records_size,
+    const uint8_t *event_objects,
+    uint32_t event_objects_size,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot);
 #endif
 
 #ifdef __cplusplus
