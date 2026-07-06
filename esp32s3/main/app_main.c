@@ -9,13 +9,23 @@
 #include <esp_err.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <fcntl.h>
 #include <inttypes.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 static const char *TAG = "sdlpal_cores3se";
+static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 
 static PalPack pal_nor_pack;
+static PalPackToc pal_tf_toc;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
+static int pal_tf_fd = -1;
 static bool pal_nor_ready;
+static bool pal_tf_ready;
+static bool pal_tf_background_ready;
 
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -39,6 +49,24 @@ static void load_demo_palette(void)
         pal_sram_palette_work[i * 3u + 2u] = (uint8_t)(255u - i);
     }
     (void)PalVideo_SetPaletteRgb(0, 256, pal_sram_palette_work);
+}
+
+static bool read_tf_pack_at(void *user, uint32_t offset, uint8_t *dst, uint32_t size)
+{
+    int fd = *(int *)user;
+    uint32_t done = 0;
+
+    if (dst == NULL && size != 0) {
+        return false;
+    }
+    while (done < size) {
+        ssize_t got = pread(fd, dst + done, size - done, (off_t)offset + (off_t)done);
+        if (got <= 0) {
+            return false;
+        }
+        done += (uint32_t)got;
+    }
+    return true;
 }
 
 static bool open_nor_pack(void)
@@ -86,6 +114,41 @@ static bool open_nor_pack(void)
     return true;
 }
 
+static bool open_tf_pack(void)
+{
+    struct stat st;
+
+    pal_tf_fd = open(TF_PACK_PATH, O_RDONLY);
+    if (pal_tf_fd < 0) {
+        ESP_LOGW(TAG, "TF pack missing: %s", TF_PACK_PATH);
+        return false;
+    }
+
+    if (fstat(pal_tf_fd, &st) != 0 || st.st_size <= 0 || st.st_size > UINT32_MAX) {
+        ESP_LOGE(TAG, "bad TF pack size: %s", TF_PACK_PATH);
+        close(pal_tf_fd);
+        pal_tf_fd = -1;
+        return false;
+    }
+
+    if (!PalPack_OpenTocRead(
+            &pal_tf_toc,
+            read_tf_pack_at,
+            &pal_tf_fd,
+            (uint32_t)st.st_size,
+            pal_psram_tf_toc,
+            PAL_PSRAM_TF_TOC_BYTES)) {
+        ESP_LOGE(TAG, "TF pack TOC open failed: %s", TF_PACK_PATH);
+        close(pal_tf_fd);
+        pal_tf_fd = -1;
+        return false;
+    }
+
+    ESP_LOGI(TAG, "PAL TF pack opened: size=%" PRIu32 " toc=%" PRIu32 " archives=%u",
+             pal_tf_toc.pack_size, pal_tf_toc.toc_size, (unsigned)pal_tf_toc.archive_count);
+    return true;
+}
+
 static void load_pack_palette_or_demo(void)
 {
     PalPackSpan span;
@@ -97,6 +160,30 @@ static void load_pack_palette_or_demo(void)
         return;
     }
     load_demo_palette();
+}
+
+static void load_tf_background(void)
+{
+    uint32_t copied = 0;
+
+    pal_tf_background_ready = false;
+    if (!pal_tf_ready) {
+        return;
+    }
+    if (!PalPackToc_CopyRawReadAt(
+            &pal_tf_toc,
+            read_tf_pack_at,
+            &pal_tf_fd,
+            PAL_PACK_ARCHIVE_FBP,
+            0,
+            pal_sram_big_buffer,
+            PAL_SRAM_BIG_BUFFER_BYTES,
+            &copied) ||
+        copied != PAL_SRAM_FRAMEBUFFER_BYTES) {
+        ESP_LOGW(TAG, "TF FBP background load failed");
+        return;
+    }
+    pal_tf_background_ready = true;
 }
 
 static uint16_t sprite_frame_count(const uint8_t *sprite)
@@ -258,10 +345,14 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
         uint16_t w = rle_width(rle);
         uint16_t h = rle_height(rle);
 
-        memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
-        for (y = 0; y < 200u; y += 8u) {
-            uint8_t color = (uint8_t)(8u + ((y + tick) & 0x1Fu));
-            memset(pal_sram_framebuffer + y * 320u, color, 320u);
+        if (pal_tf_background_ready) {
+            memcpy(pal_sram_framebuffer, pal_sram_big_buffer, PAL_SRAM_FRAMEBUFFER_BYTES);
+        } else {
+            memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
+            for (y = 0; y < 200u; y += 8u) {
+                uint8_t color = (uint8_t)(8u + ((y + tick) & 0x1Fu));
+                memset(pal_sram_framebuffer + y * 320u, color, 320u);
+            }
         }
         blit_rle_to_framebuffer(rle, (320 - (int)w) / 2, (200 - (int)h) / 2);
     } else {
@@ -309,7 +400,9 @@ void app_main(void)
     }
 
     pal_nor_ready = open_nor_pack();
+    pal_tf_ready = open_tf_pack();
     load_pack_palette_or_demo();
+    load_tf_background();
     for (;;) {
         uint16_t tx = 0;
         uint16_t ty = 0;

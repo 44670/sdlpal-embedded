@@ -16,3 +16,4 @@ uint8_t pal_sram_palette_work[PAL_SRAM_PALETTE_RGB_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_palette_rgb565[PAL_SRAM_PALETTE_RGB565_BYTES] PAL_BSS_SRAM;
 
 uint8_t pal_psram_screen_bak[PAL_PSRAM_SCREEN_BAK_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_tf_toc[PAL_PSRAM_TF_TOC_BYTES] PAL_BSS_PSRAM;

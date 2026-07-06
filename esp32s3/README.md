@@ -33,4 +33,12 @@ Flash the generated NOR pack:
 python -m esptool --chip esp32s3 -b 460800 --before default-reset --after hard-reset write-flash --flash-mode dio --flash-size 16MB --flash-freq 80m 0x310000 /tmp/pal_nor_default.pak
 ```
 
+The firmware also tries to open a generated TF pack at:
+
+```text
+/sdcard/pal_tf.pak
+```
+
+When that file is mounted and present, the app reads its pack table of contents into `pal_psram_tf_toc`, then reads `FBP #0` through the file-backed `PalPackToc_CopyRawReadAt()` path into `pal_sram_big_buffer` and uses it as the demo background. Missing TF storage is non-fatal; the app falls back to the synthetic background.
+
 The current firmware draws a 320x200 indexed framebuffer through `embedded/pal_video_static.c`, centered on the 320x240 LCD with 20-pixel black bars. Touch input is polled through FT6336 and marks the framebuffer. This proves the CoreS3 SE LCD/touch path without adding audio or runtime decompression.
