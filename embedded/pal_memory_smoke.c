@@ -19,7 +19,7 @@ int main(void)
     if (PAL_SRAM_DECLARED_BYTES != 184832u) {
         return 1;
     }
-    if (PAL_PSRAM_DECLARED_BYTES != 7302160u) {
+    if (PAL_PSRAM_DECLARED_BYTES != 6908944u) {
         return 2;
     }
 
