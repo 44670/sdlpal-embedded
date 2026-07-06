@@ -16,6 +16,19 @@ PACK_HEADER_SIZE = 32
 PACK_ARCHIVE_ENTRY_SIZE = 12
 PACK_CHUNK_ENTRY_SIZE = 16
 PACK_CHUNK_F_COMPRESSED = 0x0001
+PACK_FORMAT_NATIVE = 1
+PACK_ARCHIVE_SSS = 15
+SSS_EVENT_OBJECT_CHUNK = 0
+SSS_SCENE_CHUNK = 1
+SSS_SCRIPT_CHUNK = 4
+SSS_EVENT_OBJECT_BYTES = 32
+SSS_SCENE_BYTES = 8
+SSS_SCRIPT_BYTES = 8
+SCENE_SCRIPT_ON_ENTER_OFFSET = 2
+SCENE_SCRIPT_ON_TELEPORT_OFFSET = 4
+EVENT_TRIGGER_SCRIPT_OFFSET = 8
+EVENT_AUTO_SCRIPT_OFFSET = 10
+SCRIPT_SCAN_MAX_STEPS = 32
 PAL_NOR_PARTITION_BYTES = 0xB00000
 SRAM_BUDGET = 300 * 1024
 PSRAM_BUDGET = 8 * 1024 * 1024
@@ -129,6 +142,32 @@ def u16(data: bytes, offset: int) -> int:
 
 def u32(data: bytes, offset: int) -> int:
     return struct.unpack_from("<I", data, offset)[0]
+
+
+def pack_chunk(data: bytes, archive_id: int, chunk_id: int) -> tuple[int, bytes]:
+    archive_count = u16(data, 8)
+    archive_table = u32(data, 12)
+
+    for archive_index in range(archive_count):
+        archive = archive_table + archive_index * PACK_ARCHIVE_ENTRY_SIZE
+        if u16(data, archive) != archive_id:
+            continue
+        chunk_count = u16(data, archive + 2)
+        chunk_table = u32(data, archive + 4)
+        if chunk_id >= chunk_count:
+            raise ValueError(f"archive {archive_id} has no chunk {chunk_id}")
+        chunk = chunk_table + chunk_id * PACK_CHUNK_ENTRY_SIZE
+        offset = u32(data, chunk)
+        size = u32(data, chunk + 4)
+        fmt = u16(data, chunk + 8)
+        flags = u16(data, chunk + 10)
+        if flags & PACK_CHUNK_F_COMPRESSED:
+            raise ValueError(f"archive {archive_id} chunk {chunk_id} is compressed")
+        if offset + size > len(data):
+            raise ValueError(f"archive {archive_id} chunk {chunk_id} is out of range")
+        return fmt, data[offset : offset + size]
+
+    raise ValueError(f"archive {archive_id} not found")
 
 
 def scan_sources(root: Path) -> list[str]:
@@ -311,6 +350,121 @@ def check_pack(path: Path, label: str, max_size: int | None) -> list[str]:
     return errors
 
 
+def script_case_opcodes(root: Path) -> set[int]:
+    text = (root / "esp32s3/main/app_main.c").read_text(errors="replace")
+    defines: dict[str, int] = {}
+    for match in re.finditer(r"^#define\s+(SCRIPT_\w+)\s+0x([0-9A-Fa-f]+)u\s*$", text, re.MULTILINE):
+        defines[match.group(1)] = int(match.group(2), 16)
+
+    opcodes: set[int] = set()
+    for match in re.finditer(r"\bcase\s+(SCRIPT_\w+)\s*:", text):
+        name = match.group(1)
+        if name in defines:
+            opcodes.add(defines[name])
+    return opcodes
+
+
+def script_entry(script_data: bytes, entry_num: int) -> tuple[int, int, int, int] | None:
+    offset = entry_num * SSS_SCRIPT_BYTES
+    if entry_num < 0 or offset + SSS_SCRIPT_BYTES > len(script_data):
+        return None
+    return (
+        u16(script_data, offset),
+        u16(script_data, offset + 2),
+        u16(script_data, offset + 4),
+        u16(script_data, offset + 6),
+    )
+
+
+def trace_script_ops(script_data: bytes, start_entry: int) -> list[tuple[int, int]]:
+    rows: list[tuple[int, int]] = []
+    entry_num = start_entry
+
+    for _ in range(SCRIPT_SCAN_MAX_STEPS):
+        entry = script_entry(script_data, entry_num)
+        if entry is None:
+            break
+        op, operand0, _, _ = entry
+        rows.append((entry_num, op))
+        if op == 0x0000:
+            break
+        if op == 0x0001:
+            break
+        if op == 0x0002 or op == 0x0003:
+            entry_num = operand0
+            continue
+        if op == 0xFFFF:
+            break
+        entry_num += 1
+    return rows
+
+
+def check_script_scan(root: Path, nor_pack: Path) -> list[str]:
+    errors: list[str] = []
+    supported_ops = script_case_opcodes(root)
+    data = nor_pack.read_bytes()
+
+    try:
+        scene_format, scenes = pack_chunk(data, PACK_ARCHIVE_SSS, SSS_SCENE_CHUNK)
+        event_format, events = pack_chunk(data, PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK)
+        script_format, scripts = pack_chunk(data, PACK_ARCHIVE_SSS, SSS_SCRIPT_CHUNK)
+    except ValueError as exc:
+        return [f"script scan pack read failed: {exc}"]
+
+    if scene_format != PACK_FORMAT_NATIVE or event_format != PACK_FORMAT_NATIVE or script_format != PACK_FORMAT_NATIVE:
+        return ["script scan SSS chunks are not native format"]
+    if len(scenes) % SSS_SCENE_BYTES != 0:
+        return ["script scan scene chunk is not record-aligned"]
+    if len(events) % SSS_EVENT_OBJECT_BYTES != 0:
+        return ["script scan event-object chunk is not record-aligned"]
+    if len(scripts) % SSS_SCRIPT_BYTES != 0:
+        return ["script scan script chunk is not record-aligned"]
+
+    roots: list[tuple[str, int, int]] = []
+    for scene_index in range(len(scenes) // SSS_SCENE_BYTES):
+        offset = scene_index * SSS_SCENE_BYTES
+        enter = u16(scenes, offset + SCENE_SCRIPT_ON_ENTER_OFFSET)
+        teleport = u16(scenes, offset + SCENE_SCRIPT_ON_TELEPORT_OFFSET)
+        if enter:
+            roots.append(("scene_enter", scene_index + 1, enter))
+        if teleport:
+            roots.append(("scene_teleport", scene_index + 1, teleport))
+
+    for event_index in range(len(events) // SSS_EVENT_OBJECT_BYTES):
+        offset = event_index * SSS_EVENT_OBJECT_BYTES
+        trigger = u16(events, offset + EVENT_TRIGGER_SCRIPT_OFFSET)
+        auto = u16(events, offset + EVENT_AUTO_SCRIPT_OFFSET)
+        if trigger:
+            roots.append(("event_trigger", event_index + 1, trigger))
+        if auto:
+            roots.append(("event_auto", event_index + 1, auto))
+
+    unsupported_first: list[str] = []
+    unsupported_all: list[str] = []
+    for root_kind, owner, start_entry in roots:
+        trace = trace_script_ops(scripts, start_entry)
+        if trace and trace[0][1] not in supported_ops:
+            unsupported_first.append(f"{root_kind}:{owner} start={start_entry} op=0x{trace[0][1]:04x}")
+        for entry_num, op in trace:
+            if op not in supported_ops:
+                unsupported_all.append(f"{root_kind}:{owner} start={start_entry} entry={entry_num} op=0x{op:04x}")
+
+    print(f"\nscript scan roots: {len(roots)}")
+    print(f"script scan supported case ops: {len(supported_ops)}")
+    print(f"script scan unsupported first ops: {len(unsupported_first)}")
+    print(f"script scan unsupported bounded ops: {len(unsupported_all)}")
+    for hit in unsupported_first[:20]:
+        print(hit)
+    for hit in unsupported_all[:20]:
+        print(hit)
+
+    if unsupported_first:
+        errors.extend(f"script scan unsupported first op: {hit}" for hit in unsupported_first)
+    if unsupported_all:
+        errors.extend(f"script scan unsupported bounded op: {hit}" for hit in unsupported_all)
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
@@ -347,6 +501,7 @@ def main() -> int:
     errors.extend(check_pack(args.tf_pack, "TF", None))
     print(f"\nNOR pack bytes: {args.nor_pack.stat().st_size} / {PAL_NOR_PARTITION_BYTES}")
     print(f"TF pack bytes: {args.tf_pack.stat().st_size}")
+    errors.extend(check_script_scan(root, args.nor_pack))
 
     size_output = run(["xtensa-esp32s3-elf-size", str(elf)])
     size_values = parse_size(size_output)
