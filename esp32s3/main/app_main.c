@@ -37,9 +37,17 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define DEMO_MAP_PIXEL_WIDTH (64 * 32)
 #define DEMO_MAP_PIXEL_HEIGHT (128 * 16)
 #define PLAYER_ROLE_COUNT 6u
+#define DEMO_PLAYABLE_PARTY_SLOTS 5u
+#define DEMO_MAX_PARTY_INDEX 2u
+#define PARTY_STRUCT_BYTES 10u
+#define PARTY_ROLE_OFFSET 0u
 #define PLAYER_ROLE_WORD_ARRAY_BYTES (PLAYER_ROLE_COUNT * 2u)
 #define PLAYER_ROLE_SPRITE_NUM_OFFSET (2u * PLAYER_ROLE_WORD_ARRAY_BYTES)
 #define PLAYER_ROLE_WALK_FRAMES_OFFSET 768u
+#define TRAIL_STRUCT_BYTES 6u
+#define TRAIL_X_OFFSET 0u
+#define TRAIL_Y_OFFSET 2u
+#define TRAIL_DIRECTION_OFFSET 4u
 #define DEMO_PARTY_SCREEN_X 160
 #define DEMO_PARTY_SCREEN_Y 112
 #define DEMO_TOUCH_DEADZONE 12
@@ -57,6 +65,7 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define SAVE_PALETTE_OFFSET_OFFSET 10u
 #define SAVE_CASH_OFFSET 40u
 #define SAVE_PARTY_OFFSET 44u
+#define SAVE_TRAIL_OFFSET (SAVE_PARTY_OFFSET + DEMO_PLAYABLE_PARTY_SLOTS * PARTY_STRUCT_BYTES)
 #define SAVE_PLAYER_ROLES_OFFSET 508u
 #define SAVE_PLAYER_ROLES_BYTES 900u
 #define SAVE_SCENES_OFFSET 3264u
@@ -85,6 +94,14 @@ static int pal_viewport_y;
 static bool pal_touch_scene_gate;
 static const uint8_t *pal_player_sprite;
 static uint32_t pal_player_sprite_size;
+static const uint8_t *pal_party_sprites[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint32_t pal_party_sprite_sizes[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint16_t pal_party_roles[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint16_t pal_party_walk_frames[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint16_t pal_trail_x[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint16_t pal_trail_y[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint16_t pal_trail_direction[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint16_t pal_max_party_member_index;
 static uint16_t pal_player_walk_frames;
 static uint16_t pal_player_frame_num;
 static uint16_t pal_player_direction;
@@ -148,6 +165,25 @@ static int clamp_int(int value, int min_value, int max_value)
 static int abs_int(int value)
 {
     return value < 0 ? -value : value;
+}
+
+static void reset_party_state(void)
+{
+    uint16_t i;
+    uint16_t world_x = (uint16_t)clamp_int(pal_initial_viewport_x + DEMO_PARTY_SCREEN_X, 0, DEMO_MAP_PIXEL_WIDTH - 1);
+    uint16_t world_y = (uint16_t)clamp_int(pal_initial_viewport_y + DEMO_PARTY_SCREEN_Y, 0, DEMO_MAP_PIXEL_HEIGHT - 1);
+
+    pal_max_party_member_index = 0;
+    for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+        pal_party_roles[i] = 0;
+        pal_party_walk_frames[i] = 3;
+        pal_party_sprites[i] = NULL;
+        pal_party_sprite_sizes[i] = 0;
+        pal_trail_x[i] = world_x;
+        pal_trail_y[i] = world_y;
+        pal_trail_direction[i] = pal_player_direction;
+    }
+    pal_player_role = 0;
 }
 
 static bool map_tile_blocked(int x, int y, int h)
@@ -246,10 +282,13 @@ static void move_party_direction(uint16_t direction)
 {
     const int max_x = DEMO_MAP_PIXEL_WIDTH - 320;
     const int max_y = DEMO_MAP_PIXEL_HEIGHT - 200;
+    uint16_t i;
     int old_x = pal_viewport_x;
     int old_y = pal_viewport_y;
     int target_x = pal_viewport_x;
     int target_y = pal_viewport_y;
+    uint16_t source_x = (uint16_t)(pal_viewport_x + DEMO_PARTY_SCREEN_X);
+    uint16_t source_y = (uint16_t)(pal_viewport_y + DEMO_PARTY_SCREEN_Y);
 
     switch (direction) {
     case DEMO_DIR_SOUTH:
@@ -282,6 +321,16 @@ static void move_party_direction(uint16_t direction)
         pal_viewport_y = target_y;
     }
     pal_player_walking = pal_viewport_x != old_x || pal_viewport_y != old_y;
+    if (pal_player_walking) {
+        for (i = DEMO_PLAYABLE_PARTY_SLOTS - 1u; i > 0; i--) {
+            pal_trail_x[i] = pal_trail_x[i - 1u];
+            pal_trail_y[i] = pal_trail_y[i - 1u];
+            pal_trail_direction[i] = pal_trail_direction[i - 1u];
+        }
+        pal_trail_x[0] = source_x;
+        pal_trail_y[0] = source_y;
+        pal_trail_direction[0] = direction;
+    }
 }
 
 static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
@@ -519,6 +568,7 @@ static bool load_startup_save_slot(uint8_t slot)
     uint16_t scene_num;
     uint16_t viewport_x;
     uint16_t viewport_y;
+    uint16_t i;
 
     pal_initial_viewport_x = 0;
     pal_initial_viewport_y = 0;
@@ -529,6 +579,7 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_save_scenes = NULL;
     pal_save_event_objects = NULL;
     pal_save_event_objects_size = 0;
+    reset_party_state();
 
     if (!pal_tf_ready) {
         return false;
@@ -566,7 +617,7 @@ static bool load_startup_save_slot(uint8_t slot)
     viewport_y = read_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET);
     if (scene_num == 0 ||
         scene_num >= PAL_SCENE_COUNT ||
-        size < SAVE_PARTY_OFFSET + 2u ||
+        size < SAVE_TRAIL_OFFSET + DEMO_PLAYABLE_PARTY_SLOTS * TRAIL_STRUCT_BYTES ||
         size < SAVE_PLAYER_ROLES_OFFSET + SAVE_PLAYER_ROLES_BYTES ||
         size < SAVE_SCENES_OFFSET + SAVE_SCENES_BYTES) {
         ESP_LOGW(TAG, "startup save scene out of range: %u", (unsigned)scene_num);
@@ -584,6 +635,28 @@ static bool load_startup_save_slot(uint8_t slot)
     if (pal_player_direction > DEMO_DIR_EAST) {
         pal_player_direction = DEMO_DIR_SOUTH;
     }
+    reset_party_state();
+    pal_max_party_member_index = read_le16(pal_psram_save_state + 6u);
+    if (pal_max_party_member_index > DEMO_MAX_PARTY_INDEX) {
+        pal_max_party_member_index = DEMO_MAX_PARTY_INDEX;
+    }
+    for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+        const uint8_t *party = pal_psram_save_state + SAVE_PARTY_OFFSET + (uint32_t)i * PARTY_STRUCT_BYTES;
+        const uint8_t *trail = pal_psram_save_state + SAVE_TRAIL_OFFSET + (uint32_t)i * TRAIL_STRUCT_BYTES;
+        uint16_t role = read_le16(party + PARTY_ROLE_OFFSET);
+
+        if (role >= PLAYER_ROLE_COUNT) {
+            role = 0;
+        }
+        pal_party_roles[i] = role;
+        pal_trail_x[i] = read_le16(trail + TRAIL_X_OFFSET);
+        pal_trail_y[i] = read_le16(trail + TRAIL_Y_OFFSET);
+        pal_trail_direction[i] = read_le16(trail + TRAIL_DIRECTION_OFFSET);
+        if (pal_trail_direction[i] > DEMO_DIR_EAST) {
+            pal_trail_direction[i] = pal_player_direction;
+        }
+    }
+    pal_player_role = pal_party_roles[0];
     pal_palette_night = read_le16(pal_psram_save_state + SAVE_PALETTE_OFFSET_OFFSET) != 0;
     pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
     pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
@@ -659,37 +732,50 @@ static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 
 static void load_player_sprite(void)
 {
-    PalPackSpan span;
-    uint16_t sprite_num;
+    uint16_t i;
 
     pal_player_sprite = NULL;
     pal_player_sprite_size = 0;
     pal_player_walk_frames = 3;
     pal_player_frame_num = 0;
     pal_player_walking = false;
+    for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+        pal_party_sprites[i] = NULL;
+        pal_party_sprite_sizes[i] = 0;
+        pal_party_walk_frames[i] = 3;
+    }
 
     if (!pal_nor_ready) {
         return;
     }
 
-    sprite_num = player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, pal_player_role);
-    pal_player_walk_frames = player_role_word(PLAYER_ROLE_WALK_FRAMES_OFFSET, pal_player_role);
-    if (pal_player_walk_frames == 0 || pal_player_walk_frames > 4u) {
-        pal_player_walk_frames = 3;
+    for (i = 0; i <= pal_max_party_member_index && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+        PalPackSpan span;
+        uint16_t role = pal_party_roles[i];
+        uint16_t sprite_num = player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, role);
+
+        pal_party_walk_frames[i] = player_role_word(PLAYER_ROLE_WALK_FRAMES_OFFSET, role);
+        if (pal_party_walk_frames[i] == 0 || pal_party_walk_frames[i] > 4u) {
+            pal_party_walk_frames[i] = 3;
+        }
+
+        if (PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_MGO, sprite_num, &span) &&
+            span.format == PAL_PACK_FORMAT_NATIVE &&
+            span.data != NULL &&
+            span.size != 0) {
+            pal_party_sprites[i] = span.data;
+            pal_party_sprite_sizes[i] = span.size;
+        }
     }
 
-    if (PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_MGO, sprite_num, &span) &&
-        span.format == PAL_PACK_FORMAT_NATIVE &&
-        span.data != NULL &&
-        span.size != 0) {
-        pal_player_sprite = span.data;
-        pal_player_sprite_size = span.size;
-        ESP_LOGI(TAG, "player sprite loaded: role=%u sprite=%u bytes=%" PRIu32 " walk_frames=%u",
-                 (unsigned)pal_player_role,
-                 (unsigned)sprite_num,
-                 pal_player_sprite_size,
-                 (unsigned)pal_player_walk_frames);
-    }
+    pal_player_sprite = pal_party_sprites[0];
+    pal_player_sprite_size = pal_party_sprite_sizes[0];
+    pal_player_walk_frames = pal_party_walk_frames[0];
+    ESP_LOGI(TAG, "party sprites loaded: members=%u leader_role=%u leader_bytes=%" PRIu32 " walk_frames=%u",
+             (unsigned)(pal_max_party_member_index + 1u),
+             (unsigned)pal_player_role,
+             pal_player_sprite_size,
+             (unsigned)pal_player_walk_frames);
 }
 
 static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
@@ -1077,6 +1163,41 @@ static void draw_map_layer(uint8_t layer, int viewport_x, int viewport_y)
     }
 }
 
+static void party_member_screen_position(uint16_t index, int *x, int *y, uint16_t *direction)
+{
+    int px;
+    int py;
+    uint16_t base_direction;
+
+    if (index == 0) {
+        *x = DEMO_PARTY_SCREEN_X;
+        *y = DEMO_PARTY_SCREEN_Y;
+        *direction = pal_player_direction;
+        return;
+    }
+
+    px = (int)pal_trail_x[1] - pal_viewport_x;
+    py = (int)pal_trail_y[1] - pal_viewport_y;
+    base_direction = pal_trail_direction[1];
+    if (index == 2u) {
+        px += (base_direction == DEMO_DIR_EAST || base_direction == DEMO_DIR_WEST) ? -16 : 16;
+        py += 8;
+    } else {
+        px += (base_direction == DEMO_DIR_WEST || base_direction == DEMO_DIR_SOUTH) ? 16 : -16;
+        py += (base_direction == DEMO_DIR_WEST || base_direction == DEMO_DIR_NORTH) ? 8 : -8;
+    }
+
+    if (map_position_blocked(px + pal_viewport_x, py + pal_viewport_y) ||
+        event_position_blocked(px + pal_viewport_x, py + pal_viewport_y)) {
+        px = (int)pal_trail_x[1] - pal_viewport_x;
+        py = (int)pal_trail_y[1] - pal_viewport_y;
+    }
+
+    *x = px;
+    *y = py;
+    *direction = pal_trail_direction[2];
+}
+
 static void draw_scene_event_sprites(int viewport_x, int viewport_y)
 {
     uint16_t i;
@@ -1156,22 +1277,37 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
         }
     }
 
-    if (pal_player_sprite != NULL && draw_count < (uint16_t)(sizeof(pal_scene_draw_items) / sizeof(pal_scene_draw_items[0]))) {
-        uint16_t frame_index = (uint16_t)(pal_player_direction * pal_player_walk_frames + pal_player_frame_num);
-        const uint8_t *rle = sprite_frame(pal_player_sprite, frame_index);
+    for (i = 0; i <= pal_max_party_member_index && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+        uint16_t walk_frames;
+        uint16_t draw_direction;
+        uint16_t frame_num;
+        uint16_t frame_index;
+        const uint8_t *rle;
         uint16_t w;
         uint16_t h;
+        int px;
+        int py;
 
+        if (pal_party_sprites[i] == NULL ||
+            draw_count >= (uint16_t)(sizeof(pal_scene_draw_items) / sizeof(pal_scene_draw_items[0]))) {
+            continue;
+        }
+
+        walk_frames = pal_party_walk_frames[i] == 0 ? 3u : pal_party_walk_frames[i];
+        party_member_screen_position(i, &px, &py, &draw_direction);
+        frame_num = pal_player_walking ? (uint16_t)(pal_player_frame_num % walk_frames) : 0u;
+        frame_index = (uint16_t)(draw_direction * walk_frames + frame_num);
+        rle = sprite_frame(pal_party_sprites[i], frame_index);
         if (rle == NULL) {
-            rle = sprite_frame(pal_player_sprite, (uint16_t)(pal_player_direction * pal_player_walk_frames));
+            rle = sprite_frame(pal_party_sprites[i], (uint16_t)(draw_direction * walk_frames));
         }
         w = rle_width(rle);
         h = rle_height(rle);
         if (rle != NULL && w != 0 && h != 0) {
             pal_scene_draw_items[draw_count].rle = rle;
-            pal_scene_draw_items[draw_count].x = DEMO_PARTY_SCREEN_X - (int)w / 2;
-            pal_scene_draw_items[draw_count].y = DEMO_PARTY_SCREEN_Y + 10 - (int)h;
-            pal_scene_draw_items[draw_count].sort_y = DEMO_PARTY_SCREEN_Y + 6;
+            pal_scene_draw_items[draw_count].x = px - (int)w / 2;
+            pal_scene_draw_items[draw_count].y = py + 10 - (int)h;
+            pal_scene_draw_items[draw_count].sort_y = py + 6;
             draw_count++;
         }
     }
@@ -1251,6 +1387,7 @@ void app_main(void)
 
     pal_nor_ready = open_nor_pack();
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
+    reset_party_state();
     if (!load_startup_save()) {
         load_global_cache();
     }
