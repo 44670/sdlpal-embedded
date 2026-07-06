@@ -22,3 +22,6 @@ uint8_t pal_psram_map_tiles[PAL_PSRAM_MAP_TILES_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_gop_copy[PAL_PSRAM_GOP_COPY_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_tf_toc[PAL_PSRAM_TF_TOC_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_sprite_pin[PAL_PSRAM_SPRITE_PIN_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_menu_background[PAL_PSRAM_MENU_BACKGROUND_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_menu_image[PAL_PSRAM_MENU_IMAGE_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_menu_box[PAL_PSRAM_MENU_BOX_BYTES] PAL_BSS_PSRAM;

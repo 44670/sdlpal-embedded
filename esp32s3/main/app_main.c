@@ -4,6 +4,7 @@
 #include "../../embedded/pal_dialog_static.h"
 #include "../../embedded/pal_font_cache.h"
 #include "../../embedded/pal_global_cache.h"
+#include "../../embedded/pal_menu_static.h"
 #include "../../embedded/pal_memory.h"
 #include "../../embedded/pal_pack.h"
 #include "../../embedded/pal_palette_static.h"
@@ -92,6 +93,10 @@ static PalUiAsset pal_ui_battle_effect_asset;
 static PalUiAsset pal_ui_item_sample_asset;
 static PalUiAsset pal_ui_face_sample_asset;
 static PalDialogAsset pal_dialog_icon_asset;
+static PalMenuBuffer pal_menu_background_buffer;
+static PalMenuBuffer pal_menu_image_buffer;
+static PalMenuBuffer pal_menu_box_buffer;
+static PalMenuConstAsset pal_menu_item_asset;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
@@ -102,6 +107,7 @@ static bool pal_text_ready;
 static bool pal_font_ready;
 static bool pal_ui_ready;
 static bool pal_dialog_ready;
+static bool pal_menu_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -863,6 +869,44 @@ static void load_ui_dialog_cache(void)
              pal_dialog_icon_asset.size);
 }
 
+static void load_menu_cache(void)
+{
+    pal_menu_ready = false;
+    pal_menu_background_buffer.data = NULL;
+    pal_menu_background_buffer.size = 0;
+    pal_menu_image_buffer.data = NULL;
+    pal_menu_image_buffer.size = 0;
+    pal_menu_box_buffer.data = NULL;
+    pal_menu_box_buffer.size = 0;
+    pal_menu_item_asset.data = NULL;
+    pal_menu_item_asset.size = 0;
+
+    if (!pal_nor_ready || !pal_tf_ready) {
+        return;
+    }
+
+    pal_menu_ready = PalMenu_LoadBackgroundReadAt(
+                         &pal_tf_toc,
+                         read_tf_pack_at,
+                         &pal_tf_file,
+                         0,
+                         &pal_menu_background_buffer) &&
+                     PalMenu_CopyImage(&pal_nor_pack, PAL_PACK_ARCHIVE_RGM, 72u, &pal_menu_image_buffer) &&
+                     PalMenu_MapImage(&pal_nor_pack, PAL_PACK_ARCHIVE_BALL, 95u, &pal_menu_item_asset) &&
+                     PalMenu_PrepareBox(72u, 72u, 0x5au, &pal_menu_box_buffer);
+    if (!pal_menu_ready) {
+        ESP_LOGW(TAG, "PAL menu cache load failed");
+    }
+
+    ESP_LOGI(TAG,
+             "PAL menu cache: ready=%u fbp=%" PRIu32 " image=%" PRIu32 " item=%" PRIu32 " box=%" PRIu32,
+             pal_menu_ready ? 1u : 0u,
+             pal_menu_background_buffer.size,
+             pal_menu_image_buffer.size,
+             pal_menu_item_asset.size,
+             pal_menu_box_buffer.size);
+}
+
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 {
     const uint8_t *player_roles;
@@ -1584,6 +1628,7 @@ void app_main(void)
     reset_party_state();
     load_text_font_cache();
     load_ui_dialog_cache();
+    load_menu_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }

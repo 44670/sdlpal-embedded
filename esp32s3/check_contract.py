@@ -35,6 +35,8 @@ SOURCE_FILES = (
     "embedded/pal_font_cache.h",
     "embedded/pal_global_cache.c",
     "embedded/pal_global_cache.h",
+    "embedded/pal_menu_static.c",
+    "embedded/pal_menu_static.h",
     "embedded/pal_memory.h",
     "embedded/pal_pack.c",
     "embedded/pal_pack.h",
