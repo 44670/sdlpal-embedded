@@ -1,11 +1,13 @@
 #include "cores3se_board.h"
 #include "pal_save_fatfs.h"
 
+#include "../../embedded/pal_font_cache.h"
 #include "../../embedded/pal_global_cache.h"
 #include "../../embedded/pal_memory.h"
 #include "../../embedded/pal_pack.h"
 #include "../../embedded/pal_palette_static.h"
 #include "../../embedded/pal_scene_cache.h"
+#include "../../embedded/pal_text_cache.h"
 #include "../../embedded/pal_video_static.h"
 
 #include <esp_log.h>
@@ -81,12 +83,16 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
+static PalTextCache pal_text_cache;
+static PalFontCache pal_font_cache;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
 static bool pal_tf_file_open;
 static bool pal_nor_ready;
 static bool pal_tf_ready;
+static bool pal_text_ready;
+static bool pal_font_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -765,6 +771,44 @@ static void load_global_cache(void)
              pal_global_cache->mutable_bytes,
              pal_global_cache->event_objects.count,
              pal_global_cache->scenes.count);
+}
+
+static void load_text_font_cache(void)
+{
+    const uint8_t *sample_text = NULL;
+    const uint8_t *sample_glyph = NULL;
+    uint32_t sample_text_size = 0;
+    uint16_t sample_glyph_size = 0;
+
+    pal_text_ready = false;
+    pal_font_ready = false;
+    if (!pal_nor_ready) {
+        return;
+    }
+
+    pal_text_ready = PalText_Open(&pal_nor_pack, &pal_text_cache) &&
+                     PalText_GetMessage(&pal_text_cache, 0, &sample_text, &sample_text_size) &&
+                     sample_text != NULL &&
+                     sample_text_size != 0;
+    if (!pal_text_ready) {
+        ESP_LOGW(TAG, "PAL text cache load failed");
+    }
+
+    pal_font_ready = PalFont_Open(&pal_nor_pack, &pal_font_cache) &&
+                     PalFont_FindGlyph(&pal_font_cache, 0x7d93u, &sample_glyph, &sample_glyph_size) &&
+                     sample_glyph != NULL &&
+                     sample_glyph_size == PAL_FONT_GLYPH_BYTES;
+    if (!pal_font_ready) {
+        ESP_LOGW(TAG, "PAL font cache load failed");
+    }
+
+    ESP_LOGI(TAG,
+             "PAL text/font cache: text=%u words=%u messages=%u font=%u glyphs=%u",
+             pal_text_ready ? 1u : 0u,
+             (unsigned)pal_text_cache.word_count,
+             (unsigned)pal_text_cache.message_count,
+             pal_font_ready ? 1u : 0u,
+             (unsigned)pal_font_cache.glyph_count);
 }
 
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
@@ -1486,6 +1530,7 @@ void app_main(void)
     pal_nor_ready = open_nor_pack();
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     reset_party_state();
+    load_text_font_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }
