@@ -14,6 +14,7 @@
 #include "../../embedded/pal_palette_static.h"
 #include "../../embedded/pal_rng_cache.h"
 #include "../../embedded/pal_scene_cache.h"
+#include "../../embedded/pal_script_static.h"
 #include "../../embedded/pal_sfx_cache.h"
 #include "../../embedded/pal_text_cache.h"
 #include "../../embedded/pal_ui_cache.h"
@@ -89,6 +90,10 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SAVE_SLOT_FIRST 1u
 #define SAVE_SLOT_LAST 5u
 #define SAVE_PATH_SLOT_INDEX 3u
+#define SCENE_SCRIPT_ON_ENTER_OFFSET 2u
+#define SCENE_SCRIPT_ON_TELEPORT_OFFSET 4u
+#define EVENT_TRIGGER_SCRIPT_OFFSET 8u
+#define EVENT_AUTO_SCRIPT_OFFSET 10u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -114,6 +119,7 @@ static PalMusicTrack pal_midi_sample_track;
 static PalMusicTrack pal_mus_sample_track;
 static PalEndingScreenPair pal_ending_pair;
 static PalEndingConstAsset pal_ending_sprite_asset;
+static PalScriptView pal_script_view;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
@@ -130,6 +136,7 @@ static bool pal_rng_ready;
 static bool pal_sfx_ready;
 static bool pal_music_ready;
 static bool pal_ending_ready;
+static bool pal_script_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -831,6 +838,31 @@ static void load_readonly_global_cache(void)
              pal_global_cache->enemies.count);
 }
 
+static void load_script_cache(void)
+{
+    PalScriptEntry entry;
+
+    pal_script_ready = false;
+    memset(&pal_script_view, 0, sizeof(pal_script_view));
+    if (pal_global_cache == NULL) {
+        return;
+    }
+
+    pal_script_ready = PalScript_OpenFromGlobal(pal_global_cache, &pal_script_view) &&
+                       PalScript_Read(&pal_script_view, 2u, &entry) &&
+                       entry.operation != 0u;
+    if (!pal_script_ready) {
+        ESP_LOGW(TAG, "PAL script view load failed");
+        return;
+    }
+
+    ESP_LOGI(TAG,
+             "PAL script view: entries=%" PRIu32 " sample_op=%u sample_arg=%u",
+             pal_script_view.count,
+             (unsigned)entry.operation,
+             (unsigned)entry.operand[0]);
+}
+
 static void load_text_font_cache(void)
 {
     const uint8_t *sample_text = NULL;
@@ -1230,6 +1262,112 @@ static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
     return hash;
 }
 
+static const uint8_t *current_scene_record(void)
+{
+    const uint8_t *scenes = NULL;
+    uint32_t scenes_size = 0;
+    uint32_t offset;
+
+    if (pal_scene_num == 0 || pal_scene_num > PAL_SCENE_COUNT) {
+        return NULL;
+    }
+    if (pal_save_scenes != NULL) {
+        scenes = pal_save_scenes;
+        scenes_size = SAVE_SCENES_BYTES;
+    } else if (pal_global_cache != NULL && pal_global_cache->scenes.data != NULL) {
+        scenes = pal_global_cache->scenes.data;
+        scenes_size = pal_global_cache->scenes.size;
+    }
+    if (scenes == NULL) {
+        return NULL;
+    }
+
+    offset = (uint32_t)(pal_scene_num - 1u) * PAL_GLOBAL_SCENE_BYTES;
+    if (offset > scenes_size || PAL_GLOBAL_SCENE_BYTES > scenes_size - offset) {
+        return NULL;
+    }
+    return scenes + offset;
+}
+
+static uint16_t trace_script_steps(uint16_t script_entry, uint16_t *first_operation)
+{
+    PalScriptTrace trace;
+
+    if (first_operation != NULL) {
+        *first_operation = 0;
+    }
+    if (!pal_script_ready || script_entry == 0 ||
+        !PalScript_TraceLinear(&pal_script_view, script_entry, 32u, &trace)) {
+        return 0;
+    }
+    if (first_operation != NULL) {
+        *first_operation = trace.first_operation;
+    }
+    return trace.step_count;
+}
+
+static void log_scene_script_summary(void)
+{
+    const uint8_t *scene = current_scene_record();
+    uint16_t enter_script = 0;
+    uint16_t teleport_script = 0;
+    uint16_t enter_op = 0;
+    uint16_t enter_steps = 0;
+    uint16_t trigger_count = 0;
+    uint16_t auto_count = 0;
+    uint16_t first_trigger = 0;
+    uint16_t first_auto = 0;
+    uint16_t i;
+
+    if (!pal_script_ready) {
+        return;
+    }
+    if (scene != NULL) {
+        enter_script = read_le16(scene + SCENE_SCRIPT_ON_ENTER_OFFSET);
+        teleport_script = read_le16(scene + SCENE_SCRIPT_ON_TELEPORT_OFFSET);
+    }
+
+    if (pal_scene_event_objects != NULL) {
+        for (i = 0; i < pal_scene_snapshot.event_count; i++) {
+            uint32_t offset = ((uint32_t)pal_scene_snapshot.event_start + i) * SSS_EVENT_OBJECT_BYTES;
+            uint16_t trigger_script;
+            uint16_t auto_script;
+
+            if (offset > pal_scene_event_objects_size ||
+                SSS_EVENT_OBJECT_BYTES > pal_scene_event_objects_size - offset) {
+                break;
+            }
+            trigger_script = read_le16(pal_scene_event_objects + offset + EVENT_TRIGGER_SCRIPT_OFFSET);
+            auto_script = read_le16(pal_scene_event_objects + offset + EVENT_AUTO_SCRIPT_OFFSET);
+            if (trigger_script != 0) {
+                if (first_trigger == 0) {
+                    first_trigger = trigger_script;
+                }
+                trigger_count++;
+            }
+            if (auto_script != 0) {
+                if (first_auto == 0) {
+                    first_auto = auto_script;
+                }
+                auto_count++;
+            }
+        }
+    }
+    enter_steps = trace_script_steps(enter_script, &enter_op);
+
+    ESP_LOGI(TAG,
+             "scene scripts: scene=%u enter=%u enter_steps=%u enter_op=%u teleport=%u trigger_events=%u first_trigger=%u auto_events=%u first_auto=%u",
+             (unsigned)pal_scene_num,
+             (unsigned)enter_script,
+             (unsigned)enter_steps,
+             (unsigned)enter_op,
+             (unsigned)teleport_script,
+             (unsigned)trigger_count,
+             (unsigned)first_trigger,
+             (unsigned)auto_count,
+             (unsigned)first_auto);
+}
+
 static void load_tf_scene_chunks(void)
 {
     PalPackSpan event_span;
@@ -1327,6 +1465,7 @@ static void load_tf_scene_chunks(void)
              pal_scene_snapshot.sprite_pin_bytes,
              pal_scene_snapshot.gop_size,
              pal_tf_scene_checksum);
+    log_scene_script_summary();
     load_player_sprite();
 }
 
@@ -1856,6 +1995,7 @@ void app_main(void)
     } else {
         load_global_cache();
     }
+    load_script_cache();
     load_pack_palette_or_demo();
     load_tf_scene_chunks();
     if (!pal_tf_scene_ready) {

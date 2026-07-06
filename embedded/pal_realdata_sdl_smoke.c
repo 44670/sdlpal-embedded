@@ -14,6 +14,7 @@
 #include "pal_rng_cache.h"
 #include "pal_save_cache.h"
 #include "pal_scene_cache.h"
+#include "pal_script_static.h"
 #include "pal_sfx_cache.h"
 #include "pal_text_cache.h"
 #include "pal_ui_cache.h"
@@ -1200,6 +1201,48 @@ static int check_global_cache(const PalPack *nor)
     return 0;
 }
 
+static int check_script_static(const PalPack *nor)
+{
+    const PalGlobalCache *global = 0;
+    PalScriptView view;
+    PalScriptEntry entry;
+    PalScriptTrace trace;
+
+    if (!PalGlobal_LoadReadonly(nor, &global)) {
+        return 1;
+    }
+    if (!PalScript_OpenFromGlobal(global, &view)) {
+        return 2;
+    }
+    if (view.data != global->script_entries.data || view.count != 42494u || view.size != 339952u) {
+        return 3;
+    }
+    if (!PalScript_Read(&view, 2u, &entry) ||
+        entry.operation != 135u ||
+        entry.operand[0] != 0u ||
+        entry.operand[1] != 0u ||
+        entry.operand[2] != 0u) {
+        return 4;
+    }
+    if (!PalScript_Read(&view, 3u, &entry) ||
+        entry.operation != 2u ||
+        entry.operand[0] != 2u) {
+        return 5;
+    }
+    if (!PalScript_TraceLinear(&view, 2u, 8u, &trace) ||
+        !trace.terminated ||
+        trace.start_entry != 2u ||
+        trace.first_operation != 135u ||
+        trace.step_count != 3u ||
+        trace.terminator_entry != 4u) {
+        return 6;
+    }
+    if (PalScript_Read(&view, 42494u, &entry)) {
+        return 7;
+    }
+    return 0;
+}
+
 static int check_text_cache(const PalPack *nor)
 {
     PalTextCache cache;
@@ -1752,6 +1795,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_global_cache(&nor.pack);
+    }
+    if (rc == 0) {
+        rc = check_script_static(&nor.pack);
     }
     if (rc == 0) {
         rc = check_text_cache(&nor.pack);

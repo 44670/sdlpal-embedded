@@ -54,6 +54,8 @@ SOURCE_FILES = (
     "embedded/pal_rng_cache.h",
     "embedded/pal_scene_cache.c",
     "embedded/pal_scene_cache.h",
+    "embedded/pal_script_static.c",
+    "embedded/pal_script_static.h",
     "embedded/pal_sfx_cache.c",
     "embedded/pal_sfx_cache.h",
     "embedded/pal_text_cache.c",
