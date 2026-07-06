@@ -312,6 +312,12 @@ static uint16_t pal_battle_music_num;
 static uint16_t pal_battlefield_num;
 static uint16_t pal_screen_wave;
 static uint16_t pal_battle_preview_ticks;
+static uint16_t pal_current_rng_num;
+static uint16_t pal_rng_current_frame;
+static uint16_t pal_rng_end_frame;
+static uint16_t pal_rng_frame_ticks;
+static uint16_t pal_rng_frame_tick_count;
+static bool pal_rng_playing;
 
 static const uint16_t pal_battle_sample_player_sprites[3] = {0u, 1u, 2u};
 
@@ -901,6 +907,12 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_battlefield_num = 0;
     pal_screen_wave = 0;
     pal_battle_preview_ticks = 0;
+    pal_current_rng_num = 0;
+    pal_rng_current_frame = 0;
+    pal_rng_end_frame = 0;
+    pal_rng_frame_ticks = 1;
+    pal_rng_frame_tick_count = 0;
+    pal_rng_playing = false;
     pal_save_player_roles = NULL;
     pal_save_scenes = NULL;
     pal_save_event_objects = NULL;
@@ -979,6 +991,8 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_battle_music_num = read_le16(pal_psram_save_state + SAVE_BATTLE_MUSIC_OFFSET);
     pal_battlefield_num = read_le16(pal_psram_save_state + SAVE_BATTLEFIELD_OFFSET);
     pal_screen_wave = read_le16(pal_psram_save_state + SAVE_SCREEN_WAVE_OFFSET);
+    pal_current_rng_num = 0;
+    pal_rng_playing = false;
     pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
     pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
     pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
@@ -1687,6 +1701,32 @@ static bool load_battle_preview(uint16_t team_num)
     return true;
 }
 
+static bool start_rng_playback(uint16_t start_frame, uint16_t end_frame, uint16_t speed)
+{
+    if (!pal_tf_ready ||
+        !PalRng_OpenMovieReadAt(&pal_tf_toc, read_tf_pack_at, &pal_tf_file, pal_current_rng_num, &pal_rng_movie)) {
+        pal_rng_playing = false;
+        return false;
+    }
+    if (start_frame >= pal_rng_movie.frame_count) {
+        pal_rng_playing = false;
+        return false;
+    }
+    if (end_frame == 0 || end_frame >= pal_rng_movie.frame_count) {
+        end_frame = (uint16_t)(pal_rng_movie.frame_count - 1u);
+    }
+    if (end_frame < start_frame) {
+        end_frame = start_frame;
+    }
+    pal_rng_current_frame = start_frame;
+    pal_rng_end_frame = end_frame;
+    pal_rng_frame_ticks = speed == 0 ? 1u : (uint16_t)clamp_int(16 / (int)speed, 1, 8);
+    pal_rng_frame_tick_count = 0;
+    pal_rng_playing = true;
+    memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
+    return true;
+}
+
 static void load_player_sprite(void)
 {
     uint16_t i;
@@ -2375,8 +2415,6 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SHAKE_SCREEN:
         case SCRIPT_BUY_MENU:
         case SCRIPT_SELL_MENU:
-        case SCRIPT_SET_CURRENT_RNG:
-        case SCRIPT_PLAY_RNG:
         case SCRIPT_CHASE_PLAYER:
         case SCRIPT_SHOW_FBP:
         case SCRIPT_STOP_MUSIC:
@@ -2674,6 +2712,22 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_SCREEN_WAVE:
             pal_screen_wave = entry.operand[0];
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_CURRENT_RNG:
+            pal_current_rng_num = entry.operand[0];
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_PLAY_RNG:
+            (void)start_rng_playback(entry.operand[0], entry.operand[1], entry.operand[2]);
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -3725,6 +3779,184 @@ static void draw_battle_preview(void)
     }
 }
 
+static void rng_write_pair(uint32_t *dst_pixel, uint8_t left, uint8_t right)
+{
+    uint32_t dst = *dst_pixel;
+
+    if (dst < PAL_SRAM_FRAMEBUFFER_BYTES) {
+        pal_sram_framebuffer[dst] = left;
+    }
+    if (dst + 1u < PAL_SRAM_FRAMEBUFFER_BYTES) {
+        pal_sram_framebuffer[dst + 1u] = right;
+    }
+    *dst_pixel = dst + 2u;
+}
+
+static bool blit_rng_frame_to_framebuffer(const uint8_t *rng, uint32_t length)
+{
+    uint32_t ptr = 0;
+    uint32_t dst_pixel = 0;
+
+    if (rng == NULL) {
+        return false;
+    }
+    while (ptr < length) {
+        uint8_t op = rng[ptr++];
+        uint32_t count;
+        uint32_t i;
+
+        switch (op) {
+        case 0x00:
+        case 0x13:
+            return true;
+
+        case 0x02:
+            dst_pixel += 2u;
+            break;
+
+        case 0x03:
+            if (ptr >= length) {
+                return false;
+            }
+            dst_pixel += ((uint32_t)rng[ptr++] + 1u) * 2u;
+            break;
+
+        case 0x04:
+            if (ptr + 1u >= length) {
+                return false;
+            }
+            dst_pixel += ((uint32_t)read_le16(rng + ptr) + 1u) * 2u;
+            ptr += 2u;
+            break;
+
+        case 0x06:
+        case 0x07:
+        case 0x08:
+        case 0x09:
+        case 0x0a:
+            count = (uint32_t)op - 5u;
+            if (length - ptr < count * 2u) {
+                return false;
+            }
+            for (i = 0; i < count; i++) {
+                rng_write_pair(&dst_pixel, rng[ptr], rng[ptr + 1u]);
+                ptr += 2u;
+            }
+            break;
+
+        case 0x0b:
+            if (ptr >= length) {
+                return false;
+            }
+            count = (uint32_t)rng[ptr++] + 1u;
+            if (length - ptr < count * 2u) {
+                return false;
+            }
+            for (i = 0; i < count; i++) {
+                rng_write_pair(&dst_pixel, rng[ptr], rng[ptr + 1u]);
+                ptr += 2u;
+            }
+            break;
+
+        case 0x0c:
+            if (ptr + 1u >= length) {
+                return false;
+            }
+            count = (uint32_t)read_le16(rng + ptr) + 1u;
+            ptr += 2u;
+            if (length - ptr < count * 2u) {
+                return false;
+            }
+            for (i = 0; i < count; i++) {
+                rng_write_pair(&dst_pixel, rng[ptr], rng[ptr + 1u]);
+                ptr += 2u;
+            }
+            break;
+
+        case 0x0d:
+        case 0x0e:
+        case 0x0f:
+        case 0x10:
+            count = (uint32_t)op - 11u;
+            if (ptr + 1u >= length) {
+                return false;
+            }
+            for (i = 0; i < count; i++) {
+                rng_write_pair(&dst_pixel, rng[ptr], rng[ptr + 1u]);
+            }
+            ptr += 2u;
+            break;
+
+        case 0x11:
+            if (ptr >= length) {
+                return false;
+            }
+            count = (uint32_t)rng[ptr++] + 1u;
+            if (ptr + 1u >= length) {
+                return false;
+            }
+            for (i = 0; i < count; i++) {
+                rng_write_pair(&dst_pixel, rng[ptr], rng[ptr + 1u]);
+            }
+            ptr += 2u;
+            break;
+
+        case 0x12:
+            if (ptr + 1u >= length) {
+                return false;
+            }
+            count = (uint32_t)read_le16(rng + ptr) + 1u;
+            ptr += 2u;
+            if (ptr + 1u >= length) {
+                return false;
+            }
+            for (i = 0; i < count; i++) {
+                rng_write_pair(&dst_pixel, rng[ptr], rng[ptr + 1u]);
+            }
+            ptr += 2u;
+            break;
+
+        default:
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool draw_rng_playback_frame(void)
+{
+    PalRngFrameBuffer frame_buffer;
+
+    if (!pal_rng_playing) {
+        return false;
+    }
+    if (pal_rng_frame_tick_count != 0 && pal_rng_frame_tick_count < pal_rng_frame_ticks) {
+        pal_rng_frame_tick_count++;
+        return true;
+    }
+
+    frame_buffer = (pal_rng_current_frame & 1u) ? PAL_RNG_FRAME_BUFFER_B : PAL_RNG_FRAME_BUFFER_A;
+    if (!PalRng_LoadFrameReadAt(
+            &pal_rng_movie,
+            read_tf_pack_at,
+            &pal_tf_file,
+            pal_rng_current_frame,
+            frame_buffer,
+            &pal_rng_frame_a) ||
+        !blit_rng_frame_to_framebuffer(pal_rng_frame_a.data, pal_rng_frame_a.size)) {
+        pal_rng_playing = false;
+        return false;
+    }
+
+    if (pal_rng_current_frame >= pal_rng_end_frame) {
+        pal_rng_playing = false;
+    } else {
+        pal_rng_current_frame++;
+        pal_rng_frame_tick_count = 1;
+    }
+    return true;
+}
+
 static void fill_framebuffer_rect(int x, int y, int width, int height, uint8_t color)
 {
     int row;
@@ -3840,6 +4072,9 @@ static void draw_dialog_overlay(void)
 
 static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t ty)
 {
+    if (draw_rng_playback_frame()) {
+        return;
+    }
     if (pal_battle_preview_ticks != 0) {
         draw_battle_preview();
         pal_battle_preview_ticks--;
@@ -3908,11 +4143,11 @@ void app_main(void)
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
         bool dialog_consumed = update_dialog_touch(touched);
 
-        if (pal_battle_preview_ticks == 0 && !dialog_consumed) {
+        if (!pal_rng_playing && pal_battle_preview_ticks == 0 && !dialog_consumed) {
             update_scene_selection(touched, ty);
             update_demo_viewport(touched, tx, ty);
         }
-        if (pal_battle_preview_ticks == 0 && (tick & 7u) == 0) {
+        if (!pal_rng_playing && pal_battle_preview_ticks == 0 && (tick & 7u) == 0) {
             advance_scene_auto_scripts();
             advance_scene_event_frames();
             advance_player_frame();
