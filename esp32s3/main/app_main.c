@@ -50,7 +50,9 @@ static const char *TF_SAVE_PATH = "/sdcard/1.rpg";
 #define SAVE_VIEWPORT_X_OFFSET 2u
 #define SAVE_VIEWPORT_Y_OFFSET 4u
 #define SAVE_SCENE_OFFSET 8u
+#define SAVE_PARTY_DIRECTION_OFFSET 12u
 #define SAVE_CASH_OFFSET 40u
+#define SAVE_PARTY_OFFSET 44u
 #define SAVE_PLAYER_ROLES_OFFSET 508u
 #define SAVE_PLAYER_ROLES_BYTES 900u
 #define SAVE_SCENES_OFFSET 3264u
@@ -82,6 +84,7 @@ static uint32_t pal_player_sprite_size;
 static uint16_t pal_player_walk_frames;
 static uint16_t pal_player_frame_num;
 static uint16_t pal_player_direction;
+static uint16_t pal_player_role;
 static bool pal_player_walking;
 static int pal_initial_viewport_x;
 static int pal_initial_viewport_y;
@@ -300,6 +303,8 @@ static bool load_startup_save(void)
 
     pal_initial_viewport_x = 0;
     pal_initial_viewport_y = 0;
+    pal_player_role = 0;
+    pal_player_direction = DEMO_DIR_SOUTH;
     pal_save_player_roles = NULL;
     pal_save_scenes = NULL;
     pal_save_event_objects = NULL;
@@ -340,6 +345,7 @@ static bool load_startup_save(void)
     viewport_y = read_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET);
     if (scene_num == 0 ||
         scene_num >= PAL_SCENE_COUNT ||
+        size < SAVE_PARTY_OFFSET + 2u ||
         size < SAVE_PLAYER_ROLES_OFFSET + SAVE_PLAYER_ROLES_BYTES ||
         size < SAVE_SCENES_OFFSET + SAVE_SCENES_BYTES) {
         ESP_LOGW(TAG, "startup save scene out of range: %u", (unsigned)scene_num);
@@ -349,16 +355,26 @@ static bool load_startup_save(void)
     pal_scene_num = scene_num;
     pal_initial_viewport_x = viewport_x;
     pal_initial_viewport_y = viewport_y;
+    pal_player_role = read_le16(pal_psram_save_state + SAVE_PARTY_OFFSET);
+    if (pal_player_role >= PLAYER_ROLE_COUNT) {
+        pal_player_role = 0;
+    }
+    pal_player_direction = read_le16(pal_psram_save_state + SAVE_PARTY_DIRECTION_OFFSET);
+    if (pal_player_direction > DEMO_DIR_EAST) {
+        pal_player_direction = DEMO_DIR_SOUTH;
+    }
     pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
     pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
     pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
     pal_save_event_objects_size = size - SAVE_EVENT_OBJECTS_OFFSET;
     ESP_LOGI(TAG,
-             "startup save loaded: bytes=%" PRIu32 " scene=%u viewport=%u,%u cash=%" PRIu32,
+             "startup save loaded: bytes=%" PRIu32 " scene=%u viewport=%u,%u role=%u dir=%u cash=%" PRIu32,
              size,
              (unsigned)scene_num,
              (unsigned)viewport_x,
              (unsigned)viewport_y,
+             (unsigned)pal_player_role,
+             (unsigned)pal_player_direction,
              read_le32(pal_psram_save_state + SAVE_CASH_OFFSET));
     return true;
 }
@@ -427,15 +443,14 @@ static void load_player_sprite(void)
     pal_player_sprite_size = 0;
     pal_player_walk_frames = 3;
     pal_player_frame_num = 0;
-    pal_player_direction = DEMO_DIR_SOUTH;
     pal_player_walking = false;
 
     if (!pal_nor_ready || pal_global_cache == NULL) {
         return;
     }
 
-    sprite_num = player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, 0);
-    pal_player_walk_frames = player_role_word(PLAYER_ROLE_WALK_FRAMES_OFFSET, 0);
+    sprite_num = player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, pal_player_role);
+    pal_player_walk_frames = player_role_word(PLAYER_ROLE_WALK_FRAMES_OFFSET, pal_player_role);
     if (pal_player_walk_frames == 0 || pal_player_walk_frames > 4u) {
         pal_player_walk_frames = 3;
     }
@@ -446,7 +461,8 @@ static void load_player_sprite(void)
         span.size != 0) {
         pal_player_sprite = span.data;
         pal_player_sprite_size = span.size;
-        ESP_LOGI(TAG, "player sprite loaded: role=0 sprite=%u bytes=%" PRIu32 " walk_frames=%u",
+        ESP_LOGI(TAG, "player sprite loaded: role=%u sprite=%u bytes=%" PRIu32 " walk_frames=%u",
+                 (unsigned)pal_player_role,
                  (unsigned)sprite_num,
                  pal_player_sprite_size,
                  (unsigned)pal_player_walk_frames);
