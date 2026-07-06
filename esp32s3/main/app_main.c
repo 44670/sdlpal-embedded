@@ -50,6 +50,7 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define SAVE_VIEWPORT_Y_OFFSET 4u
 #define SAVE_SCENE_OFFSET 8u
 #define SAVE_PARTY_DIRECTION_OFFSET 12u
+#define SAVE_PALETTE_OFFSET_OFFSET 10u
 #define SAVE_CASH_OFFSET 40u
 #define SAVE_PARTY_OFFSET 44u
 #define SAVE_PLAYER_ROLES_OFFSET 508u
@@ -97,6 +98,7 @@ static uint32_t pal_save_event_objects_size;
 static char pal_save_path[] = "/sdcard/1.rpg";
 static uint8_t pal_save_slot;
 static uint8_t pal_save_header[SAVE_HEADER_BYTES];
+static bool pal_palette_night;
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -195,6 +197,28 @@ static void load_demo_palette(void)
         pal_sram_palette_work[i * 3u + 2u] = (uint8_t)(255u - i);
     }
     (void)PalVideo_SetPaletteRgb(0, 256, pal_sram_palette_work);
+}
+
+static void load_pack_palette_or_demo(void)
+{
+    PalPackSpan span;
+    uint32_t source_offset = 0;
+    uint32_t i;
+
+    if (pal_nor_ready &&
+        PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_PAT, 0, &span) &&
+        span.format == PAL_PACK_FORMAT_NATIVE &&
+        span.size >= PAL_SRAM_PALETTE_RGB_BYTES) {
+        if (pal_palette_night && span.size >= PAL_SRAM_PALETTE_RGB_BYTES * 2u) {
+            source_offset = PAL_SRAM_PALETTE_RGB_BYTES;
+        }
+        for (i = 0; i < PAL_SRAM_PALETTE_RGB_BYTES; i++) {
+            pal_sram_palette_work[i] = (uint8_t)(span.data[source_offset + i] << 2);
+        }
+        (void)PalVideo_SetPaletteRgb(0, 256, pal_sram_palette_work);
+        return;
+    }
+    load_demo_palette();
 }
 
 static bool read_tf_pack_at(void *user, uint32_t offset, uint8_t *dst, uint32_t size)
@@ -371,6 +395,7 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_initial_viewport_y = 0;
     pal_player_role = 0;
     pal_player_direction = DEMO_DIR_SOUTH;
+    pal_palette_night = false;
     pal_save_player_roles = NULL;
     pal_save_scenes = NULL;
     pal_save_event_objects = NULL;
@@ -430,13 +455,14 @@ static bool load_startup_save_slot(uint8_t slot)
     if (pal_player_direction > DEMO_DIR_EAST) {
         pal_player_direction = DEMO_DIR_SOUTH;
     }
+    pal_palette_night = read_le16(pal_psram_save_state + SAVE_PALETTE_OFFSET_OFFSET) != 0;
     pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
     pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
     pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
     pal_save_event_objects_size = size - SAVE_EVENT_OBJECTS_OFFSET;
     pal_save_slot = slot;
     ESP_LOGI(TAG,
-             "startup save loaded: slot=%u bytes=%" PRIu32 " scene=%u viewport=%u,%u role=%u dir=%u cash=%" PRIu32,
+             "startup save loaded: slot=%u bytes=%" PRIu32 " scene=%u viewport=%u,%u role=%u dir=%u night=%u cash=%" PRIu32,
              (unsigned)pal_save_slot,
              size,
              (unsigned)scene_num,
@@ -444,6 +470,7 @@ static bool load_startup_save_slot(uint8_t slot)
              (unsigned)viewport_y,
              (unsigned)pal_player_role,
              (unsigned)pal_player_direction,
+             pal_palette_night ? 1u : 0u,
              read_le32(pal_psram_save_state + SAVE_CASH_OFFSET));
     return true;
 }
@@ -457,19 +484,6 @@ static bool load_startup_save(void)
         return false;
     }
     return load_startup_save_slot(slot);
-}
-
-static void load_pack_palette_or_demo(void)
-{
-    PalPackSpan span;
-    if (pal_nor_ready &&
-        PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_PAT, 0, &span) &&
-        span.format == PAL_PACK_FORMAT_NATIVE &&
-        span.size >= 256u * 3u) {
-        (void)PalVideo_SetPaletteRgb(0, 256, span.data);
-        return;
-    }
-    load_demo_palette();
 }
 
 static void load_global_cache(void)
@@ -1104,11 +1118,11 @@ void app_main(void)
 
     pal_nor_ready = open_nor_pack();
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
-    load_pack_palette_or_demo();
     load_global_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }
+    load_pack_palette_or_demo();
     load_player_sprite();
     load_tf_scene_chunks();
     for (;;) {
