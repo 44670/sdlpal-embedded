@@ -1,4 +1,5 @@
 #include "cores3se_board.h"
+#include "pal_save_fatfs.h"
 
 #include "../../embedded/pal_global_cache.h"
 #include "../../embedded/pal_memory.h"
@@ -59,7 +60,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define DEMO_DIR_WEST 1u
 #define DEMO_DIR_NORTH 2u
 #define DEMO_DIR_EAST 3u
-#define SAVE_HEADER_BYTES 44u
 #define SAVE_VIEWPORT_X_OFFSET 2u
 #define SAVE_VIEWPORT_Y_OFFSET 4u
 #define SAVE_SCENE_OFFSET 8u
@@ -124,7 +124,6 @@ static uint32_t pal_save_event_objects_size;
 static uint32_t pal_save_state_size;
 static char pal_save_path[] = "0:/1.rpg";
 static uint8_t pal_save_slot;
-static uint8_t pal_save_header[SAVE_HEADER_BYTES];
 static bool pal_palette_night;
 
 typedef struct DemoSpriteDraw {
@@ -596,32 +595,11 @@ static void set_save_slot_path(uint8_t slot)
 
 static bool read_save_header(uint8_t slot, uint16_t *saved_times)
 {
-    FIL file;
-    uint32_t done = 0;
-    FRESULT res;
-
     if (saved_times == NULL) {
         return false;
     }
-    *saved_times = 0;
     set_save_slot_path(slot);
-    CoreS3Se_PrepareTfAccess();
-    res = f_open(&file, pal_save_path, FA_READ | FA_OPEN_EXISTING);
-    if (res != FR_OK) {
-        return false;
-    }
-    while (done < SAVE_HEADER_BYTES) {
-        UINT got = 0;
-        res = f_read(&file, pal_save_header + done, SAVE_HEADER_BYTES - done, &got);
-        if (res != FR_OK || got == 0) {
-            f_close(&file);
-            return false;
-        }
-        done += got;
-    }
-    f_close(&file);
-    *saved_times = read_le16(pal_save_header);
-    return true;
+    return PalSaveFatFs_ReadHeader(pal_save_path, saved_times);
 }
 
 static bool find_startup_save_slot(uint8_t *slot)
@@ -654,14 +632,12 @@ static bool find_startup_save_slot(uint8_t *slot)
 
 static bool load_startup_save_slot(uint8_t slot)
 {
-    FIL file;
+    PalFatFsSaveSlot save;
     uint32_t size;
-    uint32_t done = 0;
     uint16_t scene_num;
     uint16_t viewport_x;
     uint16_t viewport_y;
     uint16_t i;
-    FRESULT res;
 
     pal_initial_viewport_x = 0;
     pal_initial_viewport_y = 0;
@@ -680,36 +656,20 @@ static bool load_startup_save_slot(uint8_t slot)
     }
 
     set_save_slot_path(slot);
-    CoreS3Se_PrepareTfAccess();
-    res = f_open(&file, pal_save_path, FA_READ | FA_OPEN_EXISTING);
-    if (res != FR_OK) {
-        ESP_LOGI(TAG, "startup save missing: %s (%d)", pal_save_path, (int)res);
+    if (!PalSaveFatFs_ReadFile(pal_save_path, &save)) {
+        ESP_LOGI(TAG, "startup save unavailable: %s", pal_save_path);
         return false;
     }
 
-    if (f_size(&file) < SAVE_EVENT_OBJECTS_OFFSET + SSS_EVENT_OBJECT_BYTES ||
-        f_size(&file) > PAL_PSRAM_SAVE_STATE_BYTES) {
+    size = save.size;
+    if (size < SAVE_EVENT_OBJECTS_OFFSET + SSS_EVENT_OBJECT_BYTES) {
         ESP_LOGW(TAG, "startup save size unsupported: %s", pal_save_path);
-        f_close(&file);
         return false;
     }
 
-    size = (uint32_t)f_size(&file);
-    while (done < size) {
-        UINT got = 0;
-        res = f_read(&file, pal_psram_save_state + done, size - done, &got);
-        if (res != FR_OK || got == 0) {
-            ESP_LOGW(TAG, "startup save read failed: %s", pal_save_path);
-            f_close(&file);
-            return false;
-        }
-        done += got;
-    }
-    f_close(&file);
-
-    scene_num = read_le16(pal_psram_save_state + SAVE_SCENE_OFFSET);
-    viewport_x = read_le16(pal_psram_save_state + SAVE_VIEWPORT_X_OFFSET);
-    viewport_y = read_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET);
+    scene_num = save.scene_num;
+    viewport_x = save.viewport_x;
+    viewport_y = save.viewport_y;
     if (scene_num == 0 ||
         scene_num >= PAL_SCENE_COUNT ||
         size < SAVE_TRAIL_OFFSET + DEMO_PLAYABLE_PARTY_SLOTS * TRAIL_STRUCT_BYTES ||

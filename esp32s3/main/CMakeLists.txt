@@ -3,6 +3,7 @@ idf_component_register(
         "app_main.c"
         "cores3se_board.c"
         "cores3se_memory.c"
+        "pal_save_fatfs.c"
         "../../embedded/pal_global_cache.c"
         "../../embedded/pal_pack.c"
         "../../embedded/pal_palette_static.c"

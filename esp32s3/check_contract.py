@@ -27,6 +27,8 @@ SOURCE_FILES = (
     "esp32s3/main/cores3se_board.h",
     "esp32s3/main/cores3se_hw.h",
     "esp32s3/main/cores3se_memory.c",
+    "esp32s3/main/pal_save_fatfs.c",
+    "esp32s3/main/pal_save_fatfs.h",
     "embedded/pal_global_cache.c",
     "embedded/pal_global_cache.h",
     "embedded/pal_memory.h",
