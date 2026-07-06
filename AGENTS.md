@@ -17,7 +17,7 @@ disable_send_optional_commentary = True
 - No audio, for now.
 
 References:
-~/work/CardPuterADV/esp-walkie-talkie (CoreS3 SE port, use this for lcd/touch init)
+~/work/CardPuterADV/esp-walkie-talkie (CoreS3 SE port, copy/adapt its lcd/touch init code when useful)
 /home/john/work/CoreS3SE (more refs.)
 
 ## Current Porting Goal

@@ -282,6 +282,7 @@ static bool init_lcd(void)
 
     bus_cfg.sclk_io_num = CORES3SE_PIN_LCD_SCLK;
     bus_cfg.mosi_io_num = CORES3SE_PIN_LCD_MOSI;
+    /* The walkie-talkie reference leaves MISO unused; this port reuses LCD D/C as TF MISO. */
     bus_cfg.miso_io_num = CORES3SE_PIN_LCD_DC;
     bus_cfg.quadwp_io_num = -1;
     bus_cfg.quadhd_io_num = -1;
