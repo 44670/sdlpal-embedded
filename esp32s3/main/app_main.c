@@ -89,7 +89,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SAVE_SLOT_FIRST 1u
 #define SAVE_SLOT_LAST 5u
 #define SAVE_PATH_SLOT_INDEX 3u
-#define SCENE_MAP_OFFSET 0u
 #define SCENE_SCRIPT_ON_ENTER_OFFSET 2u
 #define SCENE_SCRIPT_ON_TELEPORT_OFFSET 4u
 #define EVENT_TRIGGER_SCRIPT_OFFSET 8u
@@ -119,23 +118,13 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_SET_FRAME_SOUTH 0x0014u
 #define SCRIPT_SET_PARTY_DIRECTION_FRAME 0x0015u
 #define SCRIPT_SET_EVENT_DIRECTION_FRAME 0x0016u
-#define SCRIPT_SET_PLAYER_STAT 0x001Au
-#define SCRIPT_CHANGE_HP_MP 0x001Du
-#define SCRIPT_ADD_ITEM 0x001Fu
-#define SCRIPT_REMOVE_ITEM 0x0020u
-#define SCRIPT_REMOVE_EQUIPMENT 0x0023u
 #define SCRIPT_SET_AUTO_SCRIPT 0x0024u
 #define SCRIPT_SET_TRIGGER_SCRIPT 0x0025u
-#define SCRIPT_BUY_MENU 0x0026u
-#define SCRIPT_SELL_MENU 0x0027u
-#define SCRIPT_SET_CURRENT_RNG 0x0036u
-#define SCRIPT_PLAY_RNG 0x0037u
 #define SCRIPT_SHAKE_SCREEN 0x0035u
 #define SCRIPT_DIALOG_CENTER 0x003Bu
 #define SCRIPT_DIALOG_UPPER 0x003Cu
 #define SCRIPT_DIALOG_LOWER 0x003Du
 #define SCRIPT_DIALOG_CENTER_WINDOW 0x003Eu
-#define SCRIPT_RIDE_EVENT_SLOW 0x003Fu
 #define SCRIPT_SET_TRIGGER_MODE 0x0040u
 #define SCRIPT_SET_MUSIC 0x0043u
 #define SCRIPT_RIDE_EVENT 0x0044u
@@ -148,24 +137,16 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_SET_EVENT_STATE 0x0049u
 #define SCRIPT_FADE_OUT 0x0050u
 #define SCRIPT_FADE_IN 0x0051u
-#define SCRIPT_HIDE_EVENT 0x0052u
 #define SCRIPT_USE_DAY_PALETTE 0x0053u
 #define SCRIPT_USE_NIGHT_PALETTE 0x0054u
-#define SCRIPT_ADD_MAGIC 0x0055u
-#define SCRIPT_JUMP_IF_ITEM_LESS 0x0058u
 #define SCRIPT_CHANGE_SCENE 0x0059u
 #define SCRIPT_SET_PLAYER_SPRITE 0x0065u
 #define SCRIPT_MOVE_PLAYER 0x006Eu
 #define SCRIPT_SYNC_EVENT_STATE 0x006Fu
 #define SCRIPT_PARTY_WALK_TO_SLOW 0x0070u
 #define SCRIPT_SCREEN_WAVE 0x0071u
-#define SCRIPT_JUMP_IF_NOT_FULL_HP 0x0074u
 #define SCRIPT_SET_SCENE_SCRIPTS 0x006Du
 #define SCRIPT_SET_PARTY 0x0075u
-#define SCRIPT_SHOW_FBP 0x0076u
-#define SCRIPT_STOP_MUSIC 0x0077u
-#define SCRIPT_UNKNOWN_0078 0x0078u
-#define SCRIPT_JUMP_IF_PLAYER_IN_PARTY 0x0079u
 #define SCRIPT_PARTY_WALK_TO 0x007Au
 #define SCRIPT_PARTY_WALK_TO_FAST 0x007Bu
 #define SCRIPT_NPC_WALK_TO_FAST 0x007Cu
@@ -175,22 +156,13 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_MOVE_VIEWPORT 0x007Fu
 #define SCRIPT_TOGGLE_DAY_NIGHT 0x0080u
 #define SCRIPT_NPC_WALK_TO_FASTEST 0x0082u
-#define SCRIPT_JUMP_IF_EVENT_OUT_OF_ZONE 0x0083u
-#define SCRIPT_JUMP_IF_ITEM_NOT_EQUIPPED 0x0086u
 #define SCRIPT_FADE_TO_SCENE 0x0073u
 #define SCRIPT_ANIMATE_EVENT 0x0087u
 #define SCRIPT_CHANGE_PALETTE 0x008Bu
 #define SCRIPT_SYNC_PARTY_TRAIL 0x008Cu
-#define SCRIPT_SCENE_FADE 0x0093u
 #define SCRIPT_JUMP_IF_EVENT_STATE 0x0094u
-#define SCRIPT_RIDE_EVENT_FAST 0x0097u
-#define SCRIPT_SET_FOLLOWERS 0x0098u
-#define SCRIPT_CHANGE_SCENE_MAP 0x0099u
 #define SCRIPT_SET_EVENT_RANGE_STATE 0x009Au
-#define SCRIPT_FADE_CURRENT_SCENE 0x009Bu
-#define SCRIPT_RANDOM_SKIP 0x00A2u
 #define SCRIPT_PLAY_CD_MUSIC 0x00A3u
-#define SCRIPT_SYNC_PARTY_TO_LEADER 0x00A1u
 #define SCRIPT_DIALOG_TEXT 0xFFFFu
 #define SCRIPT_AUTO_MAX_JUMPS 8u
 #define SCRIPT_TRIGGER_MAX_STEPS 16u
@@ -1933,15 +1905,6 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_REDRAW:
         case SCRIPT_SHAKE_SCREEN:
-        case SCRIPT_CHANGE_HP_MP:
-        case SCRIPT_SET_PLAYER_STAT:
-        case SCRIPT_ADD_ITEM:
-        case SCRIPT_REMOVE_ITEM:
-        case SCRIPT_REMOVE_EQUIPMENT:
-        case SCRIPT_BUY_MENU:
-        case SCRIPT_SELL_MENU:
-        case SCRIPT_SET_CURRENT_RNG:
-        case SCRIPT_PLAY_RNG:
         case SCRIPT_DIALOG_CENTER:
         case SCRIPT_DIALOG_UPPER:
         case SCRIPT_DIALOG_LOWER:
@@ -1950,16 +1913,7 @@ static uint16_t execute_script_mutation(
         case SCRIPT_CHASE_PLAYER:
         case SCRIPT_FADE_TO_SCENE:
         case SCRIPT_SCREEN_WAVE:
-        case SCRIPT_JUMP_IF_NOT_FULL_HP:
-        case SCRIPT_SHOW_FBP:
-        case SCRIPT_STOP_MUSIC:
-        case SCRIPT_UNKNOWN_0078:
-        case SCRIPT_JUMP_IF_ITEM_LESS:
-        case SCRIPT_JUMP_IF_ITEM_NOT_EQUIPPED:
-        case SCRIPT_SCENE_FADE:
-        case SCRIPT_FADE_CURRENT_SCENE:
         case SCRIPT_CHANGE_PALETTE:
-        case SCRIPT_ADD_MAGIC:
         case SCRIPT_PLAY_CD_MUSIC:
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
@@ -2113,20 +2067,6 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
-        case SCRIPT_HIDE_EVENT:
-            if (event_object != NULL) {
-                int16_t state = read_s16(event_object + EVENT_STATE_OFFSET);
-                if (state > 0) {
-                    write_le16(event_object + EVENT_STATE_OFFSET, (uint16_t)(-state));
-                }
-                write_le16(event_object + EVENT_VANISH_TIME_OFFSET, entry.operand[0] != 0 ? entry.operand[0] : 800u);
-            }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
         case SCRIPT_USE_DAY_PALETTE:
             pal_palette_night = false;
             load_pack_palette_or_demo();
@@ -2164,9 +2104,7 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
-        case SCRIPT_RIDE_EVENT_SLOW:
         case SCRIPT_RIDE_EVENT:
-        case SCRIPT_RIDE_EVENT_FAST:
         case SCRIPT_PARTY_WALK_TO_SLOW:
         case SCRIPT_PARTY_WALK_TO:
         case SCRIPT_PARTY_WALK_TO_FAST:
@@ -2174,10 +2112,7 @@ static uint16_t execute_script_mutation(
             int world_x = (int)entry.operand[0] * 32 + (int)entry.operand[2] * 16;
             int world_y = (int)entry.operand[1] * 16 + (int)entry.operand[2] * 8;
 
-            if ((entry.operation == SCRIPT_RIDE_EVENT_SLOW ||
-                 entry.operation == SCRIPT_RIDE_EVENT ||
-                 entry.operation == SCRIPT_RIDE_EVENT_FAST) &&
-                event_object != NULL) {
+            if (entry.operation == SCRIPT_RIDE_EVENT && event_object != NULL) {
                 set_event_object_position(event_object, (uint16_t)world_x, (uint16_t)world_y, entry.operand[2]);
             }
             set_party_world_position(world_x, world_y, pal_party_layer);
@@ -2355,42 +2290,6 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
-        case SCRIPT_JUMP_IF_PLAYER_IN_PARTY:
-        {
-            bool in_party = false;
-            uint16_t i;
-
-            for (i = 0; i <= pal_max_party_member_index && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
-                if (player_role_word(0u, pal_party_roles[i]) == entry.operand[0]) {
-                    in_party = true;
-                    break;
-                }
-            }
-            if (in_party && entry.operand[1] != 0) {
-                script_entry = entry.operand[1];
-            } else {
-                script_entry = (uint16_t)(script_entry + 1u);
-            }
-            continue;
-        }
-
-        case SCRIPT_JUMP_IF_EVENT_OUT_OF_ZONE:
-        {
-            bool outside = true;
-
-            if (current != NULL && event_object != NULL) {
-                int dx = read_s16(event_object + EVENT_X_OFFSET) - read_s16(current + EVENT_X_OFFSET);
-                int dy = read_s16(event_object + EVENT_Y_OFFSET) - read_s16(current + EVENT_Y_OFFSET);
-                outside = abs_int(dx) + abs_int(dy * 2) >= (int)entry.operand[1] * 32 + 16;
-            }
-            if (outside && entry.operand[2] != 0) {
-                script_entry = entry.operand[2];
-            } else {
-                script_entry = (uint16_t)(script_entry + 1u);
-            }
-            continue;
-        }
-
         case SCRIPT_JUMP_IF_EVENT_STATE:
             if (current != NULL && read_s16(current + EVENT_STATE_OFFSET) == (int16_t)entry.operand[1] &&
                 entry.operand[2] != 0) {
@@ -2419,71 +2318,6 @@ static uint16_t execute_script_mutation(
                 return script_entry;
             }
             continue;
-
-        case SCRIPT_SET_FOLLOWERS:
-        {
-            uint16_t follower_count = 0;
-            uint16_t i;
-
-            for (i = 0; i < 2u && pal_max_party_member_index + 1u + i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
-                if (entry.operand[i] != 0) {
-                    pal_party_roles[pal_max_party_member_index + 1u + i] = entry.operand[i];
-                    follower_count = (uint16_t)(i + 1u);
-                }
-            }
-            pal_follower_count = follower_count;
-            load_player_sprite();
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-        }
-
-        case SCRIPT_CHANGE_SCENE_MAP:
-            if (entry.operand[0] == 0xFFFFu) {
-                uint8_t *scene = mutable_current_scene_record();
-                if (scene != NULL) {
-                    write_le16(scene + SCENE_MAP_OFFSET, entry.operand[1]);
-                    load_tf_scene_chunks();
-                }
-            } else {
-                uint8_t *scene = mutable_scene_record(entry.operand[0]);
-                if (scene != NULL) {
-                    write_le16(scene + SCENE_MAP_OFFSET, entry.operand[1]);
-                }
-            }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_RANDOM_SKIP:
-            if (entry.operand[0] > 1u) {
-                script_entry = (uint16_t)(script_entry + (script_random_percent() % entry.operand[0]));
-            } else {
-                script_entry = (uint16_t)(script_entry + 1u);
-            }
-            continue;
-
-        case SCRIPT_SYNC_PARTY_TO_LEADER:
-        {
-            int world_x = pal_viewport_x + DEMO_PARTY_SCREEN_X;
-            int world_y = pal_viewport_y + DEMO_PARTY_SCREEN_Y;
-            uint16_t i;
-
-            for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
-                pal_trail_x[i] = (uint16_t)world_x;
-                pal_trail_y[i] = (uint16_t)world_y;
-                pal_trail_direction[i] = pal_player_direction;
-            }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-        }
 
         case SCRIPT_ANIMATE_EVENT:
             advance_event_object_frame(current != NULL ? current : event_object);
