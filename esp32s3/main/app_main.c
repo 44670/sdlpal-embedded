@@ -300,7 +300,6 @@ static uint32_t pal_save_event_objects_size;
 static uint32_t pal_save_state_size;
 static char pal_save_path[] = "0:/1.rpg";
 static uint8_t pal_save_slot;
-static uint16_t pal_palette_num;
 static bool pal_palette_night;
 
 static const uint16_t pal_battle_sample_player_sprites[3] = {0u, 1u, 2u};
@@ -688,11 +687,9 @@ static void load_pack_palette_or_demo(void)
     PalPackSpan span;
     PalPaletteBuffer palette;
     uint32_t source_offset = 0;
-    uint16_t palette_num = pal_palette_num;
 
     if (pal_nor_ready &&
-        (PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_PAT, palette_num, &span) ||
-         (palette_num != 0 && PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_PAT, 0, &span))) &&
+        PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_PAT, 0, &span) &&
         span.format == PAL_PACK_FORMAT_NATIVE &&
         span.size >= PAL_SRAM_PALETTE_RGB_BYTES) {
         if (pal_palette_night && span.size >= PAL_SRAM_PALETTE_RGB_BYTES * 2u) {
@@ -704,16 +701,6 @@ static void load_pack_palette_or_demo(void)
         }
     }
     load_demo_palette();
-}
-
-static void apply_current_palette_scale(uint8_t step, uint8_t total)
-{
-    PalPaletteBuffer palette;
-
-    load_pack_palette_or_demo();
-    if (PalPalette_ScaleCurrent(step, total, &palette)) {
-        (void)PalVideo_SetPaletteRgb(0, 256, palette.data);
-    }
 }
 
 static bool read_tf_pack_at(void *user, uint32_t offset, uint8_t *dst, uint32_t size)
@@ -880,7 +867,6 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_initial_viewport_y = 0;
     pal_player_role = 0;
     pal_player_direction = DEMO_DIR_SOUTH;
-    pal_palette_num = 0;
     pal_palette_night = false;
     pal_save_player_roles = NULL;
     pal_save_scenes = NULL;
@@ -2297,10 +2283,14 @@ static uint16_t execute_script_mutation(
         case SCRIPT_PLAY_RNG:
         case SCRIPT_SET_BATTLEFIELD:
         case SCRIPT_CHASE_PLAYER:
+        case SCRIPT_FADE_TO_SCENE:
         case SCRIPT_SCREEN_WAVE:
         case SCRIPT_SHOW_FBP:
         case SCRIPT_STOP_MUSIC:
         case SCRIPT_UNKNOWN_0078:
+        case SCRIPT_SCENE_FADE:
+        case SCRIPT_FADE_CURRENT_SCENE:
+        case SCRIPT_CHANGE_PALETTE:
         case SCRIPT_PLAY_CD_MUSIC:
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
@@ -2564,45 +2554,8 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SET_MUSIC:
         case SCRIPT_SET_BATTLE_MUSIC:
         case SCRIPT_PLAY_SOUND:
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
         case SCRIPT_FADE_OUT:
-            apply_current_palette_scale(0, 1);
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
         case SCRIPT_FADE_IN:
-        case SCRIPT_FADE_TO_SCENE:
-        case SCRIPT_FADE_CURRENT_SCENE:
-            load_pack_palette_or_demo();
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_SCENE_FADE:
-            if ((int16_t)entry.operand[0] < 0) {
-                apply_current_palette_scale(0, 1);
-            } else {
-                load_pack_palette_or_demo();
-            }
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_CHANGE_PALETTE:
-            pal_palette_num = entry.operand[0];
-            load_pack_palette_or_demo();
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
