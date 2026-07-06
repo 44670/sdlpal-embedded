@@ -11,6 +11,7 @@
 #endif
 
 uint8_t pal_sram_framebuffer[PAL_SRAM_FRAMEBUFFER_BYTES] PAL_BSS_SRAM;
+uint8_t pal_sram_audio[PAL_SRAM_AUDIO_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_display_dma[PAL_SRAM_DISPLAY_DMA_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_misc[PAL_SRAM_MISC_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_palette_current[PAL_SRAM_PALETTE_RGB_BYTES] PAL_BSS_SRAM;
@@ -30,3 +31,4 @@ uint8_t pal_psram_effect[PAL_PSRAM_EFFECT_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_rng_frame_a[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_rng_frame_b[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_tf_readahead[PAL_PSRAM_TF_READAHEAD_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_sfx_bank[PAL_PSRAM_SFX_BANK_BYTES] PAL_BSS_PSRAM;

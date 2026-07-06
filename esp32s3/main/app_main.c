@@ -1,6 +1,7 @@
 #include "cores3se_board.h"
 #include "pal_save_fatfs.h"
 
+#include "../../embedded/pal_audio_static.h"
 #include "../../embedded/pal_battle_cache.h"
 #include "../../embedded/pal_dialog_static.h"
 #include "../../embedded/pal_font_cache.h"
@@ -11,6 +12,7 @@
 #include "../../embedded/pal_palette_static.h"
 #include "../../embedded/pal_rng_cache.h"
 #include "../../embedded/pal_scene_cache.h"
+#include "../../embedded/pal_sfx_cache.h"
 #include "../../embedded/pal_text_cache.h"
 #include "../../embedded/pal_ui_cache.h"
 #include "../../embedded/pal_video_static.h"
@@ -104,6 +106,8 @@ static PalBattleBuffer pal_battle_effect_buffer;
 static PalRngMovieStream pal_rng_movie;
 static PalRngFrame pal_rng_frame_a;
 static PalRngFrame pal_rng_frame_b;
+static PalSfxBank pal_sfx_bank;
+static PalAudioSfx pal_sfx_sample;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
@@ -117,6 +121,7 @@ static bool pal_dialog_ready;
 static bool pal_menu_ready;
 static bool pal_battle_ready;
 static bool pal_rng_ready;
+static bool pal_sfx_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -157,6 +162,7 @@ static uint8_t pal_save_slot;
 static bool pal_palette_night;
 
 static const uint16_t pal_battle_sample_player_sprites[3] = {0u, 1u, 2u};
+static const uint16_t pal_sfx_sample_chunks[] = {1u, 62u, 192u, 213u, 214u, 255u, 272u};
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -998,6 +1004,44 @@ static void load_rng_cache(void)
              pal_rng_frame_b.size);
 }
 
+static void load_sfx_cache(void)
+{
+    const uint8_t *sfx_data = NULL;
+    uint32_t sfx_size = 0;
+    uint32_t cursor = 0;
+
+    pal_sfx_ready = false;
+    memset(&pal_sfx_bank, 0, sizeof(pal_sfx_bank));
+    memset(&pal_sfx_sample, 0, sizeof(pal_sfx_sample));
+    PalAudio_Clear(512u);
+
+    if (!pal_tf_ready) {
+        return;
+    }
+
+    pal_sfx_ready = PalSfx_LoadBankReadAt(
+                        &pal_tf_toc,
+                        read_tf_pack_at,
+                        &pal_tf_file,
+                        pal_sfx_sample_chunks,
+                        (uint16_t)(sizeof(pal_sfx_sample_chunks) / sizeof(pal_sfx_sample_chunks[0])),
+                        &pal_sfx_bank) &&
+                    PalSfx_Get(&pal_sfx_bank, pal_sfx_sample_chunks[0], &sfx_data, &sfx_size) &&
+                    PalAudio_OpenSfx(sfx_data, sfx_size, &pal_sfx_sample) &&
+                    PalAudio_MixSfx(&pal_sfx_sample, &cursor, 512u);
+    if (!pal_sfx_ready) {
+        ESP_LOGW(TAG, "PAL SFX cache load failed");
+    }
+
+    ESP_LOGI(TAG,
+             "PAL SFX cache: ready=%u entries=%u used=%" PRIu32 " sample_bytes=%" PRIu32 " mixed=%" PRIu32,
+             pal_sfx_ready ? 1u : 0u,
+             (unsigned)pal_sfx_bank.entry_count,
+             pal_sfx_bank.used_bytes,
+             sfx_size,
+             cursor);
+}
+
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 {
     const uint8_t *player_roles;
@@ -1722,6 +1766,7 @@ void app_main(void)
     load_menu_cache();
     load_battle_cache();
     load_rng_cache();
+    load_sfx_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }
