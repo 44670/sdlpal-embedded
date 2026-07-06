@@ -59,6 +59,10 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define PLAYER_ROLE_MAX_MP_WORD_INDEX 8u
 #define PLAYER_ROLE_HP_WORD_INDEX 9u
 #define PLAYER_ROLE_MP_WORD_INDEX 10u
+#define PLAYER_ROLE_EQUIPMENT_OFFSET (11u * PLAYER_ROLE_WORD_ARRAY_BYTES)
+#define PLAYER_ROLE_EQUIPMENT_SLOTS 6u
+#define PLAYER_ROLE_MAGIC_OFFSET (32u * PLAYER_ROLE_WORD_ARRAY_BYTES)
+#define PLAYER_ROLE_MAGIC_SLOTS 32u
 #define PLAYER_ROLE_SPRITE_NUM_OFFSET (2u * PLAYER_ROLE_WORD_ARRAY_BYTES)
 #define PLAYER_ROLE_WALK_FRAMES_OFFSET 768u
 #define INVENTORY_SLOT_BYTES 6u
@@ -163,6 +167,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_USE_DAY_PALETTE 0x0053u
 #define SCRIPT_USE_NIGHT_PALETTE 0x0054u
 #define SCRIPT_ADD_MAGIC 0x0055u
+#define SCRIPT_REMOVE_MAGIC 0x0056u
 #define SCRIPT_JUMP_IF_ITEM_LESS 0x0058u
 #define SCRIPT_CHANGE_SCENE 0x0059u
 #define SCRIPT_SET_PLAYER_SPRITE 0x0065u
@@ -1331,6 +1336,8 @@ static bool write_player_role_word(uint32_t field_offset, uint16_t role, uint16_
     return true;
 }
 
+static bool add_inventory_item(uint16_t item_id, int amount);
+
 static uint16_t player_role_word_by_index(uint16_t word_index, uint16_t role)
 {
     return player_role_word((uint32_t)word_index * PLAYER_ROLE_WORD_ARRAY_BYTES, role);
@@ -1339,6 +1346,16 @@ static uint16_t player_role_word_by_index(uint16_t word_index, uint16_t role)
 static bool write_player_role_word_by_index(uint16_t word_index, uint16_t role, uint16_t value)
 {
     return write_player_role_word((uint32_t)word_index * PLAYER_ROLE_WORD_ARRAY_BYTES, role, value);
+}
+
+static uint16_t player_role_matrix_word(uint32_t field_offset, uint16_t slot, uint16_t role)
+{
+    return player_role_word(field_offset + (uint32_t)slot * PLAYER_ROLE_WORD_ARRAY_BYTES, role);
+}
+
+static bool write_player_role_matrix_word(uint32_t field_offset, uint16_t slot, uint16_t role, uint16_t value)
+{
+    return write_player_role_word(field_offset + (uint32_t)slot * PLAYER_ROLE_WORD_ARRAY_BYTES, role, value);
 }
 
 static uint16_t clamp_player_role_stat(int value)
@@ -1371,6 +1388,109 @@ static bool change_player_role_hpmp(uint16_t role, int hp_delta, int mp_delta)
     }
     return write_player_role_word_by_index(PLAYER_ROLE_HP_WORD_INDEX, role, hp) &&
            write_player_role_word_by_index(PLAYER_ROLE_MP_WORD_INDEX, role, mp);
+}
+
+static bool add_player_magic(uint16_t role, uint16_t magic)
+{
+    uint16_t slot;
+
+    if (role >= PLAYER_ROLE_COUNT || magic == 0) {
+        return false;
+    }
+    for (slot = 0; slot < PLAYER_ROLE_MAGIC_SLOTS; slot++) {
+        if (player_role_matrix_word(PLAYER_ROLE_MAGIC_OFFSET, slot, role) == magic) {
+            return false;
+        }
+    }
+    for (slot = 0; slot < PLAYER_ROLE_MAGIC_SLOTS; slot++) {
+        if (player_role_matrix_word(PLAYER_ROLE_MAGIC_OFFSET, slot, role) == 0) {
+            return write_player_role_matrix_word(PLAYER_ROLE_MAGIC_OFFSET, slot, role, magic);
+        }
+    }
+    return false;
+}
+
+static bool remove_player_magic(uint16_t role, uint16_t magic)
+{
+    uint16_t slot;
+    bool removed = false;
+
+    if (role >= PLAYER_ROLE_COUNT || magic == 0) {
+        return false;
+    }
+    for (slot = 0; slot < PLAYER_ROLE_MAGIC_SLOTS; slot++) {
+        if (player_role_matrix_word(PLAYER_ROLE_MAGIC_OFFSET, slot, role) == magic) {
+            (void)write_player_role_matrix_word(PLAYER_ROLE_MAGIC_OFFSET, slot, role, 0);
+            removed = true;
+        }
+    }
+    return removed;
+}
+
+static void remove_player_equipment(uint16_t role, uint16_t equipment_part)
+{
+    uint16_t first_slot;
+    uint16_t end_slot;
+    uint16_t slot;
+
+    if (role >= PLAYER_ROLE_COUNT) {
+        return;
+    }
+    if (equipment_part == 0) {
+        first_slot = 0;
+        end_slot = PLAYER_ROLE_EQUIPMENT_SLOTS;
+    } else {
+        if (equipment_part > PLAYER_ROLE_EQUIPMENT_SLOTS) {
+            return;
+        }
+        first_slot = (uint16_t)(equipment_part - 1u);
+        end_slot = (uint16_t)(first_slot + 1u);
+    }
+    for (slot = first_slot; slot < end_slot; slot++) {
+        uint16_t item = player_role_matrix_word(PLAYER_ROLE_EQUIPMENT_OFFSET, slot, role);
+
+        if (item != 0) {
+            (void)add_inventory_item(item, 1);
+            (void)write_player_role_matrix_word(PLAYER_ROLE_EQUIPMENT_OFFSET, slot, role, 0);
+        }
+    }
+}
+
+static uint16_t party_equipped_item_count(uint16_t item)
+{
+    uint16_t count = 0;
+    uint16_t party_index;
+
+    for (party_index = 0; party_index <= pal_max_party_member_index && party_index < DEMO_PLAYABLE_PARTY_SLOTS; party_index++) {
+        uint16_t role = pal_party_roles[party_index];
+        uint16_t slot;
+
+        if (role >= PLAYER_ROLE_COUNT) {
+            continue;
+        }
+        for (slot = 0; slot < PLAYER_ROLE_EQUIPMENT_SLOTS; slot++) {
+            if (player_role_matrix_word(PLAYER_ROLE_EQUIPMENT_OFFSET, slot, role) == item) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+static bool party_has_injured_member(void)
+{
+    uint16_t party_index;
+
+    for (party_index = 0; party_index <= pal_max_party_member_index && party_index < DEMO_PLAYABLE_PARTY_SLOTS; party_index++) {
+        uint16_t role = pal_party_roles[party_index];
+
+        if (role < PLAYER_ROLE_COUNT &&
+            player_role_word_by_index(PLAYER_ROLE_HP_WORD_INDEX, role) <
+                player_role_word_by_index(PLAYER_ROLE_MAX_HP_WORD_INDEX, role)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool save_inventory_available(void)
@@ -2157,7 +2277,6 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_REDRAW:
         case SCRIPT_SHAKE_SCREEN:
-        case SCRIPT_REMOVE_EQUIPMENT:
         case SCRIPT_BUY_MENU:
         case SCRIPT_SELL_MENU:
         case SCRIPT_SET_CURRENT_RNG:
@@ -2166,15 +2285,12 @@ static uint16_t execute_script_mutation(
         case SCRIPT_CHASE_PLAYER:
         case SCRIPT_FADE_TO_SCENE:
         case SCRIPT_SCREEN_WAVE:
-        case SCRIPT_JUMP_IF_NOT_FULL_HP:
         case SCRIPT_SHOW_FBP:
         case SCRIPT_STOP_MUSIC:
         case SCRIPT_UNKNOWN_0078:
-        case SCRIPT_JUMP_IF_ITEM_NOT_EQUIPPED:
         case SCRIPT_SCENE_FADE:
         case SCRIPT_FADE_CURRENT_SCENE:
         case SCRIPT_CHANGE_PALETTE:
-        case SCRIPT_ADD_MAGIC:
         case SCRIPT_PLAY_CD_MUSIC:
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
@@ -2212,6 +2328,14 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
+        case SCRIPT_REMOVE_EQUIPMENT:
+            remove_player_equipment(entry.operand[0], entry.operand[1]);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
         case SCRIPT_ADD_CASH:
             if (pal_save_state_size >= SAVE_CASH_OFFSET + 4u) {
                 uint32_t cash = read_le32(pal_psram_save_state + SAVE_CASH_OFFSET);
@@ -2235,6 +2359,23 @@ static uint16_t execute_script_mutation(
                 return script_entry;
             }
             continue;
+
+        case SCRIPT_ADD_MAGIC:
+        case SCRIPT_REMOVE_MAGIC:
+        {
+            uint16_t role = entry.operand[1] == 0 ? event_object_id : (uint16_t)(entry.operand[1] - 1u);
+
+            if (entry.operation == SCRIPT_ADD_MAGIC) {
+                (void)add_player_magic(role, entry.operand[0]);
+            } else {
+                (void)remove_player_magic(role, entry.operand[0]);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
 
         case SCRIPT_ADD_ITEM:
             (void)add_inventory_item(entry.operand[0], (int16_t)entry.operand[1]);
@@ -2263,6 +2404,22 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_JUMP_IF_ITEM_LESS:
             if (inventory_item_amount(entry.operand[0]) < entry.operand[1] && entry.operand[2] != 0) {
+                script_entry = entry.operand[2];
+            } else {
+                script_entry = (uint16_t)(script_entry + 1u);
+            }
+            continue;
+
+        case SCRIPT_JUMP_IF_NOT_FULL_HP:
+            if (party_has_injured_member() && entry.operand[0] != 0) {
+                script_entry = entry.operand[0];
+            } else {
+                script_entry = (uint16_t)(script_entry + 1u);
+            }
+            continue;
+
+        case SCRIPT_JUMP_IF_ITEM_NOT_EQUIPPED:
+            if (party_equipped_item_count(entry.operand[0]) < entry.operand[1] && entry.operand[2] != 0) {
                 script_entry = entry.operand[2];
             } else {
                 script_entry = (uint16_t)(script_entry + 1u);
