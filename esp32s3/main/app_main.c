@@ -195,10 +195,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_AUTO_MAX_JUMPS 8u
 #define SCRIPT_TRIGGER_MAX_STEPS 16u
 #define SCRIPT_CALL_MAX_DEPTH 3u
-#define PAL_DIALOG_MODE_CENTER 0u
-#define PAL_DIALOG_MODE_UPPER 1u
-#define PAL_DIALOG_MODE_LOWER 2u
-#define PAL_DIALOG_MODE_CENTER_WINDOW 3u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -271,9 +267,6 @@ static uint16_t pal_player_role;
 static bool pal_player_walking;
 static uint8_t pal_script_call_depth;
 static uint32_t pal_script_rng_state = 0x4C50414Cu;
-static bool pal_dialog_visible;
-static uint8_t pal_dialog_mode = PAL_DIALOG_MODE_LOWER;
-static uint16_t pal_dialog_message_id;
 static int pal_initial_viewport_x;
 static int pal_initial_viewport_y;
 static uint8_t *pal_save_player_roles;
@@ -1546,7 +1539,6 @@ static void load_tf_scene_chunks(void)
     pal_scene_event_objects_size = 0;
     pal_scene_event_objects_mutable = false;
     pal_scene_script_idle = 0;
-    pal_dialog_visible = false;
 
     if (!pal_tf_ready || !pal_nor_ready) {
         return;
@@ -1939,42 +1931,6 @@ static uint16_t execute_script_mutation(
             }
             return script_entry;
 
-        case SCRIPT_DIALOG_CENTER:
-            pal_dialog_mode = PAL_DIALOG_MODE_CENTER;
-            pal_dialog_visible = false;
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_DIALOG_UPPER:
-            pal_dialog_mode = PAL_DIALOG_MODE_UPPER;
-            pal_dialog_visible = false;
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_DIALOG_LOWER:
-            pal_dialog_mode = PAL_DIALOG_MODE_LOWER;
-            pal_dialog_visible = false;
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
-        case SCRIPT_DIALOG_CENTER_WINDOW:
-            pal_dialog_mode = PAL_DIALOG_MODE_CENTER_WINDOW;
-            pal_dialog_visible = false;
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
         case SCRIPT_REDRAW:
         case SCRIPT_SHAKE_SCREEN:
         case SCRIPT_CHANGE_HP_MP:
@@ -1986,6 +1942,10 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SELL_MENU:
         case SCRIPT_SET_CURRENT_RNG:
         case SCRIPT_PLAY_RNG:
+        case SCRIPT_DIALOG_CENTER:
+        case SCRIPT_DIALOG_UPPER:
+        case SCRIPT_DIALOG_LOWER:
+        case SCRIPT_DIALOG_CENTER_WINDOW:
         case SCRIPT_SET_BATTLEFIELD:
         case SCRIPT_CHASE_PLAYER:
         case SCRIPT_FADE_TO_SCENE:
@@ -2534,8 +2494,6 @@ static uint16_t execute_script_mutation(
             continue;
 
         case SCRIPT_DIALOG_TEXT:
-            pal_dialog_message_id = entry.operand[0];
-            pal_dialog_visible = true;
             return (uint16_t)(script_entry + 1u);
 
         default:
@@ -3100,119 +3058,6 @@ static void draw_scene_background(uint32_t tick)
     }
 }
 
-static void fill_framebuffer_rect(int x, int y, int width, int height, uint8_t color)
-{
-    int row;
-
-    if (x < 0) {
-        width += x;
-        x = 0;
-    }
-    if (y < 0) {
-        height += y;
-        y = 0;
-    }
-    if (x + width > (int)PAL_VIDEO_WIDTH) {
-        width = (int)PAL_VIDEO_WIDTH - x;
-    }
-    if (y + height > (int)PAL_VIDEO_HEIGHT) {
-        height = (int)PAL_VIDEO_HEIGHT - y;
-    }
-    if (width <= 0 || height <= 0) {
-        return;
-    }
-
-    for (row = 0; row < height; row++) {
-        memset(pal_sram_framebuffer + (uint32_t)(y + row) * PAL_VIDEO_WIDTH + (uint32_t)x, color, (uint32_t)width);
-    }
-}
-
-static void draw_font_glyph(uint16_t codepoint, int x, int y, uint8_t color)
-{
-    const uint8_t *glyph;
-    uint16_t glyph_bytes;
-    int row;
-
-    if (codepoint == 0x20u || !pal_font_ready || !PalFont_FindGlyph(&pal_font_cache, codepoint, &glyph, &glyph_bytes) ||
-        glyph == NULL || glyph_bytes < PAL_FONT_GLYPH_BYTES) {
-        return;
-    }
-
-    for (row = 0; row < 16; row++) {
-        uint16_t bits = (uint16_t)(glyph[(uint32_t)row * 2u] | ((uint16_t)glyph[(uint32_t)row * 2u + 1u] << 8));
-        int col;
-        int yy = y + row;
-
-        if (yy < 0 || yy >= (int)PAL_VIDEO_HEIGHT) {
-            continue;
-        }
-        for (col = 0; col < 16; col++) {
-            int xx = x + col;
-            if (xx >= 0 && xx < (int)PAL_VIDEO_WIDTH && (bits & (uint16_t)(0x8000u >> col)) != 0) {
-                pal_sram_framebuffer[(uint32_t)yy * PAL_VIDEO_WIDTH + (uint32_t)xx] = color;
-            }
-        }
-    }
-}
-
-static void draw_utf16_text(const uint8_t *utf16le, uint32_t byte_size, int x, int y, int width, int height, uint8_t color)
-{
-    uint32_t offset;
-    int cursor_x = x;
-    int cursor_y = y;
-    int x_limit = x + width;
-    int y_limit = y + height;
-
-    for (offset = 0; offset + 1u < byte_size; offset += 2u) {
-        uint16_t codepoint = read_le16(utf16le + offset);
-
-        if (codepoint == 0 || codepoint == 0x0Du) {
-            continue;
-        }
-        if (codepoint == 0x0Au || cursor_x + 16 > x_limit) {
-            cursor_x = x;
-            cursor_y += 16;
-            if (codepoint == 0x0Au) {
-                continue;
-            }
-        }
-        if (cursor_y + 16 > y_limit) {
-            break;
-        }
-        draw_font_glyph(codepoint, cursor_x, cursor_y, color);
-        cursor_x += 16;
-    }
-}
-
-static void draw_dialog_overlay(void)
-{
-    const uint8_t *message;
-    uint32_t message_size;
-    int x = 8;
-    int y = 136;
-    int width = 304;
-    int height = 56;
-
-    if (!pal_dialog_visible || !pal_text_ready ||
-        !PalText_GetMessage(&pal_text_cache, pal_dialog_message_id, &message, &message_size)) {
-        return;
-    }
-
-    if (pal_dialog_mode == PAL_DIALOG_MODE_UPPER) {
-        y = 8;
-    } else if (pal_dialog_mode == PAL_DIALOG_MODE_CENTER) {
-        y = 68;
-    } else if (pal_dialog_mode == PAL_DIALOG_MODE_CENTER_WINDOW) {
-        y = 52;
-        height = 96;
-    }
-
-    fill_framebuffer_rect(x, y, width, height, 0u);
-    fill_framebuffer_rect(x + 1, y + 1, width - 2, height - 2, 15u);
-    fill_framebuffer_rect(x + 3, y + 3, width - 6, height - 6, 0u);
-    draw_utf16_text(message, message_size, x + 8, y + 8, width - 16, height - 16, 0x2Fu);
-}
-
 static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t ty)
 {
     draw_scene_background(tick);
@@ -3235,7 +3080,6 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
             }
         }
     }
-    draw_dialog_overlay();
 }
 
 void app_main(void)
