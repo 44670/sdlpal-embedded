@@ -102,11 +102,15 @@ static bool load_snapshot(
     PalPackReadAt read_at,
     void *user,
     const PalPack *sprite_pack,
+    const uint8_t *event_objects,
+    uint32_t event_objects_size,
     uint16_t scene_num,
     bool pin_sprites,
     PalSceneSnapshot *snapshot)
 {
     PalPackSpan event_span;
+    const uint8_t *event_data;
+    uint32_t event_data_size;
     uint16_t map_num;
     uint16_t event_start;
     uint16_t event_count;
@@ -127,10 +131,18 @@ static bool load_snapshot(
     if (!get_scene_range(nor_pack, scene_num, &map_num, &event_start, &event_count)) {
         return false;
     }
-    if (!PalPack_MapConst(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, &event_span)) {
-        return false;
+
+    if (event_objects != NULL) {
+        event_data = event_objects;
+        event_data_size = event_objects_size;
+    } else {
+        if (!PalPack_MapConst(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, &event_span)) {
+            return false;
+        }
+        event_data = event_span.data;
+        event_data_size = event_span.size;
     }
-    if (event_span.size < (uint32_t)(event_start + event_count) * SSS_EVENT_OBJECT_BYTES) {
+    if (event_data_size < (uint32_t)(event_start + event_count) * SSS_EVENT_OBJECT_BYTES) {
         return false;
     }
     if (!copy_tf_chunk(tf_pack, tf_toc, read_at, user, PAL_PACK_ARCHIVE_MAP, map_num, pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES, &copied)) {
@@ -147,7 +159,7 @@ static bool load_snapshot(
     }
 
     for (i = 0; i < event_count; i++) {
-        const uint8_t *event_object = event_span.data + (uint32_t)(event_start + i) * SSS_EVENT_OBJECT_BYTES;
+        const uint8_t *event_object = event_data + (uint32_t)(event_start + i) * SSS_EVENT_OBJECT_BYTES;
         uint16_t sprite_num = read_le16(event_object + EVENT_OBJECT_SPRITE_NUM_OFFSET);
         int unique_index;
 
@@ -220,7 +232,7 @@ static bool load_snapshot(
 
 bool PalScene_LoadSnapshot(const PalPack *nor_pack, const PalPack *tf_pack, uint16_t scene_num, PalSceneSnapshot *snapshot)
 {
-    return load_snapshot(nor_pack, tf_pack, NULL, NULL, NULL, nor_pack, scene_num, false, snapshot);
+    return load_snapshot(nor_pack, tf_pack, NULL, NULL, NULL, nor_pack, NULL, 0, scene_num, false, snapshot);
 }
 
 bool PalScene_LoadSnapshotReadAt(
@@ -231,7 +243,20 @@ bool PalScene_LoadSnapshotReadAt(
     uint16_t scene_num,
     PalSceneSnapshot *snapshot)
 {
-    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, nor_pack, scene_num, false, snapshot);
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, nor_pack, NULL, 0, scene_num, false, snapshot);
+}
+
+bool PalScene_LoadSnapshotReadAtWithEvents(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const uint8_t *event_objects,
+    uint32_t event_objects_size,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot)
+{
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, nor_pack, event_objects, event_objects_size, scene_num, false, snapshot);
 }
 
 #if PAL_SCENE_ENABLE_PINNED
@@ -242,7 +267,7 @@ bool PalScene_LoadPinnedSnapshot(
     uint16_t scene_num,
     PalSceneSnapshot *snapshot)
 {
-    return load_snapshot(nor_pack, tf_pack, NULL, NULL, NULL, sprite_pack, scene_num, true, snapshot);
+    return load_snapshot(nor_pack, tf_pack, NULL, NULL, NULL, sprite_pack, NULL, 0, scene_num, true, snapshot);
 }
 
 bool PalScene_LoadPinnedSnapshotReadAt(
@@ -254,6 +279,6 @@ bool PalScene_LoadPinnedSnapshotReadAt(
     uint16_t scene_num,
     PalSceneSnapshot *snapshot)
 {
-    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, sprite_pack, scene_num, true, snapshot);
+    return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, sprite_pack, NULL, 0, scene_num, true, snapshot);
 }
 #endif

@@ -283,6 +283,9 @@ static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
 static void load_tf_scene_chunks(void)
 {
     PalPackSpan event_span;
+    const uint8_t *event_objects = NULL;
+    uint32_t event_objects_size = 0;
+    bool event_objects_mutable = false;
 
     pal_tf_scene_ready = false;
     pal_scene_event_objects = NULL;
@@ -292,29 +295,48 @@ static void load_tf_scene_chunks(void)
     if (!pal_tf_ready || !pal_nor_ready) {
         return;
     }
-    if (!PalScene_LoadSnapshotReadAt(
-            &pal_nor_pack,
-            &pal_tf_toc,
-            read_tf_pack_at,
-            &pal_tf_fd,
-            pal_scene_num,
-            &pal_scene_snapshot)) {
+
+    if (pal_global_cache != NULL) {
+        event_objects = pal_global_cache->event_objects.data;
+        event_objects_size = pal_global_cache->event_objects.size;
+        event_objects_mutable = true;
+    }
+
+    if (event_objects != NULL) {
+        if (!PalScene_LoadSnapshotReadAtWithEvents(
+                &pal_nor_pack,
+                &pal_tf_toc,
+                read_tf_pack_at,
+                &pal_tf_fd,
+                event_objects,
+                event_objects_size,
+                pal_scene_num,
+                &pal_scene_snapshot)) {
+            ESP_LOGW(TAG, "TF scene snapshot load failed");
+            return;
+        }
+    } else if (!PalScene_LoadSnapshotReadAt(
+                &pal_nor_pack,
+                &pal_tf_toc,
+                read_tf_pack_at,
+                &pal_tf_fd,
+                pal_scene_num,
+                &pal_scene_snapshot)) {
         ESP_LOGW(TAG, "TF scene snapshot load failed");
         return;
     }
-    if (!PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, &event_span) ||
-        event_span.format != PAL_PACK_FORMAT_NATIVE ||
-        event_span.size < ((uint32_t)pal_scene_snapshot.event_start + pal_scene_snapshot.event_count) * SSS_EVENT_OBJECT_BYTES) {
-        ESP_LOGW(TAG, "NOR event object span missing");
-        return;
-    }
 
-    if (pal_global_cache != NULL &&
-        pal_global_cache->event_objects.size >= ((uint32_t)pal_scene_snapshot.event_start + pal_scene_snapshot.event_count) * SSS_EVENT_OBJECT_BYTES) {
-        pal_scene_event_objects = pal_global_cache->event_objects.data;
-        pal_scene_event_objects_size = pal_global_cache->event_objects.size;
-        pal_scene_event_objects_mutable = true;
+    if (event_objects_size >= ((uint32_t)pal_scene_snapshot.event_start + pal_scene_snapshot.event_count) * SSS_EVENT_OBJECT_BYTES) {
+        pal_scene_event_objects = event_objects;
+        pal_scene_event_objects_size = event_objects_size;
+        pal_scene_event_objects_mutable = event_objects_mutable;
     } else {
+        if (!PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, &event_span) ||
+            event_span.format != PAL_PACK_FORMAT_NATIVE ||
+            event_span.size < ((uint32_t)pal_scene_snapshot.event_start + pal_scene_snapshot.event_count) * SSS_EVENT_OBJECT_BYTES) {
+            ESP_LOGW(TAG, "NOR event object span missing");
+            return;
+        }
         pal_scene_event_objects = event_span.data;
         pal_scene_event_objects_size = event_span.size;
     }
