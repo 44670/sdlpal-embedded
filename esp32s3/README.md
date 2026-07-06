@@ -11,6 +11,14 @@ source /home/john/esp-idf/export.sh
 idf.py -C esp32s3 -B build-cores3se set-target esp32s3 build
 ```
 
+Repeatable target-side contract check:
+
+```sh
+make -C esp32s3 check
+```
+
+That builds the ESP-IDF artifact, rebuilds the default resource packs from `/mnt/hgfs/deb13/PAL`, verifies the NOR pack fits the `pal_nor` partition, rejects compressed/YJ1 payloads in the NOR pack, scans the target-side sources for heap/decompress calls, and reports `pal_sram_` / `pal_psram_` symbol totals from the ESP32-S3 ELF.
+
 Flash app:
 
 ```sh
