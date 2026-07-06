@@ -5,8 +5,14 @@ PACK_TF ?= /tmp/pal_tf_default.pak
 PACK_MANIFEST ?= /tmp/pal_pack_default_manifest.json
 BUILD_DIR ?= ../build-cores3se
 IDF_EXPORT ?= /home/john/esp-idf/export.sh
+PORT ?=
+BAUD ?= 460800
+PAL_NOR_OFFSET ?= 0x310000
+FLASH_MODE ?= dio
+FLASH_SIZE ?= 16MB
+FLASH_FREQ ?= 80m
 
-.PHONY: all build pack-build check clean
+.PHONY: all build pack-build check flash-app flash-nor clean
 
 all: build
 
@@ -18,6 +24,12 @@ pack-build:
 
 check: build pack-build
 	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && $(PYTHON) -B check_contract.py --root .. --build-dir "$(BUILD_DIR)" --nor-pack "$(PACK_NOR)" --tf-pack "$(PACK_TF)"'
+
+flash-app: build
+	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && idf.py -C . -B "$(BUILD_DIR)" $(if $(PORT),-p "$(PORT)",) flash'
+
+flash-nor: pack-build
+	$(PYTHON) -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode $(FLASH_MODE) --flash-size $(FLASH_SIZE) --flash-freq $(FLASH_FREQ) $(PAL_NOR_OFFSET) $(PACK_NOR)
 
 clean:
 	rm -rf "$(BUILD_DIR)"

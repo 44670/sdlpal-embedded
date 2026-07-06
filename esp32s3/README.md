@@ -22,7 +22,7 @@ That builds the ESP-IDF artifact, rebuilds the default resource packs from `/mnt
 Flash app:
 
 ```sh
-idf.py -C esp32s3 -B build-cores3se -p PORT flash monitor
+make -C esp32s3 PORT=/dev/ttyACM0 flash-app
 ```
 
 The custom partition table assumes 16MB flash and reserves an 11MB read-only data partition named `pal_nor` at `0x310000`. The current generated NOR pack is about 10.45MB, so it fits there.
@@ -30,7 +30,7 @@ The custom partition table assumes 16MB flash and reserves an 11MB read-only dat
 Flash the generated NOR pack:
 
 ```sh
-python -m esptool --chip esp32s3 -b 460800 --before default-reset --after hard-reset write-flash --flash-mode dio --flash-size 16MB --flash-freq 80m 0x310000 /tmp/pal_nor_default.pak
+make -C esp32s3 PORT=/dev/ttyACM0 flash-nor
 ```
 
 The firmware also tries to open a generated TF pack at:
