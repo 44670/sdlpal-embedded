@@ -55,8 +55,16 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define PARTY_Y_OFFSET 4u
 #define PARTY_FRAME_OFFSET 6u
 #define PLAYER_ROLE_WORD_ARRAY_BYTES (PLAYER_ROLE_COUNT * 2u)
+#define PLAYER_ROLE_MAX_HP_WORD_INDEX 7u
+#define PLAYER_ROLE_MAX_MP_WORD_INDEX 8u
+#define PLAYER_ROLE_HP_WORD_INDEX 9u
+#define PLAYER_ROLE_MP_WORD_INDEX 10u
 #define PLAYER_ROLE_SPRITE_NUM_OFFSET (2u * PLAYER_ROLE_WORD_ARRAY_BYTES)
 #define PLAYER_ROLE_WALK_FRAMES_OFFSET 768u
+#define INVENTORY_SLOT_BYTES 6u
+#define INVENTORY_ITEM_OFFSET 0u
+#define INVENTORY_AMOUNT_OFFSET 2u
+#define INVENTORY_IN_USE_OFFSET 4u
 #define TRAIL_STRUCT_BYTES 6u
 #define TRAIL_X_OFFSET 0u
 #define TRAIL_Y_OFFSET 2u
@@ -83,6 +91,8 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SAVE_TRAIL_OFFSET (SAVE_PARTY_OFFSET + DEMO_PLAYABLE_PARTY_SLOTS * PARTY_STRUCT_BYTES)
 #define SAVE_PLAYER_ROLES_OFFSET 508u
 #define SAVE_PLAYER_ROLES_BYTES 900u
+#define SAVE_INVENTORY_OFFSET 1728u
+#define SAVE_INVENTORY_BYTES 1536u
 #define SAVE_SCENES_OFFSET 3264u
 #define SAVE_SCENES_BYTES (PAL_SCENE_COUNT * 8u)
 #define SAVE_EVENT_OBJECTS_OFFSET 12864u
@@ -121,6 +131,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_SET_EVENT_DIRECTION_FRAME 0x0016u
 #define SCRIPT_SET_PLAYER_STAT 0x001Au
 #define SCRIPT_CHANGE_HP_MP 0x001Du
+#define SCRIPT_ADD_CASH 0x001Eu
 #define SCRIPT_ADD_ITEM 0x001Fu
 #define SCRIPT_REMOVE_ITEM 0x0020u
 #define SCRIPT_REMOVE_EQUIPMENT 0x0023u
@@ -324,6 +335,14 @@ static uint32_t read_le32(const uint8_t *p)
            ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) |
            ((uint32_t)p[3] << 24);
+}
+
+static void write_le32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
 }
 
 static int clamp_int(int value, int min_value, int max_value)
@@ -1312,6 +1331,149 @@ static bool write_player_role_word(uint32_t field_offset, uint16_t role, uint16_
     return true;
 }
 
+static uint16_t player_role_word_by_index(uint16_t word_index, uint16_t role)
+{
+    return player_role_word((uint32_t)word_index * PLAYER_ROLE_WORD_ARRAY_BYTES, role);
+}
+
+static bool write_player_role_word_by_index(uint16_t word_index, uint16_t role, uint16_t value)
+{
+    return write_player_role_word((uint32_t)word_index * PLAYER_ROLE_WORD_ARRAY_BYTES, role, value);
+}
+
+static uint16_t clamp_player_role_stat(int value)
+{
+    return (uint16_t)clamp_int(value, 0, 9999);
+}
+
+static bool change_player_role_hpmp(uint16_t role, int hp_delta, int mp_delta)
+{
+    uint16_t hp;
+    uint16_t mp;
+    uint16_t max_hp;
+    uint16_t max_mp;
+
+    if (role >= PLAYER_ROLE_COUNT) {
+        return false;
+    }
+    hp = player_role_word_by_index(PLAYER_ROLE_HP_WORD_INDEX, role);
+    mp = player_role_word_by_index(PLAYER_ROLE_MP_WORD_INDEX, role);
+    max_hp = player_role_word_by_index(PLAYER_ROLE_MAX_HP_WORD_INDEX, role);
+    max_mp = player_role_word_by_index(PLAYER_ROLE_MAX_MP_WORD_INDEX, role);
+
+    hp = clamp_player_role_stat((int)hp + hp_delta);
+    mp = clamp_player_role_stat((int)mp + mp_delta);
+    if (max_hp != 0 && hp > max_hp) {
+        hp = max_hp;
+    }
+    if (max_mp != 0 && mp > max_mp) {
+        mp = max_mp;
+    }
+    return write_player_role_word_by_index(PLAYER_ROLE_HP_WORD_INDEX, role, hp) &&
+           write_player_role_word_by_index(PLAYER_ROLE_MP_WORD_INDEX, role, mp);
+}
+
+static bool save_inventory_available(void)
+{
+    return pal_save_state_size >= SAVE_INVENTORY_OFFSET + SAVE_INVENTORY_BYTES;
+}
+
+static uint8_t *inventory_slot(uint16_t index)
+{
+    if (!save_inventory_available() || index >= SAVE_INVENTORY_BYTES / INVENTORY_SLOT_BYTES) {
+        return NULL;
+    }
+    return pal_psram_save_state + SAVE_INVENTORY_OFFSET + (uint32_t)index * INVENTORY_SLOT_BYTES;
+}
+
+static bool find_inventory_slot(uint16_t item_id, uint16_t *slot_index, bool *found)
+{
+    uint16_t i;
+
+    if (slot_index == NULL || found == NULL || item_id == 0 || !save_inventory_available()) {
+        return false;
+    }
+    *slot_index = 0;
+    *found = false;
+
+    for (i = 0; i < SAVE_INVENTORY_BYTES / INVENTORY_SLOT_BYTES; i++) {
+        uint8_t *slot = inventory_slot(i);
+        uint16_t item;
+
+        if (slot == NULL) {
+            return false;
+        }
+        item = read_le16(slot + INVENTORY_ITEM_OFFSET);
+        if (item == item_id) {
+            *slot_index = i;
+            *found = true;
+            return true;
+        }
+        if (item == 0) {
+            *slot_index = i;
+            return true;
+        }
+    }
+    *slot_index = SAVE_INVENTORY_BYTES / INVENTORY_SLOT_BYTES;
+    return true;
+}
+
+static uint16_t inventory_item_amount(uint16_t item_id)
+{
+    uint16_t slot_index;
+    bool found;
+    uint8_t *slot;
+
+    if (!find_inventory_slot(item_id, &slot_index, &found) || !found) {
+        return 0;
+    }
+    slot = inventory_slot(slot_index);
+    return slot != NULL ? read_le16(slot + INVENTORY_AMOUNT_OFFSET) : 0;
+}
+
+static bool add_inventory_item(uint16_t item_id, int amount)
+{
+    uint16_t slot_index;
+    bool found;
+    uint8_t *slot;
+    int current;
+
+    if (amount == 0) {
+        amount = 1;
+    }
+    if (!find_inventory_slot(item_id, &slot_index, &found)) {
+        return false;
+    }
+    slot = inventory_slot(slot_index);
+    if (slot == NULL) {
+        return false;
+    }
+    if (amount > 0) {
+        if (!found && slot_index >= SAVE_INVENTORY_BYTES / INVENTORY_SLOT_BYTES) {
+            return false;
+        }
+        current = found ? read_le16(slot + INVENTORY_AMOUNT_OFFSET) : 0;
+        current = clamp_int(current + amount, 0, 99);
+        write_le16(slot + INVENTORY_ITEM_OFFSET, item_id);
+        write_le16(slot + INVENTORY_AMOUNT_OFFSET, (uint16_t)current);
+        write_le16(slot + INVENTORY_IN_USE_OFFSET, 0);
+        return true;
+    }
+
+    if (!found) {
+        return false;
+    }
+    current = (int)read_le16(slot + INVENTORY_AMOUNT_OFFSET) + amount;
+    if (current <= 0) {
+        write_le16(slot + INVENTORY_ITEM_OFFSET, 0);
+        write_le16(slot + INVENTORY_AMOUNT_OFFSET, 0);
+        write_le16(slot + INVENTORY_IN_USE_OFFSET, 0);
+        return current == 0;
+    }
+    write_le16(slot + INVENTORY_AMOUNT_OFFSET, (uint16_t)current);
+    return true;
+}
+
 static void load_player_sprite(void)
 {
     uint16_t i;
@@ -1995,10 +2157,6 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_REDRAW:
         case SCRIPT_SHAKE_SCREEN:
-        case SCRIPT_CHANGE_HP_MP:
-        case SCRIPT_SET_PLAYER_STAT:
-        case SCRIPT_ADD_ITEM:
-        case SCRIPT_REMOVE_ITEM:
         case SCRIPT_REMOVE_EQUIPMENT:
         case SCRIPT_BUY_MENU:
         case SCRIPT_SELL_MENU:
@@ -2012,7 +2170,6 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SHOW_FBP:
         case SCRIPT_STOP_MUSIC:
         case SCRIPT_UNKNOWN_0078:
-        case SCRIPT_JUMP_IF_ITEM_LESS:
         case SCRIPT_JUMP_IF_ITEM_NOT_EQUIPPED:
         case SCRIPT_SCENE_FADE:
         case SCRIPT_FADE_CURRENT_SCENE:
@@ -2022,6 +2179,93 @@ static uint16_t execute_script_mutation(
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_PLAYER_STAT:
+        {
+            uint16_t role = entry.operand[2] == 0 ? event_object_id : (uint16_t)(entry.operand[2] - 1u);
+
+            if (role < PLAYER_ROLE_COUNT) {
+                (void)write_player_role_word_by_index(entry.operand[0], role, entry.operand[1]);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
+
+        case SCRIPT_CHANGE_HP_MP:
+            if (entry.operand[0] != 0) {
+                uint16_t i;
+
+                for (i = 0; i <= pal_max_party_member_index && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+                    (void)change_player_role_hpmp(pal_party_roles[i], (int16_t)entry.operand[1], (int16_t)entry.operand[1]);
+                }
+            } else {
+                (void)change_player_role_hpmp(event_object_id, (int16_t)entry.operand[1], (int16_t)entry.operand[1]);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_ADD_CASH:
+            if (pal_save_state_size >= SAVE_CASH_OFFSET + 4u) {
+                uint32_t cash = read_le32(pal_psram_save_state + SAVE_CASH_OFFSET);
+                int delta = (int16_t)entry.operand[0];
+
+                if (delta < 0 && cash < (uint32_t)-delta && entry.operand[1] != 0) {
+                    script_entry = entry.operand[1];
+                    continue;
+                }
+                if (delta < 0 && cash < (uint32_t)-delta) {
+                    cash = 0;
+                } else if (delta > 0 && cash > UINT32_MAX - (uint32_t)delta) {
+                    cash = UINT32_MAX;
+                } else {
+                    cash = (uint32_t)(cash + delta);
+                }
+                write_le32(pal_psram_save_state + SAVE_CASH_OFFSET, cash);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_ADD_ITEM:
+            (void)add_inventory_item(entry.operand[0], (int16_t)entry.operand[1]);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_REMOVE_ITEM:
+        {
+            int amount = entry.operand[1] != 0 ? (int)entry.operand[1] : 1;
+            bool enough = inventory_item_amount(entry.operand[0]) >= amount;
+
+            if (!enough && entry.operand[2] != 0) {
+                script_entry = entry.operand[2];
+                continue;
+            }
+            (void)add_inventory_item(entry.operand[0], -amount);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
+
+        case SCRIPT_JUMP_IF_ITEM_LESS:
+            if (inventory_item_amount(entry.operand[0]) < entry.operand[1] && entry.operand[2] != 0) {
+                script_entry = entry.operand[2];
+            } else {
+                script_entry = (uint16_t)(script_entry + 1u);
             }
             continue;
 
