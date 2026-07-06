@@ -186,24 +186,24 @@ def project_forbidden_undefined_symbols(output: str) -> list[str]:
     return hits
 
 
-def check_pack(path: Path) -> list[str]:
+def check_pack(path: Path, label: str, max_size: int | None) -> list[str]:
     errors: list[str] = []
     data = path.read_bytes()
-    if len(data) > PAL_NOR_PARTITION_BYTES:
-        errors.append(f"NOR pack is {len(data)} bytes, over pal_nor partition {PAL_NOR_PARTITION_BYTES}")
+    if max_size is not None and len(data) > max_size:
+        errors.append(f"{label} pack is {len(data)} bytes, over limit {max_size}")
         return errors
     if len(data) < PACK_HEADER_SIZE or u32(data, 0) != PACK_MAGIC:
-        errors.append("NOR pack header is invalid")
+        errors.append(f"{label} pack header is invalid")
         return errors
 
     archive_count = u16(data, 8)
     archive_table = u32(data, 12)
     pack_size = u32(data, 24)
     if pack_size != len(data):
-        errors.append(f"NOR pack declares {pack_size} bytes, file has {len(data)}")
+        errors.append(f"{label} pack declares {pack_size} bytes, file has {len(data)}")
         return errors
     if archive_table + archive_count * PACK_ARCHIVE_ENTRY_SIZE > len(data):
-        errors.append("NOR pack archive table is out of range")
+        errors.append(f"{label} pack archive table is out of range")
         return errors
 
     for archive_index in range(archive_count):
@@ -211,7 +211,7 @@ def check_pack(path: Path) -> list[str]:
         chunk_count = u16(data, archive + 2)
         chunk_table = u32(data, archive + 4)
         if chunk_table + chunk_count * PACK_CHUNK_ENTRY_SIZE > len(data):
-            errors.append(f"NOR pack chunk table {archive_index} is out of range")
+            errors.append(f"{label} pack chunk table {archive_index} is out of range")
             continue
         for chunk_id in range(chunk_count):
             chunk = chunk_table + chunk_id * PACK_CHUNK_ENTRY_SIZE
@@ -219,11 +219,11 @@ def check_pack(path: Path) -> list[str]:
             size = u32(data, chunk + 4)
             flags = u16(data, chunk + 10)
             if flags & PACK_CHUNK_F_COMPRESSED:
-                errors.append(f"NOR pack archive {archive_index} chunk {chunk_id} is compressed")
+                errors.append(f"{label} pack archive {archive_index} chunk {chunk_id} is compressed")
             if offset + size > len(data):
-                errors.append(f"NOR pack archive {archive_index} chunk {chunk_id} is out of range")
+                errors.append(f"{label} pack archive {archive_index} chunk {chunk_id} is out of range")
             if data[offset : offset + 4] == b"YJ_1":
-                errors.append(f"NOR pack archive {archive_index} chunk {chunk_id} still contains YJ1")
+                errors.append(f"{label} pack archive {archive_index} chunk {chunk_id} still contains YJ1")
     return errors
 
 
@@ -232,6 +232,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--nor-pack", type=Path, required=True)
+    parser.add_argument("--tf-pack", type=Path, required=True)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -242,6 +243,7 @@ def main() -> int:
     print("# CoreS3 SE Contract Check")
     print(f"elf: {elf}")
     print(f"nor_pack: {args.nor_pack}")
+    print(f"tf_pack: {args.tf_pack}")
 
     source_hits = scan_sources(root)
     print(f"\nsource forbidden hits: {len(source_hits)}")
@@ -250,8 +252,10 @@ def main() -> int:
         for hit in source_hits:
             print(hit)
 
-    errors.extend(check_pack(args.nor_pack))
+    errors.extend(check_pack(args.nor_pack, "NOR", PAL_NOR_PARTITION_BYTES))
+    errors.extend(check_pack(args.tf_pack, "TF", None))
     print(f"\nNOR pack bytes: {args.nor_pack.stat().st_size} / {PAL_NOR_PARTITION_BYTES}")
+    print(f"TF pack bytes: {args.tf_pack.stat().st_size}")
 
     size_output = run(["xtensa-esp32s3-elf-size", str(elf)])
     size_values = parse_size(size_output)
