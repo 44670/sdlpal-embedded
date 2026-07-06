@@ -27,3 +27,6 @@ uint8_t pal_psram_menu_image[PAL_PSRAM_MENU_IMAGE_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_menu_box[PAL_PSRAM_MENU_BOX_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_fbp_background[PAL_PSRAM_FBP_BACKGROUND_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_effect[PAL_PSRAM_EFFECT_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_rng_frame_a[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_rng_frame_b[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_tf_readahead[PAL_PSRAM_TF_READAHEAD_BYTES] PAL_BSS_PSRAM;

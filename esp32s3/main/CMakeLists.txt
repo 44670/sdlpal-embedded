@@ -11,6 +11,7 @@ idf_component_register(
         "../../embedded/pal_menu_static.c"
         "../../embedded/pal_pack.c"
         "../../embedded/pal_palette_static.c"
+        "../../embedded/pal_rng_cache.c"
         "../../embedded/pal_scene_cache.c"
         "../../embedded/pal_text_cache.c"
         "../../embedded/pal_ui_cache.c"
