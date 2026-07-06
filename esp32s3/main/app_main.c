@@ -26,6 +26,8 @@ static int pal_tf_fd = -1;
 static bool pal_nor_ready;
 static bool pal_tf_ready;
 static bool pal_tf_background_ready;
+static bool pal_tf_scene_ready;
+static uint32_t pal_tf_scene_mark;
 
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -185,6 +187,62 @@ static void load_tf_background(void)
         return;
     }
     pal_tf_background_ready = true;
+}
+
+static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
+{
+    uint32_t i;
+    uint32_t hash = 2166136261u;
+
+    for (i = 0; i < size; i += 257u) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static void load_tf_scene_chunks(void)
+{
+    uint32_t map_copied = 0;
+    uint32_t gop_copied = 0;
+
+    pal_tf_scene_ready = false;
+    if (!pal_tf_ready) {
+        return;
+    }
+    if (!PalPackToc_CopyRawReadAt(
+            &pal_tf_toc,
+            read_tf_pack_at,
+            &pal_tf_fd,
+            PAL_PACK_ARCHIVE_MAP,
+            1,
+            pal_psram_map_tiles,
+            PAL_PSRAM_MAP_TILES_BYTES,
+            &map_copied) ||
+        map_copied != PAL_PSRAM_MAP_TILES_BYTES) {
+        ESP_LOGW(TAG, "TF MAP #1 load failed");
+        return;
+    }
+    if (!PalPackToc_CopyRawReadAt(
+            &pal_tf_toc,
+            read_tf_pack_at,
+            &pal_tf_fd,
+            PAL_PACK_ARCHIVE_GOP,
+            1,
+            pal_psram_gop_copy,
+            PAL_PSRAM_GOP_COPY_BYTES,
+            &gop_copied) ||
+        gop_copied == 0 ||
+        gop_copied > PAL_PSRAM_GOP_COPY_BYTES) {
+        ESP_LOGW(TAG, "TF GOP #1 load failed");
+        return;
+    }
+
+    pal_tf_scene_mark = sample_checksum(pal_psram_map_tiles, map_copied) ^
+                        sample_checksum(pal_psram_gop_copy, gop_copied);
+    pal_tf_scene_ready = true;
+    ESP_LOGI(TAG, "TF scene chunks loaded: map=%" PRIu32 " gop=%" PRIu32 " mark=0x%08" PRIx32,
+             map_copied, gop_copied, pal_tf_scene_mark);
 }
 
 static uint16_t sprite_frame_count(const uint8_t *sprite)
@@ -369,6 +427,14 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
         }
     }
 
+    if (pal_tf_scene_ready) {
+        uint32_t mark = pal_tf_scene_mark + tick;
+        for (y = 0; y < 8u; y++) {
+            uint8_t color = (uint8_t)(0x20u + ((mark >> ((y & 3u) * 8u)) & 0x1Fu));
+            memset(pal_sram_framebuffer + y * 320u, color, 24u);
+        }
+    }
+
     if (touched && ty >= CORES3SE_PAL_Y_OFFSET && ty < CORES3SE_PAL_Y_OFFSET + 200u) {
         const int cx = (int)tx;
         const int cy = (int)ty - (int)CORES3SE_PAL_Y_OFFSET;
@@ -404,6 +470,7 @@ void app_main(void)
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     load_pack_palette_or_demo();
     load_tf_background();
+    load_tf_scene_chunks();
     for (;;) {
         uint16_t tx = 0;
         uint16_t ty = 0;
