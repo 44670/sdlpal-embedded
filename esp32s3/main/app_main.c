@@ -73,6 +73,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SAVE_VIEWPORT_X_OFFSET 2u
 #define SAVE_VIEWPORT_Y_OFFSET 4u
 #define SAVE_SCENE_OFFSET 8u
+#define SAVE_SAVED_TIMES_OFFSET 0u
 #define SAVE_PARTY_DIRECTION_OFFSET 12u
 #define SAVE_FOLLOWER_COUNT_OFFSET 32u
 #define SAVE_PALETTE_OFFSET_OFFSET 10u
@@ -183,6 +184,7 @@ typedef struct DemoSpriteDraw {
 static DemoSpriteDraw pal_scene_draw_items[DEMO_SCENE_DRAW_ITEM_COUNT];
 
 static void party_member_screen_position(uint16_t index, int *x, int *y, uint16_t *direction);
+static void set_save_slot_path(uint8_t slot);
 
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -433,6 +435,7 @@ static void sync_runtime_save_position(void)
         return;
     }
 
+    write_le16(pal_psram_save_state + SAVE_SCENE_OFFSET, pal_scene_num);
     write_le16(pal_psram_save_state + SAVE_VIEWPORT_X_OFFSET, (uint16_t)pal_viewport_x);
     write_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET, (uint16_t)pal_viewport_y);
     write_le16(pal_psram_save_state + SAVE_PARTY_DIRECTION_OFFSET, pal_player_direction);
@@ -459,6 +462,36 @@ static void sync_runtime_save_position(void)
         write_le16(party + PARTY_Y_OFFSET, (uint16_t)py);
         write_le16(party + PARTY_FRAME_OFFSET, (uint16_t)(draw_direction * walk_frames + frame_num));
     }
+}
+
+static bool persist_runtime_save(const char *reason)
+{
+    uint16_t saved_times;
+    bool ok;
+
+    if (pal_save_slot == 0 || pal_save_state_size == 0) {
+        return false;
+    }
+
+    sync_runtime_save_position();
+    saved_times = read_le16(pal_psram_save_state + SAVE_SAVED_TIMES_OFFSET);
+    write_le16(pal_psram_save_state + SAVE_SAVED_TIMES_OFFSET, (uint16_t)(saved_times + 1u));
+    set_save_slot_path(pal_save_slot);
+    ok = PalSaveFatFs_WriteFile(pal_save_path, pal_psram_save_state, pal_save_state_size);
+    CoreS3Se_PrepareLcdAccess();
+
+    if (ok) {
+        ESP_LOGI(TAG,
+                 "runtime save written: slot=%u bytes=%" PRIu32 " scene=%u reason=%s",
+                 (unsigned)pal_save_slot,
+                 pal_save_state_size,
+                 (unsigned)pal_scene_num,
+                 reason != NULL ? reason : "update");
+    } else {
+        write_le16(pal_psram_save_state + SAVE_SAVED_TIMES_OFFSET, saved_times);
+        ESP_LOGW(TAG, "runtime save write failed: %s", pal_save_path);
+    }
+    return ok;
 }
 
 static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
@@ -1442,6 +1475,9 @@ static void select_relative_scene(int delta)
     pal_initial_viewport_y = 0;
     pal_scene_num = (uint16_t)next_scene;
     load_tf_scene_chunks();
+    if (pal_tf_scene_ready) {
+        (void)persist_runtime_save("scene");
+    }
 }
 
 static void update_scene_selection(bool touched, uint16_t ty)
