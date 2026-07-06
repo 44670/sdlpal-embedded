@@ -53,6 +53,7 @@ typedef struct PalGlobalCache {
 } PalGlobalCache;
 
 bool PalGlobal_LoadDefault(const PalPack *nor_pack, const PalGlobalCache **cache);
+bool PalGlobal_LoadReadonly(const PalPack *nor_pack, const PalGlobalCache **cache);
 
 #ifdef __cplusplus
 }

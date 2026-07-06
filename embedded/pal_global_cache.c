@@ -88,29 +88,8 @@ static bool copy_mutable_records(
     return true;
 }
 
-bool PalGlobal_LoadDefault(const PalPack *nor_pack, const PalGlobalCache **cache)
+static bool map_readonly_records(const PalPack *nor_pack)
 {
-    uint32_t cursor = 0;
-
-    if (cache == 0) {
-        return false;
-    }
-    *cache = 0;
-
-    memset(&pal_global_cache, 0, sizeof(pal_global_cache));
-    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, PAL_GLOBAL_EVENT_OBJECT_BYTES, &cursor, &pal_global_cache.event_objects)) {
-        return false;
-    }
-    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_SCENE_CHUNK, PAL_GLOBAL_SCENE_BYTES, &cursor, &pal_global_cache.scenes)) {
-        return false;
-    }
-    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_OBJECT_CHUNK, PAL_GLOBAL_OBJECT_DOS_BYTES, &cursor, &pal_global_cache.objects_dos)) {
-        return false;
-    }
-    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_DATA, DATA_PLAYER_ROLES_CHUNK, PAL_GLOBAL_PLAYER_ROLES_BYTES, &cursor, &pal_global_cache.player_roles)) {
-        return false;
-    }
-
     if (!map_const_records(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_SCRIPT_CHUNK, PAL_GLOBAL_SCRIPT_ENTRY_BYTES, &pal_global_cache.script_entries)) {
         return false;
     }
@@ -141,8 +120,53 @@ bool PalGlobal_LoadDefault(const PalPack *nor_pack, const PalGlobalCache **cache
     if (!map_const_records(nor_pack, PAL_PACK_ARCHIVE_DATA, DATA_LEVELUP_EXP_CHUNK, 2u, &pal_global_cache.levelup_exp)) {
         return false;
     }
+    return true;
+}
+
+bool PalGlobal_LoadDefault(const PalPack *nor_pack, const PalGlobalCache **cache)
+{
+    uint32_t cursor = 0;
+
+    if (cache == 0) {
+        return false;
+    }
+    *cache = 0;
+
+    memset(&pal_global_cache, 0, sizeof(pal_global_cache));
+    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, PAL_GLOBAL_EVENT_OBJECT_BYTES, &cursor, &pal_global_cache.event_objects)) {
+        return false;
+    }
+    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_SCENE_CHUNK, PAL_GLOBAL_SCENE_BYTES, &cursor, &pal_global_cache.scenes)) {
+        return false;
+    }
+    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_OBJECT_CHUNK, PAL_GLOBAL_OBJECT_DOS_BYTES, &cursor, &pal_global_cache.objects_dos)) {
+        return false;
+    }
+    if (!copy_mutable_records(nor_pack, PAL_PACK_ARCHIVE_DATA, DATA_PLAYER_ROLES_CHUNK, PAL_GLOBAL_PLAYER_ROLES_BYTES, &cursor, &pal_global_cache.player_roles)) {
+        return false;
+    }
+
+    if (!map_readonly_records(nor_pack)) {
+        return false;
+    }
 
     pal_global_cache.mutable_bytes = cursor;
+    *cache = &pal_global_cache;
+    return true;
+}
+
+bool PalGlobal_LoadReadonly(const PalPack *nor_pack, const PalGlobalCache **cache)
+{
+    if (cache == 0) {
+        return false;
+    }
+    *cache = 0;
+
+    memset(&pal_global_cache, 0, sizeof(pal_global_cache));
+    if (!map_readonly_records(nor_pack)) {
+        return false;
+    }
+
     *cache = &pal_global_cache;
     return true;
 }

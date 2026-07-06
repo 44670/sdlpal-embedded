@@ -813,6 +813,24 @@ static void load_global_cache(void)
              pal_global_cache->scenes.count);
 }
 
+static void load_readonly_global_cache(void)
+{
+    pal_global_cache = NULL;
+    if (!pal_nor_ready) {
+        return;
+    }
+    if (!PalGlobal_LoadReadonly(&pal_nor_pack, &pal_global_cache)) {
+        ESP_LOGW(TAG, "PAL readonly global cache load failed");
+        pal_global_cache = NULL;
+        return;
+    }
+    ESP_LOGI(TAG,
+             "PAL readonly global cache loaded: scripts=%" PRIu32 " stores=%" PRIu32 " enemies=%" PRIu32,
+             pal_global_cache->script_entries.count,
+             pal_global_cache->stores.count,
+             pal_global_cache->enemies.count);
+}
+
 static void load_text_font_cache(void)
 {
     const uint8_t *sample_text = NULL;
@@ -1812,6 +1830,7 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
 void app_main(void)
 {
     uint32_t tick = 0;
+    bool save_loaded;
 
     if (!CoreS3Se_Begin()) {
         CoreS3Se_ShowError("BOARD FAIL", "CORES3SE INIT");
@@ -1831,7 +1850,10 @@ void app_main(void)
     load_sfx_cache();
     load_music_cache();
     load_ending_cache();
-    if (!load_startup_save()) {
+    save_loaded = load_startup_save();
+    if (save_loaded) {
+        load_readonly_global_cache();
+    } else {
         load_global_cache();
     }
     load_pack_palette_or_demo();

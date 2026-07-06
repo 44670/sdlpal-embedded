@@ -1150,6 +1150,7 @@ static int check_sfx_bank_readat(const char *path)
 static int check_global_cache(const PalPack *nor)
 {
     const PalGlobalCache *cache = 0;
+    uint32_t save_checksum;
 
     if (!PalGlobal_LoadDefault(nor, &cache)) {
         return 1;
@@ -1177,6 +1178,24 @@ static int check_global_cache(const PalPack *nor)
         checksum32(cache->script_entries.data, cache->script_entries.size) == 0 ||
         checksum32(cache->player_roles.data, cache->player_roles.size) == 0) {
         return 8;
+    }
+    save_checksum = checksum32(pal_psram_save_state, PAL_PSRAM_SAVE_STATE_BYTES);
+    if (!PalGlobal_LoadReadonly(nor, &cache)) {
+        return 9;
+    }
+    if (cache == 0 || cache->mutable_bytes != 0 ||
+        cache->event_objects.data != 0 ||
+        cache->scenes.data != 0 ||
+        cache->objects_dos.data != 0 ||
+        cache->player_roles.data != 0) {
+        return 10;
+    }
+    if (cache->script_entries.count != 42494u || cache->stores.count != 21u || cache->enemies.count != 350u ||
+        cache->enemy_teams.count != 390u || cache->magics.count != 114u || cache->battlefields.count != 130u) {
+        return 11;
+    }
+    if (save_checksum != checksum32(pal_psram_save_state, PAL_PSRAM_SAVE_STATE_BYTES)) {
+        return 12;
     }
     return 0;
 }
