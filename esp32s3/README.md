@@ -39,6 +39,6 @@ The firmware also tries to open a generated TF pack at:
 /sdcard/pal_tf.pak
 ```
 
-When that file is mounted and present, the app reads its pack table of contents into `pal_psram_tf_toc`, then reads `FBP #0` through the file-backed `PalPackToc_CopyRawReadAt()` path into `pal_sram_big_buffer` and uses it as the demo background. Missing TF storage is non-fatal; the app falls back to the synthetic background.
+Copy `/tmp/pal_tf_default.pak` to the card as `pal_tf.pak`. The CoreS3 SE TF slot shares SPI with the LCD: SCLK `GPIO36`, MOSI `GPIO37`, MISO/LCD D/C `GPIO35`, and TF CS `GPIO4`. The firmware mounts the card at `/sdcard`, switches the shared D/C-MISO pin to input for TF reads and back to output for LCD flushes, reads the pack table of contents into `pal_psram_tf_toc`, then reads `FBP #0` through the file-backed `PalPackToc_CopyRawReadAt()` path into `pal_sram_big_buffer` and uses it as the demo background. Missing TF storage is non-fatal; the app falls back to the synthetic background.
 
 The current firmware draws a 320x200 indexed framebuffer through `embedded/pal_video_static.c`, centered on the 320x240 LCD with 20-pixel black bars. Touch input is polled through FT6336 and marks the framebuffer. This proves the CoreS3 SE LCD/touch path without adding audio or runtime decompression.

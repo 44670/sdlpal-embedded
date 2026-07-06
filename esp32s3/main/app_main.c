@@ -59,6 +59,7 @@ static bool read_tf_pack_at(void *user, uint32_t offset, uint8_t *dst, uint32_t 
     if (dst == NULL && size != 0) {
         return false;
     }
+    CoreS3Se_PrepareTfAccess();
     while (done < size) {
         ssize_t got = pread(fd, dst + done, size - done, (off_t)offset + (off_t)done);
         if (got <= 0) {
@@ -400,7 +401,7 @@ void app_main(void)
     }
 
     pal_nor_ready = open_nor_pack();
-    pal_tf_ready = open_tf_pack();
+    pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     load_pack_palette_or_demo();
     load_tf_background();
     for (;;) {

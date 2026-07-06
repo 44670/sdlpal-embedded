@@ -11,9 +11,12 @@ idf_component_register(
     REQUIRES
         esp_driver_gpio
         esp_driver_i2c
+        esp_driver_sdspi
         esp_driver_spi
         esp_lcd
         esp_partition
+        fatfs
+        sdmmc
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE

@@ -13,6 +13,9 @@ extern "C" {
 #define CORES3SE_PAL_Y_OFFSET 20u
 
 bool CoreS3Se_Begin(void);
+bool CoreS3Se_MountTf(void);
+void CoreS3Se_PrepareTfAccess(void);
+void CoreS3Se_PrepareLcdAccess(void);
 bool CoreS3Se_FlushPalFramebuffer(void);
 bool CoreS3Se_TouchPoint(uint16_t *x, uint16_t *y);
 void CoreS3Se_ShowError(const char *line1, const char *line2);

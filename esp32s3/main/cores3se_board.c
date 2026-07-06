@@ -9,21 +9,26 @@
 
 #include <driver/gpio.h>
 #include <driver/i2c_master.h>
+#include <driver/sdspi_host.h>
 #include <driver/spi_master.h>
 #include <esp_err.h>
 #include <esp_lcd_io_spi.h>
 #include <esp_lcd_panel_commands.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_log.h>
+#include <esp_vfs_fat.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <sdmmc_cmd.h>
 
 static const char *TAG = "cores3se";
 
 static const uint32_t I2C_TIMEOUT_MS = 1000u;
 static const spi_host_device_t LCD_HOST = SPI3_HOST;
 static const uint32_t LCD_PIXEL_CLOCK_HZ = 40000000u;
+static const uint32_t TF_SPI_CLOCK_KHZ = 25000u;
 static const uint8_t BACKLIGHT_BRIGHTNESS = 60u;
+static const char *TF_MOUNT_POINT = "/sdcard";
 
 static const uint8_t AXP_REG_ENABLE0 = 0x90u;
 static const uint8_t AXP_REG_ALDO1 = 0x92u;
@@ -69,7 +74,9 @@ static i2c_master_dev_handle_t aw9523_dev;
 static i2c_master_dev_handle_t axp_dev;
 static i2c_master_dev_handle_t touch_dev;
 static esp_lcd_panel_io_handle_t lcd_io;
+static sdmmc_card_t *tf_card;
 static bool touch_ready;
+static bool tf_mounted;
 
 static bool log_error(esp_err_t err, const char *what)
 {
@@ -272,13 +279,14 @@ static bool init_lcd(void)
 
     bus_cfg.sclk_io_num = CORES3SE_PIN_LCD_SCLK;
     bus_cfg.mosi_io_num = CORES3SE_PIN_LCD_MOSI;
-    bus_cfg.miso_io_num = -1;
+    bus_cfg.miso_io_num = CORES3SE_PIN_LCD_DC;
     bus_cfg.quadwp_io_num = -1;
     bus_cfg.quadhd_io_num = -1;
     bus_cfg.max_transfer_sz = PAL_SRAM_DISPLAY_DMA_BYTES;
     if (!log_error(spi_bus_initialize(LCD_HOST, &bus_cfg, SPI_DMA_CH_AUTO), "init LCD SPI")) {
         return false;
     }
+    CoreS3Se_PrepareLcdAccess();
 
     io_cfg.cs_gpio_num = CORES3SE_PIN_LCD_CS;
     io_cfg.dc_gpio_num = CORES3SE_PIN_LCD_DC;
@@ -317,6 +325,16 @@ static bool init_lcd(void)
     if (!lcd_tx(LCD_CMD_DISPON, NULL, 0, "LCD DISPON")) return false;
     vTaskDelay(pdMS_TO_TICKS(20));
     return true;
+}
+
+static bool tf_card_present(void)
+{
+    uint8_t input0 = 0xFFu;
+
+    if (!aw_read(CORES3SE_AW9523_REG_INPUT0, &input0)) {
+        return false;
+    }
+    return (input0 & CORES3SE_AW9523_TF_DETECT_MASK) == 0;
 }
 
 static bool init_touch(void)
@@ -380,6 +398,57 @@ bool CoreS3Se_Begin(void)
     return flush_solid_rect(0, CORES3SE_LCD_HEIGHT, 0x0000u);
 }
 
+bool CoreS3Se_MountTf(void)
+{
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+        .format_if_mount_failed = false,
+        .max_files = 2,
+        .allocation_unit_size = 16u * 1024u,
+        .disk_status_check_enable = false,
+        .use_one_fat = false,
+    };
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    esp_err_t err;
+
+    if (tf_mounted) {
+        return true;
+    }
+    if (!tf_card_present()) {
+        ESP_LOGW(TAG, "TF card not present");
+        return false;
+    }
+
+    CoreS3Se_PrepareTfAccess();
+    host.slot = LCD_HOST;
+    host.max_freq_khz = TF_SPI_CLOCK_KHZ;
+    slot_config.host_id = LCD_HOST;
+    slot_config.gpio_cs = CORES3SE_PIN_TF_CS;
+
+    err = esp_vfs_fat_sdspi_mount(TF_MOUNT_POINT, &host, &slot_config, &mount_config, &tf_card);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "mount TF: %s", esp_err_to_name(err));
+        CoreS3Se_PrepareLcdAccess();
+        return false;
+    }
+
+    tf_mounted = true;
+    ESP_LOGI(TAG, "TF mounted at %s", TF_MOUNT_POINT);
+    CoreS3Se_PrepareLcdAccess();
+    return true;
+}
+
+void CoreS3Se_PrepareTfAccess(void)
+{
+    gpio_set_direction(CORES3SE_PIN_LCD_DC, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(CORES3SE_PIN_LCD_DC, GPIO_FLOATING);
+}
+
+void CoreS3Se_PrepareLcdAccess(void)
+{
+    gpio_set_direction(CORES3SE_PIN_LCD_DC, GPIO_MODE_OUTPUT);
+}
+
 bool CoreS3Se_FlushPalFramebuffer(void)
 {
     uint16_t y;
@@ -389,6 +458,7 @@ bool CoreS3Se_FlushPalFramebuffer(void)
     if (lcd_io == NULL) {
         return false;
     }
+    CoreS3Se_PrepareLcdAccess();
     if (!flush_solid_rect(0, CORES3SE_PAL_Y_OFFSET, 0x0000u)) {
         return false;
     }
