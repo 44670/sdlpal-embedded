@@ -29,6 +29,13 @@
 
 static char pal_save_path[512];
 
+#define SAVE_PLAYER_ROLES_OFFSET 508u
+#define SAVE_PLAYER_ROLES_BYTES 900u
+#define SAVE_SCENES_OFFSET 3264u
+#define SAVE_SCENES_BYTES (PAL_SCENE_COUNT * 8u)
+#define SAVE_EVENT_OBJECTS_OFFSET 12864u
+#define SAVE_EVENT_OBJECT_BYTES 32u
+
 typedef struct MappedPack {
     const uint8_t *data;
     uint32_t size;
@@ -647,6 +654,81 @@ static int check_scene_readat(
 
     close(fd);
     return rc;
+}
+
+static int check_scene_save_readat(
+    const char *tf_path,
+    const PalPack *nor,
+    const char *data_dir,
+    const char *save_name,
+    uint16_t expected_scene)
+{
+    PalPackToc toc;
+    PalSaveSlot save;
+    PalSceneSnapshot snapshot;
+    struct stat st;
+    const uint8_t *scene_records;
+    const uint8_t *event_objects;
+    uint32_t event_objects_size;
+    int fd;
+    int rc = 0;
+
+    if (make_data_path(data_dir, save_name) != 0) {
+        return 1;
+    }
+    if (!PalSave_ReadFile(pal_save_path, &save)) {
+        return 2;
+    }
+    if (save.scene_num != expected_scene ||
+        save.size < SAVE_PLAYER_ROLES_OFFSET + SAVE_PLAYER_ROLES_BYTES ||
+        save.size < SAVE_SCENES_OFFSET + SAVE_SCENES_BYTES ||
+        save.size < SAVE_EVENT_OBJECTS_OFFSET + SAVE_EVENT_OBJECT_BYTES) {
+        return 3;
+    }
+
+    scene_records = save.data + SAVE_SCENES_OFFSET;
+    event_objects = save.data + SAVE_EVENT_OBJECTS_OFFSET;
+    event_objects_size = save.size - SAVE_EVENT_OBJECTS_OFFSET;
+
+    fd = open(tf_path, O_RDONLY);
+    if (fd < 0) {
+        return 4;
+    }
+    if (fstat(fd, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7fffffffL) {
+        close(fd);
+        return 5;
+    }
+    if (!PalPack_OpenTocRead(&toc, read_at_fd, &fd, (uint32_t)st.st_size, pal_psram_tf_toc, PAL_PSRAM_TF_TOC_BYTES)) {
+        close(fd);
+        return 6;
+    }
+    if (!PalScene_LoadSnapshotReadAtWithSceneData(
+            nor,
+            &toc,
+            read_at_fd,
+            &fd,
+            scene_records,
+            SAVE_SCENES_BYTES,
+            event_objects,
+            event_objects_size,
+            save.scene_num,
+            &snapshot)) {
+        rc = 7;
+    }
+    close(fd);
+    if (rc != 0) {
+        return rc;
+    }
+
+    if (snapshot.scene_num != save.scene_num || snapshot.event_count == 0 || snapshot.sprite_ref_count == 0) {
+        return 8;
+    }
+    if (snapshot.map_num == 0 || snapshot.gop_size == 0 || snapshot.sprite_refs == 0 ||
+        checksum32(pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES) == 0 ||
+        checksum32(pal_psram_gop_copy, snapshot.gop_size) == 0) {
+        return 9;
+    }
+    return 0;
 }
 
 static int check_scene_pinned_readat(
@@ -1647,6 +1729,9 @@ int main(int argc, char **argv)
     }
     if (rc == 0) {
         rc = check_save_cache(argv[3]);
+    }
+    if (rc == 0) {
+        rc = check_scene_save_readat(argv[2], &nor.pack, argv[3], "2.rpg", 17);
     }
     if (rc == 0) {
         rc = check_music_cache(&nor.pack);

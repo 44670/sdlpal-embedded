@@ -55,6 +55,17 @@ bool PalScene_LoadSnapshotReadAtWithEvents(
     uint32_t event_objects_size,
     uint16_t scene_num,
     PalSceneSnapshot *snapshot);
+bool PalScene_LoadSnapshotReadAtWithSceneData(
+    const PalPack *nor_pack,
+    const PalPackToc *tf_toc,
+    PalPackReadAt read_at,
+    void *user,
+    const uint8_t *scene_records,
+    uint32_t scene_records_size,
+    const uint8_t *event_objects,
+    uint32_t event_objects_size,
+    uint16_t scene_num,
+    PalSceneSnapshot *snapshot);
 #if PAL_SCENE_ENABLE_PINNED
 bool PalScene_LoadPinnedSnapshot(
     const PalPack *nor_pack,

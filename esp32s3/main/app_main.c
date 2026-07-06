@@ -51,6 +51,11 @@ static const char *TF_SAVE_PATH = "/sdcard/1.rpg";
 #define SAVE_VIEWPORT_Y_OFFSET 4u
 #define SAVE_SCENE_OFFSET 8u
 #define SAVE_CASH_OFFSET 40u
+#define SAVE_PLAYER_ROLES_OFFSET 508u
+#define SAVE_PLAYER_ROLES_BYTES 900u
+#define SAVE_SCENES_OFFSET 3264u
+#define SAVE_SCENES_BYTES (PAL_SCENE_COUNT * 8u)
+#define SAVE_EVENT_OBJECTS_OFFSET 12864u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -80,7 +85,10 @@ static uint16_t pal_player_direction;
 static bool pal_player_walking;
 static int pal_initial_viewport_x;
 static int pal_initial_viewport_y;
-static uint8_t pal_save_header[SAVE_HEADER_BYTES];
+static const uint8_t *pal_save_player_roles;
+static const uint8_t *pal_save_scenes;
+static const uint8_t *pal_save_event_objects;
+static uint32_t pal_save_event_objects_size;
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -280,9 +288,11 @@ static bool open_tf_pack(void)
     return true;
 }
 
-static void load_startup_save_header(void)
+static bool load_startup_save(void)
 {
     int fd;
+    struct stat st;
+    uint32_t size;
     uint32_t done = 0;
     uint16_t scene_num;
     uint16_t viewport_x;
@@ -290,46 +300,67 @@ static void load_startup_save_header(void)
 
     pal_initial_viewport_x = 0;
     pal_initial_viewport_y = 0;
+    pal_save_player_roles = NULL;
+    pal_save_scenes = NULL;
+    pal_save_event_objects = NULL;
+    pal_save_event_objects_size = 0;
 
     if (!pal_tf_ready) {
-        return;
+        return false;
     }
 
     CoreS3Se_PrepareTfAccess();
     fd = open(TF_SAVE_PATH, O_RDONLY);
     if (fd < 0) {
         ESP_LOGI(TAG, "startup save missing: %s", TF_SAVE_PATH);
-        return;
+        return false;
+    }
+    if (fstat(fd, &st) != 0 ||
+        st.st_size < (off_t)(SAVE_EVENT_OBJECTS_OFFSET + SSS_EVENT_OBJECT_BYTES) ||
+        st.st_size > (off_t)PAL_PSRAM_SAVE_STATE_BYTES) {
+        ESP_LOGW(TAG, "startup save size unsupported: %s", TF_SAVE_PATH);
+        close(fd);
+        return false;
     }
 
-    while (done < SAVE_HEADER_BYTES) {
-        ssize_t got = read(fd, pal_save_header + done, SAVE_HEADER_BYTES - done);
+    size = (uint32_t)st.st_size;
+    while (done < size) {
+        ssize_t got = read(fd, pal_psram_save_state + done, size - done);
         if (got <= 0) {
-            ESP_LOGW(TAG, "startup save header read failed: %s", TF_SAVE_PATH);
+            ESP_LOGW(TAG, "startup save read failed: %s", TF_SAVE_PATH);
             close(fd);
-            return;
+            return false;
         }
         done += (uint32_t)got;
     }
     close(fd);
 
-    scene_num = read_le16(pal_save_header + SAVE_SCENE_OFFSET);
-    viewport_x = read_le16(pal_save_header + SAVE_VIEWPORT_X_OFFSET);
-    viewport_y = read_le16(pal_save_header + SAVE_VIEWPORT_Y_OFFSET);
-    if (scene_num == 0 || scene_num >= PAL_SCENE_COUNT) {
+    scene_num = read_le16(pal_psram_save_state + SAVE_SCENE_OFFSET);
+    viewport_x = read_le16(pal_psram_save_state + SAVE_VIEWPORT_X_OFFSET);
+    viewport_y = read_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET);
+    if (scene_num == 0 ||
+        scene_num >= PAL_SCENE_COUNT ||
+        size < SAVE_PLAYER_ROLES_OFFSET + SAVE_PLAYER_ROLES_BYTES ||
+        size < SAVE_SCENES_OFFSET + SAVE_SCENES_BYTES) {
         ESP_LOGW(TAG, "startup save scene out of range: %u", (unsigned)scene_num);
-        return;
+        return false;
     }
 
     pal_scene_num = scene_num;
     pal_initial_viewport_x = viewport_x;
     pal_initial_viewport_y = viewport_y;
+    pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
+    pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
+    pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
+    pal_save_event_objects_size = size - SAVE_EVENT_OBJECTS_OFFSET;
     ESP_LOGI(TAG,
-             "startup save header: scene=%u viewport=%u,%u cash=%" PRIu32,
+             "startup save loaded: bytes=%" PRIu32 " scene=%u viewport=%u,%u cash=%" PRIu32,
+             size,
              (unsigned)scene_num,
              (unsigned)viewport_x,
              (unsigned)viewport_y,
-             read_le32(pal_save_header + SAVE_CASH_OFFSET));
+             read_le32(pal_psram_save_state + SAVE_CASH_OFFSET));
+    return true;
 }
 
 static void load_pack_palette_or_demo(void)
@@ -365,15 +396,26 @@ static void load_global_cache(void)
 
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 {
+    const uint8_t *player_roles;
+    uint32_t player_roles_size;
     uint32_t offset = field_offset + (uint32_t)role * 2u;
-    if (pal_global_cache == NULL ||
-        pal_global_cache->player_roles.data == NULL ||
-        role >= PLAYER_ROLE_COUNT ||
-        offset > pal_global_cache->player_roles.size ||
-        2u > pal_global_cache->player_roles.size - offset) {
+
+    if (pal_save_player_roles != NULL) {
+        player_roles = pal_save_player_roles;
+        player_roles_size = SAVE_PLAYER_ROLES_BYTES;
+    } else if (pal_global_cache != NULL && pal_global_cache->player_roles.data != NULL) {
+        player_roles = pal_global_cache->player_roles.data;
+        player_roles_size = pal_global_cache->player_roles.size;
+    } else {
         return 0;
     }
-    return read_le16(pal_global_cache->player_roles.data + offset);
+
+    if (role >= PLAYER_ROLE_COUNT ||
+        offset > player_roles_size ||
+        2u > player_roles_size - offset) {
+        return 0;
+    }
+    return read_le16(player_roles + offset);
 }
 
 static void load_player_sprite(void)
@@ -439,13 +481,32 @@ static void load_tf_scene_chunks(void)
         return;
     }
 
-    if (pal_global_cache != NULL) {
+    if (pal_save_event_objects != NULL) {
+        event_objects = pal_save_event_objects;
+        event_objects_size = pal_save_event_objects_size;
+        event_objects_mutable = true;
+    } else if (pal_global_cache != NULL) {
         event_objects = pal_global_cache->event_objects.data;
         event_objects_size = pal_global_cache->event_objects.size;
         event_objects_mutable = true;
     }
 
-    if (event_objects != NULL) {
+    if (pal_save_scenes != NULL && event_objects != NULL) {
+        if (!PalScene_LoadSnapshotReadAtWithSceneData(
+                &pal_nor_pack,
+                &pal_tf_toc,
+                read_tf_pack_at,
+                &pal_tf_fd,
+                pal_save_scenes,
+                SAVE_SCENES_BYTES,
+                event_objects,
+                event_objects_size,
+                pal_scene_num,
+                &pal_scene_snapshot)) {
+            ESP_LOGW(TAG, "TF scene snapshot load failed");
+            return;
+        }
+    } else if (event_objects != NULL) {
         if (!PalScene_LoadSnapshotReadAtWithEvents(
                 &pal_nor_pack,
                 &pal_tf_toc,
@@ -949,7 +1010,9 @@ void app_main(void)
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     load_pack_palette_or_demo();
     load_global_cache();
-    load_startup_save_header();
+    if (!load_startup_save()) {
+        load_global_cache();
+    }
     load_player_sprite();
     load_tf_scene_chunks();
     for (;;) {
