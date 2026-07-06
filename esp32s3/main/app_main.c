@@ -1,6 +1,7 @@
 #include "cores3se_board.h"
 #include "pal_save_fatfs.h"
 
+#include "../../embedded/pal_dialog_static.h"
 #include "../../embedded/pal_font_cache.h"
 #include "../../embedded/pal_global_cache.h"
 #include "../../embedded/pal_memory.h"
@@ -8,6 +9,7 @@
 #include "../../embedded/pal_palette_static.h"
 #include "../../embedded/pal_scene_cache.h"
 #include "../../embedded/pal_text_cache.h"
+#include "../../embedded/pal_ui_cache.h"
 #include "../../embedded/pal_video_static.h"
 
 #include <esp_log.h>
@@ -85,6 +87,11 @@ static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
 static PalTextCache pal_text_cache;
 static PalFontCache pal_font_cache;
+static PalUiAsset pal_ui_sprite_asset;
+static PalUiAsset pal_ui_battle_effect_asset;
+static PalUiAsset pal_ui_item_sample_asset;
+static PalUiAsset pal_ui_face_sample_asset;
+static PalDialogAsset pal_dialog_icon_asset;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
@@ -93,6 +100,8 @@ static bool pal_nor_ready;
 static bool pal_tf_ready;
 static bool pal_text_ready;
 static bool pal_font_ready;
+static bool pal_ui_ready;
+static bool pal_dialog_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -809,6 +818,49 @@ static void load_text_font_cache(void)
              (unsigned)pal_text_cache.message_count,
              pal_font_ready ? 1u : 0u,
              (unsigned)pal_font_cache.glyph_count);
+}
+
+static void load_ui_dialog_cache(void)
+{
+    pal_ui_ready = false;
+    pal_dialog_ready = false;
+    pal_ui_sprite_asset.data = NULL;
+    pal_ui_sprite_asset.size = 0;
+    pal_ui_battle_effect_asset.data = NULL;
+    pal_ui_battle_effect_asset.size = 0;
+    pal_ui_item_sample_asset.data = NULL;
+    pal_ui_item_sample_asset.size = 0;
+    pal_ui_face_sample_asset.data = NULL;
+    pal_ui_face_sample_asset.size = 0;
+    pal_dialog_icon_asset.data = NULL;
+    pal_dialog_icon_asset.size = 0;
+
+    if (!pal_nor_ready) {
+        return;
+    }
+
+    pal_ui_ready = PalUi_MapUiSprite(&pal_nor_pack, &pal_ui_sprite_asset) &&
+                   PalUi_MapBattleEffect(&pal_nor_pack, &pal_ui_battle_effect_asset) &&
+                   PalUi_MapItemBitmap(&pal_nor_pack, 95u, &pal_ui_item_sample_asset) &&
+                   PalUi_MapFaceBitmap(&pal_nor_pack, 72u, &pal_ui_face_sample_asset);
+    if (!pal_ui_ready) {
+        ESP_LOGW(TAG, "PAL UI cache load failed");
+    }
+
+    pal_dialog_ready = PalDialog_MapIcons(&pal_nor_pack, &pal_dialog_icon_asset);
+    if (!pal_dialog_ready) {
+        ESP_LOGW(TAG, "PAL dialog cache load failed");
+    }
+
+    ESP_LOGI(TAG,
+             "PAL UI/dialog cache: ui=%u ui_bytes=%" PRIu32 " effect=%" PRIu32 " item=%" PRIu32 " face=%" PRIu32 " dialog=%u icons=%" PRIu32,
+             pal_ui_ready ? 1u : 0u,
+             pal_ui_sprite_asset.size,
+             pal_ui_battle_effect_asset.size,
+             pal_ui_item_sample_asset.size,
+             pal_ui_face_sample_asset.size,
+             pal_dialog_ready ? 1u : 0u,
+             pal_dialog_icon_asset.size);
 }
 
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
@@ -1531,6 +1583,7 @@ void app_main(void)
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     reset_party_state();
     load_text_font_cache();
+    load_ui_dialog_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }
