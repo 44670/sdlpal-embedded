@@ -328,6 +328,8 @@ static uint16_t pal_music_num;
 static uint16_t pal_battle_music_num;
 static uint16_t pal_battlefield_num;
 static uint16_t pal_screen_wave;
+static int16_t pal_screen_wave_progression;
+static uint8_t pal_screen_wave_index;
 static uint16_t pal_screen_shake_ticks;
 static uint8_t pal_screen_shake_level;
 static uint8_t pal_screen_shake_phase;
@@ -935,6 +937,8 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_battle_music_num = 0;
     pal_battlefield_num = 0;
     pal_screen_wave = 0;
+    pal_screen_wave_progression = 0;
+    pal_screen_wave_index = 0;
     pal_screen_shake_ticks = 0;
     pal_screen_shake_level = 0;
     pal_screen_shake_phase = 0;
@@ -1023,6 +1027,8 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_battle_music_num = read_le16(pal_psram_save_state + SAVE_BATTLE_MUSIC_OFFSET);
     pal_battlefield_num = read_le16(pal_psram_save_state + SAVE_BATTLEFIELD_OFFSET);
     pal_screen_wave = read_le16(pal_psram_save_state + SAVE_SCREEN_WAVE_OFFSET);
+    pal_screen_wave_progression = 0;
+    pal_screen_wave_index = 0;
     pal_current_rng_num = 0;
     pal_rng_playing = false;
     pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
@@ -1102,6 +1108,8 @@ static bool load_default_runtime_state(void)
     pal_battle_music_num = 0;
     pal_battlefield_num = 0;
     pal_screen_wave = 0;
+    pal_screen_wave_progression = 0;
+    pal_screen_wave_index = 0;
     pal_screen_shake_ticks = 0;
     pal_screen_shake_level = 0;
     pal_screen_shake_phase = 0;
@@ -3077,6 +3085,8 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_SCREEN_WAVE:
             pal_screen_wave = entry.operand[0];
+            pal_screen_wave_progression = (int16_t)entry.operand[1];
+            pal_screen_wave_index = 0;
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -4150,28 +4160,10 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
 static void draw_scene_background(uint32_t tick)
 {
     if (pal_tf_scene_ready) {
-        int wave = (pal_screen_wave != 0) ? (int)((tick & 7u) - 3u) : 0;
-        int y;
-
         memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
         draw_map_layer(0, pal_viewport_x, pal_viewport_y);
         draw_map_layer(1, pal_viewport_x, pal_viewport_y);
         draw_scene_event_sprites(pal_viewport_x, pal_viewport_y);
-        if (wave != 0) {
-            for (y = 0; y < PAL_VIDEO_HEIGHT; y++) {
-                uint8_t *row = pal_sram_framebuffer + (uint32_t)y * PAL_VIDEO_WIDTH;
-                int shift = ((y / 8) & 1) ? wave : -wave;
-
-                if (shift > 0) {
-                    memmove(row + shift, row, PAL_VIDEO_WIDTH - (uint32_t)shift);
-                    memset(row, 0, (uint32_t)shift);
-                } else if (shift < 0) {
-                    uint32_t amount = (uint32_t)(-shift);
-                    memmove(row, row + amount, PAL_VIDEO_WIDTH - amount);
-                    memset(row + PAL_VIDEO_WIDTH - amount, 0, amount);
-                }
-            }
-        }
     } else {
         uint32_t x;
         uint32_t y;
@@ -4540,6 +4532,55 @@ static void draw_dialog_overlay(void)
     draw_utf16_text(message, message_size, x + 8, y + 8, width - 16, height - 16, 0x2Fu);
 }
 
+static void apply_screen_wave(void)
+{
+    uint16_t wave[32];
+    uint8_t *line_tmp = pal_sram_misc;
+    int wave_value;
+    int a = pal_screen_wave_index;
+    int b = 68;
+    int row;
+    int i;
+
+    if (pal_screen_wave_progression != 0) {
+        wave_value = (int)pal_screen_wave + pal_screen_wave_progression;
+        if (wave_value <= 0 || wave_value >= 256) {
+            pal_screen_wave = 0;
+            pal_screen_wave_progression = 0;
+            pal_screen_wave_index = 0;
+            return;
+        }
+        pal_screen_wave = (uint16_t)wave_value;
+    }
+    if (pal_screen_wave == 0 || pal_screen_wave >= 256u) {
+        pal_screen_wave = 0;
+        pal_screen_wave_progression = 0;
+        pal_screen_wave_index = 0;
+        return;
+    }
+
+    wave_value = 0;
+    for (i = 0; i < 16; i++) {
+        b -= 8;
+        wave_value += b;
+        wave[i] = (uint16_t)(wave_value * (int)pal_screen_wave / 256);
+        wave[i + 16] = (uint16_t)(PAL_VIDEO_WIDTH - wave[i]);
+    }
+
+    for (row = 0; row < (int)PAL_VIDEO_HEIGHT; row++) {
+        uint8_t *line = pal_sram_framebuffer + (uint32_t)row * PAL_VIDEO_WIDTH;
+        uint16_t shift = wave[a];
+
+        if (shift != 0 && shift < PAL_VIDEO_WIDTH) {
+            memcpy(line_tmp, line, shift);
+            memmove(line, line + shift, PAL_VIDEO_WIDTH - shift);
+            memcpy(line + PAL_VIDEO_WIDTH - shift, line_tmp, shift);
+        }
+        a = (a + 1) & 31;
+    }
+    pal_screen_wave_index = (uint8_t)((pal_screen_wave_index + 1u) & 31u);
+}
+
 static void apply_screen_shake(void)
 {
     int shift = (int)pal_screen_shake_level;
@@ -4606,6 +4647,7 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
             }
         }
     }
+    apply_screen_wave();
     draw_dialog_overlay();
     draw_shop_overlay();
     apply_screen_shake();
