@@ -42,6 +42,9 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define PLAYER_ROLE_WALK_FRAMES_OFFSET 768u
 #define DEMO_PARTY_SCREEN_X 160
 #define DEMO_PARTY_SCREEN_Y 112
+#define DEMO_TOUCH_DEADZONE 12
+#define DEMO_STEP_X 16
+#define DEMO_STEP_Y 8
 #define DEMO_DIR_SOUTH 0u
 #define DEMO_DIR_WEST 1u
 #define DEMO_DIR_NORTH 2u
@@ -79,10 +82,7 @@ static uint32_t pal_scene_event_objects_size;
 static bool pal_scene_event_objects_mutable;
 static int pal_viewport_x;
 static int pal_viewport_y;
-static bool pal_touch_tracking;
 static bool pal_touch_scene_gate;
-static uint16_t pal_touch_last_x;
-static uint16_t pal_touch_last_y;
 static const uint8_t *pal_player_sprite;
 static uint32_t pal_player_sprite_size;
 static uint16_t pal_player_walk_frames;
@@ -242,51 +242,78 @@ static bool viewport_party_position_blocked(int viewport_x, int viewport_y)
            event_position_blocked(world_x, world_y);
 }
 
-static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
+static void move_party_direction(uint16_t direction)
 {
     const int max_x = DEMO_MAP_PIXEL_WIDTH - 320;
     const int max_y = DEMO_MAP_PIXEL_HEIGHT - 200;
+    int old_x = pal_viewport_x;
+    int old_y = pal_viewport_y;
+    int target_x = pal_viewport_x;
+    int target_y = pal_viewport_y;
+
+    switch (direction) {
+    case DEMO_DIR_SOUTH:
+        target_x -= DEMO_STEP_X;
+        target_y += DEMO_STEP_Y;
+        break;
+    case DEMO_DIR_WEST:
+        target_x -= DEMO_STEP_X;
+        target_y -= DEMO_STEP_Y;
+        break;
+    case DEMO_DIR_NORTH:
+        target_x += DEMO_STEP_X;
+        target_y -= DEMO_STEP_Y;
+        break;
+    case DEMO_DIR_EAST:
+        target_x += DEMO_STEP_X;
+        target_y += DEMO_STEP_Y;
+        break;
+    default:
+        pal_player_walking = false;
+        return;
+    }
+
+    target_x = clamp_int(target_x, 0, max_x);
+    target_y = clamp_int(target_y, 0, max_y);
+    pal_player_direction = direction;
+
+    if (!viewport_party_position_blocked(target_x, target_y)) {
+        pal_viewport_x = target_x;
+        pal_viewport_y = target_y;
+    }
+    pal_player_walking = pal_viewport_x != old_x || pal_viewport_y != old_y;
+}
+
+static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
+{
     uint16_t local_y;
+    int touch_dx;
+    int touch_dy;
+    uint16_t direction;
 
     if (!pal_tf_scene_ready ||
         !touched ||
         ty < CORES3SE_PAL_Y_OFFSET ||
         ty >= CORES3SE_PAL_Y_OFFSET + 200u) {
-        pal_touch_tracking = false;
         pal_player_walking = false;
         return;
     }
 
     local_y = (uint16_t)(ty - CORES3SE_PAL_Y_OFFSET);
-    if (pal_touch_tracking) {
-        int dx = (int)pal_touch_last_x - (int)tx;
-        int dy = (int)pal_touch_last_y - (int)local_y;
-        int mag_x = dx < 0 ? -dx : dx;
-        int mag_y = dy < 0 ? -dy : dy;
-        int old_x = pal_viewport_x;
-        int old_y = pal_viewport_y;
-        int target_x = clamp_int(pal_viewport_x + dx, 0, max_x);
-        int target_y = clamp_int(pal_viewport_y + dy, 0, max_y);
-
-        if (!viewport_party_position_blocked(target_x, target_y)) {
-            pal_viewport_x = target_x;
-            pal_viewport_y = target_y;
-        }
-        pal_player_walking = pal_viewport_x != old_x || pal_viewport_y != old_y;
-        if (mag_x != 0 || mag_y != 0) {
-            if (mag_x > mag_y * 2) {
-                pal_player_direction = dx > 0 ? DEMO_DIR_EAST : DEMO_DIR_WEST;
-            } else if (mag_y > mag_x / 2) {
-                pal_player_direction = dy > 0 ? DEMO_DIR_SOUTH : DEMO_DIR_NORTH;
-            }
-        }
-    } else {
+    touch_dx = (int)tx - DEMO_PARTY_SCREEN_X;
+    touch_dy = (int)local_y - DEMO_PARTY_SCREEN_Y;
+    if (abs_int(touch_dx) + abs_int(touch_dy) < DEMO_TOUCH_DEADZONE) {
         pal_player_walking = false;
+        pal_touch_scene_gate = false;
+        return;
     }
 
-    pal_touch_last_x = tx;
-    pal_touch_last_y = local_y;
-    pal_touch_tracking = true;
+    if (touch_dx < 0) {
+        direction = touch_dy < 0 ? DEMO_DIR_WEST : DEMO_DIR_SOUTH;
+    } else {
+        direction = touch_dy < 0 ? DEMO_DIR_NORTH : DEMO_DIR_EAST;
+    }
+    move_party_direction(direction);
     pal_touch_scene_gate = false;
 }
 
@@ -784,7 +811,6 @@ static void select_relative_scene(int delta)
         next_scene = 1;
     }
 
-    pal_touch_tracking = false;
     pal_initial_viewport_x = 0;
     pal_initial_viewport_y = 0;
     pal_scene_num = (uint16_t)next_scene;
