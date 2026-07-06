@@ -144,6 +144,59 @@ static int clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
+static bool map_tile_blocked(int x, int y, int h)
+{
+    uint32_t offset;
+
+    if (!pal_tf_scene_ready || x < 0 || x >= 64 || y < 0 || y >= 128 || h < 0 || h > 1) {
+        return true;
+    }
+
+    offset = ((((uint32_t)y * 64u) + (uint32_t)x) * 2u + (uint32_t)h) * 4u;
+    return (read_le32(pal_psram_map_tiles + offset) & 0x2000u) != 0;
+}
+
+static bool map_position_blocked(int world_x, int world_y)
+{
+    int x;
+    int y;
+    int h = 0;
+    int xr;
+    int yr;
+    int diagonal;
+
+    if (world_x < 0 || world_y < 0) {
+        return true;
+    }
+
+    x = world_x / 32;
+    y = world_y / 16;
+    xr = world_x % 32;
+    yr = world_y % 16;
+    diagonal = xr + yr * 2;
+
+    if (diagonal >= 16) {
+        if (diagonal >= 48) {
+            x++;
+            y++;
+        } else if (32 - xr + yr * 2 < 16) {
+            x++;
+        } else if (32 - xr + yr * 2 < 48) {
+            h = 1;
+        } else {
+            y++;
+        }
+    }
+
+    return map_tile_blocked(x, y, h);
+}
+
+static bool viewport_party_position_blocked(int viewport_x, int viewport_y)
+{
+    return map_position_blocked(viewport_x + DEMO_PARTY_SCREEN_X,
+                                viewport_y + DEMO_PARTY_SCREEN_Y);
+}
+
 static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
 {
     const int max_x = DEMO_MAP_PIXEL_WIDTH - 320;
@@ -167,11 +220,15 @@ static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
         int mag_y = dy < 0 ? -dy : dy;
         int old_x = pal_viewport_x;
         int old_y = pal_viewport_y;
+        int target_x = clamp_int(pal_viewport_x + dx, 0, max_x);
+        int target_y = clamp_int(pal_viewport_y + dy, 0, max_y);
 
-        pal_viewport_x = clamp_int(pal_viewport_x + dx, 0, max_x);
-        pal_viewport_y = clamp_int(pal_viewport_y + dy, 0, max_y);
+        if (!viewport_party_position_blocked(target_x, target_y)) {
+            pal_viewport_x = target_x;
+            pal_viewport_y = target_y;
+        }
         pal_player_walking = pal_viewport_x != old_x || pal_viewport_y != old_y;
-        if (pal_player_walking) {
+        if (mag_x != 0 || mag_y != 0) {
             if (mag_x > mag_y * 2) {
                 pal_player_direction = dx > 0 ? DEMO_DIR_EAST : DEMO_DIR_WEST;
             } else if (mag_y > mag_x / 2) {
