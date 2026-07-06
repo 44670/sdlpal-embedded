@@ -105,7 +105,23 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_SET_FRAME_SOUTH 0x0014u
 #define SCRIPT_SET_AUTO_SCRIPT 0x0024u
 #define SCRIPT_SET_TRIGGER_SCRIPT 0x0025u
-#define SCRIPT_SET_TRIGGER_MODE 0x007Du
+#define SCRIPT_SET_TRIGGER_MODE 0x0040u
+#define SCRIPT_SET_MUSIC 0x0043u
+#define SCRIPT_SET_BATTLE_MUSIC 0x0045u
+#define SCRIPT_SET_PARTY_POSITION 0x0046u
+#define SCRIPT_PLAY_SOUND 0x0047u
+#define SCRIPT_SET_EVENT_STATE 0x0049u
+#define SCRIPT_FADE_OUT 0x0050u
+#define SCRIPT_FADE_IN 0x0051u
+#define SCRIPT_USE_DAY_PALETTE 0x0053u
+#define SCRIPT_USE_NIGHT_PALETTE 0x0054u
+#define SCRIPT_CHANGE_SCENE 0x0059u
+#define SCRIPT_MOVE_PLAYER 0x006Eu
+#define SCRIPT_SET_SCENE_SCRIPTS 0x006Du
+#define SCRIPT_SET_PARTY 0x0075u
+#define SCRIPT_MOVE_EVENT_ONE_STEP 0x006Cu
+#define SCRIPT_MOVE_EVENT 0x007Du
+#define SCRIPT_SET_EVENT_LAYER 0x007Eu
 #define SCRIPT_ANIMATE_EVENT 0x0087u
 #define SCRIPT_DIALOG_TEXT 0xFFFFu
 #define SCRIPT_AUTO_MAX_JUMPS 8u
@@ -151,6 +167,7 @@ static bool pal_music_ready;
 static bool pal_ending_ready;
 static bool pal_script_ready;
 static bool pal_tf_scene_ready;
+static uint8_t pal_scene_enter_reload_depth;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
 static uint16_t pal_scene_script_idle;
@@ -459,6 +476,7 @@ static void sync_runtime_save_position(void)
     write_le16(pal_psram_save_state + SAVE_VIEWPORT_X_OFFSET, (uint16_t)pal_viewport_x);
     write_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET, (uint16_t)pal_viewport_y);
     write_le16(pal_psram_save_state + SAVE_PARTY_DIRECTION_OFFSET, pal_player_direction);
+    write_le16(pal_psram_save_state + SAVE_LAYER_OFFSET, pal_party_layer);
 
     for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         uint8_t *trail = pal_psram_save_state + SAVE_TRAIL_OFFSET + (uint32_t)i * TRAIL_STRUCT_BYTES;
@@ -1301,13 +1319,13 @@ static const uint8_t *current_scene_record(void)
     return scenes + offset;
 }
 
-static uint8_t *mutable_current_scene_record(void)
+static uint8_t *mutable_scene_record(uint16_t scene_num)
 {
     uint8_t *scenes = NULL;
     uint32_t scenes_size = 0;
     uint32_t offset;
 
-    if (pal_scene_num == 0 || pal_scene_num > PAL_SCENE_COUNT) {
+    if (scene_num == 0 || scene_num > PAL_SCENE_COUNT) {
         return NULL;
     }
     if (pal_save_scenes != NULL) {
@@ -1321,11 +1339,16 @@ static uint8_t *mutable_current_scene_record(void)
         return NULL;
     }
 
-    offset = (uint32_t)(pal_scene_num - 1u) * PAL_GLOBAL_SCENE_BYTES;
+    offset = (uint32_t)(scene_num - 1u) * PAL_GLOBAL_SCENE_BYTES;
     if (offset > scenes_size || PAL_GLOBAL_SCENE_BYTES > scenes_size - offset) {
         return NULL;
     }
     return scenes + offset;
+}
+
+static uint8_t *mutable_current_scene_record(void)
+{
+    return mutable_scene_record(pal_scene_num);
 }
 
 static uint16_t trace_script_steps(uint16_t script_entry, uint16_t *first_operation)
@@ -1413,6 +1436,7 @@ static void load_tf_scene_chunks(void)
     const uint8_t *event_objects = NULL;
     uint32_t event_objects_size = 0;
     bool event_objects_mutable = false;
+    uint16_t loaded_scene = pal_scene_num;
 
     pal_tf_scene_ready = false;
     pal_scene_event_objects = NULL;
@@ -1507,6 +1531,12 @@ static void load_tf_scene_chunks(void)
              pal_tf_scene_checksum);
     log_scene_script_summary();
     run_scene_enter_script_subset();
+    if (pal_scene_num != loaded_scene && pal_scene_enter_reload_depth < 3u) {
+        pal_scene_enter_reload_depth++;
+        load_tf_scene_chunks();
+        pal_scene_enter_reload_depth--;
+        return;
+    }
     load_player_sprite();
 }
 
@@ -1600,6 +1630,31 @@ static void advance_event_object_frame(uint8_t *event_object)
     frame = read_le16(event_object + EVENT_CURRENT_FRAME_OFFSET);
     frame = (uint16_t)((frame + 1u) % sprite_frames);
     write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, frame);
+}
+
+static void set_party_world_position(int world_x, int world_y, uint16_t layer)
+{
+    uint16_t i;
+
+    pal_viewport_x = clamp_int(world_x - DEMO_PARTY_SCREEN_X, 0, DEMO_MAP_PIXEL_WIDTH - 320);
+    pal_viewport_y = clamp_int(world_y - DEMO_PARTY_SCREEN_Y, 0, DEMO_MAP_PIXEL_HEIGHT - 200);
+    pal_initial_viewport_x = pal_viewport_x;
+    pal_initial_viewport_y = pal_viewport_y;
+    pal_party_layer = layer;
+
+    for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+        pal_trail_x[i] = (uint16_t)clamp_int(world_x, 0, DEMO_MAP_PIXEL_WIDTH - 1);
+        pal_trail_y[i] = (uint16_t)clamp_int(world_y, 0, DEMO_MAP_PIXEL_HEIGHT - 1);
+        pal_trail_direction[i] = pal_player_direction;
+    }
+}
+
+static void move_party_world_offset(int dx, int dy, uint16_t layer)
+{
+    int world_x = pal_viewport_x + DEMO_PARTY_SCREEN_X + dx;
+    int world_y = pal_viewport_y + DEMO_PARTY_SCREEN_Y + dy;
+
+    set_party_world_position(world_x, world_y, layer);
 }
 
 static uint16_t execute_script_mutation(
@@ -1735,6 +1790,152 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SET_TRIGGER_MODE:
             if (current != NULL) {
                 write_le16(current + EVENT_TRIGGER_MODE_OFFSET, entry.operand[1]);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_MUSIC:
+        case SCRIPT_SET_BATTLE_MUSIC:
+        case SCRIPT_PLAY_SOUND:
+        case SCRIPT_FADE_OUT:
+        case SCRIPT_FADE_IN:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_USE_DAY_PALETTE:
+            pal_palette_night = false;
+            load_pack_palette_or_demo();
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_USE_NIGHT_PALETTE:
+            pal_palette_night = true;
+            load_pack_palette_or_demo();
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_CHANGE_SCENE:
+            if (entry.operand[0] > 0 && entry.operand[0] <= PAL_SCENE_COUNT && pal_scene_num != entry.operand[0]) {
+                pal_scene_num = entry.operand[0];
+                pal_initial_viewport_x = 0;
+                pal_initial_viewport_y = 0;
+            }
+            return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_SET_PARTY_POSITION:
+            set_party_world_position(
+                (int)entry.operand[0] * 32 + (int)entry.operand[2] * 16,
+                (int)entry.operand[1] * 16 + (int)entry.operand[2] * 8,
+                pal_party_layer);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_PARTY:
+        {
+            uint16_t i;
+            uint16_t count = 0;
+
+            for (i = 0; i < 3u && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+                if (entry.operand[i] != 0) {
+                    pal_party_roles[count++] = (uint16_t)(entry.operand[i] - 1u);
+                }
+            }
+            if (count == 0) {
+                pal_party_roles[0] = 0;
+                count = 1;
+            }
+            pal_max_party_member_index = (uint16_t)(count - 1u);
+            if (pal_follower_count > DEMO_PLAYABLE_PARTY_SLOTS - 1u - pal_max_party_member_index) {
+                pal_follower_count = DEMO_PLAYABLE_PARTY_SLOTS - 1u - pal_max_party_member_index;
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
+
+        case SCRIPT_SET_EVENT_STATE:
+            if (current != NULL) {
+                write_le16(current + EVENT_STATE_OFFSET, entry.operand[1]);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_MOVE_EVENT_ONE_STEP:
+            if (current != NULL) {
+                write_le16(current + EVENT_X_OFFSET, (uint16_t)(read_s16(current + EVENT_X_OFFSET) + (int16_t)entry.operand[1]));
+                write_le16(current + EVENT_Y_OFFSET, (uint16_t)(read_s16(current + EVENT_Y_OFFSET) + (int16_t)entry.operand[2]));
+                advance_event_object_frame(current);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_SCENE_SCRIPTS:
+            if (entry.operand[0] != 0) {
+                uint8_t *scene = mutable_scene_record(entry.operand[0]);
+                if (scene != NULL) {
+                    if (entry.operand[1] != 0) {
+                        write_le16(scene + SCENE_SCRIPT_ON_ENTER_OFFSET, entry.operand[1]);
+                    }
+                    if (entry.operand[2] != 0) {
+                        write_le16(scene + SCENE_SCRIPT_ON_TELEPORT_OFFSET, entry.operand[2]);
+                    }
+                    if (entry.operand[1] == 0 && entry.operand[2] == 0) {
+                        write_le16(scene + SCENE_SCRIPT_ON_ENTER_OFFSET, 0);
+                        write_le16(scene + SCENE_SCRIPT_ON_TELEPORT_OFFSET, 0);
+                    }
+                }
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_MOVE_PLAYER:
+            move_party_world_offset((int16_t)entry.operand[0], (int16_t)entry.operand[1], (uint16_t)(entry.operand[2] * 8u));
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_MOVE_EVENT:
+            if (current != NULL) {
+                write_le16(current + EVENT_X_OFFSET, (uint16_t)(read_s16(current + EVENT_X_OFFSET) + (int16_t)entry.operand[1]));
+                write_le16(current + EVENT_Y_OFFSET, (uint16_t)(read_s16(current + EVENT_Y_OFFSET) + (int16_t)entry.operand[2]));
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_EVENT_LAYER:
+            if (current != NULL) {
+                write_le16(current + EVENT_LAYER_OFFSET, entry.operand[1]);
             }
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
