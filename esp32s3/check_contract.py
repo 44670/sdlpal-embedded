@@ -35,6 +35,8 @@ SOURCE_FILES = (
     "embedded/pal_battle_cache.h",
     "embedded/pal_dialog_static.c",
     "embedded/pal_dialog_static.h",
+    "embedded/pal_ending_static.c",
+    "embedded/pal_ending_static.h",
     "embedded/pal_font_cache.c",
     "embedded/pal_font_cache.h",
     "embedded/pal_global_cache.c",

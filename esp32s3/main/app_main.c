@@ -4,6 +4,7 @@
 #include "../../embedded/pal_audio_static.h"
 #include "../../embedded/pal_battle_cache.h"
 #include "../../embedded/pal_dialog_static.h"
+#include "../../embedded/pal_ending_static.h"
 #include "../../embedded/pal_font_cache.h"
 #include "../../embedded/pal_global_cache.h"
 #include "../../embedded/pal_menu_static.h"
@@ -111,6 +112,8 @@ static PalSfxBank pal_sfx_bank;
 static PalAudioSfx pal_sfx_sample;
 static PalMusicTrack pal_midi_sample_track;
 static PalMusicTrack pal_mus_sample_track;
+static PalEndingScreenPair pal_ending_pair;
+static PalEndingConstAsset pal_ending_sprite_asset;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
@@ -126,6 +129,7 @@ static bool pal_battle_ready;
 static bool pal_rng_ready;
 static bool pal_sfx_ready;
 static bool pal_music_ready;
+static bool pal_ending_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -1069,6 +1073,37 @@ static void load_music_cache(void)
              pal_mus_sample_track.size);
 }
 
+static void load_ending_cache(void)
+{
+    pal_ending_ready = false;
+    memset(&pal_ending_pair, 0, sizeof(pal_ending_pair));
+    pal_ending_sprite_asset.data = NULL;
+    pal_ending_sprite_asset.size = 0;
+
+    if (!pal_nor_ready || !pal_tf_ready) {
+        return;
+    }
+
+    pal_ending_ready = PalEnding_LoadFbpPairReadAt(
+                           &pal_tf_toc,
+                           read_tf_pack_at,
+                           &pal_tf_file,
+                           61u,
+                           62u,
+                           &pal_ending_pair) &&
+                       PalEnding_MapSprite(&pal_nor_pack, 571u, &pal_ending_sprite_asset);
+    if (!pal_ending_ready) {
+        ESP_LOGW(TAG, "PAL ending cache load failed");
+    }
+
+    ESP_LOGI(TAG,
+             "PAL ending cache: ready=%u upper=%" PRIu32 " lower=%" PRIu32 " sprite=%" PRIu32,
+             pal_ending_ready ? 1u : 0u,
+             pal_ending_pair.upper.size,
+             pal_ending_pair.lower.size,
+             pal_ending_sprite_asset.size);
+}
+
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 {
     const uint8_t *player_roles;
@@ -1795,6 +1830,7 @@ void app_main(void)
     load_rng_cache();
     load_sfx_cache();
     load_music_cache();
+    load_ending_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }

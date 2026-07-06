@@ -7,6 +7,7 @@ idf_component_register(
         "../../embedded/pal_audio_static.c"
         "../../embedded/pal_battle_cache.c"
         "../../embedded/pal_dialog_static.c"
+        "../../embedded/pal_ending_static.c"
         "../../embedded/pal_font_cache.c"
         "../../embedded/pal_global_cache.c"
         "../../embedded/pal_menu_static.c"

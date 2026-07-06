@@ -32,3 +32,5 @@ uint8_t pal_psram_rng_frame_a[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_rng_frame_b[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_tf_readahead[PAL_PSRAM_TF_READAHEAD_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_sfx_bank[PAL_PSRAM_SFX_BANK_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_ending_fbp_a[PAL_PSRAM_ENDING_FBP_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_ending_fbp_b[PAL_PSRAM_ENDING_FBP_BYTES] PAL_BSS_PSRAM;
