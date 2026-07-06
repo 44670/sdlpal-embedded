@@ -11,7 +11,6 @@
 #endif
 
 uint8_t pal_sram_framebuffer[PAL_SRAM_FRAMEBUFFER_BYTES] PAL_BSS_SRAM;
-uint8_t pal_sram_big_buffer[PAL_SRAM_BIG_BUFFER_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_display_dma[PAL_SRAM_DISPLAY_DMA_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_palette_current[PAL_SRAM_PALETTE_RGB_BYTES] PAL_BSS_SRAM;
 uint8_t pal_sram_palette_work[PAL_SRAM_PALETTE_RGB_BYTES] PAL_BSS_SRAM;

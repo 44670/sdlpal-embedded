@@ -41,7 +41,6 @@ static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static int pal_tf_fd = -1;
 static bool pal_nor_ready;
 static bool pal_tf_ready;
-static bool pal_tf_background_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -240,30 +239,6 @@ static void load_pack_palette_or_demo(void)
         return;
     }
     load_demo_palette();
-}
-
-static void load_tf_background(void)
-{
-    uint32_t copied = 0;
-
-    pal_tf_background_ready = false;
-    if (!pal_tf_ready) {
-        return;
-    }
-    if (!PalPackToc_CopyRawReadAt(
-            &pal_tf_toc,
-            read_tf_pack_at,
-            &pal_tf_fd,
-            PAL_PACK_ARCHIVE_FBP,
-            0,
-            pal_sram_big_buffer,
-            PAL_SRAM_BIG_BUFFER_BYTES,
-            &copied) ||
-        copied != PAL_SRAM_FRAMEBUFFER_BYTES) {
-        ESP_LOGW(TAG, "TF FBP background load failed");
-        return;
-    }
-    pal_tf_background_ready = true;
 }
 
 static uint32_t sample_checksum(const uint8_t *data, uint32_t size)
@@ -654,8 +629,6 @@ static void draw_scene_background(uint32_t tick)
         draw_map_layer(0, pal_viewport_x, pal_viewport_y);
         draw_map_layer(1, pal_viewport_x, pal_viewport_y);
         draw_scene_event_sprites(pal_viewport_x, pal_viewport_y, tick);
-    } else if (pal_tf_background_ready) {
-        memcpy(pal_sram_framebuffer, pal_sram_big_buffer, PAL_SRAM_FRAMEBUFFER_BYTES);
     } else {
         uint32_t x;
         uint32_t y;
@@ -724,7 +697,6 @@ void app_main(void)
     pal_nor_ready = open_nor_pack();
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     load_pack_palette_or_demo();
-    load_tf_background();
     load_tf_scene_chunks();
     for (;;) {
         uint16_t tx = 0;
