@@ -647,21 +647,7 @@ static void draw_scene_background(uint32_t tick)
 
 static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t ty)
 {
-    PalPackSpan ui_sprite;
-
     draw_scene_background(tick);
-
-    if (pal_nor_ready &&
-        PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_DATA, 9, &ui_sprite) &&
-        ui_sprite.format == PAL_PACK_FORMAT_NATIVE) {
-        uint16_t frames = sprite_frame_count(ui_sprite.data);
-        uint16_t frame = frames != 0 ? (uint16_t)((tick / 4u) % frames) : 0;
-        const uint8_t *rle = sprite_frame(ui_sprite.data, frame);
-        uint16_t w = rle_width(rle);
-        uint16_t h = rle_height(rle);
-
-        blit_rle_to_framebuffer(rle, (320 - (int)w) / 2, (200 - (int)h) / 2);
-    }
 
     if (touched && ty >= CORES3SE_PAL_Y_OFFSET && ty < CORES3SE_PAL_Y_OFFSET + 200u) {
         const int cx = (int)tx;
