@@ -124,6 +124,9 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define EVENT_TRIGGER_MODE_OFFSET 14u
 #define EVENT_TRIGGER_IDLE_OFFSET 24u
 #define EVENT_AUTO_IDLE_OFFSET 30u
+#define TRIGGER_SEARCH_NEAR 1u
+#define TRIGGER_TOUCH_NEAR 4u
+#define TRIGGER_TOUCH_FARTHEST 8u
 #define SCRIPT_STOP 0x0000u
 #define SCRIPT_STOP_NEXT 0x0001u
 #define SCRIPT_STOP_GOTO 0x0002u
@@ -283,6 +286,7 @@ static bool pal_scene_event_objects_mutable;
 static int pal_viewport_x;
 static int pal_viewport_y;
 static bool pal_touch_scene_gate;
+static bool pal_auto_touch_trigger_gate;
 static const uint8_t *pal_player_sprite;
 static uint32_t pal_player_sprite_size;
 static const uint8_t *pal_party_sprites[DEMO_PLAYABLE_PARTY_SLOTS];
@@ -2209,6 +2213,7 @@ static void load_tf_scene_chunks(void)
     pal_scene_event_objects_mutable = false;
     pal_scene_script_idle = 0;
     pal_dialog_visible = false;
+    pal_auto_touch_trigger_gate = false;
 
     if (!pal_tf_ready || !pal_nor_ready) {
         return;
@@ -3548,6 +3553,29 @@ static uint16_t run_trigger_script_subset(uint16_t script_entry, uint16_t event_
     return execute_script_mutation(script_entry, event_object_id, EVENT_TRIGGER_IDLE_OFFSET, true);
 }
 
+static void trigger_event_object_id(uint16_t event_object_id, const char *reason)
+{
+    uint8_t *event_object;
+    uint16_t trigger_script;
+    uint16_t next_script;
+
+    if (event_object_id == 0) {
+        return;
+    }
+    event_object = mutable_event_object_by_id(event_object_id);
+    if (event_object == NULL) {
+        return;
+    }
+    trigger_script = read_le16(event_object + EVENT_TRIGGER_SCRIPT_OFFSET);
+    if (trigger_script != 0) {
+        next_script = run_trigger_script_subset(trigger_script, event_object_id);
+        write_le16(event_object + EVENT_TRIGGER_SCRIPT_OFFSET, next_script);
+        if (next_script != trigger_script) {
+            (void)persist_runtime_save(reason);
+        }
+    }
+}
+
 static uint16_t find_facing_event_object(void)
 {
     int player_x = pal_viewport_x + DEMO_PARTY_SCREEN_X;
@@ -3582,13 +3610,23 @@ static uint16_t find_facing_event_object(void)
         uint8_t *event_object = mutable_event_object_by_id(event_object_id);
         int event_x;
         int event_y;
+        uint16_t trigger_mode;
+        int max_distance;
 
         if (event_object == NULL || read_s16(event_object + EVENT_STATE_OFFSET) <= 0) {
             continue;
         }
+        trigger_mode = read_le16(event_object + EVENT_TRIGGER_MODE_OFFSET);
+        if (trigger_mode >= TRIGGER_TOUCH_NEAR || trigger_mode == 0) {
+            continue;
+        }
         event_x = read_s16(event_object + EVENT_X_OFFSET);
         event_y = read_s16(event_object + EVENT_Y_OFFSET);
-        if (abs_int(event_x - target_x) + abs_int(event_y - target_y) * 2 < 32) {
+        max_distance = (int)trigger_mode * 32;
+        if (max_distance < 32) {
+            max_distance = 32;
+        }
+        if (abs_int(event_x - target_x) + abs_int(event_y - target_y) * 2 < max_distance) {
             return event_object_id;
         }
     }
@@ -3597,26 +3635,47 @@ static uint16_t find_facing_event_object(void)
 
 static void trigger_facing_event(void)
 {
-    uint16_t event_object_id = find_facing_event_object();
-    uint8_t *event_object;
-    uint16_t trigger_script;
-    uint16_t next_script;
+    trigger_event_object_id(find_facing_event_object(), "trigger");
+}
 
-    if (event_object_id == 0) {
+static void update_auto_touch_triggers(void)
+{
+    int player_x = pal_viewport_x + DEMO_PARTY_SCREEN_X;
+    int player_y = pal_viewport_y + DEMO_PARTY_SCREEN_Y;
+    uint16_t i;
+
+    if (!pal_tf_scene_ready || pal_scene_event_objects == NULL) {
+        pal_auto_touch_trigger_gate = false;
         return;
     }
-    event_object = mutable_event_object_by_id(event_object_id);
-    if (event_object == NULL) {
-        return;
-    }
-    trigger_script = read_le16(event_object + EVENT_TRIGGER_SCRIPT_OFFSET);
-    if (trigger_script != 0) {
-        next_script = run_trigger_script_subset(trigger_script, event_object_id);
-        write_le16(event_object + EVENT_TRIGGER_SCRIPT_OFFSET, next_script);
-        if (next_script != trigger_script) {
-            (void)persist_runtime_save("trigger");
+
+    for (i = 0; i < pal_scene_snapshot.event_count; i++) {
+        uint16_t event_object_id = (uint16_t)(pal_scene_snapshot.event_start + i + 1u);
+        uint8_t *event_object = mutable_event_object_by_id(event_object_id);
+        uint16_t trigger_mode;
+        int event_x;
+        int event_y;
+        int max_distance;
+
+        if (event_object == NULL || read_s16(event_object + EVENT_STATE_OFFSET) <= 0) {
+            continue;
+        }
+        trigger_mode = read_le16(event_object + EVENT_TRIGGER_MODE_OFFSET);
+        if (trigger_mode < TRIGGER_TOUCH_NEAR || trigger_mode > TRIGGER_TOUCH_FARTHEST) {
+            continue;
+        }
+        event_x = read_s16(event_object + EVENT_X_OFFSET);
+        event_y = read_s16(event_object + EVENT_Y_OFFSET);
+        max_distance = ((int)trigger_mode - (int)TRIGGER_TOUCH_NEAR) * 32 + 16;
+        if (abs_int(player_x - event_x) + abs_int(player_y - event_y) * 2 < max_distance) {
+            if (!pal_auto_touch_trigger_gate) {
+                trigger_event_object_id(event_object_id, "touch");
+                pal_auto_touch_trigger_gate = true;
+            }
+            return;
         }
     }
+    pal_auto_touch_trigger_gate = false;
 }
 
 static void run_scene_enter_script_subset(void)
@@ -4542,6 +4601,7 @@ void app_main(void)
         bool shop_consumed = update_shop_touch(touched, tx, ty);
 
         if (!pal_rng_playing && pal_fbp_preview_ticks == 0 && pal_battle_preview_ticks == 0 && !dialog_consumed && !shop_consumed) {
+            update_auto_touch_triggers();
             update_scene_selection(touched, ty);
             update_demo_viewport(touched, tx, ty);
         }
