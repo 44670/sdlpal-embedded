@@ -41,6 +41,9 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define DEMO_MAX_PARTY_INDEX 2u
 #define PARTY_STRUCT_BYTES 10u
 #define PARTY_ROLE_OFFSET 0u
+#define PARTY_X_OFFSET 2u
+#define PARTY_Y_OFFSET 4u
+#define PARTY_FRAME_OFFSET 6u
 #define PLAYER_ROLE_WORD_ARRAY_BYTES (PLAYER_ROLE_COUNT * 2u)
 #define PLAYER_ROLE_SPRITE_NUM_OFFSET (2u * PLAYER_ROLE_WORD_ARRAY_BYTES)
 #define PLAYER_ROLE_WALK_FRAMES_OFFSET 768u
@@ -118,6 +121,7 @@ static const uint8_t *pal_save_player_roles;
 static const uint8_t *pal_save_scenes;
 static const uint8_t *pal_save_event_objects;
 static uint32_t pal_save_event_objects_size;
+static uint32_t pal_save_state_size;
 static char pal_save_path[] = "/sdcard/1.rpg";
 static uint8_t pal_save_slot;
 static uint8_t pal_save_header[SAVE_HEADER_BYTES];
@@ -131,6 +135,8 @@ typedef struct DemoSpriteDraw {
 } DemoSpriteDraw;
 
 static DemoSpriteDraw pal_scene_draw_items[PAL_SCENE_MAX_EVENT_OBJECTS + 1u];
+
+static void party_member_screen_position(uint16_t index, int *x, int *y, uint16_t *direction);
 
 static uint16_t read_le16(const uint8_t *p)
 {
@@ -352,6 +358,40 @@ static void move_party_direction(uint16_t direction)
         pal_trail_x[0] = source_x;
         pal_trail_y[0] = source_y;
         pal_trail_direction[0] = direction;
+    }
+}
+
+static void sync_runtime_save_position(void)
+{
+    uint16_t i;
+
+    if (pal_save_state_size < SAVE_TRAIL_OFFSET + DEMO_PLAYABLE_PARTY_SLOTS * TRAIL_STRUCT_BYTES) {
+        return;
+    }
+
+    write_le16(pal_psram_save_state + SAVE_VIEWPORT_X_OFFSET, (uint16_t)pal_viewport_x);
+    write_le16(pal_psram_save_state + SAVE_VIEWPORT_Y_OFFSET, (uint16_t)pal_viewport_y);
+    write_le16(pal_psram_save_state + SAVE_PARTY_DIRECTION_OFFSET, pal_player_direction);
+
+    for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+        uint8_t *trail = pal_psram_save_state + SAVE_TRAIL_OFFSET + (uint32_t)i * TRAIL_STRUCT_BYTES;
+        uint8_t *party = pal_psram_save_state + SAVE_PARTY_OFFSET + (uint32_t)i * PARTY_STRUCT_BYTES;
+        uint16_t walk_frames = pal_party_walk_frames[i] == 0 ? 3u : pal_party_walk_frames[i];
+        uint16_t draw_direction = pal_player_direction;
+        uint16_t frame_num = pal_player_walking ? (uint16_t)(pal_player_frame_num % walk_frames) : 0u;
+        int px = DEMO_PARTY_SCREEN_X;
+        int py = DEMO_PARTY_SCREEN_Y;
+
+        write_le16(trail + TRAIL_X_OFFSET, pal_trail_x[i]);
+        write_le16(trail + TRAIL_Y_OFFSET, pal_trail_y[i]);
+        write_le16(trail + TRAIL_DIRECTION_OFFSET, pal_trail_direction[i]);
+
+        if (i <= visible_party_last_index()) {
+            party_member_screen_position(i, &px, &py, &draw_direction);
+        }
+        write_le16(party + PARTY_X_OFFSET, (uint16_t)px);
+        write_le16(party + PARTY_Y_OFFSET, (uint16_t)py);
+        write_le16(party + PARTY_FRAME_OFFSET, (uint16_t)(draw_direction * walk_frames + frame_num));
     }
 }
 
@@ -601,6 +641,7 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_save_scenes = NULL;
     pal_save_event_objects = NULL;
     pal_save_event_objects_size = 0;
+    pal_save_state_size = 0;
     reset_party_state();
 
     if (!pal_tf_ready) {
@@ -689,6 +730,7 @@ static bool load_startup_save_slot(uint8_t slot)
     pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
     pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
     pal_save_event_objects_size = size - SAVE_EVENT_OBJECTS_OFFSET;
+    pal_save_state_size = size;
     pal_save_slot = slot;
     ESP_LOGI(TAG,
              "startup save loaded: slot=%u bytes=%" PRIu32 " scene=%u viewport=%u,%u role=%u dir=%u night=%u cash=%" PRIu32,
@@ -1470,6 +1512,7 @@ void app_main(void)
             advance_scene_event_frames();
             advance_player_frame();
         }
+        sync_runtime_save_position();
         draw_demo_frame(tick, touched, tx, ty);
         if (!CoreS3Se_FlushPalFramebuffer()) {
             CoreS3Se_ShowError("LCD FAIL", "FLUSH");
