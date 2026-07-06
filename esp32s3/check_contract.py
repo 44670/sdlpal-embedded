@@ -114,6 +114,12 @@ KEY_SECTIONS = (
     ".ext_ram.bss",
 )
 
+REQUIRED_CONFIG_VALUES = {
+    "CONFIG_FATFS_LFN_NONE": "y",
+    "CONFIG_FATFS_USE_DYN_BUFFERS": "n",
+    "CONFIG_FATFS_ALLOC_PREFER_EXTRAM": "n",
+}
+
 
 def run(cmd: list[str]) -> str:
     return subprocess.check_output(cmd, text=True)
@@ -150,6 +156,35 @@ def parse_size(output: str) -> dict[str, int]:
         except ValueError:
             pass
     return values
+
+
+def parse_sdkconfig(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in path.read_text(errors="replace").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# ") and stripped.endswith(" is not set"):
+            values[stripped[2:-11]] = "n"
+            continue
+        if stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key] = value.strip('"')
+    return values
+
+
+def check_sdkconfig(root: Path) -> list[str]:
+    errors: list[str] = []
+    values = parse_sdkconfig(root / "esp32s3/sdkconfig")
+
+    for key, expected in REQUIRED_CONFIG_VALUES.items():
+        actual = values.get(key, "n")
+        if actual != expected:
+            errors.append(f"{key}={actual}, expected {expected}")
+    return errors
 
 
 def symbol_prefix_total(nm_output: str, prefix: str) -> tuple[int, list[tuple[int, str]]]:
@@ -301,6 +336,13 @@ def main() -> int:
     if source_hits:
         errors.extend(source_hits)
         for hit in source_hits:
+            print(hit)
+
+    sdkconfig_hits = check_sdkconfig(root)
+    print(f"\nsdkconfig storage hits: {len(sdkconfig_hits)}")
+    if sdkconfig_hits:
+        errors.extend(sdkconfig_hits)
+        for hit in sdkconfig_hits:
             print(hit)
 
     errors.extend(check_pack(args.nor_pack, "NOR", PAL_NOR_PARTITION_BYTES))
