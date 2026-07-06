@@ -4,6 +4,7 @@ idf_component_register(
         "cores3se_board.c"
         "cores3se_memory.c"
         "pal_save_fatfs.c"
+        "../../embedded/pal_battle_cache.c"
         "../../embedded/pal_dialog_static.c"
         "../../embedded/pal_font_cache.c"
         "../../embedded/pal_global_cache.c"

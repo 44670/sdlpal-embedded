@@ -29,6 +29,8 @@ SOURCE_FILES = (
     "esp32s3/main/cores3se_memory.c",
     "esp32s3/main/pal_save_fatfs.c",
     "esp32s3/main/pal_save_fatfs.h",
+    "embedded/pal_battle_cache.c",
+    "embedded/pal_battle_cache.h",
     "embedded/pal_dialog_static.c",
     "embedded/pal_dialog_static.h",
     "embedded/pal_font_cache.c",

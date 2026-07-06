@@ -1,6 +1,7 @@
 #include "cores3se_board.h"
 #include "pal_save_fatfs.h"
 
+#include "../../embedded/pal_battle_cache.h"
 #include "../../embedded/pal_dialog_static.h"
 #include "../../embedded/pal_font_cache.h"
 #include "../../embedded/pal_global_cache.h"
@@ -97,6 +98,8 @@ static PalMenuBuffer pal_menu_background_buffer;
 static PalMenuBuffer pal_menu_image_buffer;
 static PalMenuBuffer pal_menu_box_buffer;
 static PalMenuConstAsset pal_menu_item_asset;
+static PalBattleSnapshot pal_battle_snapshot;
+static PalBattleBuffer pal_battle_effect_buffer;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
@@ -108,6 +111,7 @@ static bool pal_font_ready;
 static bool pal_ui_ready;
 static bool pal_dialog_ready;
 static bool pal_menu_ready;
+static bool pal_battle_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -146,6 +150,8 @@ static uint32_t pal_save_state_size;
 static char pal_save_path[] = "0:/1.rpg";
 static uint8_t pal_save_slot;
 static bool pal_palette_night;
+
+static const uint16_t pal_battle_sample_player_sprites[3] = {0u, 1u, 2u};
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -907,6 +913,46 @@ static void load_menu_cache(void)
              pal_menu_box_buffer.size);
 }
 
+static void load_battle_cache(void)
+{
+    pal_battle_ready = false;
+    memset(&pal_battle_snapshot, 0, sizeof(pal_battle_snapshot));
+    pal_battle_effect_buffer.data = NULL;
+    pal_battle_effect_buffer.size = 0;
+
+    if (!pal_nor_ready || !pal_tf_ready) {
+        return;
+    }
+
+    pal_battle_ready = PalBattle_LoadSnapshotReadAt(
+                           &pal_nor_pack,
+                           &pal_tf_toc,
+                           read_tf_pack_at,
+                           &pal_tf_file,
+                           156u,
+                           0u,
+                           pal_battle_sample_player_sprites,
+                           3u,
+                           7u,
+                           &pal_battle_snapshot) &&
+                       PalBattle_LoadEffectScratch(&pal_nor_pack, 37u, &pal_battle_effect_buffer);
+    if (!pal_battle_ready) {
+        ESP_LOGW(TAG, "PAL battle cache load failed");
+    }
+
+    ESP_LOGI(TAG,
+             "PAL battle cache: ready=%u bg=%" PRIu32 " players=%u player_bytes=%" PRIu32 " enemies=%u unique=%u enemy_bytes=%" PRIu32 " effect=%" PRIu32 " scratch=%" PRIu32,
+             pal_battle_ready ? 1u : 0u,
+             pal_battle_snapshot.background_size,
+             (unsigned)pal_battle_snapshot.player_count,
+             pal_battle_snapshot.player_sprite_bytes,
+             (unsigned)pal_battle_snapshot.enemy_ref_count,
+             (unsigned)pal_battle_snapshot.unique_enemy_sprite_count,
+             pal_battle_snapshot.unique_enemy_sprite_bytes,
+             pal_battle_snapshot.effect_size,
+             pal_battle_effect_buffer.size);
+}
+
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 {
     const uint8_t *player_roles;
@@ -1629,6 +1675,7 @@ void app_main(void)
     load_text_font_cache();
     load_ui_dialog_cache();
     load_menu_cache();
+    load_battle_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }
