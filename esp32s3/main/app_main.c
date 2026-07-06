@@ -20,6 +20,7 @@
 
 static const char *TAG = "sdlpal_cores3se";
 static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
+static const char *TF_SAVE_PATH = "/sdcard/1.rpg";
 
 #define DEMO_INITIAL_SCENE_NUM 1u
 #define DEMO_LAST_SCENE_NUM (PAL_SCENE_COUNT - 1u)
@@ -45,6 +46,11 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define DEMO_DIR_WEST 1u
 #define DEMO_DIR_NORTH 2u
 #define DEMO_DIR_EAST 3u
+#define SAVE_HEADER_BYTES 44u
+#define SAVE_VIEWPORT_X_OFFSET 2u
+#define SAVE_VIEWPORT_Y_OFFSET 4u
+#define SAVE_SCENE_OFFSET 8u
+#define SAVE_CASH_OFFSET 40u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -72,6 +78,9 @@ static uint16_t pal_player_walk_frames;
 static uint16_t pal_player_frame_num;
 static uint16_t pal_player_direction;
 static bool pal_player_walking;
+static int pal_initial_viewport_x;
+static int pal_initial_viewport_y;
+static uint8_t pal_save_header[SAVE_HEADER_BYTES];
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -271,6 +280,58 @@ static bool open_tf_pack(void)
     return true;
 }
 
+static void load_startup_save_header(void)
+{
+    int fd;
+    uint32_t done = 0;
+    uint16_t scene_num;
+    uint16_t viewport_x;
+    uint16_t viewport_y;
+
+    pal_initial_viewport_x = 0;
+    pal_initial_viewport_y = 0;
+
+    if (!pal_tf_ready) {
+        return;
+    }
+
+    CoreS3Se_PrepareTfAccess();
+    fd = open(TF_SAVE_PATH, O_RDONLY);
+    if (fd < 0) {
+        ESP_LOGI(TAG, "startup save missing: %s", TF_SAVE_PATH);
+        return;
+    }
+
+    while (done < SAVE_HEADER_BYTES) {
+        ssize_t got = read(fd, pal_save_header + done, SAVE_HEADER_BYTES - done);
+        if (got <= 0) {
+            ESP_LOGW(TAG, "startup save header read failed: %s", TF_SAVE_PATH);
+            close(fd);
+            return;
+        }
+        done += (uint32_t)got;
+    }
+    close(fd);
+
+    scene_num = read_le16(pal_save_header + SAVE_SCENE_OFFSET);
+    viewport_x = read_le16(pal_save_header + SAVE_VIEWPORT_X_OFFSET);
+    viewport_y = read_le16(pal_save_header + SAVE_VIEWPORT_Y_OFFSET);
+    if (scene_num == 0 || scene_num >= PAL_SCENE_COUNT) {
+        ESP_LOGW(TAG, "startup save scene out of range: %u", (unsigned)scene_num);
+        return;
+    }
+
+    pal_scene_num = scene_num;
+    pal_initial_viewport_x = viewport_x;
+    pal_initial_viewport_y = viewport_y;
+    ESP_LOGI(TAG,
+             "startup save header: scene=%u viewport=%u,%u cash=%" PRIu32,
+             (unsigned)scene_num,
+             (unsigned)viewport_x,
+             (unsigned)viewport_y,
+             read_le32(pal_save_header + SAVE_CASH_OFFSET));
+}
+
 static void load_pack_palette_or_demo(void)
 {
     PalPackSpan span;
@@ -424,8 +485,8 @@ static void load_tf_scene_chunks(void)
     }
     pal_tf_scene_checksum = sample_checksum(pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES) ^
                             sample_checksum(pal_psram_gop_copy, pal_scene_snapshot.gop_size);
-    pal_viewport_x = 0;
-    pal_viewport_y = 0;
+    pal_viewport_x = clamp_int(pal_initial_viewport_x, 0, DEMO_MAP_PIXEL_WIDTH - 320);
+    pal_viewport_y = clamp_int(pal_initial_viewport_y, 0, DEMO_MAP_PIXEL_HEIGHT - 200);
     pal_tf_scene_ready = true;
     ESP_LOGI(TAG,
              "TF scene loaded: scene=%u map=%u events=%u unique_sprites=%u gop=%" PRIu32 " mark=0x%08" PRIx32,
@@ -451,6 +512,8 @@ static void select_relative_scene(int delta)
     }
 
     pal_touch_tracking = false;
+    pal_initial_viewport_x = 0;
+    pal_initial_viewport_y = 0;
     pal_scene_num = (uint16_t)next_scene;
     load_tf_scene_chunks();
 }
@@ -886,6 +949,7 @@ void app_main(void)
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
     load_pack_palette_or_demo();
     load_global_cache();
+    load_startup_save_header();
     load_player_sprite();
     load_tf_scene_chunks();
     for (;;) {
