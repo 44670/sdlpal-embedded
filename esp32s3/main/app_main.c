@@ -8,6 +8,7 @@
 #include "../../embedded/pal_global_cache.h"
 #include "../../embedded/pal_menu_static.h"
 #include "../../embedded/pal_memory.h"
+#include "../../embedded/pal_music_cache.h"
 #include "../../embedded/pal_pack.h"
 #include "../../embedded/pal_palette_static.h"
 #include "../../embedded/pal_rng_cache.h"
@@ -108,6 +109,8 @@ static PalRngFrame pal_rng_frame_a;
 static PalRngFrame pal_rng_frame_b;
 static PalSfxBank pal_sfx_bank;
 static PalAudioSfx pal_sfx_sample;
+static PalMusicTrack pal_midi_sample_track;
+static PalMusicTrack pal_mus_sample_track;
 static const PalGlobalCache *pal_global_cache;
 static esp_partition_mmap_handle_t pal_nor_mmap_handle;
 static FIL pal_tf_file;
@@ -122,6 +125,7 @@ static bool pal_menu_ready;
 static bool pal_battle_ready;
 static bool pal_rng_ready;
 static bool pal_sfx_ready;
+static bool pal_music_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
 static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
@@ -1042,6 +1046,29 @@ static void load_sfx_cache(void)
              cursor);
 }
 
+static void load_music_cache(void)
+{
+    pal_music_ready = false;
+    memset(&pal_midi_sample_track, 0, sizeof(pal_midi_sample_track));
+    memset(&pal_mus_sample_track, 0, sizeof(pal_mus_sample_track));
+
+    if (!pal_nor_ready) {
+        return;
+    }
+
+    pal_music_ready = PalMusic_MapMidi(&pal_nor_pack, 31u, &pal_midi_sample_track) &&
+                      PalMusic_MapMus(&pal_nor_pack, 31u, &pal_mus_sample_track);
+    if (!pal_music_ready) {
+        ESP_LOGW(TAG, "PAL music cache load failed");
+    }
+
+    ESP_LOGI(TAG,
+             "PAL music cache: ready=%u midi=%" PRIu32 " mus=%" PRIu32,
+             pal_music_ready ? 1u : 0u,
+             pal_midi_sample_track.size,
+             pal_mus_sample_track.size);
+}
+
 static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 {
     const uint8_t *player_roles;
@@ -1767,6 +1794,7 @@ void app_main(void)
     load_battle_cache();
     load_rng_cache();
     load_sfx_cache();
+    load_music_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }
