@@ -32,14 +32,13 @@ static uint32_t read_le32(const uint8_t *p)
 
 static void load_demo_palette(void)
 {
-    uint8_t rgb[256u * 3u];
     uint32_t i;
     for (i = 0; i < 256u; i++) {
-        rgb[i * 3u + 0u] = (uint8_t)i;
-        rgb[i * 3u + 1u] = (uint8_t)((i * 5u) >> 2);
-        rgb[i * 3u + 2u] = (uint8_t)(255u - i);
+        pal_sram_palette_work[i * 3u + 0u] = (uint8_t)i;
+        pal_sram_palette_work[i * 3u + 1u] = (uint8_t)((i * 5u) >> 2);
+        pal_sram_palette_work[i * 3u + 2u] = (uint8_t)(255u - i);
     }
-    (void)PalVideo_SetPaletteRgb(0, 256, rgb);
+    (void)PalVideo_SetPaletteRgb(0, 256, pal_sram_palette_work);
 }
 
 static bool open_nor_pack(void)
