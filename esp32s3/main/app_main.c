@@ -34,7 +34,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define DEMO_LAST_SCENE_NUM (PAL_SCENE_COUNT - 1u)
 #define SSS_EVENT_OBJECT_CHUNK 0u
 #define SSS_SCENE_CHUNK 1u
-#define SSS_OBJECT_CHUNK 2u
 #define SSS_EVENT_OBJECT_BYTES 32u
 #define EVENT_VANISH_TIME_OFFSET 0u
 #define EVENT_X_OFFSET 2u
@@ -51,7 +50,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define DEMO_PLAYABLE_PARTY_SLOTS 5u
 #define DEMO_SCENE_DRAW_ITEM_COUNT (PAL_SCENE_MAX_EVENT_OBJECTS + DEMO_PLAYABLE_PARTY_SLOTS)
 #define DEMO_MAX_PARTY_INDEX 2u
-#define DEMO_SHOP_MAX_ITEMS 9u
 #define PARTY_STRUCT_BYTES 10u
 #define PARTY_ROLE_OFFSET 0u
 #define PARTY_X_OFFSET 2u
@@ -116,9 +114,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCENE_SCRIPT_ON_ENTER_OFFSET 2u
 #define SCENE_SCRIPT_ON_TELEPORT_OFFSET 4u
 #define DATA_PLAYER_ROLES_CHUNK 3u
-#define OBJECT_ITEM_PRICE_OFFSET 2u
-#define OBJECT_ITEM_FLAGS_OFFSET 10u
-#define ITEM_FLAG_SELLABLE (1u << 5)
 #define EVENT_TRIGGER_SCRIPT_OFFSET 8u
 #define EVENT_AUTO_SCRIPT_OFFSET 10u
 #define EVENT_TRIGGER_MODE_OFFSET 14u
@@ -229,8 +224,6 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define PAL_DIALOG_MODE_UPPER 1u
 #define PAL_DIALOG_MODE_LOWER 2u
 #define PAL_DIALOG_MODE_CENTER_WINDOW 3u
-#define PAL_SHOP_MODE_BUY 1u
-#define PAL_SHOP_MODE_SELL 2u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -314,8 +307,6 @@ static const uint8_t *pal_save_scenes;
 static const uint8_t *pal_save_event_objects;
 static uint32_t pal_save_event_objects_size;
 static uint32_t pal_save_state_size;
-static const uint8_t *pal_object_records;
-static uint32_t pal_object_count;
 static char pal_save_path[] = "0:/1.rpg";
 static uint8_t pal_save_slot;
 static uint16_t pal_palette_num;
@@ -332,11 +323,6 @@ static uint16_t pal_rng_end_frame;
 static uint16_t pal_rng_frame_ticks;
 static uint16_t pal_rng_frame_tick_count;
 static bool pal_rng_playing;
-static bool pal_shop_visible;
-static bool pal_shop_touch_gate;
-static uint8_t pal_shop_mode;
-static uint16_t pal_shop_store_num;
-static uint16_t pal_shop_selection;
 
 static const uint16_t pal_battle_sample_player_sprites[3] = {0u, 1u, 2u};
 
@@ -1117,11 +1103,7 @@ static bool load_default_runtime_state(void)
 
 static void load_readonly_global_cache(void)
 {
-    PalPackSpan object_span;
-
     pal_global_cache = NULL;
-    pal_object_records = NULL;
-    pal_object_count = 0;
     if (!pal_nor_ready) {
         return;
     }
@@ -1130,19 +1112,11 @@ static void load_readonly_global_cache(void)
         pal_global_cache = NULL;
         return;
     }
-    if (PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_OBJECT_CHUNK, &object_span) &&
-        object_span.data != NULL &&
-        object_span.format == PAL_PACK_FORMAT_NATIVE &&
-        (object_span.size % PAL_GLOBAL_OBJECT_DOS_BYTES) == 0) {
-        pal_object_records = object_span.data;
-        pal_object_count = object_span.size / PAL_GLOBAL_OBJECT_DOS_BYTES;
-    }
     ESP_LOGI(TAG,
-             "PAL readonly global cache loaded: scripts=%" PRIu32 " stores=%" PRIu32 " enemies=%" PRIu32 " objects=%" PRIu32,
+             "PAL readonly global cache loaded: scripts=%" PRIu32 " stores=%" PRIu32 " enemies=%" PRIu32,
              pal_global_cache->script_entries.count,
              pal_global_cache->stores.count,
-             pal_global_cache->enemies.count,
-             pal_object_count);
+             pal_global_cache->enemies.count);
 }
 
 static void load_script_cache(void)
@@ -1727,134 +1701,6 @@ static bool add_inventory_item(uint16_t item_id, int amount)
         return current == 0;
     }
     write_le16(slot + INVENTORY_AMOUNT_OFFSET, (uint16_t)current);
-    return true;
-}
-
-static const uint8_t *object_dos_record(uint16_t object_id)
-{
-    if (pal_object_records == NULL || object_id >= pal_object_count) {
-        return NULL;
-    }
-    return pal_object_records + (uint32_t)object_id * PAL_GLOBAL_OBJECT_DOS_BYTES;
-}
-
-static uint16_t object_item_price(uint16_t object_id)
-{
-    const uint8_t *object = object_dos_record(object_id);
-    return object != NULL ? read_le16(object + OBJECT_ITEM_PRICE_OFFSET) : 0;
-}
-
-static uint16_t object_item_flags(uint16_t object_id)
-{
-    const uint8_t *object = object_dos_record(object_id);
-    return object != NULL ? read_le16(object + OBJECT_ITEM_FLAGS_OFFSET) : 0;
-}
-
-static uint16_t shop_buy_item_at(uint16_t row)
-{
-    const uint8_t *store;
-
-    if (pal_global_cache == NULL ||
-        pal_global_cache->stores.data == NULL ||
-        pal_shop_store_num >= pal_global_cache->stores.count ||
-        row >= DEMO_SHOP_MAX_ITEMS) {
-        return 0;
-    }
-    store = pal_global_cache->stores.data + (uint32_t)pal_shop_store_num * PAL_GLOBAL_STORE_BYTES;
-    return read_le16(store + (uint32_t)row * 2u);
-}
-
-static uint16_t shop_sell_item_at(uint16_t row)
-{
-    uint16_t i;
-    uint16_t visible = 0;
-
-    if (!save_inventory_available()) {
-        return 0;
-    }
-    for (i = 0; i < SAVE_INVENTORY_BYTES / INVENTORY_SLOT_BYTES; i++) {
-        uint8_t *slot = inventory_slot(i);
-        uint16_t item;
-
-        if (slot == NULL) {
-            return 0;
-        }
-        item = read_le16(slot + INVENTORY_ITEM_OFFSET);
-        if (item == 0 || read_le16(slot + INVENTORY_AMOUNT_OFFSET) == 0 ||
-            (object_item_flags(item) & ITEM_FLAG_SELLABLE) == 0) {
-            continue;
-        }
-        if (visible == row) {
-            return item;
-        }
-        visible++;
-    }
-    return 0;
-}
-
-static void open_shop(uint8_t mode, uint16_t store_num)
-{
-    pal_shop_visible = true;
-    pal_shop_touch_gate = true;
-    pal_shop_mode = mode;
-    pal_shop_store_num = store_num;
-    pal_shop_selection = 0;
-    pal_player_walking = false;
-}
-
-static bool update_shop_touch(bool touched, uint16_t tx, uint16_t ty)
-{
-    uint16_t local_y;
-    uint16_t row;
-    uint16_t item;
-
-    if (!pal_shop_visible) {
-        pal_shop_touch_gate = false;
-        return false;
-    }
-    pal_player_walking = false;
-    if (!touched) {
-        pal_shop_touch_gate = false;
-        return true;
-    }
-    if (pal_shop_touch_gate) {
-        return true;
-    }
-    pal_shop_touch_gate = true;
-
-    if (ty < CORES3SE_PAL_Y_OFFSET || ty >= CORES3SE_PAL_Y_OFFSET + 200u || tx < 16u || tx >= 304u) {
-        pal_shop_visible = false;
-        return true;
-    }
-    local_y = (uint16_t)(ty - CORES3SE_PAL_Y_OFFSET);
-    if (local_y < 40u || local_y >= 184u) {
-        pal_shop_visible = false;
-        return true;
-    }
-    row = (uint16_t)((local_y - 40u) / 16u);
-    if (row >= DEMO_SHOP_MAX_ITEMS) {
-        return true;
-    }
-    pal_shop_selection = row;
-    item = pal_shop_mode == PAL_SHOP_MODE_BUY ? shop_buy_item_at(row) : shop_sell_item_at(row);
-    if (item == 0) {
-        return true;
-    }
-    if (pal_shop_mode == PAL_SHOP_MODE_BUY) {
-        uint16_t price = object_item_price(item);
-        uint32_t cash = read_le32(pal_psram_save_state + SAVE_CASH_OFFSET);
-
-        if (cash >= price && add_inventory_item(item, 1)) {
-            write_le32(pal_psram_save_state + SAVE_CASH_OFFSET, cash - price);
-        }
-    } else {
-        uint16_t price = (uint16_t)(object_item_price(item) / 2u);
-        uint32_t cash = read_le32(pal_psram_save_state + SAVE_CASH_OFFSET);
-
-        if (add_inventory_item(item, -1)) {
-            write_le32(pal_psram_save_state + SAVE_CASH_OFFSET, cash > UINT32_MAX - price ? UINT32_MAX : cash + price);
-        }
-    }
     return true;
 }
 
@@ -2713,23 +2559,9 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_REDRAW:
         case SCRIPT_SHAKE_SCREEN:
-        case SCRIPT_UNKNOWN_0078:
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
         case SCRIPT_BUY_MENU:
-            open_shop(PAL_SHOP_MODE_BUY, entry.operand[0]);
-            script_entry = (uint16_t)(script_entry + 1u);
-            if (!trigger_mode) {
-                return script_entry;
-            }
-            continue;
-
         case SCRIPT_SELL_MENU:
-            open_shop(PAL_SHOP_MODE_SELL, 0);
+        case SCRIPT_UNKNOWN_0078:
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -4404,36 +4236,6 @@ static void draw_utf16_text(const uint8_t *utf16le, uint32_t byte_size, int x, i
     }
 }
 
-static void draw_shop_overlay(void)
-{
-    uint16_t row;
-
-    if (!pal_shop_visible || !pal_text_ready) {
-        return;
-    }
-
-    fill_framebuffer_rect(16, 24, 288, 160, 0u);
-    fill_framebuffer_rect(17, 25, 286, 158, 15u);
-    fill_framebuffer_rect(19, 27, 282, 154, 0u);
-
-    for (row = 0; row < DEMO_SHOP_MAX_ITEMS; row++) {
-        uint16_t item = pal_shop_mode == PAL_SHOP_MODE_BUY ? shop_buy_item_at(row) : shop_sell_item_at(row);
-        const uint8_t *word;
-        uint32_t word_size;
-        int y = 40 + (int)row * 16;
-
-        if (item == 0) {
-            continue;
-        }
-        if (row == pal_shop_selection) {
-            fill_framebuffer_rect(24, y - 1, 272, 16, 0x30u);
-        }
-        if (PalText_GetWord(&pal_text_cache, item, &word, &word_size)) {
-            draw_utf16_text(word, word_size, 32, y, 248, 16, row == pal_shop_selection ? 0x2Fu : 0x1Fu);
-        }
-    }
-}
-
 static void draw_dialog_overlay(void)
 {
     const uint8_t *message;
@@ -4498,7 +4300,6 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
         }
     }
     draw_dialog_overlay();
-    draw_shop_overlay();
 }
 
 void app_main(void)
@@ -4539,13 +4340,12 @@ void app_main(void)
         uint16_t ty = 0;
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
         bool dialog_consumed = update_dialog_touch(touched);
-        bool shop_consumed = update_shop_touch(touched, tx, ty);
 
-        if (!pal_rng_playing && pal_fbp_preview_ticks == 0 && pal_battle_preview_ticks == 0 && !dialog_consumed && !shop_consumed) {
+        if (!pal_rng_playing && pal_fbp_preview_ticks == 0 && pal_battle_preview_ticks == 0 && !dialog_consumed) {
             update_scene_selection(touched, ty);
             update_demo_viewport(touched, tx, ty);
         }
-        if (!pal_rng_playing && pal_fbp_preview_ticks == 0 && pal_battle_preview_ticks == 0 && !pal_shop_visible && (tick & 7u) == 0) {
+        if (!pal_rng_playing && pal_fbp_preview_ticks == 0 && pal_battle_preview_ticks == 0 && (tick & 7u) == 0) {
             advance_scene_auto_scripts();
             advance_scene_event_frames();
             advance_player_frame();
