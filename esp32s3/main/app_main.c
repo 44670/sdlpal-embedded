@@ -20,7 +20,6 @@
 
 static const char *TAG = "sdlpal_cores3se";
 static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
-static const char *TF_SAVE_PATH = "/sdcard/1.rpg";
 
 #define DEMO_INITIAL_SCENE_NUM 1u
 #define DEMO_LAST_SCENE_NUM (PAL_SCENE_COUNT - 1u)
@@ -58,6 +57,9 @@ static const char *TF_SAVE_PATH = "/sdcard/1.rpg";
 #define SAVE_SCENES_OFFSET 3264u
 #define SAVE_SCENES_BYTES (PAL_SCENE_COUNT * 8u)
 #define SAVE_EVENT_OBJECTS_OFFSET 12864u
+#define SAVE_SLOT_FIRST 1u
+#define SAVE_SLOT_LAST 5u
+#define SAVE_PATH_SLOT_INDEX 8u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -92,6 +94,9 @@ static const uint8_t *pal_save_player_roles;
 static const uint8_t *pal_save_scenes;
 static const uint8_t *pal_save_event_objects;
 static uint32_t pal_save_event_objects_size;
+static char pal_save_path[] = "/sdcard/1.rpg";
+static uint8_t pal_save_slot;
+static uint8_t pal_save_header[SAVE_HEADER_BYTES];
 
 typedef struct DemoSpriteDraw {
     const uint8_t *rle;
@@ -291,7 +296,68 @@ static bool open_tf_pack(void)
     return true;
 }
 
-static bool load_startup_save(void)
+static void set_save_slot_path(uint8_t slot)
+{
+    pal_save_path[SAVE_PATH_SLOT_INDEX] = (char)('0' + slot);
+}
+
+static bool read_save_header(uint8_t slot, uint16_t *saved_times)
+{
+    int fd;
+    uint32_t done = 0;
+
+    if (saved_times == NULL) {
+        return false;
+    }
+    *saved_times = 0;
+    set_save_slot_path(slot);
+    CoreS3Se_PrepareTfAccess();
+    fd = open(pal_save_path, O_RDONLY);
+    if (fd < 0) {
+        return false;
+    }
+    while (done < SAVE_HEADER_BYTES) {
+        ssize_t got = read(fd, pal_save_header + done, SAVE_HEADER_BYTES - done);
+        if (got <= 0) {
+            close(fd);
+            return false;
+        }
+        done += (uint32_t)got;
+    }
+    close(fd);
+    *saved_times = read_le16(pal_save_header);
+    return true;
+}
+
+static bool find_startup_save_slot(uint8_t *slot)
+{
+    uint8_t best_slot = 0;
+    uint16_t best_saved_times = 0;
+    uint8_t candidate;
+
+    if (slot == NULL) {
+        return false;
+    }
+
+    for (candidate = SAVE_SLOT_FIRST; candidate <= SAVE_SLOT_LAST; candidate++) {
+        uint16_t saved_times = 0;
+        if (!read_save_header(candidate, &saved_times)) {
+            continue;
+        }
+        if (best_slot == 0 || saved_times >= best_saved_times) {
+            best_slot = candidate;
+            best_saved_times = saved_times;
+        }
+    }
+
+    if (best_slot == 0) {
+        return false;
+    }
+    *slot = best_slot;
+    return true;
+}
+
+static bool load_startup_save_slot(uint8_t slot)
 {
     int fd;
     struct stat st;
@@ -314,16 +380,17 @@ static bool load_startup_save(void)
         return false;
     }
 
+    set_save_slot_path(slot);
     CoreS3Se_PrepareTfAccess();
-    fd = open(TF_SAVE_PATH, O_RDONLY);
+    fd = open(pal_save_path, O_RDONLY);
     if (fd < 0) {
-        ESP_LOGI(TAG, "startup save missing: %s", TF_SAVE_PATH);
+        ESP_LOGI(TAG, "startup save missing: %s", pal_save_path);
         return false;
     }
     if (fstat(fd, &st) != 0 ||
         st.st_size < (off_t)(SAVE_EVENT_OBJECTS_OFFSET + SSS_EVENT_OBJECT_BYTES) ||
         st.st_size > (off_t)PAL_PSRAM_SAVE_STATE_BYTES) {
-        ESP_LOGW(TAG, "startup save size unsupported: %s", TF_SAVE_PATH);
+        ESP_LOGW(TAG, "startup save size unsupported: %s", pal_save_path);
         close(fd);
         return false;
     }
@@ -332,7 +399,7 @@ static bool load_startup_save(void)
     while (done < size) {
         ssize_t got = read(fd, pal_psram_save_state + done, size - done);
         if (got <= 0) {
-            ESP_LOGW(TAG, "startup save read failed: %s", TF_SAVE_PATH);
+            ESP_LOGW(TAG, "startup save read failed: %s", pal_save_path);
             close(fd);
             return false;
         }
@@ -367,8 +434,10 @@ static bool load_startup_save(void)
     pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
     pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
     pal_save_event_objects_size = size - SAVE_EVENT_OBJECTS_OFFSET;
+    pal_save_slot = slot;
     ESP_LOGI(TAG,
-             "startup save loaded: bytes=%" PRIu32 " scene=%u viewport=%u,%u role=%u dir=%u cash=%" PRIu32,
+             "startup save loaded: slot=%u bytes=%" PRIu32 " scene=%u viewport=%u,%u role=%u dir=%u cash=%" PRIu32,
+             (unsigned)pal_save_slot,
              size,
              (unsigned)scene_num,
              (unsigned)viewport_x,
@@ -377,6 +446,17 @@ static bool load_startup_save(void)
              (unsigned)pal_player_direction,
              read_le32(pal_psram_save_state + SAVE_CASH_OFFSET));
     return true;
+}
+
+static bool load_startup_save(void)
+{
+    uint8_t slot = 0;
+
+    if (!pal_tf_ready || !find_startup_save_slot(&slot)) {
+        pal_save_slot = 0;
+        return false;
+    }
+    return load_startup_save_slot(slot);
 }
 
 static void load_pack_palette_or_demo(void)
