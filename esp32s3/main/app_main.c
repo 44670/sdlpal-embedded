@@ -313,6 +313,7 @@ static uint16_t pal_music_num;
 static uint16_t pal_battle_music_num;
 static uint16_t pal_battlefield_num;
 static uint16_t pal_screen_wave;
+static uint16_t pal_fbp_preview_ticks;
 static uint16_t pal_battle_preview_ticks;
 static uint16_t pal_current_rng_num;
 static uint16_t pal_rng_current_frame;
@@ -1706,6 +1707,39 @@ static bool load_battle_preview(uint16_t team_num)
     return true;
 }
 
+static bool show_fbp_preview(uint16_t fbp_num, uint16_t fade_speed)
+{
+    PalPackChunkInfo info;
+    uint32_t copied = 0;
+    uint16_t ticks = fade_speed == 0 ? 30u : (uint16_t)clamp_int(((int)fade_speed + 1) * 10, 30, 240);
+
+    if (!pal_tf_ready) {
+        return false;
+    }
+    if (!PalPackToc_GetChunkInfo(&pal_tf_toc, PAL_PACK_ARCHIVE_FBP, fbp_num, &info) ||
+        info.size != PAL_SRAM_FRAMEBUFFER_BYTES ||
+        info.format != PAL_PACK_FORMAT_NATIVE ||
+        info.flags != 0u) {
+        return false;
+    }
+    if (!PalPackToc_CopyRawReadAt(
+            &pal_tf_toc,
+            read_tf_pack_at,
+            &pal_tf_file,
+            PAL_PACK_ARCHIVE_FBP,
+            fbp_num,
+            pal_psram_fbp_background,
+            PAL_PSRAM_FBP_BACKGROUND_BYTES,
+            &copied) ||
+        copied != PAL_SRAM_FRAMEBUFFER_BYTES) {
+        return false;
+    }
+
+    memcpy(pal_sram_framebuffer, pal_psram_fbp_background, PAL_SRAM_FRAMEBUFFER_BYTES);
+    pal_fbp_preview_ticks = ticks;
+    return true;
+}
+
 static bool start_rng_playback(uint16_t start_frame, uint16_t end_frame, uint16_t speed)
 {
     if (!pal_tf_ready ||
@@ -2423,10 +2457,17 @@ static uint16_t execute_script_mutation(
         case SCRIPT_BUY_MENU:
         case SCRIPT_SELL_MENU:
         case SCRIPT_CHASE_PLAYER:
-        case SCRIPT_SHOW_FBP:
         case SCRIPT_STOP_MUSIC:
         case SCRIPT_UNKNOWN_0078:
         case SCRIPT_PLAY_CD_MUSIC:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SHOW_FBP:
+            (void)show_fbp_preview(entry.operand[0], entry.operand[1]);
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -4103,6 +4144,10 @@ static void draw_demo_frame(uint32_t tick, bool touched, uint16_t tx, uint16_t t
     if (draw_rng_playback_frame()) {
         return;
     }
+    if (pal_fbp_preview_ticks != 0) {
+        pal_fbp_preview_ticks--;
+        return;
+    }
     if (pal_battle_preview_ticks != 0) {
         draw_battle_preview();
         pal_battle_preview_ticks--;
@@ -4171,11 +4216,11 @@ void app_main(void)
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
         bool dialog_consumed = update_dialog_touch(touched);
 
-        if (!pal_rng_playing && pal_battle_preview_ticks == 0 && !dialog_consumed) {
+        if (!pal_rng_playing && pal_fbp_preview_ticks == 0 && pal_battle_preview_ticks == 0 && !dialog_consumed) {
             update_scene_selection(touched, ty);
             update_demo_viewport(touched, tx, ty);
         }
-        if (!pal_rng_playing && pal_battle_preview_ticks == 0 && (tick & 7u) == 0) {
+        if (!pal_rng_playing && pal_fbp_preview_ticks == 0 && pal_battle_preview_ticks == 0 && (tick & 7u) == 0) {
             advance_scene_auto_scripts();
             advance_scene_event_frames();
             advance_player_frame();
