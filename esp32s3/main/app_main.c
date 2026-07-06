@@ -539,7 +539,7 @@ static void load_player_sprite(void)
     pal_player_frame_num = 0;
     pal_player_walking = false;
 
-    if (!pal_nor_ready || pal_global_cache == NULL) {
+    if (!pal_nor_ready) {
         return;
     }
 
@@ -1118,7 +1118,6 @@ void app_main(void)
 
     pal_nor_ready = open_nor_pack();
     pal_tf_ready = CoreS3Se_MountTf() && open_tf_pack();
-    load_global_cache();
     if (!load_startup_save()) {
         load_global_cache();
     }
