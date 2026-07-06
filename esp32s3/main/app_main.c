@@ -100,20 +100,34 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_STOP_NEXT 0x0001u
 #define SCRIPT_STOP_GOTO 0x0002u
 #define SCRIPT_GOTO 0x0003u
+#define SCRIPT_CALL_TRIGGER 0x0004u
 #define SCRIPT_REDRAW 0x0005u
+#define SCRIPT_RANDOM_BRANCH 0x0006u
+#define SCRIPT_START_BATTLE 0x0007u
 #define SCRIPT_REPLACE_WITH_NEXT 0x0008u
 #define SCRIPT_WAIT 0x0009u
+#define SCRIPT_WALK_SOUTH 0x000Bu
+#define SCRIPT_WALK_WEST 0x000Cu
+#define SCRIPT_WALK_NORTH 0x000Du
+#define SCRIPT_WALK_EAST 0x000Eu
 #define SCRIPT_SET_DIRECTION_FRAME 0x000Fu
+#define SCRIPT_NPC_WALK_TO 0x0010u
+#define SCRIPT_NPC_SLOW_WALK_TO 0x0011u
+#define SCRIPT_SET_EVENT_POSITION_RELATIVE 0x0012u
+#define SCRIPT_SET_EVENT_POSITION 0x0013u
 #define SCRIPT_SET_FRAME_SOUTH 0x0014u
 #define SCRIPT_SET_PARTY_DIRECTION_FRAME 0x0015u
+#define SCRIPT_SET_EVENT_DIRECTION_FRAME 0x0016u
 #define SCRIPT_SET_AUTO_SCRIPT 0x0024u
 #define SCRIPT_SET_TRIGGER_SCRIPT 0x0025u
 #define SCRIPT_SHAKE_SCREEN 0x0035u
 #define SCRIPT_DIALOG_CENTER 0x003Bu
 #define SCRIPT_DIALOG_UPPER 0x003Cu
 #define SCRIPT_DIALOG_LOWER 0x003Du
+#define SCRIPT_DIALOG_CENTER_WINDOW 0x003Eu
 #define SCRIPT_SET_TRIGGER_MODE 0x0040u
 #define SCRIPT_SET_MUSIC 0x0043u
+#define SCRIPT_RIDE_EVENT 0x0044u
 #define SCRIPT_SET_BATTLE_MUSIC 0x0045u
 #define SCRIPT_SET_PARTY_POSITION 0x0046u
 #define SCRIPT_PLAY_SOUND 0x0047u
@@ -126,20 +140,33 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCRIPT_USE_DAY_PALETTE 0x0053u
 #define SCRIPT_USE_NIGHT_PALETTE 0x0054u
 #define SCRIPT_CHANGE_SCENE 0x0059u
+#define SCRIPT_SET_PLAYER_SPRITE 0x0065u
 #define SCRIPT_MOVE_PLAYER 0x006Eu
+#define SCRIPT_SYNC_EVENT_STATE 0x006Fu
+#define SCRIPT_PARTY_WALK_TO_SLOW 0x0070u
+#define SCRIPT_SCREEN_WAVE 0x0071u
 #define SCRIPT_SET_SCENE_SCRIPTS 0x006Du
 #define SCRIPT_SET_PARTY 0x0075u
+#define SCRIPT_PARTY_WALK_TO 0x007Au
+#define SCRIPT_PARTY_WALK_TO_FAST 0x007Bu
+#define SCRIPT_NPC_WALK_TO_FAST 0x007Cu
 #define SCRIPT_MOVE_EVENT_ONE_STEP 0x006Cu
 #define SCRIPT_MOVE_EVENT 0x007Du
 #define SCRIPT_SET_EVENT_LAYER 0x007Eu
+#define SCRIPT_MOVE_VIEWPORT 0x007Fu
+#define SCRIPT_TOGGLE_DAY_NIGHT 0x0080u
+#define SCRIPT_NPC_WALK_TO_FASTEST 0x0082u
 #define SCRIPT_FADE_TO_SCENE 0x0073u
 #define SCRIPT_ANIMATE_EVENT 0x0087u
 #define SCRIPT_CHANGE_PALETTE 0x008Bu
 #define SCRIPT_SYNC_PARTY_TRAIL 0x008Cu
+#define SCRIPT_JUMP_IF_EVENT_STATE 0x0094u
+#define SCRIPT_SET_EVENT_RANGE_STATE 0x009Au
 #define SCRIPT_PLAY_CD_MUSIC 0x00A3u
 #define SCRIPT_DIALOG_TEXT 0xFFFFu
 #define SCRIPT_AUTO_MAX_JUMPS 8u
 #define SCRIPT_TRIGGER_MAX_STEPS 16u
+#define SCRIPT_CALL_MAX_DEPTH 3u
 
 static PalPack pal_nor_pack;
 static PalPackToc pal_tf_toc;
@@ -210,9 +237,11 @@ static uint16_t pal_player_step_phase;
 static uint16_t pal_player_direction;
 static uint16_t pal_player_role;
 static bool pal_player_walking;
+static uint8_t pal_script_call_depth;
+static uint32_t pal_script_rng_state = 0x4C50414Cu;
 static int pal_initial_viewport_x;
 static int pal_initial_viewport_y;
-static const uint8_t *pal_save_player_roles;
+static uint8_t *pal_save_player_roles;
 static const uint8_t *pal_save_scenes;
 static const uint8_t *pal_save_event_objects;
 static uint32_t pal_save_event_objects_size;
@@ -1222,6 +1251,31 @@ static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
     return read_le16(player_roles + offset);
 }
 
+static bool write_player_role_word(uint32_t field_offset, uint16_t role, uint16_t value)
+{
+    uint8_t *player_roles;
+    uint32_t player_roles_size;
+    uint32_t offset = field_offset + (uint32_t)role * 2u;
+
+    if (pal_save_player_roles != NULL) {
+        player_roles = pal_save_player_roles;
+        player_roles_size = SAVE_PLAYER_ROLES_BYTES;
+    } else if (pal_global_cache != NULL && pal_global_cache->player_roles.data != NULL) {
+        player_roles = pal_global_cache->player_roles.data;
+        player_roles_size = pal_global_cache->player_roles.size;
+    } else {
+        return false;
+    }
+
+    if (role >= PLAYER_ROLE_COUNT ||
+        offset > player_roles_size ||
+        2u > player_roles_size - offset) {
+        return false;
+    }
+    write_le16(player_roles + offset, value);
+    return true;
+}
+
 static void load_player_sprite(void)
 {
     uint16_t i;
@@ -1671,6 +1725,64 @@ static void move_party_world_offset(int dx, int dy, uint16_t layer)
     set_party_world_position(world_x, world_y, layer);
 }
 
+static uint16_t script_random_percent(void)
+{
+    pal_script_rng_state = pal_script_rng_state * 1103515245u + 12345u;
+    return (uint16_t)(((pal_script_rng_state >> 16) % 100u) + 1u);
+}
+
+static void event_step_delta(uint16_t direction, int *dx, int *dy)
+{
+    *dx = 0;
+    *dy = 0;
+    switch (direction) {
+    case DEMO_DIR_SOUTH:
+        *dx = -DEMO_STEP_X;
+        *dy = DEMO_STEP_Y;
+        break;
+    case DEMO_DIR_WEST:
+        *dx = -DEMO_STEP_X;
+        *dy = -DEMO_STEP_Y;
+        break;
+    case DEMO_DIR_NORTH:
+        *dx = DEMO_STEP_X;
+        *dy = -DEMO_STEP_Y;
+        break;
+    case DEMO_DIR_EAST:
+        *dx = DEMO_STEP_X;
+        *dy = DEMO_STEP_Y;
+        break;
+    default:
+        break;
+    }
+}
+
+static void move_event_object_one_step(uint8_t *event_object, uint16_t direction)
+{
+    int dx;
+    int dy;
+
+    if (event_object == NULL || direction > DEMO_DIR_EAST) {
+        return;
+    }
+    event_step_delta(direction, &dx, &dy);
+    write_le16(event_object + EVENT_DIRECTION_OFFSET, direction);
+    write_le16(event_object + EVENT_X_OFFSET, (uint16_t)(read_s16(event_object + EVENT_X_OFFSET) + (int16_t)dx));
+    write_le16(event_object + EVENT_Y_OFFSET, (uint16_t)(read_s16(event_object + EVENT_Y_OFFSET) + (int16_t)dy));
+    advance_event_object_frame(event_object);
+}
+
+static void set_event_object_position(uint8_t *event_object, uint16_t x, uint16_t y, uint16_t layer)
+{
+    if (event_object == NULL) {
+        return;
+    }
+    write_le16(event_object + EVENT_X_OFFSET, x);
+    write_le16(event_object + EVENT_Y_OFFSET, y);
+    write_le16(event_object + EVENT_LAYER_OFFSET, layer);
+    advance_event_object_frame(event_object);
+}
+
 static uint16_t execute_script_mutation(
     uint16_t script_entry,
     uint16_t event_object_id,
@@ -1702,6 +1814,37 @@ static uint16_t execute_script_mutation(
 
         case SCRIPT_STOP_NEXT:
             return (uint16_t)(script_entry + 1u);
+
+        case SCRIPT_CALL_TRIGGER:
+        {
+            uint16_t nested_event_id = entry.operand[1] == 0 ? event_object_id : entry.operand[1];
+
+            if (entry.operand[0] != 0 && pal_script_call_depth < SCRIPT_CALL_MAX_DEPTH) {
+                pal_script_call_depth++;
+                (void)execute_script_mutation(entry.operand[0], nested_event_id, EVENT_TRIGGER_IDLE_OFFSET, true);
+                pal_script_call_depth--;
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
+
+        case SCRIPT_RANDOM_BRANCH:
+            if (entry.operand[1] != 0 && script_random_percent() >= entry.operand[0]) {
+                script_entry = entry.operand[1];
+            } else {
+                script_entry = (uint16_t)(script_entry + 1u);
+            }
+            continue;
+
+        case SCRIPT_START_BATTLE:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
 
         case SCRIPT_REPLACE_WITH_NEXT:
             script_entry = (uint16_t)(script_entry + 1u);
@@ -1765,11 +1908,59 @@ static uint16_t execute_script_mutation(
         case SCRIPT_DIALOG_CENTER:
         case SCRIPT_DIALOG_UPPER:
         case SCRIPT_DIALOG_LOWER:
+        case SCRIPT_DIALOG_CENTER_WINDOW:
         case SCRIPT_SET_BATTLEFIELD:
         case SCRIPT_CHASE_PLAYER:
         case SCRIPT_FADE_TO_SCENE:
+        case SCRIPT_SCREEN_WAVE:
         case SCRIPT_CHANGE_PALETTE:
         case SCRIPT_PLAY_CD_MUSIC:
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_WALK_SOUTH:
+        case SCRIPT_WALK_WEST:
+        case SCRIPT_WALK_NORTH:
+        case SCRIPT_WALK_EAST:
+            move_event_object_one_step(event_object, (uint16_t)(entry.operation - SCRIPT_WALK_SOUTH));
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_NPC_WALK_TO:
+        case SCRIPT_NPC_SLOW_WALK_TO:
+        case SCRIPT_NPC_WALK_TO_FAST:
+        case SCRIPT_NPC_WALK_TO_FASTEST:
+            set_event_object_position(current != NULL ? current : event_object, entry.operand[0], entry.operand[1], entry.operand[2]);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_EVENT_POSITION_RELATIVE:
+            set_event_object_position(
+                current != NULL ? current : event_object,
+                (uint16_t)(pal_viewport_x + DEMO_PARTY_SCREEN_X + (int16_t)entry.operand[1]),
+                (uint16_t)(pal_viewport_y + DEMO_PARTY_SCREEN_Y + (int16_t)entry.operand[2]),
+                current != NULL ? read_le16(current + EVENT_LAYER_OFFSET) : pal_party_layer);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_EVENT_POSITION:
+            set_event_object_position(
+                current != NULL ? current : event_object,
+                entry.operand[1],
+                entry.operand[2],
+                current != NULL ? read_le16(current + EVENT_LAYER_OFFSET) : pal_party_layer);
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
                 return script_entry;
@@ -1807,6 +1998,17 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SET_PARTY_DIRECTION_FRAME:
             if (entry.operand[0] <= DEMO_DIR_EAST) {
                 pal_player_direction = entry.operand[0];
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_SET_EVENT_DIRECTION_FRAME:
+            if (current != NULL && entry.operand[0] != 0) {
+                write_le16(current + EVENT_DIRECTION_OFFSET, entry.operand[1]);
+                write_le16(current + EVENT_CURRENT_FRAME_OFFSET, entry.operand[2]);
             }
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
@@ -1902,6 +2104,25 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
+        case SCRIPT_RIDE_EVENT:
+        case SCRIPT_PARTY_WALK_TO_SLOW:
+        case SCRIPT_PARTY_WALK_TO:
+        case SCRIPT_PARTY_WALK_TO_FAST:
+        {
+            int world_x = (int)entry.operand[0] * 32 + (int)entry.operand[2] * 16;
+            int world_y = (int)entry.operand[1] * 16 + (int)entry.operand[2] * 8;
+
+            if (entry.operation == SCRIPT_RIDE_EVENT && event_object != NULL) {
+                set_event_object_position(event_object, (uint16_t)world_x, (uint16_t)world_y, entry.operand[2]);
+            }
+            set_party_world_position(world_x, world_y, pal_party_layer);
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+        }
+
         case SCRIPT_SET_PARTY:
         {
             uint16_t i;
@@ -1955,6 +2176,17 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
+        case SCRIPT_SYNC_EVENT_STATE:
+            if (current != NULL && event_object != NULL &&
+                read_s16(current + EVENT_STATE_OFFSET) == (int16_t)entry.operand[1]) {
+                write_le16(event_object + EVENT_STATE_OFFSET, entry.operand[1]);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
         case SCRIPT_MOVE_EVENT_ONE_STEP:
             if (current != NULL) {
                 write_le16(current + EVENT_X_OFFSET, (uint16_t)(read_s16(current + EVENT_X_OFFSET) + (int16_t)entry.operand[1]));
@@ -1989,6 +2221,17 @@ static uint16_t execute_script_mutation(
             }
             continue;
 
+        case SCRIPT_SET_PLAYER_SPRITE:
+            if (write_player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, entry.operand[0], entry.operand[1]) &&
+                entry.operand[2] != 0) {
+                load_player_sprite();
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
         case SCRIPT_MOVE_PLAYER:
             move_party_world_offset((int16_t)entry.operand[0], (int16_t)entry.operand[1], (uint16_t)(entry.operand[2] * 8u));
             script_entry = (uint16_t)(script_entry + 1u);
@@ -2011,6 +2254,64 @@ static uint16_t execute_script_mutation(
         case SCRIPT_SET_EVENT_LAYER:
             if (current != NULL) {
                 write_le16(current + EVENT_LAYER_OFFSET, entry.operand[1]);
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_MOVE_VIEWPORT:
+            if (entry.operand[0] == 0 && entry.operand[1] == 0) {
+                set_party_world_position(pal_viewport_x + DEMO_PARTY_SCREEN_X, pal_viewport_y + DEMO_PARTY_SCREEN_Y, pal_party_layer);
+            } else if (entry.operand[2] == 0xFFFFu) {
+                pal_viewport_x = clamp_int((int)entry.operand[0] * 32 - DEMO_PARTY_SCREEN_X, 0, DEMO_MAP_PIXEL_WIDTH - 320);
+                pal_viewport_y = clamp_int((int)entry.operand[1] * 16 - DEMO_PARTY_SCREEN_Y, 0, DEMO_MAP_PIXEL_HEIGHT - 200);
+                pal_initial_viewport_x = pal_viewport_x;
+                pal_initial_viewport_y = pal_viewport_y;
+            } else {
+                pal_viewport_x = clamp_int(pal_viewport_x + (int16_t)entry.operand[0], 0, DEMO_MAP_PIXEL_WIDTH - 320);
+                pal_viewport_y = clamp_int(pal_viewport_y + (int16_t)entry.operand[1], 0, DEMO_MAP_PIXEL_HEIGHT - 200);
+                pal_initial_viewport_x = pal_viewport_x;
+                pal_initial_viewport_y = pal_viewport_y;
+            }
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_TOGGLE_DAY_NIGHT:
+            pal_palette_night = !pal_palette_night;
+            load_pack_palette_or_demo();
+            script_entry = (uint16_t)(script_entry + 1u);
+            if (!trigger_mode) {
+                return script_entry;
+            }
+            continue;
+
+        case SCRIPT_JUMP_IF_EVENT_STATE:
+            if (current != NULL && read_s16(current + EVENT_STATE_OFFSET) == (int16_t)entry.operand[1] &&
+                entry.operand[2] != 0) {
+                script_entry = entry.operand[2];
+            } else {
+                script_entry = (uint16_t)(script_entry + 1u);
+            }
+            continue;
+
+        case SCRIPT_SET_EVENT_RANGE_STATE:
+            if (entry.operand[0] != 0 && entry.operand[1] >= entry.operand[0]) {
+                uint16_t event_id;
+
+                for (event_id = entry.operand[0]; event_id <= entry.operand[1]; event_id++) {
+                    uint8_t *range_event = mutable_event_object_by_id(event_id);
+                    if (range_event != NULL) {
+                        write_le16(range_event + EVENT_STATE_OFFSET, entry.operand[2]);
+                    }
+                    if (event_id == 0xFFFFu) {
+                        break;
+                    }
+                }
             }
             script_entry = (uint16_t)(script_entry + 1u);
             if (!trigger_mode) {
