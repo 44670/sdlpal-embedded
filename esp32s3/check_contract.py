@@ -103,6 +103,8 @@ FORBIDDEN_PROJECT_UNDEFINED_SYMBOLS = FORBIDDEN_LINKED_SYMBOLS + (
     "__wrap_free",
 )
 
+FORBIDDEN_PROJECT_RELOC_SYMBOLS = set(FORBIDDEN_PROJECT_UNDEFINED_SYMBOLS)
+
 KEY_SECTIONS = (
     ".iram0.text",
     ".dram0.data",
@@ -214,6 +216,27 @@ def project_forbidden_undefined_symbols(output: str) -> list[str]:
     return hits
 
 
+def project_forbidden_reloc_symbols(output: str) -> list[str]:
+    hits: list[str] = []
+    current_object = ""
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.endswith(":"):
+            current_object = stripped[:-1]
+            continue
+        if "R_XTENSA_" not in stripped:
+            continue
+        target = stripped.rsplit(None, 1)[-1]
+        target = target.split("+", 1)[0]
+        target = target.split("@", 1)[0]
+        if target in FORBIDDEN_PROJECT_RELOC_SYMBOLS:
+            hits.append(f"{current_object}: {target}")
+    return hits
+
+
 def check_pack(path: Path, label: str, max_size: int | None) -> list[str]:
     errors: list[str] = []
     data = path.read_bytes()
@@ -296,13 +319,19 @@ def main() -> int:
         print(f"{section:16s} {objdump_sections.get(section, 0):8d}")
 
     nm_output = run(["xtensa-esp32s3-elf-nm", "-S", "--size-sort", str(elf)])
-    project_undef_output = run(["xtensa-esp32s3-elf-nm", "-u", str(build_dir / "esp-idf/main/libmain.a")])
+    main_lib = build_dir / "esp-idf/main/libmain.a"
+    project_undef_output = run(["xtensa-esp32s3-elf-nm", "-u", str(main_lib)])
+    project_reloc_output = run(["xtensa-esp32s3-elf-objdump", "-dr", str(main_lib)])
     sram_total, sram_rows = symbol_prefix_total(nm_output, "pal_sram_")
     psram_total, psram_rows = symbol_prefix_total(nm_output, "pal_psram_")
     linked_hits = linked_forbidden_symbols(nm_output)
     project_undef_hits = project_forbidden_undefined_symbols(project_undef_output)
+    project_reloc_hits = project_forbidden_reloc_symbols(project_reloc_output)
     print(f"\nproject forbidden undefined hits: {len(project_undef_hits)}")
     for hit in project_undef_hits:
+        print(hit)
+    print(f"\nproject forbidden relocation hits: {len(project_reloc_hits)}")
+    for hit in project_reloc_hits:
         print(hit)
     print(f"\npal_sram_ total={sram_total} / {SRAM_BUDGET}")
     for size, name in sram_rows:
@@ -326,6 +355,8 @@ def main() -> int:
         errors.extend(f"linked forbidden symbol: {name}" for name in linked_hits)
     if project_undef_hits:
         errors.extend(f"project object forbidden undefined symbol: {hit}" for hit in project_undef_hits)
+    if project_reloc_hits:
+        errors.extend(f"project object forbidden relocation symbol: {hit}" for hit in project_reloc_hits)
     if size_values.get("bss", 0) > 9000000:
         errors.append(f"bss exceeds broad target limit: {size_values.get('bss')}")
 
