@@ -49,6 +49,7 @@ static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
 static PalSceneSnapshot pal_scene_snapshot;
 static const uint8_t *pal_scene_event_objects;
 static uint32_t pal_scene_event_objects_size;
+static bool pal_scene_event_objects_mutable;
 static int pal_viewport_x;
 static int pal_viewport_y;
 static bool pal_touch_tracking;
@@ -68,6 +69,12 @@ static DemoSpriteDraw pal_scene_draw_items[PAL_SCENE_MAX_EVENT_OBJECTS];
 static uint16_t read_le16(const uint8_t *p)
 {
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
+}
+
+static void write_le16(uint8_t *p, uint16_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
 }
 
 static int16_t read_s16(const uint8_t *p)
@@ -280,6 +287,7 @@ static void load_tf_scene_chunks(void)
     pal_tf_scene_ready = false;
     pal_scene_event_objects = NULL;
     pal_scene_event_objects_size = 0;
+    pal_scene_event_objects_mutable = false;
 
     if (!pal_tf_ready || !pal_nor_ready) {
         return;
@@ -305,6 +313,7 @@ static void load_tf_scene_chunks(void)
         pal_global_cache->event_objects.size >= ((uint32_t)pal_scene_snapshot.event_start + pal_scene_snapshot.event_count) * SSS_EVENT_OBJECT_BYTES) {
         pal_scene_event_objects = pal_global_cache->event_objects.data;
         pal_scene_event_objects_size = pal_global_cache->event_objects.size;
+        pal_scene_event_objects_mutable = true;
     } else {
         pal_scene_event_objects = event_span.data;
         pal_scene_event_objects_size = event_span.size;
@@ -358,6 +367,36 @@ static void update_scene_selection(bool touched, uint16_t ty)
     } else if (ty >= CORES3SE_PAL_Y_OFFSET + 200u) {
         select_relative_scene(1);
         pal_touch_scene_gate = true;
+    }
+}
+
+static void advance_scene_event_frames(void)
+{
+    uint16_t i;
+
+    if (!pal_scene_event_objects_mutable || pal_scene_event_objects == NULL) {
+        return;
+    }
+
+    for (i = 0; i < pal_scene_snapshot.event_count; i++) {
+        uint32_t offset = ((uint32_t)pal_scene_snapshot.event_start + i) * SSS_EVENT_OBJECT_BYTES;
+        uint8_t *event_object;
+        uint16_t sprite_frames;
+        uint16_t frame;
+
+        if (offset > pal_scene_event_objects_size ||
+            SSS_EVENT_OBJECT_BYTES > pal_scene_event_objects_size - offset) {
+            break;
+        }
+
+        event_object = (uint8_t *)pal_scene_event_objects + offset;
+        sprite_frames = read_le16(event_object + EVENT_SPRITE_FRAMES_OFFSET);
+        if (sprite_frames == 0) {
+            continue;
+        }
+        frame = read_le16(event_object + EVENT_CURRENT_FRAME_OFFSET);
+        frame = (uint16_t)((frame + 1u) % sprite_frames);
+        write_le16(event_object + EVENT_CURRENT_FRAME_OFFSET, frame);
     }
 }
 
@@ -555,7 +594,7 @@ static void draw_map_layer(uint8_t layer, int viewport_x, int viewport_y)
     }
 }
 
-static void draw_scene_event_sprites(int viewport_x, int viewport_y, uint32_t tick)
+static void draw_scene_event_sprites(int viewport_x, int viewport_y)
 {
     uint16_t i;
     uint16_t draw_count = 0;
@@ -602,7 +641,6 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y, uint32_t ti
             sprite_frames = 1;
         }
         frame = read_le16(event_object + EVENT_CURRENT_FRAME_OFFSET);
-        frame = (uint16_t)((frame + (uint16_t)(tick / 8u)) % sprite_frames);
         if (sprite_frames == 3u) {
             if (frame == 2u) {
                 frame = 0u;
@@ -654,14 +692,14 @@ static void draw_scene_background(uint32_t tick)
         memset(pal_sram_framebuffer, 0, PAL_SRAM_FRAMEBUFFER_BYTES);
         draw_map_layer(0, pal_viewport_x, pal_viewport_y);
         draw_map_layer(1, pal_viewport_x, pal_viewport_y);
-        draw_scene_event_sprites(pal_viewport_x, pal_viewport_y, tick);
+        draw_scene_event_sprites(pal_viewport_x, pal_viewport_y);
     } else {
         uint32_t x;
         uint32_t y;
         for (y = 0; y < 200u; y++) {
             uint8_t *dst = pal_sram_framebuffer + y * 320u;
             for (x = 0; x < 320u; x++) {
-                uint32_t value = (x + y) & 0xFFu;
+                uint32_t value = (x + y + tick) & 0xFFu;
                 if (((x / 16u) ^ (y / 16u)) & 1u) {
                     value = (value + 64u) & 0xFFu;
                 }
@@ -717,6 +755,9 @@ void app_main(void)
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
         update_scene_selection(touched, ty);
         update_demo_viewport(touched, tx, ty);
+        if ((tick & 7u) == 0) {
+            advance_scene_event_frames();
+        }
         draw_demo_frame(tick, touched, tx, ty);
         if (!CoreS3Se_FlushPalFramebuffer()) {
             CoreS3Se_ShowError("LCD FAIL", "FLUSH");
