@@ -20,7 +20,8 @@
 static const char *TAG = "sdlpal_cores3se";
 static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 
-#define DEMO_SCENE_NUM 1u
+#define DEMO_INITIAL_SCENE_NUM 1u
+#define DEMO_LAST_SCENE_NUM (PAL_SCENE_COUNT - 1u)
 #define SSS_EVENT_OBJECT_CHUNK 0u
 #define SSS_EVENT_OBJECT_BYTES 32u
 #define EVENT_VANISH_TIME_OFFSET 0u
@@ -43,12 +44,14 @@ static bool pal_tf_ready;
 static bool pal_tf_background_ready;
 static bool pal_tf_scene_ready;
 static uint32_t pal_tf_scene_checksum;
+static uint16_t pal_scene_num = DEMO_INITIAL_SCENE_NUM;
 static PalSceneSnapshot pal_scene_snapshot;
 static const uint8_t *pal_scene_event_objects;
 static uint32_t pal_scene_event_objects_size;
 static int pal_viewport_x;
 static int pal_viewport_y;
 static bool pal_touch_tracking;
+static bool pal_touch_scene_gate;
 static uint16_t pal_touch_last_x;
 static uint16_t pal_touch_last_y;
 
@@ -113,6 +116,7 @@ static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
     pal_touch_last_x = tx;
     pal_touch_last_y = local_y;
     pal_touch_tracking = true;
+    pal_touch_scene_gate = false;
 }
 
 static void load_demo_palette(void)
@@ -290,7 +294,7 @@ static void load_tf_scene_chunks(void)
             &pal_tf_toc,
             read_tf_pack_at,
             &pal_tf_fd,
-            DEMO_SCENE_NUM,
+            pal_scene_num,
             &pal_scene_snapshot)) {
         ESP_LOGW(TAG, "TF scene snapshot load failed");
         return;
@@ -306,6 +310,8 @@ static void load_tf_scene_chunks(void)
     pal_scene_event_objects_size = event_span.size;
     pal_tf_scene_checksum = sample_checksum(pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES) ^
                             sample_checksum(pal_psram_gop_copy, pal_scene_snapshot.gop_size);
+    pal_viewport_x = 0;
+    pal_viewport_y = 0;
     pal_tf_scene_ready = true;
     ESP_LOGI(TAG,
              "TF scene loaded: scene=%u map=%u events=%u unique_sprites=%u gop=%" PRIu32 " mark=0x%08" PRIx32,
@@ -315,6 +321,43 @@ static void load_tf_scene_chunks(void)
              (unsigned)pal_scene_snapshot.unique_sprite_count,
              pal_scene_snapshot.gop_size,
              pal_tf_scene_checksum);
+}
+
+static void select_relative_scene(int delta)
+{
+    int next_scene = (int)pal_scene_num + delta;
+
+    if (!pal_tf_ready || !pal_nor_ready) {
+        return;
+    }
+    if (next_scene < 1) {
+        next_scene = (int)DEMO_LAST_SCENE_NUM;
+    } else if (next_scene > (int)DEMO_LAST_SCENE_NUM) {
+        next_scene = 1;
+    }
+
+    pal_touch_tracking = false;
+    pal_scene_num = (uint16_t)next_scene;
+    load_tf_scene_chunks();
+}
+
+static void update_scene_selection(bool touched, uint16_t ty)
+{
+    if (!touched) {
+        pal_touch_scene_gate = false;
+        return;
+    }
+    if (pal_touch_scene_gate) {
+        return;
+    }
+
+    if (ty < CORES3SE_PAL_Y_OFFSET) {
+        select_relative_scene(-1);
+        pal_touch_scene_gate = true;
+    } else if (ty >= CORES3SE_PAL_Y_OFFSET + 200u) {
+        select_relative_scene(1);
+        pal_touch_scene_gate = true;
+    }
 }
 
 static uint16_t sprite_frame_count(const uint8_t *sprite)
@@ -687,6 +730,7 @@ void app_main(void)
         uint16_t tx = 0;
         uint16_t ty = 0;
         bool touched = CoreS3Se_TouchPoint(&tx, &ty);
+        update_scene_selection(touched, ty);
         update_demo_viewport(touched, tx, ty);
         draw_demo_frame(tick, touched, tx, ty);
         if (!CoreS3Se_FlushPalFramebuffer()) {
