@@ -33,6 +33,7 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define EVENT_SPRITE_FRAMES_OFFSET 18u
 #define EVENT_DIRECTION_OFFSET 20u
 #define EVENT_CURRENT_FRAME_OFFSET 22u
+#define EVENT_STATE_BLOCKER 2
 #define DEMO_MAP_PIXEL_WIDTH (64 * 32)
 #define DEMO_MAP_PIXEL_HEIGHT (128 * 16)
 #define PLAYER_ROLE_COUNT 6u
@@ -144,6 +145,11 @@ static int clamp_int(int value, int min_value, int max_value)
     return value;
 }
 
+static int abs_int(int value)
+{
+    return value < 0 ? -value : value;
+}
+
 static bool map_tile_blocked(int x, int y, int h)
 {
     uint32_t offset;
@@ -191,10 +197,49 @@ static bool map_position_blocked(int world_x, int world_y)
     return map_tile_blocked(x, y, h);
 }
 
+static bool event_position_blocked(int world_x, int world_y)
+{
+    uint16_t i;
+
+    if (pal_scene_event_objects == NULL) {
+        return false;
+    }
+
+    for (i = 0; i < pal_scene_snapshot.event_count; i++) {
+        uint32_t offset = ((uint32_t)pal_scene_snapshot.event_start + i) * SSS_EVENT_OBJECT_BYTES;
+        const uint8_t *event_object;
+        int state;
+        int event_x;
+        int event_y;
+
+        if (offset > pal_scene_event_objects_size ||
+            SSS_EVENT_OBJECT_BYTES > pal_scene_event_objects_size - offset) {
+            break;
+        }
+
+        event_object = pal_scene_event_objects + offset;
+        state = read_s16(event_object + EVENT_STATE_OFFSET);
+        if (state < EVENT_STATE_BLOCKER) {
+            continue;
+        }
+
+        event_x = read_s16(event_object + EVENT_X_OFFSET);
+        event_y = read_s16(event_object + EVENT_Y_OFFSET);
+        if (abs_int(event_x - world_x) + abs_int(event_y - world_y) * 2 < 16) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool viewport_party_position_blocked(int viewport_x, int viewport_y)
 {
-    return map_position_blocked(viewport_x + DEMO_PARTY_SCREEN_X,
-                                viewport_y + DEMO_PARTY_SCREEN_Y);
+    int world_x = viewport_x + DEMO_PARTY_SCREEN_X;
+    int world_y = viewport_y + DEMO_PARTY_SCREEN_Y;
+
+    return map_position_blocked(world_x, world_y) ||
+           event_position_blocked(world_x, world_y);
 }
 
 static void update_demo_viewport(bool touched, uint16_t tx, uint16_t ty)
