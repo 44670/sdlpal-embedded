@@ -10,6 +10,8 @@ disable_send_optional_commentary = True
 
 ## Current Target: M5Stack CoreS3 SE port
 
+- CoreS3 SE (not CoreS3)
+
 - 16MB Flash(custom partition table needed)
 - 8MB PSRAM
 - No audio, for now.
@@ -22,7 +24,7 @@ References:
 
 This repository is being evaluated for an embedded/resource-limited SDLPAL port. When making code, tooling, or documentation changes, keep memory placement and asset loading in scope.
 
-The target is the full SDLPAL game/script loop on M5Stack CoreS3 SE, not a long-term fixed scene demo. Scene-only CoreS3 code is acceptable only as an intermediate bring-up step. TF resource-pack and save I/O should use ESP-IDF/FatFS paths on the target. The current NOR/TF pack split is acceptable, and runtime storage should remain normal named static buffers, not a pool.
+The target is the full SDLPAL game/script loop on M5Stack CoreS3 SE, not CoreS3 and not a long-term fixed scene demo. Scene-only CoreS3 SE code is acceptable only as an intermediate bring-up step. TF resource-pack and save I/O should use ESP-IDF/FatFS paths on the target. The current NOR/TF pack split is acceptable, and runtime storage should remain normal named static buffers, not a pool.
 
 Primary consultation notes are in:
 

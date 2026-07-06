@@ -21,7 +21,7 @@
 #include <freertos/task.h>
 #include <sdmmc_cmd.h>
 
-static const char *TAG = "cores3se";
+static const char *TAG = "cores3se_board";
 
 static const uint32_t I2C_TIMEOUT_MS = 1000u;
 static const spi_host_device_t LCD_HOST = SPI3_HOST;
@@ -200,6 +200,8 @@ static bool init_io_expander(void)
     spi_probe_cfg.pin_bit_mask = (1ULL << CORES3SE_PIN_LCD_DC) | (1ULL << CORES3SE_PIN_LCD_SCLK) | (1ULL << CORES3SE_PIN_LCD_MOSI);
     spi_probe_cfg.mode = GPIO_MODE_INPUT;
     spi_probe_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    spi_probe_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    spi_probe_cfg.intr_type = GPIO_INTR_DISABLE;
     if (!log_error(gpio_config(&spi_probe_cfg), "probe LCD SPI pullups")) {
         return false;
     }
@@ -218,6 +220,7 @@ static bool init_io_expander(void)
     if (!aw_write(CORES3SE_AW9523_REG_GLOBAL_CONTROL, 0x10u)) return false;
     if (!aw_write(CORES3SE_AW9523_REG_LED_MODE0, 0xFFu)) return false;
     if (!aw_write(CORES3SE_AW9523_REG_LED_MODE1, 0xFFu)) return false;
+    ESP_LOGI(TAG, "AW9523 ready: bus_5v=%s boost=on", enable_bus_5v ? "enabled" : "off");
     clear_touch_interrupt();
     return true;
 }
@@ -344,6 +347,8 @@ static bool init_touch(void)
     int_cfg.pin_bit_mask = 1ULL << CORES3SE_PIN_TOUCH_INT;
     int_cfg.mode = GPIO_MODE_INPUT;
     int_cfg.pull_up_en = GPIO_PULLUP_ENABLE;
+    int_cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    int_cfg.intr_type = GPIO_INTR_DISABLE;
     if (!log_error(gpio_config(&int_cfg), "config touch INT")) {
         return false;
     }
@@ -355,7 +360,7 @@ static bool init_touch(void)
     if (!touch_read(TOUCH_REG_CIPHER, info, sizeof(info))) return false;
     if (!touch_write(TOUCH_REG_INT_MODE, 0x00u)) return false;
     clear_touch_interrupt();
-    ESP_LOGI(TAG, "FT6336 cipher=0x%02X vendor=0x%02X", info[0], info[5]);
+    ESP_LOGI(TAG, "FT6336 ready: cipher=0x%02X vendor=0x%02X", info[0], info[5]);
     return info[5] != 0;
 }
 
