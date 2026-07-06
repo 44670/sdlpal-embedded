@@ -62,6 +62,7 @@ static const char *TF_PACK_PATH = "/sdcard/pal_tf.pak";
 #define SAVE_VIEWPORT_Y_OFFSET 4u
 #define SAVE_SCENE_OFFSET 8u
 #define SAVE_PARTY_DIRECTION_OFFSET 12u
+#define SAVE_FOLLOWER_COUNT_OFFSET 32u
 #define SAVE_PALETTE_OFFSET_OFFSET 10u
 #define SAVE_CASH_OFFSET 40u
 #define SAVE_PARTY_OFFSET 44u
@@ -102,6 +103,7 @@ static uint16_t pal_trail_x[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint16_t pal_trail_y[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint16_t pal_trail_direction[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint16_t pal_max_party_member_index;
+static uint16_t pal_follower_count;
 static uint16_t pal_player_walk_frames;
 static uint16_t pal_player_frame_num;
 static uint16_t pal_player_direction;
@@ -174,6 +176,7 @@ static void reset_party_state(void)
     uint16_t world_y = (uint16_t)clamp_int(pal_initial_viewport_y + DEMO_PARTY_SCREEN_Y, 0, DEMO_MAP_PIXEL_HEIGHT - 1);
 
     pal_max_party_member_index = 0;
+    pal_follower_count = 0;
     for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         pal_party_roles[i] = 0;
         pal_party_walk_frames[i] = 3;
@@ -184,6 +187,16 @@ static void reset_party_state(void)
         pal_trail_direction[i] = pal_player_direction;
     }
     pal_player_role = 0;
+}
+
+static uint16_t visible_party_last_index(void)
+{
+    uint16_t last = (uint16_t)(pal_max_party_member_index + pal_follower_count);
+
+    if (last >= DEMO_PLAYABLE_PARTY_SLOTS) {
+        return DEMO_PLAYABLE_PARTY_SLOTS - 1u;
+    }
+    return last;
 }
 
 static bool map_tile_blocked(int x, int y, int h)
@@ -640,12 +653,16 @@ static bool load_startup_save_slot(uint8_t slot)
     if (pal_max_party_member_index > DEMO_MAX_PARTY_INDEX) {
         pal_max_party_member_index = DEMO_MAX_PARTY_INDEX;
     }
+    pal_follower_count = read_le16(pal_psram_save_state + SAVE_FOLLOWER_COUNT_OFFSET);
+    if (pal_follower_count > DEMO_PLAYABLE_PARTY_SLOTS - 1u - pal_max_party_member_index) {
+        pal_follower_count = DEMO_PLAYABLE_PARTY_SLOTS - 1u - pal_max_party_member_index;
+    }
     for (i = 0; i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         const uint8_t *party = pal_psram_save_state + SAVE_PARTY_OFFSET + (uint32_t)i * PARTY_STRUCT_BYTES;
         const uint8_t *trail = pal_psram_save_state + SAVE_TRAIL_OFFSET + (uint32_t)i * TRAIL_STRUCT_BYTES;
         uint16_t role = read_le16(party + PARTY_ROLE_OFFSET);
 
-        if (role >= PLAYER_ROLE_COUNT) {
+        if (i <= pal_max_party_member_index && role >= PLAYER_ROLE_COUNT) {
             role = 0;
         }
         pal_party_roles[i] = role;
@@ -733,6 +750,7 @@ static uint16_t player_role_word(uint32_t field_offset, uint16_t role)
 static void load_player_sprite(void)
 {
     uint16_t i;
+    uint16_t last_index = visible_party_last_index();
 
     pal_player_sprite = NULL;
     pal_player_sprite_size = 0;
@@ -749,12 +767,17 @@ static void load_player_sprite(void)
         return;
     }
 
-    for (i = 0; i <= pal_max_party_member_index && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+    for (i = 0; i <= last_index && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         PalPackSpan span;
         uint16_t role = pal_party_roles[i];
-        uint16_t sprite_num = player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, role);
+        uint16_t sprite_num = role;
 
-        pal_party_walk_frames[i] = player_role_word(PLAYER_ROLE_WALK_FRAMES_OFFSET, role);
+        if (i <= pal_max_party_member_index) {
+            sprite_num = player_role_word(PLAYER_ROLE_SPRITE_NUM_OFFSET, role);
+            pal_party_walk_frames[i] = player_role_word(PLAYER_ROLE_WALK_FRAMES_OFFSET, role);
+        } else {
+            pal_party_walk_frames[i] = 3;
+        }
         if (pal_party_walk_frames[i] == 0 || pal_party_walk_frames[i] > 4u) {
             pal_party_walk_frames[i] = 3;
         }
@@ -771,8 +794,9 @@ static void load_player_sprite(void)
     pal_player_sprite = pal_party_sprites[0];
     pal_player_sprite_size = pal_party_sprite_sizes[0];
     pal_player_walk_frames = pal_party_walk_frames[0];
-    ESP_LOGI(TAG, "party sprites loaded: members=%u leader_role=%u leader_bytes=%" PRIu32 " walk_frames=%u",
-             (unsigned)(pal_max_party_member_index + 1u),
+    ESP_LOGI(TAG, "party sprites loaded: members=%u followers=%u leader_role=%u leader_bytes=%" PRIu32 " walk_frames=%u",
+             (unsigned)(last_index + 1u),
+             (unsigned)pal_follower_count,
              (unsigned)pal_player_role,
              pal_player_sprite_size,
              (unsigned)pal_player_walk_frames);
@@ -1176,6 +1200,17 @@ static void party_member_screen_position(uint16_t index, int *x, int *y, uint16_
         return;
     }
 
+    if (index > pal_max_party_member_index) {
+        uint16_t trail_index = (uint16_t)(2u + index - pal_max_party_member_index);
+        if (trail_index >= DEMO_PLAYABLE_PARTY_SLOTS) {
+            trail_index = DEMO_PLAYABLE_PARTY_SLOTS - 1u;
+        }
+        *x = (int)pal_trail_x[trail_index] - pal_viewport_x;
+        *y = (int)pal_trail_y[trail_index] - pal_viewport_y;
+        *direction = pal_trail_direction[trail_index];
+        return;
+    }
+
     px = (int)pal_trail_x[1] - pal_viewport_x;
     py = (int)pal_trail_y[1] - pal_viewport_y;
     base_direction = pal_trail_direction[1];
@@ -1277,7 +1312,7 @@ static void draw_scene_event_sprites(int viewport_x, int viewport_y)
         }
     }
 
-    for (i = 0; i <= pal_max_party_member_index && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
+    for (i = 0; i <= visible_party_last_index() && i < DEMO_PLAYABLE_PARTY_SLOTS; i++) {
         uint16_t walk_frames;
         uint16_t draw_direction;
         uint16_t frame_num;
