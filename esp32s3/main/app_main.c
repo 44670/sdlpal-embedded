@@ -97,6 +97,7 @@ static const uint8_t *pal_player_sprite;
 static uint32_t pal_player_sprite_size;
 static const uint8_t *pal_party_sprites[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint32_t pal_party_sprite_sizes[DEMO_PLAYABLE_PARTY_SLOTS];
+static uint32_t pal_party_sprite_pin_bytes;
 static uint16_t pal_party_roles[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint16_t pal_party_walk_frames[DEMO_PLAYABLE_PARTY_SLOTS];
 static uint16_t pal_trail_x[DEMO_PLAYABLE_PARTY_SLOTS];
@@ -167,6 +168,11 @@ static int clamp_int(int value, int min_value, int max_value)
 static int abs_int(int value)
 {
     return value < 0 ? -value : value;
+}
+
+static uint32_t align4_u32(uint32_t value)
+{
+    return (value + 3u) & ~3u;
 }
 
 static void reset_party_state(void)
@@ -751,9 +757,12 @@ static void load_player_sprite(void)
 {
     uint16_t i;
     uint16_t last_index = visible_party_last_index();
+    uint32_t pin_start = pal_tf_scene_ready ? align4_u32(pal_scene_snapshot.sprite_pin_bytes) : 0;
+    uint32_t pin_cursor = pin_start;
 
     pal_player_sprite = NULL;
     pal_player_sprite_size = 0;
+    pal_party_sprite_pin_bytes = 0;
     pal_player_walk_frames = 3;
     pal_player_frame_num = 0;
     pal_player_walking = false;
@@ -786,19 +795,33 @@ static void load_player_sprite(void)
             span.format == PAL_PACK_FORMAT_NATIVE &&
             span.data != NULL &&
             span.size != 0) {
+            if (pal_tf_scene_ready) {
+                uint32_t pin_offset = align4_u32(pin_cursor);
+
+                if (pin_offset <= PAL_PSRAM_SPRITE_PIN_BYTES &&
+                    span.size <= PAL_PSRAM_SPRITE_PIN_BYTES - pin_offset) {
+                    memcpy(pal_psram_sprite_pin + pin_offset, span.data, span.size);
+                    pin_cursor = pin_offset + span.size;
+                    span.data = pal_psram_sprite_pin + pin_offset;
+                }
+            }
             pal_party_sprites[i] = span.data;
             pal_party_sprite_sizes[i] = span.size;
         }
     }
 
+    if (pin_cursor > pin_start) {
+        pal_party_sprite_pin_bytes = pin_cursor - pin_start;
+    }
     pal_player_sprite = pal_party_sprites[0];
     pal_player_sprite_size = pal_party_sprite_sizes[0];
     pal_player_walk_frames = pal_party_walk_frames[0];
-    ESP_LOGI(TAG, "party sprites loaded: members=%u followers=%u leader_role=%u leader_bytes=%" PRIu32 " walk_frames=%u",
+    ESP_LOGI(TAG, "party sprites loaded: members=%u followers=%u leader_role=%u leader_bytes=%" PRIu32 " pinned=%" PRIu32 " walk_frames=%u",
              (unsigned)(last_index + 1u),
              (unsigned)pal_follower_count,
              (unsigned)pal_player_role,
              pal_player_sprite_size,
+             pal_party_sprite_pin_bytes,
              (unsigned)pal_player_walk_frames);
 }
 
@@ -911,6 +934,7 @@ static void load_tf_scene_chunks(void)
              pal_scene_snapshot.sprite_pin_bytes,
              pal_scene_snapshot.gop_size,
              pal_tf_scene_checksum);
+    load_player_sprite();
 }
 
 static void select_relative_scene(int delta)
@@ -1427,8 +1451,10 @@ void app_main(void)
         load_global_cache();
     }
     load_pack_palette_or_demo();
-    load_player_sprite();
     load_tf_scene_chunks();
+    if (!pal_tf_scene_ready) {
+        load_player_sprite();
+    }
     for (;;) {
         uint16_t tx = 0;
         uint16_t ty = 0;
