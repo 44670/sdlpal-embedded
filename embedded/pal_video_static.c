@@ -113,21 +113,42 @@ bool PalVideo_SetPaletteRgb(uint16_t first_color, uint16_t color_count, const ui
 
 bool PalVideo_ConvertLineRgb565(uint16_t y, const uint16_t **line, uint16_t *pixels)
 {
-    uint32_t x;
-    uint16_t *dst = (uint16_t *)pal_sram_display_dma;
-    const uint8_t *src;
+    uint16_t converted_lines = 0;
 
-    if (line == NULL || pixels == NULL || y >= PAL_VIDEO_HEIGHT) {
+    return PalVideo_ConvertLinesRgb565(y, 1u, line, pixels, &converted_lines) &&
+           converted_lines == 1u;
+}
+
+bool PalVideo_ConvertLinesRgb565(uint16_t first_y, uint16_t line_count, const uint16_t **lines, uint16_t *pixels, uint16_t *converted_lines)
+{
+    uint32_t x;
+    uint16_t row;
+    uint16_t max_lines = (uint16_t)(PAL_SRAM_DISPLAY_DMA_BYTES / (PAL_VIDEO_WIDTH * 2u));
+    uint16_t *dst = (uint16_t *)pal_sram_display_dma;
+
+    if (lines == NULL || pixels == NULL || converted_lines == NULL ||
+        first_y >= PAL_VIDEO_HEIGHT || line_count == 0 || max_lines == 0) {
         return false;
     }
 
-    src = pal_sram_framebuffer + (uint32_t)y * PAL_VIDEO_WIDTH;
-    for (x = 0; x < PAL_VIDEO_WIDTH; x++) {
-        dst[x] = palette_get_rgb565(src[x]);
+    if (line_count > PAL_VIDEO_HEIGHT - first_y) {
+        line_count = (uint16_t)(PAL_VIDEO_HEIGHT - first_y);
+    }
+    if (line_count > max_lines) {
+        line_count = max_lines;
     }
 
-    *line = dst;
+    for (row = 0; row < line_count; row++) {
+        const uint8_t *src = pal_sram_framebuffer + (uint32_t)(first_y + row) * PAL_VIDEO_WIDTH;
+        uint16_t *line_dst = dst + (uint32_t)row * PAL_VIDEO_WIDTH;
+        for (x = 0; x < PAL_VIDEO_WIDTH; x++) {
+            line_dst[x] = palette_get_rgb565(src[x]);
+        }
+    }
+
+    *lines = dst;
     *pixels = PAL_VIDEO_WIDTH;
+    *converted_lines = line_count;
     return true;
 }
 

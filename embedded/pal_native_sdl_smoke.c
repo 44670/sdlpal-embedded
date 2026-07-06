@@ -59,8 +59,10 @@ int main(void)
     SDL_Surface *surface;
     const uint16_t *line = 0;
     uint16_t pixels = 0;
+    uint16_t converted_lines = 0;
     uint16_t chunk_count = 0;
     uint8_t saved_pixel;
+    uint8_t saved_pixel_row1;
 
     if (!PalPack_OpenConst(&pack, kNativePack, (uint32_t)sizeof(kNativePack))) {
         return 1;
@@ -115,12 +117,26 @@ int main(void)
         return 19;
     }
     saved_pixel = pal_sram_framebuffer[1];
+    saved_pixel_row1 = pal_sram_framebuffer[320u];
     pal_sram_framebuffer[1] = 1u;
+    pal_sram_framebuffer[320u] = 2u;
     if (!PalVideo_ConvertLineRgb565(0, &line, &pixels) || line == 0 || pixels != 320u || line[0] != 0x0000u || line[1] != 0x20c2u) {
         pal_sram_framebuffer[1] = saved_pixel;
+        pal_sram_framebuffer[320u] = saved_pixel_row1;
         return 15;
     }
+    if (!PalVideo_ConvertLinesRgb565(0, 7u, &line, &pixels, &converted_lines) ||
+        line == 0 ||
+        pixels != 320u ||
+        converted_lines != 6u ||
+        line[0] != 0x0000u ||
+        line[320u] != 0x4984u) {
+        pal_sram_framebuffer[1] = saved_pixel;
+        pal_sram_framebuffer[320u] = saved_pixel_row1;
+        return 20;
+    }
     pal_sram_framebuffer[1] = saved_pixel;
+    pal_sram_framebuffer[320u] = saved_pixel_row1;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         return 6;

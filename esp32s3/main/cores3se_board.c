@@ -365,29 +365,41 @@ static bool init_touch(void)
     return info[5] != 0;
 }
 
-static void fill_line_rgb565(uint16_t color)
+static void fill_dma_rows_rgb565(uint16_t rows, uint16_t color)
 {
     uint16_t *dst = (uint16_t *)pal_sram_display_dma;
-    uint32_t x;
-    for (x = 0; x < CORES3SE_LCD_WIDTH; x++) {
-        dst[x] = color;
+    uint32_t pixels = (uint32_t)CORES3SE_LCD_WIDTH * rows;
+    uint32_t i;
+
+    for (i = 0; i < pixels; i++) {
+        dst[i] = color;
     }
 }
 
 static bool flush_solid_rect(uint16_t y, uint16_t height, uint16_t color)
 {
-    uint16_t row;
+    const uint16_t max_rows = (uint16_t)(PAL_SRAM_DISPLAY_DMA_BYTES / (CORES3SE_LCD_WIDTH * 2u));
+    uint16_t row = 0;
+
     if (height == 0) {
         return true;
     }
-    fill_line_rgb565(color);
-    for (row = 0; row < height; row++) {
-        if (!set_lcd_window(0, (uint16_t)(y + row), CORES3SE_LCD_WIDTH, 1)) {
+    if (max_rows == 0) {
+        return false;
+    }
+    while (row < height) {
+        uint16_t rows = (uint16_t)(height - row);
+        if (rows > max_rows) {
+            rows = max_rows;
+        }
+        fill_dma_rows_rgb565(rows, color);
+        if (!set_lcd_window(0, (uint16_t)(y + row), CORES3SE_LCD_WIDTH, rows)) {
             return false;
         }
-        if (!log_error(esp_lcd_panel_io_tx_color(lcd_io, LCD_CMD_RAMWR, pal_sram_display_dma, CORES3SE_LCD_WIDTH * 2u), "flush LCD line")) {
+        if (!log_error(esp_lcd_panel_io_tx_color(lcd_io, LCD_CMD_RAMWR, pal_sram_display_dma, (uint32_t)CORES3SE_LCD_WIDTH * rows * 2u), "flush LCD rect")) {
             return false;
         }
+        row = (uint16_t)(row + rows);
     }
     return log_error(esp_lcd_panel_io_tx_param(lcd_io, -1, NULL, 0), "wait LCD idle");
 }
@@ -458,7 +470,7 @@ void CoreS3Se_PrepareLcdAccess(void)
 bool CoreS3Se_FlushPalFramebuffer(void)
 {
     uint16_t y;
-    const uint16_t *line = NULL;
+    const uint16_t *lines = NULL;
     uint16_t pixels = 0;
 
     if (lcd_io == NULL) {
@@ -468,16 +480,21 @@ bool CoreS3Se_FlushPalFramebuffer(void)
     if (!flush_solid_rect(0, CORES3SE_PAL_Y_OFFSET, 0x0000u)) {
         return false;
     }
-    for (y = 0; y < 200u; y++) {
-        if (!PalVideo_ConvertLineRgb565(y, &line, &pixels) || pixels != CORES3SE_LCD_WIDTH) {
+    for (y = 0; y < 200u;) {
+        uint16_t rows = 0;
+
+        if (!PalVideo_ConvertLinesRgb565(y, (uint16_t)(200u - y), &lines, &pixels, &rows) ||
+            pixels != CORES3SE_LCD_WIDTH ||
+            rows == 0) {
             return false;
         }
-        if (!set_lcd_window(0, (uint16_t)(CORES3SE_PAL_Y_OFFSET + y), CORES3SE_LCD_WIDTH, 1)) {
+        if (!set_lcd_window(0, (uint16_t)(CORES3SE_PAL_Y_OFFSET + y), CORES3SE_LCD_WIDTH, rows)) {
             return false;
         }
-        if (!log_error(esp_lcd_panel_io_tx_color(lcd_io, LCD_CMD_RAMWR, line, pixels * 2u), "flush PAL line")) {
+        if (!log_error(esp_lcd_panel_io_tx_color(lcd_io, LCD_CMD_RAMWR, lines, (uint32_t)pixels * rows * 2u), "flush PAL lines")) {
             return false;
         }
+        y = (uint16_t)(y + rows);
     }
     if (!flush_solid_rect((uint16_t)(CORES3SE_PAL_Y_OFFSET + 200u), CORES3SE_PAL_Y_OFFSET, 0x0000u)) {
         return false;

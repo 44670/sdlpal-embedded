@@ -21,6 +21,7 @@ bool PalVideo_SaveRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height);
 bool PalVideo_RestoreRect(uint16_t x, uint16_t y, uint16_t width, uint16_t height);
 bool PalVideo_SetPaletteRgb(uint16_t first_color, uint16_t color_count, const uint8_t *rgb);
 bool PalVideo_ConvertLineRgb565(uint16_t y, const uint16_t **line, uint16_t *pixels);
+bool PalVideo_ConvertLinesRgb565(uint16_t first_y, uint16_t line_count, const uint16_t **lines, uint16_t *pixels, uint16_t *converted_lines);
 uint16_t PalVideo_GetRgb565(uint8_t color);
 
 #ifdef __cplusplus
