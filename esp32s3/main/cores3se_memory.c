@@ -1,0 +1,17 @@
+#include "../../embedded/pal_memory.h"
+
+#if defined(__GNUC__)
+#define PAL_BSS_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#define PAL_BSS_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#else
+#define PAL_BSS_SRAM
+#define PAL_BSS_PSRAM
+#endif
+
+uint8_t pal_sram_framebuffer[PAL_SRAM_FRAMEBUFFER_BYTES] PAL_BSS_SRAM;
+uint8_t pal_sram_big_buffer[PAL_SRAM_BIG_BUFFER_BYTES] PAL_BSS_SRAM;
+uint8_t pal_sram_display_dma[PAL_SRAM_DISPLAY_DMA_BYTES] PAL_BSS_SRAM;
+uint8_t pal_sram_palette_current[PAL_SRAM_PALETTE_RGB_BYTES] PAL_BSS_SRAM;
+uint8_t pal_sram_palette_work[PAL_SRAM_PALETTE_RGB_BYTES] PAL_BSS_SRAM;
+
+uint8_t pal_psram_screen_bak[PAL_PSRAM_SCREEN_BAK_BYTES] PAL_BSS_PSRAM;

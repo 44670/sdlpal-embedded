@@ -1,5 +1,23 @@
 # AGENTS.md
 
+# DO NOT send optional commentary!
+
+Never send optional commentary.
+
+```python
+disable_send_optional_commentary = True
+```
+
+## Current Target: M5Stack CoreS3 SE port
+
+- 16MB Flash(custom partition table needed)
+- 8MB PSRAM
+- No audio, for now.
+
+References:
+~/work/CardPuterADV/esp-walkie-talkie (CoreS3 SE port, use this for lcd/touch init)
+/home/john/work/CoreS3SE (more refs.)
+
 ## Current Porting Goal
 
 This repository is being evaluated for an embedded/resource-limited SDLPAL port. When making code, tooling, or documentation changes, keep memory placement and asset loading in scope.

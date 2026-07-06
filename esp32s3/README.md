@@ -1,0 +1,28 @@
+# M5Stack CoreS3 SE Bring-Up
+
+This ESP-IDF project is the first target-side CoreS3 SE port slice. It is intentionally a video/input/NOR-partition bring-up, with no audio.
+
+The board init follows the local walkie-talkie CoreS3 SE reference at `/home/john/work/CardPuterADV/esp-walkie-talkie`: AW9523, AXP2101, FT6336 touch, and SPI LCD init use the same pins and command sequence.
+
+Build:
+
+```sh
+source /home/john/esp-idf/export.sh
+idf.py -C esp32s3 -B build-cores3se set-target esp32s3 build
+```
+
+Flash app:
+
+```sh
+idf.py -C esp32s3 -B build-cores3se -p PORT flash monitor
+```
+
+The custom partition table assumes 16MB flash and reserves an 11MB read-only data partition named `pal_nor` at `0x310000`. The current generated NOR pack is about 10.45MB, so it fits there.
+
+Flash the generated NOR pack:
+
+```sh
+python -m esptool --chip esp32s3 -b 460800 --before default-reset --after hard-reset write-flash --flash-mode dio --flash-size 16MB --flash-freq 80m 0x310000 /tmp/pal_nor_default.pak
+```
+
+The current firmware draws a 320x200 indexed framebuffer through `embedded/pal_video_static.c`, centered on the 320x240 LCD with 20-pixel black bars. Touch input is polled through FT6336 and marks the framebuffer. This proves the CoreS3 SE LCD/touch path without adding audio or runtime decompression.

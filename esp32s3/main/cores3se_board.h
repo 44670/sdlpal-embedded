@@ -1,0 +1,24 @@
+#ifndef CORES3SE_BOARD_H
+#define CORES3SE_BOARD_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define CORES3SE_LCD_WIDTH 320u
+#define CORES3SE_LCD_HEIGHT 240u
+#define CORES3SE_PAL_Y_OFFSET 20u
+
+bool CoreS3Se_Begin(void);
+bool CoreS3Se_FlushPalFramebuffer(void);
+bool CoreS3Se_TouchPoint(uint16_t *x, uint16_t *y);
+void CoreS3Se_ShowError(const char *line1, const char *line2);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
