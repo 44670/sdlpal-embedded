@@ -33,6 +33,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define DEMO_INITIAL_SCENE_NUM 1u
 #define DEMO_LAST_SCENE_NUM (PAL_SCENE_COUNT - 1u)
 #define SSS_EVENT_OBJECT_CHUNK 0u
+#define SSS_SCENE_CHUNK 1u
 #define SSS_EVENT_OBJECT_BYTES 32u
 #define EVENT_VANISH_TIME_OFFSET 0u
 #define EVENT_X_OFFSET 2u
@@ -112,6 +113,7 @@ static const char *TF_PACK_PATH = "0:/pal_tf.pak";
 #define SCENE_MAP_OFFSET 0u
 #define SCENE_SCRIPT_ON_ENTER_OFFSET 2u
 #define SCENE_SCRIPT_ON_TELEPORT_OFFSET 4u
+#define DATA_PLAYER_ROLES_CHUNK 3u
 #define EVENT_TRIGGER_SCRIPT_OFFSET 8u
 #define EVENT_AUTO_SCRIPT_OFFSET 10u
 #define EVENT_TRIGGER_MODE_OFFSET 14u
@@ -1030,22 +1032,73 @@ static bool load_startup_save(void)
     return load_startup_save_slot(slot);
 }
 
-static void load_global_cache(void)
+static bool load_default_runtime_state(void)
 {
-    pal_global_cache = NULL;
-    if (!pal_nor_ready) {
-        return;
+    PalPackSpan scene_span;
+    PalPackSpan event_span;
+    PalPackSpan role_span;
+    uint32_t event_end;
+
+    pal_save_player_roles = NULL;
+    pal_save_scenes = NULL;
+    pal_save_event_objects = NULL;
+    pal_save_event_objects_size = 0;
+    pal_save_state_size = 0;
+    if (!pal_nor_ready ||
+        !PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_SCENE_CHUNK, &scene_span) ||
+        !PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_SSS, SSS_EVENT_OBJECT_CHUNK, &event_span) ||
+        !PalPack_MapConst(&pal_nor_pack, PAL_PACK_ARCHIVE_DATA, DATA_PLAYER_ROLES_CHUNK, &role_span) ||
+        scene_span.format != PAL_PACK_FORMAT_NATIVE ||
+        event_span.format != PAL_PACK_FORMAT_NATIVE ||
+        role_span.format != PAL_PACK_FORMAT_NATIVE ||
+        scene_span.size < SAVE_SCENES_BYTES ||
+        role_span.size < SAVE_PLAYER_ROLES_BYTES) {
+        ESP_LOGW(TAG, "default runtime state source data missing");
+        return false;
     }
-    if (!PalGlobal_LoadDefault(&pal_nor_pack, &pal_global_cache)) {
-        ESP_LOGW(TAG, "PAL global cache load failed");
-        pal_global_cache = NULL;
-        return;
+    event_end = SAVE_EVENT_OBJECTS_OFFSET + event_span.size;
+    if (event_end > PAL_PSRAM_SAVE_STATE_BYTES) {
+        ESP_LOGW(TAG, "default runtime state does not fit: events=%" PRIu32, event_span.size);
+        return false;
     }
+
+    memset(pal_psram_save_state, 0, PAL_PSRAM_SAVE_STATE_BYTES);
+    memcpy(pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET, role_span.data, SAVE_PLAYER_ROLES_BYTES);
+    memcpy(pal_psram_save_state + SAVE_SCENES_OFFSET, scene_span.data, SAVE_SCENES_BYTES);
+    memcpy(pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET, event_span.data, event_span.size);
+
+    pal_scene_num = DEMO_INITIAL_SCENE_NUM;
+    pal_initial_viewport_x = 0;
+    pal_initial_viewport_y = 0;
+    pal_player_role = 0;
+    pal_player_direction = DEMO_DIR_SOUTH;
+    pal_palette_num = 0;
+    pal_palette_night = false;
+    pal_music_num = 0;
+    pal_battle_music_num = 0;
+    pal_battlefield_num = 0;
+    pal_screen_wave = 0;
+    pal_fbp_preview_ticks = 0;
+    pal_battle_preview_ticks = 0;
+    pal_current_rng_num = 0;
+    pal_rng_playing = false;
+    reset_party_state();
+
+    pal_save_player_roles = pal_psram_save_state + SAVE_PLAYER_ROLES_OFFSET;
+    pal_save_scenes = pal_psram_save_state + SAVE_SCENES_OFFSET;
+    pal_save_event_objects = pal_psram_save_state + SAVE_EVENT_OBJECTS_OFFSET;
+    pal_save_event_objects_size = event_span.size;
+    pal_save_state_size = event_end;
+    pal_save_slot = pal_tf_ready ? SAVE_SLOT_FIRST : 0;
+    sync_runtime_save_position();
+
     ESP_LOGI(TAG,
-             "PAL global cache loaded: mutable=%" PRIu32 " events=%" PRIu32 " scenes=%" PRIu32,
-             pal_global_cache->mutable_bytes,
-             pal_global_cache->event_objects.count,
-             pal_global_cache->scenes.count);
+             "default runtime state loaded: bytes=%" PRIu32 " scenes=%" PRIu32 " events=%" PRIu32 " save_slot=%u",
+             pal_save_state_size,
+             scene_span.size / PAL_GLOBAL_SCENE_BYTES,
+             event_span.size / SSS_EVENT_OBJECT_BYTES,
+             (unsigned)pal_save_slot);
+    return true;
 }
 
 static void load_readonly_global_cache(void)
@@ -4272,10 +4325,9 @@ void app_main(void)
     load_music_cache();
     load_ending_cache();
     save_loaded = load_startup_save();
-    if (save_loaded) {
-        load_readonly_global_cache();
-    } else {
-        load_global_cache();
+    load_readonly_global_cache();
+    if (!save_loaded) {
+        (void)load_default_runtime_state();
     }
     load_script_cache();
     load_pack_palette_or_demo();
