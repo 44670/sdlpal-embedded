@@ -6,6 +6,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef PAL_SCENE_ENABLE_PINNED
+#define PAL_SCENE_ENABLE_PINNED 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -42,6 +46,7 @@ bool PalScene_LoadSnapshotReadAt(
     void *user,
     uint16_t scene_num,
     PalSceneSnapshot *snapshot);
+#if PAL_SCENE_ENABLE_PINNED
 bool PalScene_LoadPinnedSnapshot(
     const PalPack *nor_pack,
     const PalPack *tf_pack,
@@ -56,6 +61,7 @@ bool PalScene_LoadPinnedSnapshotReadAt(
     const PalPack *sprite_pack,
     uint16_t scene_num,
     PalSceneSnapshot *snapshot);
+#endif
 
 #ifdef __cplusplus
 }

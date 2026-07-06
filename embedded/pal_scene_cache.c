@@ -68,10 +68,12 @@ static int find_unique_sprite(uint16_t unique_count, uint16_t sprite_num)
     return -1;
 }
 
+#if PAL_SCENE_ENABLE_PINNED
 static uint32_t align4(uint32_t value)
 {
     return (value + 3u) & ~3u;
 }
+#endif
 
 static bool copy_tf_chunk(
     const PalPack *tf_pack,
@@ -113,7 +115,11 @@ static bool load_snapshot(
     uint16_t sprite_ref_count = 0;
     uint32_t copied = 0;
     uint32_t unique_sprite_bytes = 0;
+#if PAL_SCENE_ENABLE_PINNED
     uint32_t pin_cursor = 0;
+#else
+    (void)pin_sprites;
+#endif
 
     if (snapshot == NULL) {
         return false;
@@ -167,6 +173,7 @@ static bool load_snapshot(
             if (sprite_span.data == NULL || sprite_span.size == 0 || sprite_span.format != PAL_PACK_FORMAT_NATIVE) {
                 return false;
             }
+#if PAL_SCENE_ENABLE_PINNED
             if (pin_sprites) {
                 uint32_t pin_offset = align4(pin_cursor);
 
@@ -178,6 +185,7 @@ static bool load_snapshot(
                 pin_cursor = pin_offset + sprite_span.size;
                 sprite_span.data = pal_psram_sprite_pin + pin_offset;
             }
+#endif
 
             unique_index = (int)unique_count;
             pal_scene_unique_sprite_nums[unique_count] = sprite_num;
@@ -201,7 +209,11 @@ static bool load_snapshot(
     snapshot->unique_sprite_count = unique_count;
     snapshot->gop_size = copied;
     snapshot->unique_sprite_bytes = unique_sprite_bytes;
+#if PAL_SCENE_ENABLE_PINNED
     snapshot->sprite_pin_bytes = pin_sprites ? pin_cursor : 0u;
+#else
+    snapshot->sprite_pin_bytes = 0u;
+#endif
     snapshot->sprite_refs = pal_scene_sprite_refs;
     return true;
 }
@@ -222,6 +234,7 @@ bool PalScene_LoadSnapshotReadAt(
     return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, nor_pack, scene_num, false, snapshot);
 }
 
+#if PAL_SCENE_ENABLE_PINNED
 bool PalScene_LoadPinnedSnapshot(
     const PalPack *nor_pack,
     const PalPack *tf_pack,
@@ -243,3 +256,4 @@ bool PalScene_LoadPinnedSnapshotReadAt(
 {
     return load_snapshot(nor_pack, NULL, tf_toc, read_at, user, sprite_pack, scene_num, true, snapshot);
 }
+#endif
