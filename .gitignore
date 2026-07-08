@@ -34,6 +34,9 @@ BundleArtifacts/
 *.wasm
 *.wast
 unix/sdlpal-embedded-contract
+unix/sdlpal-embedded-contract-noaudio
+unix/sdlpal-embedded-contract-noaudio-deterministic
+unix/sdlpal-deterministic
 
 # Visual Studio Code files
 .vscode/

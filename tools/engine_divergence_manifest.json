@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "description": "Frozen hashes for SDLPAL engine files that must not drift while the CoreS3 SE port remains a platform/resource-hosting effort.",
+  "files": [
+    {
+      "path": "script.c",
+      "sha256": "f5332e015b27018ad03385b4ceab6c44dc0509e81ace7e8785d1843ae88cd017",
+      "policy": "frozen",
+      "reason": "authoritative script interpreter"
+    },
+    {
+      "path": "scene.c",
+      "sha256": "bc4efef7cad3b83ddac5e3338423e3c5d9660bdbaae1d8e974e8841022e3bc8b",
+      "policy": "frozen",
+      "reason": "authoritative scene flow"
+    },
+    {
+      "path": "res.c",
+      "sha256": "54e8e9cf707941e53cee55bb5958ad7f77b980c887abceb3a7977bb36ba21d3d",
+      "policy": "frozen",
+      "reason": "authoritative resource ownership semantics"
+    },
+    {
+      "path": "global.c",
+      "sha256": "6e83f038f1b7d963d6bed45055fd8476b9e17c8a5d46b540d3cda3d996e33792",
+      "policy": "frozen",
+      "reason": "authoritative global data load/mutation semantics"
+    },
+    {
+      "path": "uigame.c",
+      "sha256": "af501222befe193ebb9766b8ec4e271b19ff992d3a6c4da043a2888d00fa3392",
+      "policy": "frozen",
+      "reason": "authoritative game UI flow"
+    },
+    {
+      "path": "ui.c",
+      "sha256": "0950d2c5b3bcc0266e19e5de482f21e1e43bc28ccfebd765bc76432552ec2f14",
+      "policy": "frozen",
+      "reason": "authoritative UI primitives and state"
+    },
+    {
+      "path": "battle.c",
+      "sha256": "1c22dbd6d122fce134229f3251633531c8e4ec8b66eb0e4c2693825b93daac4f",
+      "policy": "frozen",
+      "reason": "authoritative battle flow"
+    },
+    {
+      "path": "fight.c",
+      "sha256": "0181828260b014fb855cffa1291529c903b6512c91ad962dea43d7dd47d20d7d",
+      "policy": "frozen",
+      "reason": "authoritative fight logic"
+    },
+    {
+      "path": "rngplay.c",
+      "sha256": "3972db0f72ccafed24e6d1fa800cb79f7818ae515a929a0efc1618a2e21181a6",
+      "policy": "frozen",
+      "reason": "authoritative cutscene playback flow"
+    },
+    {
+      "path": "ending.c",
+      "sha256": "e7f3e4561e420be38b4bdfa3ff9b2d5fb002211adfaab7b98910347c8f3b9c8b",
+      "policy": "frozen",
+      "reason": "authoritative ending flow"
+    },
+    {
+      "path": "input.c",
+      "sha256": "bc13b5927a29565c8ac2883694a20c52d0b8c330b82c7165fc23ce8ff8e771a8",
+      "policy": "frozen",
+      "reason": "input seam must stay deliberate"
+    },
+    {
+      "path": "game.c",
+      "sha256": "b5ecb8b2d7d0602d44985d8469a189c073009445db235dc8bc8439063cc876e4",
+      "policy": "frozen",
+      "reason": "authoritative main game loop helpers"
+    },
+    {
+      "path": "play.c",
+      "sha256": "f13ba4e3a9c86c494390ea1eda121be1ae4c7fa5110f5e51cf4680321c742ef8",
+      "policy": "frozen",
+      "reason": "authoritative gameplay flow"
+    },
+    {
+      "path": "itemmenu.c",
+      "sha256": "7026d7875f79a57cf21fd80135d13022ff792698720ef6f56de864d208742a74",
+      "policy": "frozen",
+      "reason": "authoritative menu behavior"
+    },
+    {
+      "path": "magicmenu.c",
+      "sha256": "d3744426d40167d4130aeaa0fac686264df285e44d73cc3648dba56f3645d312",
+      "policy": "frozen",
+      "reason": "authoritative menu behavior"
+    },
+    {
+      "path": "uibattle.c",
+      "sha256": "b5bd5104def667c9ae134481c4843450ec1513feb61141f7196f9047dc7814d3",
+      "policy": "frozen",
+      "reason": "authoritative battle UI behavior"
+    },
+    {
+      "path": "main.c",
+      "sha256": "64aa1dc83febd126b6ed7e07c0fee247c5ea689e76fa8ea285ebb94aa3fcdac5",
+      "policy": "frozen",
+      "reason": "authoritative startup/game-loop entry"
+    },
+    {
+      "path": "palcommon.c",
+      "sha256": "93f0f8cbfc355a0500ed90482d3dad0b853f3f2a0bc2d3e168b9221d5b2f0ca9",
+      "policy": "frozen",
+      "reason": "resource seam changes require explicit review"
+    },
+    {
+      "path": "util.c",
+      "sha256": "0722445d1fa511c9a74ff0bf4a4a662a691310b34bb16a8f4aaed171bbde6e40",
+      "policy": "frozen",
+      "reason": "platform/file seam changes require explicit review"
+    },
+    {
+      "path": "video.c",
+      "sha256": "3d3f0e6d2341ec40eb41095cb06cc1cd204be411ddede2d39bde9be962505148",
+      "policy": "frozen",
+      "reason": "video seam changes require explicit review"
+    },
+    {
+      "path": "audio.c",
+      "sha256": "1e551b8d17aa9e520e3e90e4502671319dc742741b8d27a5e9d11435efabd71a",
+      "policy": "frozen",
+      "reason": "audio remains out of target scope"
+    },
+    {
+      "path": "palcfg.c",
+      "sha256": "5c0ea0b7ddbf4adbd9b15c898a4d5c4acd65ffdf24107c9ca8a921f1e14076bb",
+      "policy": "frozen",
+      "reason": "configuration seam changes require explicit review"
+    },
+    {
+      "path": "palette.c",
+      "sha256": "bf982862dbbc379f8d0c482c7f74bd07146166def1ebfa4ced075ba071d32571",
+      "policy": "frozen",
+      "reason": "palette behavior affects deterministic rendering"
+    },
+    {
+      "path": "map.c",
+      "sha256": "fa5071355a92c60d0448b1ee759d4c826c3197e73a8531f9e7c9f8a0d65d807d",
+      "policy": "frozen",
+      "reason": "map loader changes require explicit review"
+    }
+  ]
+}

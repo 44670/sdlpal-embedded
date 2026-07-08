@@ -72,8 +72,7 @@ ARCHIVE_IDS = {
     "SFX": 19,
 }
 
-DEFAULT_NOR = ["ABC", "BALL", "DATA", "F", "FIRE", "MGO", "MIDI", "MUS", "PAT", "RGM", "SSS", "TEXT", "FONT"]
-DEFAULT_TF = ["FBP", "GOP", "MAP", "RNG", "SFX"]
+DEFAULT_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_default.json")
 
 
 @dataclass(frozen=True)
@@ -554,6 +553,8 @@ def summarize_pack(path: Path, names: list[str], pack: bytes, archives: dict[str
 def write_manifest(
     data_dir: Path,
     manifest_path: Path,
+    layout_path: Path,
+    layout_overrides: dict[str, bool],
     nor_summary: dict[str, object],
     tf_summary: dict[str, object],
     nor_names: list[str],
@@ -567,6 +568,15 @@ def write_manifest(
             "heap_required": False,
             "runtime_decompression_required": False,
             "payloads_are_runtime_native": True,
+        },
+        "pack_layout": {
+            "path": str(layout_path.resolve()),
+            "sha256": hash_file(layout_path),
+            "overrides": layout_overrides,
+            "packs": {
+                "nor": nor_names,
+                "tf": tf_names,
+            },
         },
         "source_files": source_file_manifest(data_dir, [*nor_names, *tf_names]),
         "packs": {
@@ -667,14 +677,44 @@ def verify_pack(pack: bytes) -> None:
                 raise ValueError(f"payload out of range: archive {archive_id} chunk {chunk_index}")
 
 
-def parse_names(raw: str | None, default: list[str]) -> list[str]:
-    if raw is None:
-        return default
-    names = [item.strip().upper() for item in raw.split(",") if item.strip()]
+def validate_names(items: list[object], label: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, str):
+            raise SystemExit(f"{label} contains non-string archive name: {item!r}")
+        name = item.strip().upper()
+        if not name:
+            continue
+        if name in seen:
+            raise SystemExit(f"{label} contains duplicate archive name: {name}")
+        names.append(name)
+        seen.add(name)
+
     unknown = [name for name in names if name not in ARCHIVE_IDS]
     if unknown:
         raise SystemExit(f"unknown archive names: {', '.join(unknown)}")
     return names
+
+
+def parse_names(raw: str | None, default: list[str]) -> list[str]:
+    if raw is None:
+        return list(default)
+    return validate_names(raw.split(","), "archive list")
+
+
+def load_pack_layout(path: Path) -> tuple[list[str], list[str]]:
+    data = json.loads(path.read_text(errors="replace"))
+    if data.get("schema") != "sdlpal-embedded-pack-layout" or data.get("version") != 1:
+        raise SystemExit(f"unknown pack layout schema/version: {path}")
+    packs = data.get("packs")
+    if not isinstance(packs, dict):
+        raise SystemExit(f"pack layout has no packs object: {path}")
+    nor = packs.get("nor")
+    tf = packs.get("tf")
+    if not isinstance(nor, list) or not isinstance(tf, list):
+        raise SystemExit(f"pack layout must define packs.nor and packs.tf arrays: {path}")
+    return validate_names(nor, "layout packs.nor"), validate_names(tf, "layout packs.tf")
 
 
 def write_pack(data_dir: Path, out_path: Path, names: list[str]) -> dict[str, object]:
@@ -694,12 +734,14 @@ def main() -> int:
     parser.add_argument("--out-tf", type=Path, required=True)
     parser.add_argument("--nor", help="comma-separated archives for NOR pack")
     parser.add_argument("--tf", help="comma-separated archives for TF pack")
+    parser.add_argument("--layout", type=Path, default=DEFAULT_LAYOUT_PATH, help="JSON archive-to-pack layout policy")
     parser.add_argument("--manifest", type=Path, help="write a source-hash and decoded-size manifest")
     args = parser.parse_args()
 
     data_dir = args.data_dir
-    nor_names = parse_names(args.nor, DEFAULT_NOR)
-    tf_names = parse_names(args.tf, DEFAULT_TF)
+    layout_nor_names, layout_tf_names = load_pack_layout(args.layout)
+    nor_names = parse_names(args.nor, layout_nor_names)
+    tf_names = parse_names(args.tf, layout_tf_names)
     overlap = sorted(set(nor_names) & set(tf_names))
     if overlap:
         raise SystemExit(f"archives listed in both packs: {', '.join(overlap)}")
@@ -707,7 +749,16 @@ def main() -> int:
     nor_summary = write_pack(data_dir, args.out_nor, nor_names)
     tf_summary = write_pack(data_dir, args.out_tf, tf_names)
     if args.manifest:
-        write_manifest(data_dir, args.manifest, nor_summary, tf_summary, nor_names, tf_names)
+        write_manifest(
+            data_dir,
+            args.manifest,
+            args.layout,
+            {"nor": args.nor is not None, "tf": args.tf is not None},
+            nor_summary,
+            tf_summary,
+            nor_names,
+            tf_names,
+        )
     return 0
 
 

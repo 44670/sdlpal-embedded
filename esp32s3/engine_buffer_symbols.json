@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "description": "Expected named SRAM/PSRAM buffers for the CoreS3 SE full-engine host artifact.",
+  "symbols": [
+    {
+      "name": "pal_psram_battle_background_static",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "battle background staging"
+    },
+    {
+      "name": "pal_psram_battle_scene",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "battle scene compose buffer"
+    },
+    {
+      "name": "pal_psram_ending_fbp_static",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "ending FBP staging"
+    },
+    {
+      "name": "pal_psram_engine_tf_map",
+      "size": 2228224,
+      "region": "PSRAM",
+      "owner": "cached mapped TF pack chunk"
+    },
+    {
+      "name": "pal_psram_engine_tf_toc",
+      "size": 32768,
+      "region": "PSRAM",
+      "owner": "engine TF pack TOC"
+    },
+    {
+      "name": "pal_psram_global_event_objects",
+      "size": 176000,
+      "region": "PSRAM",
+      "owner": "mutable event object table"
+    },
+    {
+      "name": "pal_psram_global_magics",
+      "size": 3648,
+      "region": "PSRAM",
+      "owner": "mutable magic records"
+    },
+    {
+      "name": "pal_psram_map_gop_static",
+      "size": 65536,
+      "region": "PSRAM",
+      "owner": "current GOP tile chunk"
+    },
+    {
+      "name": "pal_psram_map_instance",
+      "size": 65544,
+      "region": "PSRAM",
+      "owner": "current map instance"
+    },
+    {
+      "name": "pal_psram_res_event_sprite_ptrs",
+      "size": 22000,
+      "region": "PSRAM",
+      "owner": "event sprite pointer table"
+    },
+    {
+      "name": "pal_psram_res_state",
+      "size": 36,
+      "region": "PSRAM",
+      "owner": "resource manager state"
+    },
+    {
+      "name": "pal_psram_rng_frame_static",
+      "size": 65000,
+      "region": "PSRAM",
+      "owner": "native RNG frame staging"
+    },
+    {
+      "name": "pal_psram_savegame_static",
+      "size": 190064,
+      "region": "PSRAM",
+      "owner": "save/load staging"
+    },
+    {
+      "name": "pal_psram_screen_bak",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "full-screen backup surface"
+    },
+    {
+      "name": "pal_psram_splash_fbp",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "splash FBP staging"
+    },
+    {
+      "name": "pal_psram_uigame_background",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "UI background staging"
+    },
+    {
+      "name": "pal_psram_uigame_box",
+      "size": 5184,
+      "region": "PSRAM",
+      "owner": "UI box scratch"
+    },
+    {
+      "name": "pal_psram_uigame_cash_box",
+      "size": 16,
+      "region": "PSRAM",
+      "owner": "cash box metadata"
+    },
+    {
+      "name": "pal_psram_uigame_cash_pixels",
+      "size": 6144,
+      "region": "PSRAM",
+      "owner": "cash box pixels"
+    },
+    {
+      "name": "pal_psram_uigame_select0_box",
+      "size": 16,
+      "region": "PSRAM",
+      "owner": "selection box metadata 0"
+    },
+    {
+      "name": "pal_psram_uigame_select0_pixels",
+      "size": 12800,
+      "region": "PSRAM",
+      "owner": "selection box pixels 0"
+    },
+    {
+      "name": "pal_psram_uigame_select1_box",
+      "size": 16,
+      "region": "PSRAM",
+      "owner": "selection box metadata 1"
+    },
+    {
+      "name": "pal_psram_uigame_select1_pixels",
+      "size": 12800,
+      "region": "PSRAM",
+      "owner": "selection box pixels 1"
+    },
+    {
+      "name": "pal_psram_uigame_select2_box",
+      "size": 16,
+      "region": "PSRAM",
+      "owner": "selection box metadata 2"
+    },
+    {
+      "name": "pal_psram_uigame_select2_pixels",
+      "size": 12800,
+      "region": "PSRAM",
+      "owner": "selection box pixels 2"
+    },
+    {
+      "name": "pal_psram_uigame_system_box",
+      "size": 16,
+      "region": "PSRAM",
+      "owner": "system box metadata"
+    },
+    {
+      "name": "pal_psram_uigame_system_pixels",
+      "size": 46080,
+      "region": "PSRAM",
+      "owner": "system box pixels"
+    },
+    {
+      "name": "pal_psram_video_screen_bak",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "video backup screen"
+    },
+    {
+      "name": "pal_psram_video_screen_real",
+      "size": 256000,
+      "region": "PSRAM",
+      "owner": "32-bit presentation surface"
+    },
+    {
+      "name": "pal_sram_contract_dialog_palette",
+      "size": 1024,
+      "region": "SRAM",
+      "owner": "contract dialog palette"
+    },
+    {
+      "name": "pal_sram_contract_text_slots",
+      "size": 1024,
+      "region": "SRAM",
+      "owner": "contract text conversion slots"
+    },
+    {
+      "name": "pal_sram_display_dma",
+      "size": 4096,
+      "region": "SRAM",
+      "owner": "LCD RGB565 scanout scratch"
+    },
+    {
+      "name": "pal_sram_framebuffer",
+      "size": 64000,
+      "region": "SRAM",
+      "owner": "target LCD indexed framebuffer"
+    },
+    {
+      "name": "pal_sram_misc",
+      "size": 8192,
+      "region": "SRAM",
+      "owner": "small shared SRAM scratch"
+    },
+    {
+      "name": "pal_sram_palette_base",
+      "size": 1024,
+      "region": "SRAM",
+      "owner": "base palette cache"
+    },
+    {
+      "name": "pal_sram_palette_current",
+      "size": 768,
+      "region": "SRAM",
+      "owner": "current RGB palette"
+    },
+    {
+      "name": "pal_sram_palette_next",
+      "size": 1024,
+      "region": "SRAM",
+      "owner": "next palette cache"
+    },
+    {
+      "name": "pal_sram_palette_rgb565",
+      "size": 512,
+      "region": "SRAM",
+      "owner": "RGB565 palette LUT"
+    },
+    {
+      "name": "pal_sram_palette_work",
+      "size": 768,
+      "region": "SRAM",
+      "owner": "target palette staging"
+    },
+    {
+      "name": "pal_sram_palette_work",
+      "size": 1024,
+      "region": "SRAM",
+      "owner": "engine palette fade work"
+    },
+    {
+      "name": "pal_sram_tile_slot",
+      "size": 65536,
+      "region": "SRAM",
+      "owner": "hot GOP tile slot"
+    },
+    {
+      "name": "pal_sram_video_screen",
+      "size": 64000,
+      "region": "SRAM",
+      "owner": "engine indexed framebuffer"
+    }
+  ]
+}

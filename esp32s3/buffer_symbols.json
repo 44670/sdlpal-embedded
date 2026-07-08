@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "description": "Expected named SRAM/PSRAM buffers for the CoreS3 SE no-audio target artifact.",
+  "symbols": [
+    {
+      "name": "pal_sram_display_dma",
+      "size": 4096,
+      "region": "SRAM",
+      "owner": "LCD RGB565 scanout scratch"
+    },
+    {
+      "name": "pal_sram_framebuffer",
+      "size": 64000,
+      "region": "SRAM",
+      "owner": "320x200 indexed framebuffer"
+    },
+    {
+      "name": "pal_sram_misc",
+      "size": 8192,
+      "region": "SRAM",
+      "owner": "small shared SRAM scratch"
+    },
+    {
+      "name": "pal_sram_palette_current",
+      "size": 768,
+      "region": "SRAM",
+      "owner": "current RGB palette"
+    },
+    {
+      "name": "pal_sram_palette_rgb565",
+      "size": 512,
+      "region": "SRAM",
+      "owner": "RGB565 palette LUT"
+    },
+    {
+      "name": "pal_sram_palette_work",
+      "size": 768,
+      "region": "SRAM",
+      "owner": "palette staging/fade work"
+    },
+    {
+      "name": "pal_sram_save_header",
+      "size": 44,
+      "region": "SRAM",
+      "owner": "short FatFS save-header read"
+    },
+    {
+      "name": "pal_sram_tile_slot",
+      "size": 65536,
+      "region": "SRAM",
+      "owner": "future hot GOP tile slot"
+    },
+    {
+      "name": "pal_psram_battle_scene",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "future battle scene compose buffer"
+    },
+    {
+      "name": "pal_psram_effect",
+      "size": 65536,
+      "region": "PSRAM",
+      "owner": "effect/FIRE staging"
+    },
+    {
+      "name": "pal_psram_ending_fbp_a",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "ending FBP staging A"
+    },
+    {
+      "name": "pal_psram_ending_fbp_b",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "ending FBP staging B"
+    },
+    {
+      "name": "pal_psram_fbp_background",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "battle/menu FBP staging"
+    },
+    {
+      "name": "pal_psram_gop_copy",
+      "size": 65536,
+      "region": "PSRAM",
+      "owner": "current GOP chunk"
+    },
+    {
+      "name": "pal_psram_map_tiles",
+      "size": 65536,
+      "region": "PSRAM",
+      "owner": "current MAP chunk"
+    },
+    {
+      "name": "pal_psram_menu_background",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "menu background staging"
+    },
+    {
+      "name": "pal_psram_menu_box",
+      "size": 5184,
+      "region": "PSRAM",
+      "owner": "menu box scratch"
+    },
+    {
+      "name": "pal_psram_menu_image",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "menu image scratch"
+    },
+    {
+      "name": "pal_psram_rng_frame_a",
+      "size": 65000,
+      "region": "PSRAM",
+      "owner": "RNG frame buffer A"
+    },
+    {
+      "name": "pal_psram_rng_frame_b",
+      "size": 65000,
+      "region": "PSRAM",
+      "owner": "RNG frame buffer B"
+    },
+    {
+      "name": "pal_psram_save_state",
+      "size": 262144,
+      "region": "PSRAM",
+      "owner": "save state and mutable global records"
+    },
+    {
+      "name": "pal_psram_screen_bak",
+      "size": 64000,
+      "region": "PSRAM",
+      "owner": "future full-screen backup surface"
+    },
+    {
+      "name": "pal_psram_sprite_pin",
+      "size": 1310720,
+      "region": "PSRAM",
+      "owner": "current-scene pinned MGO sprites"
+    },
+    {
+      "name": "pal_psram_tf_readahead",
+      "size": 131072,
+      "region": "PSRAM",
+      "owner": "TF read-ahead and RNG table staging"
+    },
+    {
+      "name": "pal_psram_tf_toc",
+      "size": 32768,
+      "region": "PSRAM",
+      "owner": "copied TF pack TOC"
+    }
+  ]
+}

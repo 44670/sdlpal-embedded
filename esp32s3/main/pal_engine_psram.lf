@@ -1,0 +1,30 @@
+[sections:pal_psram_bss]
+entries:
+    .bss.pal_psram+
+
+[sections:pal_sram_bss]
+entries:
+    .bss.pal_sram+
+
+[scheme:pal_engine_static_bss]
+entries:
+    pal_sram_bss -> dram0_bss
+    bss -> extern_ram
+    common -> extern_ram
+    pal_psram_bss -> extern_ram
+
+[mapping:pal_psram]
+archive: libmain.a
+entries:
+    battle (pal_engine_static_bss)
+    ending (pal_engine_static_bss)
+    embedded_contract_stubs (pal_engine_static_bss)
+    global (pal_engine_static_bss)
+    main (pal_engine_static_bss)
+    map (pal_engine_static_bss)
+    pal_engine_pack_provider (pal_engine_static_bss)
+    res (pal_engine_static_bss)
+    rngplay (pal_engine_static_bss)
+    uigame (pal_engine_static_bss)
+    video (pal_engine_static_bss)
+    sdl_shim (pal_engine_static_bss)

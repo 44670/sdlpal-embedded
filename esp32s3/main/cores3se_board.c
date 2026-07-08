@@ -26,7 +26,7 @@ static const char *TAG = "cores3se_board";
 static const uint32_t I2C_TIMEOUT_MS = 1000u;
 static const spi_host_device_t LCD_HOST = SPI3_HOST;
 static const uint32_t LCD_PIXEL_CLOCK_HZ = 40000000u;
-static const uint32_t TF_SPI_CLOCK_KHZ = 25000u;
+static const uint32_t TF_SPI_CLOCK_KHZ = 20000u;
 static const uint8_t BACKLIGHT_BRIGHTNESS = 60u;
 static const char *TF_MOUNT_POINT = "/sdcard";
 
@@ -185,7 +185,7 @@ static bool add_i2c_device(uint8_t addr, i2c_master_dev_handle_t *dev, const cha
 static bool init_io_expander(void)
 {
     uint8_t id = 0;
-    uint8_t output0_mask = 0x01u | CORES3SE_AW9523_SPEAKER_ENABLE_MASK;
+    uint8_t output0_mask = 0x01u;
     bool enable_bus_5v;
 
     if (!add_i2c_device(CORES3SE_AW9523_ADDR, &aw9523_dev, "add AW9523")) {
@@ -213,7 +213,7 @@ static bool init_io_expander(void)
         output0_mask = (uint8_t)(output0_mask | CORES3SE_AW9523_BUS_ENABLE_MASK);
     }
 
-    if (!aw_update(CORES3SE_AW9523_REG_OUTPUT0, output0_mask, 0)) return false;
+    if (!aw_update(CORES3SE_AW9523_REG_OUTPUT0, output0_mask, CORES3SE_AW9523_SPEAKER_ENABLE_MASK)) return false;
     if (!aw_update(CORES3SE_AW9523_REG_OUTPUT1, 0x03u | CORES3SE_AW9523_BOOST_ENABLE_MASK, 0)) return false;
     if (!aw_write(CORES3SE_AW9523_REG_CONFIG0, 0x18u)) return false;
     if (!aw_write(CORES3SE_AW9523_REG_CONFIG1, 0x0Cu)) return false;
@@ -406,6 +406,8 @@ static bool flush_solid_rect(uint16_t y, uint16_t height, uint16_t color)
 
 bool CoreS3Se_Begin(void)
 {
+    bool ok;
+
     if (!init_i2c() || !init_io_expander() || !init_pmu() || !init_lcd()) {
         return false;
     }
@@ -413,7 +415,9 @@ bool CoreS3Se_Begin(void)
     if (!touch_ready) {
         ESP_LOGW(TAG, "touch init failed");
     }
-    return flush_solid_rect(0, CORES3SE_LCD_HEIGHT, 0x0000u);
+    ok = flush_solid_rect(0, CORES3SE_LCD_HEIGHT, 0x0000u);
+    CoreS3Se_PrepareTfAccess();
+    return ok;
 }
 
 bool CoreS3Se_MountTf(void)
@@ -446,13 +450,11 @@ bool CoreS3Se_MountTf(void)
     err = esp_vfs_fat_sdspi_mount(TF_MOUNT_POINT, &host, &slot_config, &mount_config, &tf_card);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "mount TF: %s", esp_err_to_name(err));
-        CoreS3Se_PrepareLcdAccess();
         return false;
     }
 
     tf_mounted = true;
     ESP_LOGI(TAG, "TF mounted at %s", TF_MOUNT_POINT);
-    CoreS3Se_PrepareLcdAccess();
     return true;
 }
 
@@ -472,13 +474,14 @@ bool CoreS3Se_FlushPalFramebuffer(void)
     uint16_t y;
     const uint16_t *lines = NULL;
     uint16_t pixels = 0;
+    bool ok = false;
 
     if (lcd_io == NULL) {
         return false;
     }
     CoreS3Se_PrepareLcdAccess();
     if (!flush_solid_rect(0, CORES3SE_PAL_Y_OFFSET, 0x0000u)) {
-        return false;
+        goto finish;
     }
     for (y = 0; y < 200u;) {
         uint16_t rows = 0;
@@ -486,20 +489,85 @@ bool CoreS3Se_FlushPalFramebuffer(void)
         if (!PalVideo_ConvertLinesRgb565(y, (uint16_t)(200u - y), &lines, &pixels, &rows) ||
             pixels != CORES3SE_LCD_WIDTH ||
             rows == 0) {
-            return false;
+            goto finish;
         }
         if (!set_lcd_window(0, (uint16_t)(CORES3SE_PAL_Y_OFFSET + y), CORES3SE_LCD_WIDTH, rows)) {
-            return false;
+            goto finish;
         }
         if (!log_error(esp_lcd_panel_io_tx_color(lcd_io, LCD_CMD_RAMWR, lines, (uint32_t)pixels * rows * 2u), "flush PAL lines")) {
-            return false;
+            goto finish;
         }
         y = (uint16_t)(y + rows);
     }
     if (!flush_solid_rect((uint16_t)(CORES3SE_PAL_Y_OFFSET + 200u), CORES3SE_PAL_Y_OFFSET, 0x0000u)) {
+        goto finish;
+    }
+    ok = log_error(esp_lcd_panel_io_tx_param(lcd_io, -1, NULL, 0), "wait LCD idle");
+
+finish:
+    CoreS3Se_PrepareTfAccess();
+    return ok;
+}
+
+static uint16_t rgb565_from_argb8888(const uint8_t *pixel)
+{
+    uint8_t b = pixel[0];
+    uint8_t g = pixel[1];
+    uint8_t r = pixel[2];
+
+    return (uint16_t)(((uint16_t)(r & 0xF8u) << 8) |
+                      ((uint16_t)(g & 0xFCu) << 3) |
+                      ((uint16_t)b >> 3));
+}
+
+bool CoreS3Se_FlushArgb8888Texture(const void *pixels, uint16_t width, uint16_t height, uint16_t pitch)
+{
+    const uint16_t max_rows = (uint16_t)(PAL_SRAM_DISPLAY_DMA_BYTES / (CORES3SE_LCD_WIDTH * 2u));
+    const uint8_t *src = (const uint8_t *)pixels;
+    uint16_t y;
+    bool ok = false;
+
+    if (lcd_io == NULL || src == NULL || width != CORES3SE_LCD_WIDTH || height != 200u ||
+        pitch < (uint16_t)(CORES3SE_LCD_WIDTH * 4u) || max_rows == 0) {
         return false;
     }
-    return log_error(esp_lcd_panel_io_tx_param(lcd_io, -1, NULL, 0), "wait LCD idle");
+
+    CoreS3Se_PrepareLcdAccess();
+    if (!flush_solid_rect(0, CORES3SE_PAL_Y_OFFSET, 0x0000u)) {
+        goto finish;
+    }
+
+    for (y = 0; y < height;) {
+        uint16_t rows = (uint16_t)(height - y);
+        uint16_t row;
+        if (rows > max_rows) {
+            rows = max_rows;
+        }
+        for (row = 0; row < rows; row++) {
+            uint16_t *dst = (uint16_t *)pal_sram_display_dma + (uint32_t)row * CORES3SE_LCD_WIDTH;
+            const uint8_t *line = src + (uint32_t)(y + row) * pitch;
+            uint16_t x;
+            for (x = 0; x < CORES3SE_LCD_WIDTH; x++) {
+                dst[x] = rgb565_from_argb8888(line + (uint32_t)x * 4u);
+            }
+        }
+        if (!set_lcd_window(0, (uint16_t)(CORES3SE_PAL_Y_OFFSET + y), CORES3SE_LCD_WIDTH, rows)) {
+            goto finish;
+        }
+        if (!log_error(esp_lcd_panel_io_tx_color(lcd_io, LCD_CMD_RAMWR, pal_sram_display_dma, (uint32_t)CORES3SE_LCD_WIDTH * rows * 2u), "flush engine texture")) {
+            goto finish;
+        }
+        y = (uint16_t)(y + rows);
+    }
+
+    if (!flush_solid_rect((uint16_t)(CORES3SE_PAL_Y_OFFSET + 200u), CORES3SE_PAL_Y_OFFSET, 0x0000u)) {
+        goto finish;
+    }
+    ok = log_error(esp_lcd_panel_io_tx_param(lcd_io, -1, NULL, 0), "wait LCD idle");
+
+finish:
+    CoreS3Se_PrepareTfAccess();
+    return ok;
 }
 
 bool CoreS3Se_TouchPoint(uint16_t *x, uint16_t *y)
@@ -510,9 +578,6 @@ bool CoreS3Se_TouchPoint(uint16_t *x, uint16_t *y)
     uint16_t ty;
 
     if (!touch_ready || touch_dev == NULL || x == NULL || y == NULL) {
-        return false;
-    }
-    if (gpio_get_level(CORES3SE_PIN_TOUCH_INT) != 0) {
         return false;
     }
     if (!touch_read(TOUCH_REG_POINTS, &points, sizeof(points))) {
@@ -541,5 +606,10 @@ bool CoreS3Se_TouchPoint(uint16_t *x, uint16_t *y)
 void CoreS3Se_ShowError(const char *line1, const char *line2)
 {
     ESP_LOGE(TAG, "%s%s%s", line1 != NULL ? line1 : "ERROR", line2 != NULL ? ": " : "", line2 != NULL ? line2 : "");
+    if (lcd_io == NULL) {
+        return;
+    }
+    CoreS3Se_PrepareLcdAccess();
     (void)flush_solid_rect(0, CORES3SE_LCD_HEIGHT, 0x00F8u);
+    CoreS3Se_PrepareTfAccess();
 }

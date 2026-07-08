@@ -1,0 +1,19 @@
+# Deterministic stock-desktop route for the current DOS PAL data set.
+# Format: <virtual-tick-ms> state <direction> <key-mask>
+# key-mask 0x2 is kKeySearch. The first event skips the splash screen;
+# later search events accept the default "new game" menu choice and advance
+# the first scene's opening dialog/script path.
+0 state 0 0x2
+15000 state 0 0x2
+15500 state 0 0x2
+16000 state 0 0x2
+16500 state 0 0x2
+17000 state 0 0x2
+17500 state 0 0x2
+18000 state 0 0x2
+18500 state 0 0x2
+19000 state 0 0x2
+19500 state 0 0x2
+20000 state 0 0x2
+20500 state 0 0x2
+21000 state 0 0x2

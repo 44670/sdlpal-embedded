@@ -1,0 +1,4 @@
+#ifndef PAL_CORES3SE_NATIVE_SDL_EVENTS_H
+#define PAL_CORES3SE_NATIVE_SDL_EVENTS_H
+#include "SDL.h"
+#endif

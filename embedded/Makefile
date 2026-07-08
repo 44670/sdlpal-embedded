@@ -15,6 +15,9 @@ MAP_LDFLAGS = -Wl,-Map,$@.map,--cref
 NOHEAP_LDFLAGS = -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free
 SDL_CFLAGS := $(shell $(SDL_CONFIG) --cflags)
 SDL_LIBS := $(shell $(SDL_CONFIG) --libs)
+SANITIZE_BUILD_DIR ?= build-sanitize
+SANITIZE_CFLAGS = -std=c99 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -ffunction-sections -fdata-sections
+SANITIZE_LDFLAGS = -fsanitize=address,undefined -Wl,--gc-sections
 
 BUILD_DIR := build
 SMOKE := $(BUILD_DIR)/pal_pack_smoke
@@ -23,7 +26,7 @@ NATIVE_SDL_SMOKE := $(BUILD_DIR)/pal_native_sdl_smoke
 REALDATA_SDL_SMOKE := $(BUILD_DIR)/pal_realdata_sdl_smoke
 PACK_CHECK := $(BUILD_DIR)/pal_pack_check
 
-.PHONY: all clean check pack-build realdata-check artifact-check contract-check
+.PHONY: all clean check pack-build realdata-check artifact-check contract-check sanitize-check
 
 all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK)
 
@@ -56,6 +59,9 @@ pack-build:
 realdata-check: pack-build $(PACK_CHECK) $(REALDATA_SDL_SMOKE)
 	$(PACK_CHECK) $(PACK_NOR) $(PACK_TF)
 	SDL_VIDEODRIVER=dummy $(REALDATA_SDL_SMOKE) $(PACK_NOR) $(PACK_TF) $(PAL_DATA_DIR)
+
+sanitize-check:
+	$(MAKE) BUILD_DIR=$(SANITIZE_BUILD_DIR) CFLAGS='$(SANITIZE_CFLAGS)' LDFLAGS='$(SANITIZE_LDFLAGS)' realdata-check
 
 contract-check: pack-build $(REALDATA_SDL_SMOKE)
 	$(PYTHON) -B ../tools/embedded_contract_check.py \

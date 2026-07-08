@@ -1,8 +1,14 @@
 #include "aviplay.h"
+#include "battle.h"
 #include "font.h"
+#include "global.h"
+#include "input.h"
+#include "palette.h"
 #include "players.h"
 #include "resampler.h"
 #include "text.h"
+#include "ui.h"
+#include "util.h"
 #include "video.h"
 #include "audio.h"
 #include "../embedded/pal_font_cache.h"
@@ -10,24 +16,37 @@
 #include "../embedded/pal_pack.h"
 #include "../embedded/pal_text_cache.h"
 
+#ifndef PAL_CONTRACT_TARGET_PACK_PROVIDER
 #include <fcntl.h>
+#endif
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef PAL_CONTRACT_TARGET_PACK_PROVIDER
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 #include <wchar.h>
 
 #define PAL_CONTRACT_TEXT_SLOTS 8u
 #define PAL_CONTRACT_TEXT_CHARS 64u
-#define PAL_CONTRACT_SFX_BYTES (212u * 1024u)
-#define PAL_CONTRACT_SFX_MAGIC 0x58465350u
-#define PAL_CONTRACT_SFX_VERSION 1u
-#define PAL_CONTRACT_SFX_HEADER_SIZE 24u
-#define PAL_CONTRACT_SFX_RATE 22050u
+#ifndef PAL_CONTRACT_NO_AUDIO
+# define PAL_CONTRACT_SFX_BYTES (212u * 1024u)
+# define PAL_CONTRACT_SFX_MAGIC 0x58465350u
+# define PAL_CONTRACT_SFX_VERSION 1u
+# define PAL_CONTRACT_SFX_HEADER_SIZE 24u
+# define PAL_CONTRACT_SFX_RATE 22050u
+#endif
+
+#define FONT_COLOR_DEFAULT 0x4F
+#define FONT_COLOR_YELLOW 0x2D
+#define FONT_COLOR_RED 0x1A
+#define FONT_COLOR_CYAN 0x8D
+#define FONT_COLOR_CYAN_ALT 0x8C
+#define FONT_COLOR_RED_ALT 0x17
 
 #if defined(__GNUC__)
 #define PAL_CONTRACT_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
@@ -51,14 +70,19 @@ static bool pal_contract_font_ready;
 static PalMusicTrack pal_contract_music_track;
 static AUDIOPLAYER pal_contract_music_player;
 #endif
+#ifndef PAL_CONTRACT_NO_AUDIO
 static AUDIOPLAYER pal_contract_sound_player;
 static const uint8_t *pal_contract_sfx_pcm;
 static uint32_t pal_contract_sfx_samples;
 static uint32_t pal_contract_sfx_cursor;
 static bool pal_contract_sfx_active;
+#endif
 static uint8_t pal_sram_contract_text_slots
     [PAL_CONTRACT_TEXT_SLOTS][PAL_CONTRACT_TEXT_CHARS * sizeof(WCHAR)] PAL_CONTRACT_SRAM;
+static uint8_t pal_sram_contract_dialog_palette[256u * sizeof(SDL_Color)] PAL_CONTRACT_SRAM;
+#ifndef PAL_CONTRACT_NO_AUDIO
 static uint8_t pal_psram_contract_sfx[PAL_CONTRACT_SFX_BYTES] PAL_CONTRACT_PSRAM;
+#endif
 static unsigned int pal_contract_text_slot;
 static WCHAR pal_empty_text[1];
 
@@ -81,6 +105,12 @@ PalContract_ReadLe32(
            ((uint32_t)p[3] << 24);
 }
 
+#ifdef PAL_CONTRACT_TARGET_PACK_PROVIDER
+bool PalContract_TargetOpenNorPack(PalPack *pack);
+bool PalContract_TargetOpenTfPack(PalPack *pack);
+#endif
+
+#ifndef PAL_CONTRACT_NO_AUDIO
 static int16_t
 PalContract_ReadI16(
     const uint8_t *p
@@ -102,7 +132,9 @@ PalContract_ClampI16(
     }
     return (int16_t)sample;
 }
+#endif
 
+#ifndef PAL_CONTRACT_TARGET_PACK_PROVIDER
 static bool
 PalContract_MapPackPath(
     PalPack *pack,
@@ -138,12 +170,21 @@ PalContract_MapPackPath(
 
     return true;
 }
+#endif
 
 static bool
 PalContract_OpenNorPack(
     void
 )
 {
+#ifdef PAL_CONTRACT_TARGET_PACK_PROVIDER
+    if (pal_contract_pack_tried) {
+        return pal_contract_pack_ready;
+    }
+    pal_contract_pack_tried = true;
+    pal_contract_pack_ready = PalContract_TargetOpenNorPack(&pal_contract_nor_pack);
+    return pal_contract_pack_ready;
+#else
     const char *path;
 
     if (pal_contract_pack_tried) {
@@ -157,6 +198,7 @@ PalContract_OpenNorPack(
         pal_contract_pack_ready = true;
     }
     return pal_contract_pack_ready;
+#endif
 }
 
 static bool
@@ -164,6 +206,14 @@ PalContract_OpenTfPack(
     void
 )
 {
+#ifdef PAL_CONTRACT_TARGET_PACK_PROVIDER
+    if (pal_contract_tf_pack_tried) {
+        return pal_contract_tf_pack_ready;
+    }
+    pal_contract_tf_pack_tried = true;
+    pal_contract_tf_pack_ready = PalContract_TargetOpenTfPack(&pal_contract_tf_pack);
+    return pal_contract_tf_pack_ready;
+#else
     const char *path;
 
     if (pal_contract_tf_pack_tried) {
@@ -177,6 +227,7 @@ PalContract_OpenTfPack(
         pal_contract_tf_pack_ready = true;
     }
     return pal_contract_tf_pack_ready;
+#endif
 }
 
 static LPWSTR
@@ -249,6 +300,7 @@ PalContract_DrawGlyph16(
     }
 }
 
+#ifndef PAL_CONTRACT_NO_AUDIO
 static bool
 PalContract_OpenSfx(
     const uint8_t *payload,
@@ -290,6 +342,7 @@ PalContract_OpenSfx(
     pal_contract_sfx_active = true;
     return true;
 }
+#endif
 
 static VOID
 PalContract_PlayerShutdown(
@@ -340,6 +393,7 @@ PalContract_MusicFillBuffer(
 }
 #endif
 
+#ifndef PAL_CONTRACT_NO_AUDIO
 static BOOL
 PalContract_SoundPlay(
     VOID *player,
@@ -400,6 +454,7 @@ PalContract_SoundFillBuffer(
         pal_contract_sfx_active = false;
     }
 }
+#endif
 
 void resampler_init(void)
 {
@@ -448,12 +503,32 @@ int PAL_FontHeight(void)
 
 INT PAL_InitText(VOID)
 {
+    PalPackSpan span;
+    uint32_t icon_bytes;
+
     pal_contract_text_ready = PalContract_OpenNorPack() && PalText_Open(&pal_contract_nor_pack, &pal_contract_text);
     if (!pal_contract_text_ready) {
         return -1;
     }
     g_TextLib.nWords = pal_contract_text.word_count;
     g_TextLib.nMsgs = pal_contract_text.message_count;
+    g_TextLib.bCurrentFontColor = FONT_COLOR_DEFAULT;
+    g_TextLib.bIcon = 0;
+    g_TextLib.posIcon = 0;
+    g_TextLib.nCurrentDialogLine = 0;
+    g_TextLib.iDelayTime = 3;
+    g_TextLib.posDialogTitle = PAL_XY(12, 8);
+    g_TextLib.posDialogText = PAL_XY(44, 26);
+    g_TextLib.bDialogPosition = kDialogUpper;
+    g_TextLib.fUserSkip = FALSE;
+    g_TextLib.fPlayingRNG = FALSE;
+    memset(g_TextLib.bufDialogIcons, 0, sizeof(g_TextLib.bufDialogIcons));
+    if (PalPack_MapConst(&pal_contract_nor_pack, PAL_PACK_ARCHIVE_DATA, 12, &span) &&
+        span.data != NULL && span.size > 0) {
+        icon_bytes = span.size < sizeof(g_TextLib.bufDialogIcons) ?
+            span.size : (uint32_t)sizeof(g_TextLib.bufDialogIcons);
+        memcpy(g_TextLib.bufDialogIcons, span.data, icon_bytes);
+    }
     return 0;
 }
 
@@ -536,58 +611,343 @@ VOID PAL_DrawTextUnescape(
 
 VOID PAL_DialogSetDelayTime(INT iDelayTime)
 {
-    (void)iDelayTime;
+    g_TextLib.iDelayTime = iDelayTime;
 }
 
 VOID PAL_StartDialog(BYTE bDialogLocation, BYTE bFontColor, INT iNumCharFace, BOOL fPlayingRNG)
 {
-    (void)bDialogLocation;
-    (void)bFontColor;
-    (void)iNumCharFace;
-    (void)fPlayingRNG;
+    PAL_StartDialogWithOffset(bDialogLocation, bFontColor, iNumCharFace, fPlayingRNG, 0, 0);
 }
 
 VOID PAL_StartDialogWithOffset(BYTE bDialogLocation, BYTE bFontColor, INT iNumCharFace, BOOL fPlayingRNG, INT xOff, INT yOff)
 {
-    (void)bDialogLocation;
-    (void)bFontColor;
-    (void)iNumCharFace;
-    (void)fPlayingRNG;
-    (void)xOff;
-    (void)yOff;
+    PalPackSpan face_span;
+    SDL_Rect rect;
+
+    if (gpGlobals->fInBattle && !g_fUpdatedInBattle) {
+        VIDEO_UpdateScreen(NULL);
+        g_fUpdatedInBattle = TRUE;
+    }
+
+    g_TextLib.bIcon = 0;
+    g_TextLib.posIcon = 0;
+    g_TextLib.nCurrentDialogLine = 0;
+    g_TextLib.posDialogTitle = PAL_XY(12, 8);
+    g_TextLib.posDialogText = PAL_XY(44, 26);
+    g_TextLib.fUserSkip = FALSE;
+    if (bFontColor != 0) {
+        g_TextLib.bCurrentFontColor = bFontColor;
+    }
+    if (fPlayingRNG && iNumCharFace) {
+        VIDEO_BackupScreen(gpScreen);
+        g_TextLib.fPlayingRNG = TRUE;
+    }
+
+    switch (bDialogLocation) {
+    case kDialogCenter:
+        g_TextLib.posDialogText = PAL_XY(80, 40);
+        break;
+    case kDialogLower:
+        if (iNumCharFace > 0 &&
+            PalContract_OpenNorPack() &&
+            PalPack_MapConst(&pal_contract_nor_pack, PAL_PACK_ARCHIVE_RGM, (uint16_t)iNumCharFace, &face_span) &&
+            face_span.data != NULL) {
+            LPCBITMAPRLE face = (LPCBITMAPRLE)face_span.data;
+            rect.x = 270 - PAL_RLEGetWidth(face) / 2 + xOff;
+            rect.y = 144 - PAL_RLEGetHeight(face) / 2 + yOff;
+            PAL_RLEBlitToSurface(face, gpScreen, PAL_XY(rect.x, rect.y));
+            VIDEO_UpdateScreen(NULL);
+        }
+        g_TextLib.posDialogTitle = PAL_XY(iNumCharFace > 0 ? 4 : 12, 108);
+        g_TextLib.posDialogText = PAL_XY(iNumCharFace > 0 ? 20 : 44, 126);
+        break;
+    case kDialogCenterWindow:
+        g_TextLib.posDialogText = PAL_XY(160, 40);
+        break;
+    case kDialogUpper:
+    default:
+        if (iNumCharFace > 0 &&
+            PalContract_OpenNorPack() &&
+            PalPack_MapConst(&pal_contract_nor_pack, PAL_PACK_ARCHIVE_RGM, (uint16_t)iNumCharFace, &face_span) &&
+            face_span.data != NULL) {
+            LPCBITMAPRLE face = (LPCBITMAPRLE)face_span.data;
+            rect.w = PAL_RLEGetWidth(face);
+            rect.h = PAL_RLEGetHeight(face);
+            rect.x = 48 - rect.w / 2 + xOff;
+            rect.y = 55 - rect.h / 2 + yOff;
+            if (rect.x < 0) {
+                rect.x = 0;
+            }
+            if (rect.y < 0) {
+                rect.y = 0;
+            }
+            PAL_RLEBlitToSurface(face, gpScreen, PAL_XY(rect.x, rect.y));
+            VIDEO_UpdateScreen(&rect);
+        }
+        g_TextLib.posDialogTitle = PAL_XY(iNumCharFace > 0 ? 80 : 12, 8);
+        g_TextLib.posDialogText = PAL_XY(iNumCharFace > 0 ? 96 : 44, 26);
+        break;
+    }
+
+    g_TextLib.posDialogTitle = PAL_XY(
+        PAL_X(g_TextLib.posDialogTitle) + xOff,
+        PAL_Y(g_TextLib.posDialogTitle) + yOff);
+    g_TextLib.posDialogText = PAL_XY(
+        PAL_X(g_TextLib.posDialogText) + xOff,
+        PAL_Y(g_TextLib.posDialogText) + yOff);
+    g_TextLib.bDialogPosition = bDialogLocation;
+}
+
+static void PalContract_DialogWaitForKey(FLOAT max_seconds)
+{
+    uint32_t start = SDL_GetTicks();
+    SDL_Color *palette = (SDL_Color *)pal_sram_contract_dialog_palette;
+    SDL_Color *current_palette;
+    bool animate_icon;
+    int i;
+
+    animate_icon = g_TextLib.bDialogPosition != kDialogCenterWindow &&
+        g_TextLib.bDialogPosition != kDialogCenter;
+    current_palette = PAL_GetPalette(gpGlobals->wNumPalette, gpGlobals->fNightPalette);
+    if (current_palette != NULL) {
+        memcpy(palette, current_palette, sizeof(pal_sram_contract_dialog_palette));
+    } else {
+        memset(palette, 0, sizeof(pal_sram_contract_dialog_palette));
+    }
+
+    if (animate_icon) {
+        LPCBITMAPRLE icon = PAL_SpriteGetFrame(g_TextLib.bufDialogIcons, g_TextLib.bIcon);
+        if (icon != NULL) {
+            SDL_Rect rect;
+            rect.x = PAL_X(g_TextLib.posIcon);
+            rect.y = PAL_Y(g_TextLib.posIcon);
+            rect.w = 16;
+            rect.h = 16;
+            PAL_RLEBlitToSurface(icon, gpScreen, g_TextLib.posIcon);
+            VIDEO_UpdateScreen(&rect);
+        }
+    }
+
+    PAL_ClearKeyState();
+    while (TRUE) {
+        UTIL_Delay(100);
+        if (animate_icon) {
+            SDL_Color t = palette[0xF9];
+            for (i = 0xF9; i < 0xFE; i++) {
+                palette[i] = palette[i + 1];
+            }
+            palette[0xFE] = t;
+            VIDEO_SetPalette(palette);
+        }
+        if (max_seconds > 0.0f && SDL_GetTicks() - start > (uint32_t)(max_seconds * 1000.0f)) {
+            break;
+        }
+        if (g_InputState.dwKeyPress != 0) {
+            break;
+        }
+    }
+    if (animate_icon) {
+        PAL_SetPalette(gpGlobals->wNumPalette, gpGlobals->fNightPalette);
+    }
+    PAL_ClearKeyState();
+    g_TextLib.fUserSkip = FALSE;
 }
 
 int TEXT_DisplayText(LPCWSTR lpszText, int x, int y, BOOL isDialog)
 {
-    (void)lpszText;
-    (void)x;
-    (void)y;
-    (void)isDialog;
-    return 0;
+    WCHAR text[2];
+    BYTE color;
+    BYTE is_number = 0;
+
+    while (lpszText != NULL && *lpszText != 0) {
+        switch (*lpszText) {
+        case '-':
+            g_TextLib.bCurrentFontColor =
+                (g_TextLib.bCurrentFontColor == FONT_COLOR_CYAN) ? FONT_COLOR_DEFAULT : FONT_COLOR_CYAN;
+            lpszText++;
+            break;
+        case '\'':
+            g_TextLib.bCurrentFontColor =
+                (g_TextLib.bCurrentFontColor == FONT_COLOR_RED) ? FONT_COLOR_DEFAULT : FONT_COLOR_RED;
+            lpszText++;
+            break;
+        case '@':
+            g_TextLib.bCurrentFontColor =
+                (g_TextLib.bCurrentFontColor == FONT_COLOR_RED_ALT) ? FONT_COLOR_DEFAULT : FONT_COLOR_RED_ALT;
+            lpszText++;
+            break;
+        case '"':
+            if (!isDialog) {
+                g_TextLib.bCurrentFontColor =
+                    (g_TextLib.bCurrentFontColor == FONT_COLOR_YELLOW) ? FONT_COLOR_DEFAULT : FONT_COLOR_YELLOW;
+            }
+            lpszText++;
+            break;
+        case '$':
+            g_TextLib.iDelayTime = (INT)(wcstol(lpszText + 1, NULL, 10) * 10 / 7);
+            lpszText += 3;
+            break;
+        case '~':
+            if (g_TextLib.fUserSkip) {
+                VIDEO_UpdateScreen(NULL);
+            }
+            if (!isDialog) {
+                UTIL_Delay((uint32_t)(wcstol(lpszText + 1, NULL, 10) * 80 / 7));
+            }
+            g_TextLib.nCurrentDialogLine = -1;
+            g_TextLib.fUserSkip = FALSE;
+            return x;
+        case ')':
+            g_TextLib.bIcon = 1;
+            lpszText++;
+            break;
+        case '(':
+            g_TextLib.bIcon = 2;
+            lpszText++;
+            break;
+        case '\\':
+            lpszText++;
+            /* fall through */
+        default:
+            text[0] = *lpszText++;
+            text[1] = 0;
+            color = g_TextLib.bCurrentFontColor;
+            if (isDialog) {
+                if (color == FONT_COLOR_DEFAULT) {
+                    color = 0;
+                }
+                is_number = (text[0] >= '0' && text[0] <= '9') ? 1 : 0;
+            }
+            if (is_number) {
+                PAL_DrawNumber((UINT)(text[0] - '0'), 1, PAL_XY(x, y + 4), kNumColorYellow, kNumAlignLeft);
+            } else {
+                PAL_DrawTextUnescape(text, PAL_XY(x, y), color, !isDialog, !isDialog && !g_TextLib.fUserSkip, FALSE, FALSE);
+            }
+            x += PAL_CharWidth((uint16_t)text[0]);
+            if (!isDialog && !g_TextLib.fUserSkip) {
+                PAL_ClearKeyState();
+                UTIL_Delay((uint32_t)(g_TextLib.iDelayTime * 8));
+                if (g_InputState.dwKeyPress & (kKeySearch | kKeyMenu)) {
+                    g_TextLib.fUserSkip = TRUE;
+                }
+            }
+            break;
+        }
+    }
+    return x;
 }
 
 VOID PAL_ShowDialogText(LPCWSTR lpszText)
 {
-    (void)lpszText;
+    int x;
+    int y;
+    size_t len;
+
+    PAL_ClearKeyState();
+    g_TextLib.bIcon = 0;
+
+    if (gpGlobals->fInBattle && !g_fUpdatedInBattle) {
+        VIDEO_UpdateScreen(NULL);
+        g_fUpdatedInBattle = TRUE;
+    }
+
+    if (g_TextLib.nCurrentDialogLine > 3) {
+        PalContract_DialogWaitForKey(0.0f);
+        g_TextLib.nCurrentDialogLine = 0;
+        VIDEO_RestoreScreen(gpScreen);
+        VIDEO_UpdateScreen(NULL);
+    }
+
+    x = PAL_X(g_TextLib.posDialogText);
+    y = PAL_Y(g_TextLib.posDialogText) + g_TextLib.nCurrentDialogLine * 18;
+
+    if (g_TextLib.bDialogPosition == kDialogCenterWindow) {
+#ifndef PAL_CLASSIC
+        if (gpGlobals->fInBattle && g_Battle.BattleResult == kBattleResultOnGoing) {
+            PAL_BattleUIShowText(lpszText, 1400);
+        } else
+#endif
+        {
+        int width = 0;
+        int i;
+        LPBOX box;
+        SDL_Rect rect;
+        PAL_POS pos;
+
+        len = lpszText != NULL ? wcslen(lpszText) : 0;
+        for (i = 0; i < (int)len; i++) {
+            width += PAL_CharWidth((uint16_t)lpszText[i]) >> 3;
+        }
+        pos = PAL_XY(PAL_X(g_TextLib.posDialogText) - width * 4, PAL_Y(g_TextLib.posDialogText));
+        box = PAL_CreateSingleLineBoxWithShadow(pos, (width + 1) / 2, FALSE, g_TextLib.iDialogShadow);
+        rect.x = PAL_X(pos);
+        rect.y = PAL_Y(pos);
+        rect.w = 320 - rect.x * 2 + 32;
+        rect.h = 64;
+        VIDEO_UpdateScreen(&rect);
+        TEXT_DisplayText(lpszText, PAL_X(pos) + 8 + ((width & 1) << 2), PAL_Y(pos) + 10, TRUE);
+        VIDEO_UpdateScreen(&rect);
+        PalContract_DialogWaitForKey(1.4f);
+        PAL_DeleteBox(box);
+        VIDEO_UpdateScreen(&rect);
+        PAL_EndDialog();
+        }
+        return;
+    }
+
+    len = lpszText != NULL ? wcslen(lpszText) : 0;
+    if (g_TextLib.nCurrentDialogLine == 0 &&
+        g_TextLib.bDialogPosition != kDialogCenter &&
+        len > 0 &&
+        (lpszText[len - 1] == 0xff1a || lpszText[len - 1] == 0x2236 || lpszText[len - 1] == ':')) {
+        PAL_DrawText(lpszText, g_TextLib.posDialogTitle, FONT_COLOR_CYAN_ALT, TRUE, TRUE, FALSE);
+        return;
+    }
+
+    if (!g_TextLib.fPlayingRNG && g_TextLib.nCurrentDialogLine == 0) {
+        VIDEO_BackupScreen(gpScreen);
+    }
+    x = TEXT_DisplayText(lpszText, x, y, FALSE);
+    if (g_TextLib.fUserSkip) {
+        VIDEO_UpdateScreen(NULL);
+    }
+    g_TextLib.posIcon = PAL_XY(x, y);
+    g_TextLib.nCurrentDialogLine++;
 }
 
 VOID PAL_ClearDialog(BOOL fWaitForKey)
 {
-    (void)fWaitForKey;
+    if (g_TextLib.nCurrentDialogLine > 0 && fWaitForKey) {
+        PalContract_DialogWaitForKey(0.0f);
+    }
+    g_TextLib.nCurrentDialogLine = 0;
+    if (g_TextLib.bDialogPosition == kDialogCenter) {
+        g_TextLib.posDialogTitle = PAL_XY(12, 8);
+        g_TextLib.posDialogText = PAL_XY(44, 26);
+        g_TextLib.bCurrentFontColor = FONT_COLOR_DEFAULT;
+        g_TextLib.bDialogPosition = kDialogUpper;
+    }
 }
 
 VOID PAL_EndDialog(VOID)
 {
+    PAL_ClearDialog(TRUE);
+    g_TextLib.posDialogTitle = PAL_XY(12, 8);
+    g_TextLib.posDialogText = PAL_XY(44, 26);
+    g_TextLib.bCurrentFontColor = FONT_COLOR_DEFAULT;
+    g_TextLib.bDialogPosition = kDialogUpper;
+    g_TextLib.fUserSkip = FALSE;
+    g_TextLib.fPlayingRNG = FALSE;
 }
 
 BOOL PAL_IsInDialog(VOID)
 {
-    return FALSE;
+    return g_TextLib.nCurrentDialogLine != 0;
 }
 
 BOOL PAL_DialogIsPlayingRNG(VOID)
 {
-    return FALSE;
+    return g_TextLib.fPlayingRNG;
 }
 
 INT PAL_MultiByteToWideChar(LPCSTR mbs, int mbslength, LPWSTR wcs, int wcslength)
@@ -697,6 +1057,7 @@ LPAUDIOPLAYER RIX_Init(LPCSTR szFileName)
 }
 #endif
 
+#ifndef PAL_CONTRACT_NO_AUDIO
 LPAUDIOPLAYER SOUND_Init(VOID)
 {
     if (!PalContract_OpenTfPack()) {
@@ -709,6 +1070,7 @@ LPAUDIOPLAYER SOUND_Init(VOID)
     pal_contract_sound_player.FillBuffer = PalContract_SoundFillBuffer;
     return &pal_contract_sound_player;
 }
+#endif
 
 VOID PAL_AVIInit(VOID)
 {

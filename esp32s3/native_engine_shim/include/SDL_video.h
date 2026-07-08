@@ -1,0 +1,4 @@
+#ifndef PAL_CORES3SE_NATIVE_SDL_VIDEO_H
+#define PAL_CORES3SE_NATIVE_SDL_VIDEO_H
+#include "SDL.h"
+#endif

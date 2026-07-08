@@ -1,3 +1,4 @@
+if(NOT PAL_CORES3SE_ENGINE_HOST)
 idf_component_register(
     SRCS
         "app_main.c"
@@ -15,7 +16,6 @@ idf_component_register(
         "../../embedded/pal_palette_static.c"
         "../../embedded/pal_rng_cache.c"
         "../../embedded/pal_scene_cache.c"
-        "../../embedded/pal_script_static.c"
         "../../embedded/pal_text_cache.c"
         "../../embedded/pal_ui_cache.c"
         "../../embedded/pal_video_static.c"
@@ -29,6 +29,7 @@ idf_component_register(
         esp_driver_spi
         esp_lcd
         esp_partition
+        esp_timer
         fatfs
         sdmmc
 )
@@ -39,3 +40,136 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     PAL_ESP_CORES3SE_NO_AUDIO=1
     PAL_ESP_CORES3SE_NO_SFX=1
 )
+
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -fstack-usage
+)
+else()
+set(PAL_ENGINE_HOST_SOURCES
+    "../../battle.c"
+    "../../ending.c"
+    "../../fight.c"
+    "../../game.c"
+    "../../global.c"
+    "../../input.c"
+    "../../itemmenu.c"
+    "../../magicmenu.c"
+    "../../main.c"
+    "../../map.c"
+    "../../overlay.c"
+    "../../palcfg.c"
+    "../../palcommon.c"
+    "../../paldebug.c"
+    "../../palette.c"
+    "../../play.c"
+    "../../res.c"
+    "../../rngplay.c"
+    "../../scene.c"
+    "../../script.c"
+    "../../ui.c"
+    "../../uibattle.c"
+    "../../uigame.c"
+    "../../util.c"
+    "../../video.c"
+    "../../sdl_compat/sdl_compat.c"
+    "../../unix/embedded_contract_stubs.c"
+    "../../unix/contract_noaudio.c"
+    "../../embedded/pal_pack.c"
+    "../../embedded/pal_text_cache.c"
+    "../../embedded/pal_font_cache.c"
+    "../engine_bridge/pal_engine_app_main.c"
+    "../engine_bridge/pal_engine_fatfs_stdio.c"
+    "../engine_bridge/pal_engine_pack_provider.c"
+    "../engine_bridge/pal_engine_posix_shims.c"
+    "../engine_bridge/pal_engine_target_input.c"
+    "../engine_bridge/pal_engine_target_packs.c"
+    "../engine_bridge/pal_engine_target_time.c"
+    "../engine_bridge/pal_engine_target_video.c"
+    "../native_engine_shim/sdl_shim.c"
+    "cores3se_board.c"
+    "cores3se_memory.c"
+)
+
+set_source_files_properties("../../main.c" PROPERTIES COMPILE_DEFINITIONS "main=PAL_EngineMain")
+
+idf_component_register(
+    SRCS
+        ${PAL_ENGINE_HOST_SOURCES}
+    INCLUDE_DIRS
+        "."
+        "../engine_bridge"
+        "../engine_bridge/include"
+        "../native_engine_shim/include"
+        "../.."
+        "../../embedded"
+        "../../sdl_compat"
+    REQUIRES
+        esp_driver_gpio
+        esp_driver_i2c
+        esp_driver_sdspi
+        esp_driver_spi
+        esp_lcd
+        esp_partition
+        esp_timer
+        fatfs
+        sdmmc
+    LDFRAGMENTS
+        "pal_engine_psram.lf"
+)
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    PAL_HEADLESS_SDL_SHIM=1
+    PAL_HAS_JOYSTICKS=0
+    PAL_HAS_TOUCH=0
+    PAL_HAS_MP3=0
+    PAL_HAS_OGG=0
+    PAL_HAS_OPUS=0
+    PAL_HAS_NATIVEMIDI=0
+    PAL_HAS_GLSL=0
+    PAL_HAS_CONFIG_PAGE=0
+    PAL_NO_LAUNCH_UI
+    PAL_NO_RUNTIME_DECOMPRESS=1
+    PAL_NO_RUNTIME_HEAP=1
+    PAL_CONTRACT_EXTERNAL_RIX=1
+    PAL_CONTRACT_TARGET_PACK_PROVIDER=1
+    PAL_ENGINE_BRIDGE_REQUIRE_TARGET_HOOKS=1
+    USE_RIX_EXTRA_INIT=0
+    PAL_CONTRACT_NO_AUDIO=1
+    PAL_ESP_CORES3SE_NO_AUDIO=1
+    PAL_ESP_CORES3SE_NO_SFX=1
+    SHIM_MAX_SURFACES=8
+    SHIM_MAX_PALETTES=8
+    SHIM_MAX_TEXTURES=1
+    SHIM_SURFACE_PIXELS=65536u
+    USE_SDL3=0
+)
+
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -fstack-usage
+    -fno-strict-aliasing
+    -Wno-error
+    -Wno-error=implicit-fallthrough
+    -Wno-error=unused-but-set-parameter
+)
+
+target_link_options(${COMPONENT_LIB} INTERFACE
+    "-Wl,--wrap=PAL_MKFOpenPackArchive"
+    "-Wl,--wrap=PAL_MKFIsPackArchive"
+    "-Wl,--wrap=PAL_MKFMapChunk"
+    "-Wl,--wrap=PAL_MKFGetChunkCount"
+    "-Wl,--wrap=PAL_MKFGetChunkSize"
+    "-Wl,--wrap=PAL_MKFReadChunk"
+    "-Wl,--wrap=fopen"
+    "-Wl,--wrap=fclose"
+    "-Wl,--wrap=fread"
+    "-Wl,--wrap=fwrite"
+    "-Wl,--wrap=fseek"
+    "-Wl,--wrap=ftell"
+    "-Wl,--wrap=fgets"
+    "-Wl,--wrap=fputs"
+    "-Wl,--wrap=fflush"
+    "-Wl,--wrap=feof"
+    "-Wl,--wrap=ferror"
+    "-Wl,--wrap=rewind"
+)
+endif()

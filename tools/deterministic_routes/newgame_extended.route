@@ -1,0 +1,46 @@
+# Extended deterministic route for the current DOS PAL data set.
+# Format: <virtual-tick-ms> state <direction> <key-mask>
+# The search pulses keep advancing the opening menu/dialog/script path. The
+# later directional states exercise movement-facing input without adding any
+# target-side script/gameplay implementation.
+0 state 0 0x2
+15000 state 0 0x2
+15500 state 0 0x2
+16000 state 0 0x2
+16500 state 0 0x2
+17000 state 0 0x2
+17500 state 0 0x2
+18000 state 0 0x2
+18500 state 0 0x2
+19000 state 0 0x2
+19500 state 0 0x2
+20000 state 0 0x2
+20500 state 0 0x2
+21000 state 0 0x2
+21500 state 0 0x2
+22000 state 0 0x2
+22500 state 0 0x2
+23000 state 0 0x2
+23500 state 0 0x2
+24000 state 0 0x2
+24500 state 0 0x2
+25000 state 0 0x2
+25500 state 0 0x2
+26000 state 0 0x2
+26500 state 0 0x2
+27000 state 0 0x2
+27500 state 0 0x2
+28000 state 0 0x2
+28500 state 0 0x2
+29000 state 0 0x2
+29500 state 0 0x2
+30000 state 0 0x2
+30500 state 0 0x2
+31000 state 0 0x2
+31500 state 0 0x2
+32000 state 0 0x2
+33000 state 3 0x0
+36000 state 4 0x0
+39000 state 1 0x0
+42000 state 2 0x0
+45000 state 4 0x0

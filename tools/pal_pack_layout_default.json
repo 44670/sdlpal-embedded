@@ -1,0 +1,37 @@
+{
+  "schema": "sdlpal-embedded-pack-layout",
+  "version": 1,
+  "description": "Default CoreS3 SE archive placement. Keep hot read-only archives in NOR and large sequential/runtime-staged archives in TF.",
+  "packs": {
+    "nor": [
+      "ABC",
+      "BALL",
+      "DATA",
+      "F",
+      "FIRE",
+      "MGO",
+      "MIDI",
+      "MUS",
+      "PAT",
+      "RGM",
+      "SSS",
+      "TEXT",
+      "FONT"
+    ],
+    "tf": [
+      "FBP",
+      "GOP",
+      "MAP",
+      "RNG",
+      "SFX"
+    ]
+  },
+  "eviction_candidates": [
+    {
+      "archive": "FIRE",
+      "from": "nor",
+      "to": "tf",
+      "reason": "Large spell/effect archive; can be staged through pal_psram_effect if the NOR soft limit is exceeded."
+    }
+  ]
+}

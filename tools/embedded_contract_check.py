@@ -9,6 +9,8 @@ turns the main hard requirements into repeatable checks:
 - no PAL_LARGE local scratch buffers in selected runtime sources,
 - no typed static pal_sram_/pal_psram_ storage declarations in selected runtime sources,
 - no active loose original PAL data filename references in selected runtime sources,
+- no writable/shared mmap pack views in selected runtime sources,
+- no forbidden heap/decompress undefined symbols or relocations in selected object files,
 - no forbidden heap/decompress symbols in a native verification binary,
 - no call sites to heap/decompress trap targets in that binary,
 - section sizes and symbols visible through size/objdump/nm.
@@ -134,6 +136,16 @@ LOOSE_RESOURCE_PATTERNS = (
     r'"[^"\n]*(?:word\.dat|m\.msg|desc\.dat|wor16\.asc|wor16\.fon)"',
 )
 
+MMAP_CALL_PATTERN = re.compile(r"\bmmap\s*\([^;]*;", re.S)
+MMAP_REQUIRED_PATTERNS = (
+    re.compile(r"\bPROT_READ\b"),
+    re.compile(r"\bMAP_PRIVATE\b"),
+)
+MMAP_FORBIDDEN_PATTERNS = (
+    re.compile(r"\bPROT_WRITE\b"),
+    re.compile(r"\bMAP_SHARED\b"),
+)
+
 FORBIDDEN_SYMBOL_PATTERNS = (
     r"(^|[^\w])malloc($|[^\w])",
     r"(^|[^\w])calloc($|[^\w])",
@@ -173,6 +185,13 @@ FORBIDDEN_CALL_TARGETS = {
     "_ZdlPvm",
     "_ZdaPvm",
 }
+
+FORBIDDEN_OBJECT_SYMBOL_PATTERNS = tuple(FORBIDDEN_SYMBOL_PATTERNS) + (
+    r"SDL_malloc",
+    r"SDL_calloc",
+    r"SDL_realloc",
+    r"SDL_free",
+)
 
 
 @dataclass(frozen=True)
@@ -223,6 +242,40 @@ def source_label(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
+
+
+def normalized_source_path(path: Path, root: Path) -> str:
+    source = path if path.is_absolute() else (Path.cwd() / path)
+    return source_label(source.resolve(), root).replace("\\", "/")
+
+
+def check_source_manifest(root: Path, manifest_path: Path, source_files: list[Path]) -> tuple[list[str], str]:
+    errors: list[str] = []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return [f"{manifest_path}: cannot read source manifest: {exc}"], ""
+    except json.JSONDecodeError as exc:
+        return [f"{manifest_path}: invalid source manifest JSON: {exc}"], ""
+
+    raw_sources = manifest.get("sources")
+    if not isinstance(raw_sources, list) or not all(isinstance(item, str) for item in raw_sources):
+        return [f"{manifest_path}: sources must be a list of strings"], ""
+
+    expected = set(raw_sources)
+    actual = {normalized_source_path(path, root) for path in source_files}
+    for rel in sorted(actual - expected):
+        errors.append(f"{manifest_path}: linked source missing from manifest: {rel}")
+    for rel in sorted(expected - actual):
+        errors.append(f"{manifest_path}: manifest source not linked in this contract profile: {rel}")
+
+    report = "\n".join(
+        [
+            f"## source inventory {manifest_path}",
+            f"sources={len(actual)} expected={len(expected)}",
+        ]
+    )
+    return errors, report
 
 
 def source_is_excluded(path: Path, root: Path, patterns: list[str]) -> bool:
@@ -572,7 +625,8 @@ def scan_sources(
         except OSError:
             continue
         original_lines = raw_text.splitlines()
-        lines = strip_c_comments(strip_inactive_preprocessor(raw_text, source_defines)).splitlines()
+        active_text = strip_c_comments(strip_inactive_preprocessor(raw_text, source_defines))
+        lines = active_text.splitlines()
         for lineno, line in enumerate(lines, 1):
             if any(expr.search(line) for expr in heap_res):
                 hits.append(Hit("heap", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
@@ -584,6 +638,15 @@ def scan_sources(
                 hits.append(Hit("storage", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
             if any(expr.search(line) for expr in loose_resource_res):
                 hits.append(Hit("loose-resource", Path(source_label(path, root)), lineno, original_lines[lineno - 1].strip()))
+        for match in MMAP_CALL_PATTERN.finditer(active_text):
+            statement = match.group(0)
+            if (
+                any(expr.search(statement) for expr in MMAP_FORBIDDEN_PATTERNS)
+                or not all(expr.search(statement) for expr in MMAP_REQUIRED_PATTERNS)
+            ):
+                lineno = active_text.count("\n", 0, match.start()) + 1
+                source_line = original_lines[lineno - 1].strip() if lineno <= len(original_lines) else "mmap(...)"
+                hits.append(Hit("mmap-access", Path(source_label(path, root)), lineno, source_line))
 
     return hits
 
@@ -806,6 +869,42 @@ def check_manifest(path: Path) -> tuple[list[str], str]:
     if runtime.get("payloads_are_runtime_native") is not True:
         errors.append(f"{path}: manifest does not declare runtime-native payloads")
 
+    checked_layout = 0
+    pack_layout = manifest.get("pack_layout")
+    if not isinstance(pack_layout, dict):
+        errors.append(f"{path}: pack_layout is not an object")
+        pack_layout = {}
+    layout_packs = pack_layout.get("packs")
+    if not isinstance(layout_packs, dict):
+        errors.append(f"{path}: pack_layout has no packs object")
+        layout_packs = {}
+    layout_path_raw = pack_layout.get("path")
+    layout_file_packs: dict[str, object] = {}
+    if not isinstance(layout_path_raw, str):
+        errors.append(f"{path}: pack_layout has no path")
+    else:
+        layout_path = Path(layout_path_raw)
+        try:
+            digest = hash_file(layout_path)
+            layout_file = json.loads(layout_path.read_text())
+        except OSError as exc:
+            errors.append(f"{path}: cannot read pack layout {layout_path}: {exc}")
+        except json.JSONDecodeError as exc:
+            errors.append(f"{path}: invalid pack layout {layout_path}: {exc}")
+        else:
+            checked_layout = 1
+            if pack_layout.get("sha256") != digest:
+                errors.append(f"{path}: pack layout {layout_path} sha256 changed")
+            raw_layout_file_packs = layout_file.get("packs")
+            if isinstance(raw_layout_file_packs, dict):
+                layout_file_packs = raw_layout_file_packs
+            else:
+                errors.append(f"{path}: pack layout {layout_path} has no packs object")
+    layout_overrides = pack_layout.get("overrides")
+    if not isinstance(layout_overrides, dict):
+        errors.append(f"{path}: pack_layout has no overrides object")
+        layout_overrides = {}
+
     data_dir = Path(str(manifest.get("data_dir", "")))
     source_files = manifest.get("source_files", [])
     if not isinstance(source_files, list):
@@ -860,8 +959,12 @@ def check_manifest(path: Path) -> tuple[list[str], str]:
             continue
         checked_packs += 1
         errors.extend(compare_manifest_pack(f"{path}:{label}", item, actual))
+        if item.get("archives") != layout_packs.get(label):
+            errors.append(f"{path}: pack_layout archives for {label} do not match pack manifest")
+        if not layout_overrides.get(label) and layout_file_packs and item.get("archives") != layout_file_packs.get(label):
+            errors.append(f"{path}: pack manifest archives for {label} do not match pack layout file")
 
-    report.append(f"source_files={checked_sources} packs={checked_packs}")
+    report.append(f"source_files={checked_sources} packs={checked_packs} pack_layouts={checked_layout}")
     return errors, "\n".join(report)
 
 
@@ -1002,6 +1105,36 @@ def append_symbol_prefix_report(
             report.append(f"  {symbol.size:10d} {symbol.kind} {symbol.name}")
 
 
+def append_forbidden_symbol_prefix_report(
+    report: list[str],
+    errors: list[str],
+    symbols: list[Symbol],
+    prefixes: list[str],
+) -> None:
+    if not prefixes:
+        return
+
+    rows: list[tuple[str, list[Symbol]]] = []
+    for prefix in prefixes:
+        matching = sorted(
+            [symbol for symbol in symbols if symbol.name.startswith(prefix)],
+            key=lambda symbol: symbol.name,
+        )
+        if matching:
+            rows.append((prefix, matching))
+            errors.append(f"forbidden symbol prefix {prefix}: {len(matching)} symbols")
+
+    report.append("\n## forbidden symbol prefixes")
+    if not rows:
+        report.append("0")
+        return
+
+    for prefix, matching in rows:
+        report.append(f"{prefix} hits={len(matching)}")
+        for symbol in matching[:80]:
+            report.append(f"  {symbol.size:10d} {symbol.kind} {symbol.name}")
+
+
 def find_forbidden_call_targets(output: str) -> list[str]:
     hits: list[str] = []
     call_expr = re.compile(r"\b(callq?|jmpq?|blx?|b\.w)\b")
@@ -1025,6 +1158,7 @@ def check_binary(
     budgets: dict[str, int],
     symbol_prefixes: list[str],
     symbol_prefix_budgets: dict[str, int],
+    forbidden_symbol_prefixes: list[str],
 ) -> tuple[list[str], str]:
     errors: list[str] = []
     report: list[str] = []
@@ -1075,6 +1209,7 @@ def check_binary(
 
     nm_sized_output = run_tool(["nm", "-S", "--size-sort", "-C", str(binary)])
     symbols = parse_sized_symbols(nm_sized_output)
+    append_forbidden_symbol_prefix_report(report, errors, symbols, forbidden_symbol_prefixes)
     append_symbol_prefix_report(report, errors, symbols, symbol_prefixes, symbol_prefix_budgets)
 
     for name, limit in budgets.items():
@@ -1089,10 +1224,87 @@ def check_binary(
     return errors, "\n".join(report)
 
 
+def object_label(path: Path) -> str:
+    return str(path)
+
+
+def object_undefined_hits(path: Path, output: str, symbol_res: list[re.Pattern[str]]) -> list[str]:
+    hits: list[str] = []
+    current_object = object_label(path)
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.endswith(":"):
+            current_object = stripped[:-1]
+            continue
+        parts = stripped.split()
+        if not parts or parts[0] != "U":
+            continue
+        if any(expr.search(stripped) for expr in symbol_res):
+            hits.append(f"{current_object}: {stripped}")
+    return hits
+
+
+def object_relocation_hits(path: Path, output: str, symbol_res: list[re.Pattern[str]]) -> list[str]:
+    hits: list[str] = []
+    current_object = object_label(path)
+    reloc_expr = re.compile(r"\bR_[A-Za-z0-9_]+\b")
+
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.endswith(":") and "file format" not in stripped:
+            current_object = stripped[:-1]
+            continue
+        if not reloc_expr.search(stripped):
+            continue
+        if any(expr.search(stripped) for expr in symbol_res):
+            hits.append(f"{current_object}: {stripped}")
+    return hits
+
+
+def check_objects(objects: list[Path]) -> tuple[list[str], str]:
+    errors: list[str] = []
+    report: list[str] = ["## object relocation contract"]
+    symbol_res = [re.compile(pattern) for pattern in FORBIDDEN_OBJECT_SYMBOL_PATTERNS]
+    undefined_hits: list[str] = []
+    relocation_hits: list[str] = []
+    checked = 0
+
+    for raw_path in objects:
+        path = raw_path.resolve()
+        if not path.is_file():
+            errors.append(f"object file not found: {path}")
+            continue
+        checked += 1
+        try:
+            undefined_hits.extend(object_undefined_hits(path, run_tool(["nm", "-u", str(path)]), symbol_res))
+            relocation_hits.extend(object_relocation_hits(path, run_tool(["objdump", "-dr", str(path)]), symbol_res))
+        except RuntimeError as exc:
+            errors.append(str(exc))
+
+    report.append(f"objects={checked}")
+    report.append(f"forbidden undefined relocatable hits={len(undefined_hits)}")
+    report.extend(undefined_hits[:200])
+    report.append(f"forbidden relocation hits={len(relocation_hits)}")
+    report.extend(relocation_hits[:200])
+
+    if undefined_hits:
+        errors.append(f"object forbidden undefined symbols: {len(undefined_hits)}")
+    if relocation_hits:
+        errors.append(f"object forbidden relocations: {len(relocation_hits)}")
+
+    return errors, "\n".join(report)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--binary", type=Path)
+    parser.add_argument("--object", type=Path, action="append", default=[])
     parser.add_argument("--link-map", type=Path, action="append", default=[])
     parser.add_argument("--pack", type=Path, action="append", default=[])
     parser.add_argument("--manifest", type=Path, action="append", default=[])
@@ -1126,6 +1338,14 @@ def main() -> int:
         metavar="PATH",
         help="scan this source path instead of discovering sources under --root; may be repeated",
     )
+    parser.add_argument(
+        "--source-manifest",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="PATH",
+        help="checked-in JSON inventory of sources expected in the selected contract profile",
+    )
     parser.add_argument("--max", action="append", default=[], metavar="NAME=BYTES")
     parser.add_argument("--max-pack-size", action="append", default=[], metavar="PATH=BYTES")
     parser.add_argument(
@@ -1141,6 +1361,13 @@ def main() -> int:
         default=[],
         metavar="PREFIX=BYTES",
         help="fail if ELF symbols whose names start with PREFIX exceed BYTES in total",
+    )
+    parser.add_argument(
+        "--forbid-symbol-prefix",
+        action="append",
+        default=[],
+        metavar="PREFIX",
+        help="fail if any ELF symbol name starts with PREFIX",
     )
     parser.add_argument("--fail-on-source", action="store_true")
     args = parser.parse_args()
@@ -1158,11 +1385,19 @@ def main() -> int:
     print("# Embedded Contract Check")
     print(f"root: {root}")
 
-    by_kind: dict[str, list[Hit]] = {"heap": [], "decompress": [], "scratch": [], "storage": [], "loose-resource": []}
+    for source_manifest in args.source_manifest:
+        manifest_errors, manifest_report = check_source_manifest(root, source_manifest.resolve(), args.source_file)
+        if manifest_report:
+            print()
+            print(manifest_report)
+        errors.extend(manifest_errors)
+
+    source_kinds = ("heap", "decompress", "scratch", "storage", "loose-resource", "mmap-access")
+    by_kind: dict[str, list[Hit]] = {kind: [] for kind in source_kinds}
     for hit in hits:
         by_kind.setdefault(hit.kind, []).append(hit)
 
-    for kind in ("heap", "decompress", "scratch", "storage", "loose-resource"):
+    for kind in source_kinds:
         kind_hits = by_kind.get(kind, [])
         print(f"\n## source {kind} hits: {len(kind_hits)}")
         for hit in kind_hits[:200]:
@@ -1176,10 +1411,17 @@ def main() -> int:
             parse_budget(args.max),
             args.symbol_prefix,
             parse_budget(args.max_symbol_prefix),
+            args.forbid_symbol_prefix,
         )
         errors.extend(binary_errors)
         print()
         print(binary_report)
+
+    if args.object:
+        object_errors, object_report = check_objects(args.object)
+        errors.extend(object_errors)
+        print()
+        print(object_report)
 
     pack_size_budgets = parse_pack_size_budget(args.max_pack_size)
     forbidden_archives = parse_archive_ids(args.forbid_pack_archive)

@@ -62,6 +62,21 @@
 # define PAL_CREDIT           NULL
 # define PAL_PORTYEAR         NULL
 
+# if PAL_DETERMINISTIC
+PAL_C_LINKAGE Uint32 PAL_DeterministicGetTicks(void);
+PAL_C_LINKAGE Uint64 PAL_DeterministicGetPerformanceCounter(void);
+PAL_C_LINKAGE Uint64 PAL_DeterministicGetPerformanceFrequency(void);
+PAL_C_LINKAGE void PAL_DeterministicDelay(Uint32 ms);
+PAL_C_LINKAGE time_t PAL_DeterministicTime(time_t *timer);
+PAL_C_LINKAGE int PAL_DeterministicPollEvent(SDL_Event *event);
+#  define SDL_GetTicks PAL_DeterministicGetTicks
+#  define SDL_GetPerformanceCounter PAL_DeterministicGetPerformanceCounter
+#  define SDL_GetPerformanceFrequency PAL_DeterministicGetPerformanceFrequency
+#  define SDL_Delay PAL_DeterministicDelay
+#  define SDL_PollEvent PAL_DeterministicPollEvent
+#  define time(timer) PAL_DeterministicTime((timer))
+# endif
+
 # ifndef PAL_HAS_CONFIG_PAGE
 #  define PAL_HAS_CONFIG_PAGE  1
 # endif

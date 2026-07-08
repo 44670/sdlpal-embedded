@@ -16,10 +16,10 @@ static int check_buffer(uint8_t *data, size_t size, uint8_t tag)
 
 int main(void)
 {
-    if (PAL_SRAM_DECLARED_BYTES != 184832u) {
+    if (PAL_SRAM_DECLARED_BYTES != 250368u) {
         return 1;
     }
-    if (PAL_PSRAM_DECLARED_BYTES != 6908944u) {
+    if (PAL_PSRAM_DECLARED_BYTES != 7235088u) {
         return 2;
     }
 
@@ -28,6 +28,9 @@ int main(void)
     }
     if (CHECK_BUFFER(pal_sram_big_buffer, 2u) != 0) {
         return 4;
+    }
+    if (CHECK_BUFFER(pal_sram_tile_slot, 29u) != 0) {
+        return 31;
     }
     if (CHECK_BUFFER(pal_sram_audio, 3u) != 0) {
         return 5;
@@ -83,6 +86,9 @@ int main(void)
     }
     if (CHECK_BUFFER(pal_psram_fbp_background, 20u) != 0) {
         return 22;
+    }
+    if (CHECK_BUFFER(pal_psram_battle_scene, 30u) != 0) {
+        return 32;
     }
     if (CHECK_BUFFER(pal_psram_sfx_bank, 21u) != 0) {
         return 23;

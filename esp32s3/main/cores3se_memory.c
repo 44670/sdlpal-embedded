@@ -1,3 +1,5 @@
+#include "cores3se_memory.h"
+
 #include "../../embedded/pal_memory.h"
 
 #include <esp_attr.h>
@@ -11,6 +13,7 @@
 #endif
 
 uint8_t pal_sram_framebuffer[PAL_SRAM_FRAMEBUFFER_BYTES] PAL_BSS_SRAM;
+uint8_t pal_sram_tile_slot[PAL_SRAM_TILE_SLOT_BYTES] PAL_BSS_SRAM;
 #ifndef PAL_ESP_CORES3SE_NO_AUDIO
 uint8_t pal_sram_audio[PAL_SRAM_AUDIO_BYTES] PAL_BSS_SRAM;
 #endif
@@ -23,12 +26,14 @@ uint8_t pal_sram_palette_rgb565[PAL_SRAM_PALETTE_RGB565_BYTES] PAL_BSS_SRAM;
 uint8_t pal_psram_save_state[PAL_PSRAM_SAVE_STATE_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_map_tiles[PAL_PSRAM_MAP_TILES_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_gop_copy[PAL_PSRAM_GOP_COPY_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_screen_bak[PAL_PSRAM_SCREEN_BAK_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_tf_toc[PAL_PSRAM_TF_TOC_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_sprite_pin[PAL_PSRAM_SPRITE_PIN_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_menu_background[PAL_PSRAM_MENU_BACKGROUND_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_menu_image[PAL_PSRAM_MENU_IMAGE_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_menu_box[PAL_PSRAM_MENU_BOX_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_fbp_background[PAL_PSRAM_FBP_BACKGROUND_BYTES] PAL_BSS_PSRAM;
+uint8_t pal_psram_battle_scene[PAL_PSRAM_BATTLE_SCENE_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_effect[PAL_PSRAM_EFFECT_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_rng_frame_a[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_rng_frame_b[PAL_PSRAM_RNG_FRAME_BYTES] PAL_BSS_PSRAM;
@@ -38,3 +43,13 @@ uint8_t pal_psram_sfx_bank[PAL_PSRAM_SFX_BANK_BYTES] PAL_BSS_PSRAM;
 #endif
 uint8_t pal_psram_ending_fbp_a[PAL_PSRAM_ENDING_FBP_BYTES] PAL_BSS_PSRAM;
 uint8_t pal_psram_ending_fbp_b[PAL_PSRAM_ENDING_FBP_BYTES] PAL_BSS_PSRAM;
+
+void CoreS3Se_TouchReservedBuffers(void)
+{
+    pal_sram_tile_slot[0] = 0;
+    pal_sram_tile_slot[PAL_SRAM_TILE_SLOT_BYTES - 1u] = 0;
+    pal_psram_screen_bak[0] = 0;
+    pal_psram_screen_bak[PAL_PSRAM_SCREEN_BAK_BYTES - 1u] = 0;
+    pal_psram_battle_scene[0] = 0;
+    pal_psram_battle_scene[PAL_PSRAM_BATTLE_SCENE_BYTES - 1u] = 0;
+}
