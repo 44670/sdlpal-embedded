@@ -28,8 +28,13 @@
 
 #define VIDEO_CopySurface(s, sr, t, tr) SDL_BlitSurface((s), (sr), (t), (tr))
 #define VIDEO_CopyEntireSurface(s, t)   SDL_BlitSurface((s), NULL, (t), NULL)
+#if defined(PAL_EXTREME_TWO_SCREENS)
+#define VIDEO_BackupScreen(s)           VIDEO_BackupScreenExtreme((s))
+#define VIDEO_RestoreScreen(t)          VIDEO_RestoreScreenExtreme((t))
+#else
 #define VIDEO_BackupScreen(s)           SDL_BlitSurface((s), NULL, gpScreenBak, NULL)
 #define VIDEO_RestoreScreen(t)          SDL_BlitSurface(gpScreenBak, NULL, (t), NULL)
+#endif
 #define VIDEO_FreeSurface(s)            SDL_FreeSurface(s)
 
 PAL_C_LINKAGE_BEGIN
@@ -37,6 +42,18 @@ PAL_C_LINKAGE_BEGIN
 extern SDL_Surface *gpScreen;
 extern SDL_Surface *gpScreenBak;
 extern volatile BOOL g_bRenderPaused;
+
+#if defined(PAL_EXTREME_TWO_SCREENS)
+INT
+VIDEO_BackupScreenExtreme(
+   SDL_Surface *source
+);
+
+INT
+VIDEO_RestoreScreenExtreme(
+   SDL_Surface *target
+);
+#endif
 
 #if PAL_HAS_GLSL
 void Filter_StepParamSlot(int step);

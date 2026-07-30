@@ -25,12 +25,20 @@
 #include "main.h"
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "esp32s3/main/cardputer_extreme_memory.h"
+#include "esp32s3/engine_bridge/pal_engine_pack_provider.h"
+#define pal_psram_rng_frame_static pal_sram_aux_framebuffer
+#define PAL_RNG_FRAME_STATIC_BYTES PAL_EXTREME_SCREEN_BYTES
+#else
 #if defined(__GNUC__)
 #define PAL_RNG_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
 #else
 #define PAL_RNG_PSRAM
 #endif
 static uint8_t pal_psram_rng_frame_static[65000] PAL_RNG_PSRAM;
+#define PAL_RNG_FRAME_STATIC_BYTES 65000u
+#endif
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -96,6 +104,12 @@ PAL_RNGReadFrame(
    }
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
+#if defined(PAL_CARDPUTER_EXTREME)
+   return PalEngineBridge_ReadNativeRngFrame((uint16_t)uiRngNum,
+      (uint16_t)uiFrameNum,
+      lpBuffer,
+      uiBufferSize);
+#else
    if (!PAL_MKFMapChunk(fpRngMKF, uiRngNum, &lpMovie, &uiMovieSize) || uiMovieSize < 4)
    {
       return -1;
@@ -128,6 +142,7 @@ PAL_RNGReadFrame(
    }
 
    return -1;
+#endif
 #else
    //
    // Get the total number of chunks.
@@ -493,6 +508,14 @@ PAL_RNGPlay(
 #endif
    INT             frameLen;
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   if (gpGlobals->fInBattle)
+   {
+      TerminateOnError(
+         "Cardputer two-screen ownership: RNG cannot replace battle background");
+   }
+#endif
+
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
    if (fp == NULL)
    {
@@ -517,7 +540,7 @@ PAL_RNGPlay(
       // Read, decompress and render the frame
       //
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-      frameLen = PAL_RNGReadFrame(rng, 65000, iNumRNG, iStartFrame, fp);
+      frameLen = PAL_RNGReadFrame(rng, PAL_RNG_FRAME_STATIC_BYTES, iNumRNG, iStartFrame, fp);
       if (frameLen < 0 ||
           PAL_RNGBlitToSurface(rng, frameLen, gpScreen) == -1)
 #else

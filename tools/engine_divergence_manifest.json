@@ -1,150 +1,181 @@
 {
-  "version": 1,
-  "description": "Frozen hashes for SDLPAL engine files that must not drift while the CoreS3 SE port remains a platform/resource-hosting effort.",
+  "version": 2,
+  "baseline_id": "cardputer-extreme-v1",
+  "reviewed_against_commit": "3f5f25df3609f4dd7e3ef4eb8ec914f89658ab2f",
+  "description": "Post-review engine baseline for the Cardputer ADV 8MB/no-PSRAM extreme profile. The profile is a mechanically verified candidate; a complete new-game-to-Suzhou hardware route has not yet been proven.",
+  "verification": [
+    "make -C esp32s3 CARDPUTER_EXTREME_BUILD_DIR=/tmp/sdlpal-cardputer-release-build cardputer-extreme-check",
+    "make -C embedded contract-check",
+    "make -C unix EMBEDDED_CONTRACT=1 contract-check"
+  ],
   "files": [
     {
       "path": "script.c",
-      "sha256": "f5332e015b27018ad03385b4ceab6c44dc0509e81ace7e8785d1843ae88cd017",
-      "policy": "frozen",
-      "reason": "authoritative script interpreter"
+      "sha256": "c6b3284a217924ca74b29591d713bd3940f1b16fff5e244bf69389503bd8fdee",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed bounded sparse-event lookup and the exact extreme-profile chapter endpoint"
     },
     {
       "path": "scene.c",
-      "sha256": "bc4efef7cad3b83ddac5e3338423e3c5d9660bdbaae1d8e974e8841022e3bc8b",
-      "policy": "frozen",
-      "reason": "authoritative scene flow"
+      "sha256": "abc9d76e2d2318ba7b99d16d1ba9a99c7565af10c288b3071cafd6bb121e5762",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed compile-time sprite draw-list sizing, high-water telemetry, and fail-fast overflow behavior"
     },
     {
       "path": "res.c",
-      "sha256": "54e8e9cf707941e53cee55bb5958ad7f77b980c887abceb3a7977bb36ba21d3d",
-      "policy": "frozen",
-      "reason": "authoritative resource ownership semantics"
+      "sha256": "81dff9e18d86b7ec62e01924937bd9a7182646a74be13099bf40655576ef4495",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed fixed pack views, sprite deduplication, and bounded event-resource storage"
     },
     {
       "path": "global.c",
-      "sha256": "6e83f038f1b7d963d6bed45055fd8476b9e17c8a5d46b540d3cda3d996e33792",
-      "policy": "frozen",
-      "reason": "authoritative global data load/mutation semantics"
+      "sha256": "c4b26f64ac8f015f06ff6994efc31cb7f4d31ca144c5cdc8e40ebe61acd4895a",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed fixed global storage plus SZC2 atomic saves, CRC validation, and sparse event 5334 preservation"
     },
     {
       "path": "uigame.c",
-      "sha256": "af501222befe193ebb9766b8ec4e271b19ff992d3a6c4da043a2888d00fa3392",
-      "policy": "frozen",
-      "reason": "authoritative game UI flow"
+      "sha256": "bd508533a0849a76b963eab7ac84c50867e1d14333d74e498abcf8a0ac2eaf70",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed two-screen UI scratch reuse and save-counter/error semantics"
     },
     {
       "path": "ui.c",
-      "sha256": "0950d2c5b3bcc0266e19e5de482f21e1e43bc28ccfebd765bc76432552ec2f14",
-      "policy": "frozen",
-      "reason": "authoritative UI primitives and state"
+      "sha256": "dd362c4f6903aef78fdac88bf4aa02e5bc6b7ef40a531e72e629e8415d8a809e",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed no-heap UI boxes and read-only generated-pack asset views"
     },
     {
       "path": "battle.c",
-      "sha256": "1c22dbd6d122fce134229f3251633531c8e4ec8b66eb0e4c2693825b93daac4f",
-      "policy": "frozen",
-      "reason": "authoritative battle flow"
+      "sha256": "2e95e53ee7ac6e0601c87c885dbc8232beafb71a5fc5705ab0b8488f282963c5",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed two-screen battle/background reuse and battle residency telemetry"
     },
     {
       "path": "fight.c",
       "sha256": "0181828260b014fb855cffa1291529c903b6512c91ad962dea43d7dd47d20d7d",
-      "policy": "frozen",
-      "reason": "authoritative fight logic"
+      "policy": "frozen-upstream",
+      "reason": "unchanged authoritative fight logic"
     },
     {
       "path": "rngplay.c",
-      "sha256": "3972db0f72ccafed24e6d1fa800cb79f7818ae515a929a0efc1618a2e21181a6",
-      "policy": "frozen",
-      "reason": "authoritative cutscene playback flow"
+      "sha256": "8d6cf8035ea442bd6b268a73f3f03281c55a17b334fe4be98e71ee6b0b80bdb1",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed TF-backed native RNG frame streaming and auxiliary-framebuffer guards"
     },
     {
       "path": "ending.c",
-      "sha256": "e7f3e4561e420be38b4bdfa3ff9b2d5fb002211adfaab7b98910347c8f3b9c8b",
-      "policy": "frozen",
-      "reason": "authoritative ending flow"
+      "sha256": "f932946ee7e9afc42ac0cfebf89d3e970e89b8f92c5dc25eabf227155ccec636",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed auxiliary-framebuffer guards and native generated-pack views"
     },
     {
       "path": "input.c",
       "sha256": "bc13b5927a29565c8ac2883694a20c52d0b8c330b82c7165fc23ce8ff8e771a8",
-      "policy": "frozen",
-      "reason": "input seam must stay deliberate"
+      "policy": "frozen-upstream",
+      "reason": "unchanged authoritative input seam"
     },
     {
       "path": "game.c",
       "sha256": "b5ecb8b2d7d0602d44985d8469a189c073009445db235dc8bc8439063cc876e4",
-      "policy": "frozen",
-      "reason": "authoritative main game loop helpers"
+      "policy": "frozen-upstream",
+      "reason": "unchanged authoritative main game-loop helpers"
     },
     {
       "path": "play.c",
       "sha256": "f13ba4e3a9c86c494390ea1eda121be1ae4c7fa5110f5e51cf4680321c742ef8",
-      "policy": "frozen",
-      "reason": "authoritative gameplay flow"
+      "policy": "frozen-upstream",
+      "reason": "unchanged authoritative gameplay flow"
     },
     {
       "path": "itemmenu.c",
-      "sha256": "7026d7875f79a57cf21fd80135d13022ff792698720ef6f56de864d208742a74",
-      "policy": "frozen",
-      "reason": "authoritative menu behavior"
+      "sha256": "e816d7c7cead714598f026e0906287ee9e3a556d40c53f4b8ea9954b4d5edb5b",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed fixed item-menu buffers and read-only generated-pack views"
     },
     {
       "path": "magicmenu.c",
       "sha256": "d3744426d40167d4130aeaa0fac686264df285e44d73cc3648dba56f3645d312",
-      "policy": "frozen",
-      "reason": "authoritative menu behavior"
+      "policy": "frozen-upstream",
+      "reason": "unchanged authoritative magic-menu behavior"
     },
     {
       "path": "uibattle.c",
       "sha256": "b5bd5104def667c9ae134481c4843450ec1513feb61141f7196f9047dc7814d3",
-      "policy": "frozen",
-      "reason": "authoritative battle UI behavior"
+      "policy": "frozen-upstream",
+      "reason": "unchanged authoritative battle UI behavior"
     },
     {
       "path": "main.c",
-      "sha256": "64aa1dc83febd126b6ed7e07c0fee247c5ea689e76fa8ea285ebb94aa3fcdac5",
-      "policy": "frozen",
-      "reason": "authoritative startup/game-loop entry"
+      "sha256": "5db338a7830296d280d053d94754b8c478aa9ae85c4c80eaebe345907cc220de",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed extreme-profile startup that skips unsupported splash/trademark paths and consumes native assets"
     },
     {
       "path": "palcommon.c",
       "sha256": "93f0f8cbfc355a0500ed90482d3dad0b853f3f2a0bc2d3e168b9221d5b2f0ca9",
-      "policy": "frozen",
-      "reason": "resource seam changes require explicit review"
+      "policy": "frozen-upstream",
+      "reason": "unchanged generated-pack archive seam"
     },
     {
       "path": "util.c",
       "sha256": "0722445d1fa511c9a74ff0bf4a4a662a691310b34bb16a8f4aaed171bbde6e40",
-      "policy": "frozen",
-      "reason": "platform/file seam changes require explicit review"
+      "policy": "frozen-upstream",
+      "reason": "unchanged platform and file seam"
     },
     {
       "path": "video.c",
-      "sha256": "3d3f0e6d2341ec40eb41095cb06cc1cd204be411ddede2d39bde9be962505148",
-      "policy": "frozen",
-      "reason": "video seam changes require explicit review"
+      "sha256": "d8dcc9cd3d42a4d70baddbeb00f6a5d61a67a6efa8fa9ca079afdaaa895207f9",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed exactly-two indexed-screen storage and direct target presentation"
     },
     {
       "path": "audio.c",
       "sha256": "1e551b8d17aa9e520e3e90e4502671319dc742741b8d27a5e9d11435efabd71a",
-      "policy": "frozen",
-      "reason": "audio remains out of target scope"
+      "policy": "frozen-upstream",
+      "reason": "unchanged audio path; audio remains excluded from the extreme target"
     },
     {
       "path": "palcfg.c",
       "sha256": "5c0ea0b7ddbf4adbd9b15c898a4d5c4acd65ffdf24107c9ca8a921f1e14076bb",
-      "policy": "frozen",
-      "reason": "configuration seam changes require explicit review"
+      "policy": "frozen-upstream",
+      "reason": "unchanged configuration seam"
     },
     {
       "path": "palette.c",
       "sha256": "bf982862dbbc379f8d0c482c7f74bd07146166def1ebfa4ced075ba071d32571",
-      "policy": "frozen",
-      "reason": "palette behavior affects deterministic rendering"
+      "policy": "frozen-upstream",
+      "reason": "unchanged palette behavior"
     },
     {
       "path": "map.c",
-      "sha256": "fa5071355a92c60d0448b1ee759d4c826c3197e73a8531f9e7c9f8a0d65d807d",
-      "policy": "frozen",
-      "reason": "map loader changes require explicit review"
+      "sha256": "8bf12ffdacd172a08420dae9176ff0894a34dbceb2022351ea089a11610cfef3",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed fixed native MAP/GOP buffers and no-runtime-decompression loader"
+    },
+    {
+      "path": "common.h",
+      "sha256": "a17ce69ce1b182c5b788c42918cd3bb1f1db716661f4daa60546331111622267",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed compile-time override for the fixed global formatting buffer size"
+    },
+    {
+      "path": "global.h",
+      "sha256": "90893288a7cf237159c93da2aeb4badb180b8305b5d47ce5c5c4cb288c50717d",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed fixed extreme save-state declarations and event-storage interface"
+    },
+    {
+      "path": "map.h",
+      "sha256": "0869b8707be568d8d69bda9858df49a770cdb19f09adb2dffe8c7ce1b677c890",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed static-map ownership declarations for the no-heap profile"
+    },
+    {
+      "path": "video.h",
+      "sha256": "188777076b76a592909ccbb60ef83a15907afa2d5fb2e6de35a8c4d8fe4b5363",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed auxiliary-screen availability contract for the two-screen profile"
     }
   ]
 }

@@ -24,19 +24,59 @@
 static BOOL __buymenu_firsttime_render;
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "esp32s3/main/cardputer_extreme_memory.h"
+#define PAL_UIGAME_PSRAM __attribute__((section(".bss.pal_sram"), aligned(8)))
+#define pal_psram_uigame_background pal_sram_aux_framebuffer
+#else
 #if defined(__GNUC__)
 #define PAL_UIGAME_PSRAM __attribute__((section(".bss.pal_psram"), aligned(8)))
 #else
 #define PAL_UIGAME_PSRAM
 #endif
 static uint8_t pal_psram_uigame_background[320 * 200] PAL_UIGAME_PSRAM;
+#endif
 #if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
 static uint8_t pal_psram_uigame_image[PAL_RLEBUFSIZE] PAL_UIGAME_PSRAM;
 #endif
+#if !defined(PAL_CARDPUTER_EXTREME)
 static uint8_t pal_psram_uigame_box[72 * 72] PAL_UIGAME_PSRAM;
+#endif
 #endif
 
 #ifdef PAL_NO_RUNTIME_HEAP
+#if defined(PAL_CARDPUTER_EXTREME)
+#define PAL_UIGAME_CASH_PIXELS 0u
+#define PAL_UIGAME_SYSTEM_PIXELS 0u
+#define PAL_UIGAME_SELECT_PIXELS 0u
+#ifndef PAL_CLASSIC
+#define PAL_UIGAME_BATTLE_SPEED_PIXELS 0u
+#endif
+
+static uint8_t pal_sram_extreme_uigame_cash_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+#ifndef PAL_CLASSIC
+static uint8_t pal_sram_extreme_uigame_battle_speed_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+#endif
+static uint8_t pal_sram_extreme_uigame_system_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
+static uint8_t pal_sram_extreme_uigame_select_boxes[4][sizeof(BOX)] PAL_UIGAME_PSRAM;
+
+#define pal_psram_uigame_cash_box pal_sram_extreme_uigame_cash_box
+#define pal_psram_uigame_cash_pixels NULL
+#ifndef PAL_CLASSIC
+#define pal_psram_uigame_battle_speed_box pal_sram_extreme_uigame_battle_speed_box
+#define pal_psram_uigame_battle_speed_pixels NULL
+#endif
+#define pal_psram_uigame_system_box pal_sram_extreme_uigame_system_box
+#define pal_psram_uigame_system_pixels NULL
+#define pal_psram_uigame_select0_box pal_sram_extreme_uigame_select_boxes[0]
+#define pal_psram_uigame_select1_box pal_sram_extreme_uigame_select_boxes[1]
+#define pal_psram_uigame_select2_box pal_sram_extreme_uigame_select_boxes[2]
+#define pal_psram_uigame_select3_box pal_sram_extreme_uigame_select_boxes[3]
+#define pal_psram_uigame_select0_pixels NULL
+#define pal_psram_uigame_select1_pixels NULL
+#define pal_psram_uigame_select2_pixels NULL
+#define pal_psram_uigame_select3_pixels NULL
+#else
 #define PAL_UIGAME_CASH_PIXELS (128u * 48u)
 #define PAL_UIGAME_SYSTEM_PIXELS (320u * 144u)
 #define PAL_UIGAME_SELECT_PIXELS (320u * 40u)
@@ -60,6 +100,7 @@ static uint8_t pal_psram_uigame_select2_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
 static uint8_t pal_psram_uigame_select2_pixels[PAL_UIGAME_SELECT_PIXELS] PAL_UIGAME_PSRAM;
 static uint8_t pal_psram_uigame_select3_box[sizeof(BOX)] PAL_UIGAME_PSRAM;
 static uint8_t pal_psram_uigame_select3_pixels[PAL_UIGAME_SELECT_PIXELS] PAL_UIGAME_PSRAM;
+#endif
 
 static LPBOX
 PAL_UIGameCreateSelectionBox(
@@ -99,6 +140,18 @@ PAL_ReadNativeFbpToBuffer(
    UINT          chunknum
 )
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * In battle the auxiliary screen is the immutable battle background.
+    * Status/equipment/opening FBP staging owns it only outside battle.
+    */
+   if (buf == pal_sram_aux_framebuffer &&
+       gpGlobals != NULL && gpGlobals->fInBattle)
+   {
+      assert(!"Cardputer extreme UI scratch cannot replace the battle background");
+      return FALSE;
+   }
+#endif
    return PAL_MKFReadChunk(buf, 320 * 200, chunknum, gpGlobals->f.fpFBP) == 320 * 200;
 }
 
@@ -119,21 +172,6 @@ PAL_MapNativeRleChunk(
    return NULL;
 }
 #endif
-
-static WORD GetSavedTimes(int iSaveSlot)
-{
-	FILE *fp = UTIL_OpenFileAtPath(gConfig.pszSavePath, PAL_va(0, "%d.rpg", iSaveSlot));
-	WORD wSavedTimes = 0;
-	if (fp != NULL)
-	{
-		if (fread(&wSavedTimes, sizeof(WORD), 1, fp) == 1)
-			wSavedTimes = SDL_SwapLE16(wSavedTimes);
-		else
-			wSavedTimes = 0;
-		fclose(fp);
-	}
-	return wSavedTimes;
-}
 
 VOID
 PAL_DrawOpeningMenuBackground(
@@ -303,6 +341,16 @@ PAL_SaveSlotMenu(
 
    const SDL_Rect  rect = { 195 - dx, 7, 120 + dx, 190 };
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * The extreme profile deliberately has no per-box save buffers.  Borrow
+    * the second 320x200 screen for the lifetime of this modal screen and
+    * restore it as a whole.  This also makes the five unsaved slot boxes
+    * disappear on cancel without allocating a third screen.
+    */
+   VIDEO_BackupScreen(gpScreen);
+#endif
+
    //
    // Create the boxes and create the menu items
    //
@@ -325,7 +373,7 @@ PAL_SaveSlotMenu(
       //
       // Draw the number
       //
-      PAL_DrawNumber((UINT)GetSavedTimes(i), 4, PAL_XY(270, 38 * i - 17),
+      PAL_DrawNumber((UINT)PAL_GetSavedTimes(i), 4, PAL_XY(270, 38 * i - 17),
          kNumColorYellow, kNumAlignRight);
    }
 
@@ -342,6 +390,9 @@ PAL_SaveSlotMenu(
       PAL_DeleteBox(rgpBox[i]);
    }
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   VIDEO_RestoreScreen(gpScreen);
+#endif
    VIDEO_UpdateScreen(&rect);
 
    return wItemSelected;
@@ -388,6 +439,16 @@ PAL_SelectionMenu(
 		if (nWords > i && !wItems[i])
 			return MENUITEM_VALUE_CANCELLED;
 
+#if defined(PAL_CARDPUTER_EXTREME)
+	/*
+	 * A confirm/switch menu may be nested in the system, buy, sell or
+	 * script UI.  Its exact parent pixels cannot be reconstructed by
+	 * PAL_DeleteBox() when box pixel banks are disabled, so give this
+	 * modal overlay exclusive use of the auxiliary full screen.
+	 */
+	VIDEO_BackupScreen(gpScreen);
+#endif
+
 	//
 	// Create menu items
 	//
@@ -426,6 +487,9 @@ PAL_SelectionMenu(
 		PAL_DeleteBox(rgpBox[i]);
 	}
 
+#if defined(PAL_CARDPUTER_EXTREME)
+	VIDEO_RestoreScreen(gpScreen);
+#endif
 	VIDEO_UpdateScreen(&rect);
 
 	return wReturnValue;
@@ -536,6 +600,14 @@ PAL_BattleSpeedMenu(
       { 5,   BATTLESPEEDMENU_LABEL_5,       TRUE,   PAL_XY(245, 110) },
    };
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * Keep the system menu underneath this modal selector intact without a
+    * dedicated 160x48 saved-pixel array.
+    */
+   VIDEO_BackupScreen(gpScreen);
+#endif
+
    //
    // Create the boxes
    //
@@ -558,6 +630,9 @@ PAL_BattleSpeedMenu(
    //
    PAL_DeleteBox(lpBox);
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   VIDEO_RestoreScreen(gpScreen);
+#endif
    VIDEO_UpdateScreen(&rect);
 
    if (wReturnValue != MENUITEM_VALUE_CANCELLED)
@@ -680,6 +755,16 @@ PAL_SystemMenu(
    };
    const int           nSystemMenuItem = sizeof(rgSystemMenuItem) / sizeof(MENUITEM);
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * The main menu is the parent of this modal screen.  The auxiliary
+    * framebuffer belongs to the system menu until it either restores that
+    * parent on cancel or a child modal replaces the snapshot.  A selected
+    * operation exits the main menu and is redrawn from the scene instead.
+    */
+   VIDEO_BackupScreen(gpScreen);
+#endif
+
    //
    // Create the menu box.
    //
@@ -703,6 +788,9 @@ PAL_SystemMenu(
       // User cancelled the menu
       //
       PAL_DeleteBox(lpMenuBox);
+#if defined(PAL_CARDPUTER_EXTREME)
+      VIDEO_RestoreScreen(gpScreen);
+#endif
       VIDEO_UpdateScreen(&rect);
       return FALSE;
    }
@@ -718,17 +806,18 @@ PAL_SystemMenu(
       if (iSlot != MENUITEM_VALUE_CANCELLED)
       {
          WORD wSavedTimes = 0;
-         gpGlobals->bCurrentSaveSlot = (BYTE)iSlot;
-
          for (i = 1; i <= 5; i++)
          {
-            WORD curSavedTimes = GetSavedTimes(i);
+            WORD curSavedTimes = PAL_GetSavedTimes(i);
             if (curSavedTimes > wSavedTimes)
             {
                wSavedTimes = curSavedTimes;
             }
          }
-         PAL_SaveGame(iSlot, wSavedTimes + 1);
+         if (PAL_SaveGame(iSlot, wSavedTimes + 1))
+         {
+            gpGlobals->bCurrentSaveSlot = (BYTE)iSlot;
+         }
       }
       break;
 
@@ -1097,7 +1186,9 @@ PAL_InGameMenu(
    WORD                 wReturnValue;
    
    // Fix render problem with shadow
+#if !defined(PAL_CARDPUTER_EXTREME)
    VIDEO_BackupScreen(gpScreen);
+#endif
 
    //
    // Create menu items
@@ -1178,7 +1269,17 @@ out:
    PAL_DeleteBox(lpMenuBox);
 
    // Fix render problem with shadow
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * Status/equipment FBP screens and nested magic cursors also borrow the
+    * auxiliary framebuffer.  Rebuild the field from world state instead of
+    * assuming the entry snapshot survived those nested lifetimes.
+    */
+   PAL_MakeScene();
+   VIDEO_UpdateScreen(NULL);
+#else
    VIDEO_RestoreScreen(gpScreen);
+#endif
 }
 
 VOID
@@ -1205,7 +1306,9 @@ PAL_PlayerStatus(
 #ifndef PAL_NO_RUNTIME_DECOMPRESS
    BYTE            *bufImage = pal_psram_uigame_image;
 #endif
+#if !defined(PAL_CARDPUTER_EXTREME)
    BYTE            *bufImageBox = pal_psram_uigame_box;
+#endif
 #else
    PAL_LARGE BYTE   bufBackground[320 * 200];
    PAL_LARGE BYTE   bufImage[PAL_RLEBUFSIZE];
@@ -1229,15 +1332,29 @@ PAL_PlayerStatus(
    WORD             w;
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * During battle the auxiliary screen is the battle renderer's persistent
+    * background.  Load the status FBP straight into the visible framebuffer
+    * on each status-page draw instead of replacing that background.
+    */
+   if (!gpGlobals->fInBattle &&
+       !PAL_ReadNativeFbpToBuffer(bufBackground, STATUS_BACKGROUND_FBPNUM))
+   {
+      return;
+   }
+#else
    if (!PAL_ReadNativeFbpToBuffer(bufBackground, STATUS_BACKGROUND_FBPNUM))
    {
       return;
    }
+#endif
 #else
    PAL_MKFDecompressChunk(bufBackground, 320 * 200, STATUS_BACKGROUND_FBPNUM, gpGlobals->f.fpFBP);
 #endif
    iCurrent = 0;
 
+#if !defined(PAL_CARDPUTER_EXTREME)
    if (gConfig.fUseCustomScreenLayout)
    {
       for (i = 0; i < 49; i++)
@@ -1265,6 +1382,7 @@ PAL_PlayerStatus(
          }
       }
    }
+#endif
 
    while (iCurrent >= 0 && iCurrent <= gpGlobals->wMaxPartyMemberIndex)
    {
@@ -1273,6 +1391,17 @@ PAL_PlayerStatus(
       //
       // Draw the background image
       //
+#if defined(PAL_CARDPUTER_EXTREME)
+      if (gpGlobals->fInBattle)
+      {
+         if (!PAL_ReadNativeFbpToBuffer(pal_sram_framebuffer,
+            STATUS_BACKGROUND_FBPNUM))
+         {
+            return;
+         }
+      }
+      else
+#endif
       PAL_FBPBlitToSurface(bufBackground, gpScreen);
 
       //
@@ -1454,6 +1583,18 @@ PAL_PlayerStatus(
          }
       }
    }
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   if (gpGlobals->fInBattle)
+   {
+      /*
+       * PAL_BattleStartFrame() presents gpScreen after this modal returns.
+       * Reconstruct it now while the untouched auxiliary battle background
+       * is still available, so that presentation cannot flash the status FBP.
+       */
+      VIDEO_RestoreScreen(gpScreen);
+   }
+#endif
 }
 
 WORD
@@ -2012,7 +2153,9 @@ PAL_EquipItemMenu(
 {
 #ifdef PAL_NO_RUNTIME_HEAP
    BYTE            *bufBackground = pal_psram_uigame_background;
+#if !defined(PAL_CARDPUTER_EXTREME)
    BYTE            *bufImageBox = pal_psram_uigame_box;
+#endif
 #ifndef PAL_NO_RUNTIME_DECOMPRESS
    BYTE            *bufImage = pal_psram_uigame_image;
 #endif
@@ -2038,6 +2181,7 @@ PAL_EquipItemMenu(
       gpGlobals->f.fpFBP);
 #endif
 
+#if !defined(PAL_CARDPUTER_EXTREME)
    if (gConfig.fUseCustomScreenLayout)
    {
       int x = PAL_X(gConfig.ScreenLayout.EquipImageBox);
@@ -2065,6 +2209,7 @@ PAL_EquipItemMenu(
          memcpy(&bufBackground[(i + y) * 320 + x], &bufImageBox[i * 72], 72);
       }
    }
+#endif
 
    iCurrentPlayer = 0;
    bSelectedColor = MENUITEM_COLOR_SELECTED_FIRST;
@@ -2099,6 +2244,7 @@ PAL_EquipItemMenu(
       }
 #endif
 
+#if !defined(PAL_CARDPUTER_EXTREME)
       if (gConfig.fUseCustomScreenLayout)
       {
          int labels1[] = { STATUS_LABEL_ATTACKPOWER, STATUS_LABEL_MAGICPOWER, STATUS_LABEL_RESISTANCE, STATUS_LABEL_DEXTERITY, STATUS_LABEL_FLEERATE };
@@ -2118,6 +2264,7 @@ PAL_EquipItemMenu(
             PAL_DrawText(PAL_GetWord(labels2[i]), gConfig.ScreenLayoutArray[index], MENUITEM_COLOR, fShadow, FALSE, fUse8x8Font);
          }
       }
+#endif
 
       //
       // Draw the current equipment of the selected player

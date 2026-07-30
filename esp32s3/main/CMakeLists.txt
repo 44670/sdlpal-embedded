@@ -45,6 +45,27 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     -fstack-usage
 )
 else()
+if(CARDPUTER_EXTREME_NO_PSRAM)
+    if(CONFIG_SPIRAM)
+        message(FATAL_ERROR "Cardputer extreme profile must be built with CONFIG_SPIRAM=n")
+    endif()
+    set(PAL_TARGET_BOARD_SOURCES
+        "cardputer_extreme_board.c"
+        "cardputer_extreme_memory.c"
+        "cardputer_extreme_scaler.c"
+    )
+    set(PAL_ENGINE_LDFRAGMENT_ARGS)
+else()
+    set(PAL_TARGET_BOARD_SOURCES
+        "cores3se_board.c"
+        "cores3se_memory.c"
+    )
+    set(PAL_ENGINE_LDFRAGMENT_ARGS
+        LDFRAGMENTS
+            "pal_engine_psram.lf"
+    )
+endif()
+
 set(PAL_ENGINE_HOST_SOURCES
     "../../battle.c"
     "../../ending.c"
@@ -86,8 +107,7 @@ set(PAL_ENGINE_HOST_SOURCES
     "../engine_bridge/pal_engine_target_time.c"
     "../engine_bridge/pal_engine_target_video.c"
     "../native_engine_shim/sdl_shim.c"
-    "cores3se_board.c"
-    "cores3se_memory.c"
+    ${PAL_TARGET_BOARD_SOURCES}
 )
 
 set_source_files_properties("../../main.c" PROPERTIES COMPILE_DEFINITIONS "main=PAL_EngineMain")
@@ -113,8 +133,7 @@ idf_component_register(
         esp_timer
         fatfs
         sdmmc
-    LDFRAGMENTS
-        "pal_engine_psram.lf"
+    ${PAL_ENGINE_LDFRAGMENT_ARGS}
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
@@ -137,12 +156,36 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     PAL_CONTRACT_NO_AUDIO=1
     PAL_ESP_CORES3SE_NO_AUDIO=1
     PAL_ESP_CORES3SE_NO_SFX=1
-    SHIM_MAX_SURFACES=8
-    SHIM_MAX_PALETTES=8
-    SHIM_MAX_TEXTURES=1
-    SHIM_SURFACE_PIXELS=65536u
     USE_SDL3=0
 )
+
+if(CARDPUTER_EXTREME_NO_PSRAM)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        PAL_CARDPUTER_EXTREME=1
+        PAL_TARGET_CARDPUTER_ADV=1
+        PAL_EXTREME_TWO_SCREENS=1
+        PAL_EXTREME_CHAPTER_EVENT_OBJECTS=423
+        PAL_EXTREME_SPRITES_TO_DRAW=512
+        PAL_GLOBAL_BUFFER_SIZE=256
+        PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1
+        PAL_ENGINE_TF_TOC_BYTES=2048u
+        PAL_LOG_BUFFER_SIZE=1024
+        SHIM_MAX_SURFACES=6
+        SHIM_MAX_PALETTES=1
+        SHIM_MAX_TEXTURES=1
+        SHIM_SURFACE_PIXELS=1u
+        SHIM_TEXTURE_PIXELS=1u
+        SHIM_KEYBOARD_KEYS=256
+        SHIM_EVENT_QUEUE=8
+    )
+else()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        SHIM_MAX_SURFACES=8
+        SHIM_MAX_PALETTES=8
+        SHIM_MAX_TEXTURES=1
+        SHIM_SURFACE_PIXELS=65536u
+    )
+endif()
 
 target_compile_options(${COMPONENT_LIB} PRIVATE
     -fstack-usage

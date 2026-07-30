@@ -22,7 +22,36 @@
 #include "palcommon.h"
 #include "map.h"
 
-#ifdef PAL_NO_RUNTIME_HEAP
+#if defined(PAL_CARDPUTER_EXTREME)
+
+static PALMAP pal_extreme_map_instance;
+
+static LPPALMAP
+PAL_MapAllocInstance(
+   VOID
+)
+{
+   memset(&pal_extreme_map_instance, 0, sizeof(pal_extreme_map_instance));
+   return &pal_extreme_map_instance;
+}
+
+static VOID
+PAL_MapFreeInstance(
+   LPPALMAP          lpMap
+)
+{
+   (void)lpMap;
+}
+
+static VOID
+PAL_MapFreeGop(
+   LPBYTE            pTileSprite
+)
+{
+   (void)pTileSprite;
+}
+
+#elif defined(PAL_NO_RUNTIME_HEAP)
 
 #if defined(__GNUC__)
 #define PAL_MAP_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
@@ -134,7 +163,7 @@ PAL_LoadMap(
 
 --*/
 {
-#ifndef PAL_NO_RUNTIME_DECOMPRESS
+#if !defined(PAL_NO_RUNTIME_DECOMPRESS) && !defined(PAL_CARDPUTER_EXTREME)
    LPBYTE                     buf;
 #endif
    INT                        size, i, j;
@@ -155,7 +184,22 @@ PAL_LoadMap(
    //
    size = PAL_MKFGetChunkSize(iMapNum, fpMapMKF);
 
-#ifndef PAL_NO_RUNTIME_DECOMPRESS
+#if defined(PAL_CARDPUTER_EXTREME)
+   {
+      LPCBYTE map_data = NULL;
+      UINT map_size = 0;
+
+      map = PAL_MapAllocInstance();
+      if (map == NULL || size != 128 * 64 * 2 * (INT)sizeof(DWORD) ||
+         !PAL_MKFMapChunk(fpMapMKF, (UINT)iMapNum, &map_data, &map_size) ||
+         map_size != (UINT)size)
+      {
+         PAL_MapFreeInstance(map);
+         return NULL;
+      }
+      map->Tiles = (const DWORD (*)[64][2])map_data;
+   }
+#elif !defined(PAL_NO_RUNTIME_DECOMPRESS)
    //
    // Allocate a temporary buffer for the compressed data.
    //
@@ -212,6 +256,7 @@ PAL_LoadMap(
    }
 #endif
 
+#if !defined(PAL_CARDPUTER_EXTREME)
    //
    // Adjust the endianness of the decompressed data.
    //
@@ -223,6 +268,10 @@ PAL_LoadMap(
          map->Tiles[i][j][1] = SDL_SwapLE32(map->Tiles[i][j][1]);
       }
    }
+#else
+   (void)i;
+   (void)j;
+#endif
 
    //
    // Load the tile bitmaps.
@@ -233,6 +282,19 @@ PAL_LoadMap(
       PAL_MapFreeInstance(map);
       return NULL;
    }
+#if defined(PAL_CARDPUTER_EXTREME)
+   {
+      LPCBYTE gop_data = NULL;
+      UINT gop_size = 0;
+      if (!PAL_MKFMapChunk(fpGopMKF, (UINT)iMapNum, &gop_data, &gop_size) ||
+         gop_size != (UINT)size)
+      {
+         PAL_MapFreeInstance(map);
+         return NULL;
+      }
+      map->pTileSprite = (LPSPRITE)gop_data;
+   }
+#else
    map->pTileSprite = (LPSPRITE)PAL_MapAllocGop(size);
    if (map->pTileSprite == NULL)
    {
@@ -245,6 +307,7 @@ PAL_LoadMap(
       PAL_MapFreeInstance(map);
       return NULL;
    }
+#endif
 
    //
    // Done.

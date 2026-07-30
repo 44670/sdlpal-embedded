@@ -24,6 +24,23 @@
 static WORD g_wCurEffectSprite = 0;
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "esp32s3/main/cardputer_extreme_memory.h"
+#define pal_psram_ending_fbp_static pal_sram_aux_framebuffer
+
+static VOID
+PAL_ExtremeRequireEndingScratch(
+   const char *operation
+)
+{
+   if (gpGlobals->fInBattle)
+   {
+      TerminateOnError(
+         "Cardputer two-screen ownership: %s cannot replace battle background",
+         operation);
+   }
+}
+#else
 #if defined(__GNUC__)
 #define PAL_ENDING_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
 #else
@@ -33,6 +50,7 @@ static uint8_t pal_psram_ending_fbp_static[320 * 200] PAL_ENDING_PSRAM;
 #if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
 static uint8_t pal_psram_ending_sprite_static[320 * 200] PAL_ENDING_PSRAM;
 static uint8_t pal_psram_ending_girl_static[6000] PAL_ENDING_PSRAM;
+#endif
 #endif
 #endif
 
@@ -102,6 +120,25 @@ PAL_ShowFBP(
 
 --*/
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   BYTE *buf = pal_psram_ending_fbp_static;
+   LPCSPRITE effect = NULL;
+
+   PAL_ExtremeRequireEndingScratch("FBP");
+   (void)wFade;
+   if (!PAL_EndingReadNativeFbp(buf, wChunkNum))
+   {
+      memset(buf, 0, PAL_EXTREME_SCREEN_BYTES);
+   }
+   PAL_FBPBlitToSurface(buf, gpScreen);
+   if (g_wCurEffectSprite != 0 &&
+      PAL_EndingMapNativeMgo(&effect, g_wCurEffectSprite) &&
+      effect != NULL)
+   {
+      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(effect, 0), gpScreen, PAL_XY(0, 0));
+   }
+   VIDEO_UpdateScreen(NULL);
+#else
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
    BYTE                     *buf = pal_psram_ending_fbp_static;
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -207,6 +244,7 @@ PAL_ShowFBP(
    }
 
    VIDEO_UpdateScreen(NULL);
+#endif
 }
 
 VOID
@@ -234,6 +272,19 @@ PAL_ScrollFBP(
 
 --*/
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   PAL_ExtremeRequireEndingScratch("scroll FBP");
+#endif
+#if defined(PAL_CARDPUTER_EXTREME)
+   BYTE *buf = pal_psram_ending_fbp_static;
+   (void)wScrollSpeed;
+   (void)fScrollDown;
+   if (PAL_EndingReadNativeFbp(buf, wChunkNum))
+   {
+      PAL_FBPBlitToSurface(buf, gpScreen);
+      VIDEO_UpdateScreen(NULL);
+   }
+#else
    SDL_Surface          *p;
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
    BYTE                 *buf = pal_psram_ending_fbp_static;
@@ -361,6 +412,7 @@ PAL_ScrollFBP(
    VIDEO_CopyEntireSurface(p, gpScreen);
    VIDEO_FreeSurface(p);
    VIDEO_UpdateScreen(NULL);
+#endif
 }
 
 VOID
@@ -382,6 +434,12 @@ PAL_EndingAnimation(
 
 --*/
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   PAL_ExtremeRequireEndingScratch("ending animation");
+#endif
+#if defined(PAL_CARDPUTER_EXTREME)
+   return;
+#else
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
    LPBYTE            buf = pal_psram_ending_fbp_static;
@@ -518,6 +576,7 @@ PAL_EndingAnimation(
 #if !defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
    free(buf);
    free(bufGirl);
+#endif
 #endif
 }
 

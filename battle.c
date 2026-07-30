@@ -21,9 +21,14 @@
 
 #include "main.h"
 
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "pal_engine_runtime_metrics.h"
+#endif
+
 BATTLE          g_Battle;
 
-#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)) && \
+    !defined(PAL_EXTREME_TWO_SCREENS)
 #if defined(__GNUC__)
 #define PAL_BATTLE_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
 #else
@@ -633,6 +638,11 @@ PAL_BattleFadeScene(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   PAL_BattleMakeScene();
+   PAL_BattleUIUpdate();
+   VIDEO_UpdateScreen(NULL);
+#else
    int               i, j, k;
    DWORD             time;
    BYTE              a, b;
@@ -688,6 +698,7 @@ PAL_BattleFadeScene(
    PAL_BattleUIUpdate();
 
    VIDEO_UpdateScreen(NULL);
+#endif
 }
 
 static BATTLERESULT
@@ -1040,7 +1051,9 @@ PAL_LoadBattleBackground(
 
 --*/
 {
-#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   BYTE                    *buf = (BYTE *)gpScreenBak->pixels;
+#elif defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
    BYTE                    *buf = pal_psram_battle_background_static;
 #else
    PAL_LARGE BYTE           buf[320 * 200];
@@ -1049,7 +1062,11 @@ PAL_LoadBattleBackground(
    //
    // Create the surface
    //
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   g_Battle.lpBackground = gpScreenBak;
+#else
    g_Battle.lpBackground = VIDEO_CreateCompatibleSurface(gpScreen);
+#endif
 
    if (g_Battle.lpBackground == NULL)
    {
@@ -1831,7 +1848,11 @@ PAL_StartBattle(
    //
    // Create the surface for scene buffer
    //
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   g_Battle.lpSceneBuf = gpScreen;
+#else
    g_Battle.lpSceneBuf = VIDEO_CreateCompatibleSurface(gpScreen);
+#endif
 
    if (g_Battle.lpSceneBuf == NULL)
    {
@@ -1899,6 +1920,10 @@ PAL_StartBattle(
    g_Battle.fThisTurnCoop = FALSE;
 #endif
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   PalEngineBridge_LogRuntimeMemory("battle-ready");
+#endif
+
    //
    // Run the main battle routine.
    //
@@ -1941,13 +1966,19 @@ PAL_StartBattle(
    //
    // Free the surfaces for the background picture and scene buffer
    //
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    VIDEO_FreeSurface(g_Battle.lpBackground);
    VIDEO_FreeSurface(g_Battle.lpSceneBuf);
+#endif
 
    g_Battle.lpBackground = NULL;
    g_Battle.lpSceneBuf = NULL;
 
    gpGlobals->fInBattle = FALSE;
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   PalEngineBridge_LogRuntimeMemory("battle-finished");
+#endif
 
    AUDIO_PlayMusic(gpGlobals->wNumMusic, TRUE, 1);
 

@@ -4,6 +4,96 @@ This ESP-IDF project targets the CoreS3 SE full-engine host by default. The olde
 
 The board init copies/adapts the local walkie-talkie CoreS3 SE reference at `/home/john/work/CardPuterADV/esp-walkie-talkie`: AW9523, AXP2101, FT6336 touch, and SPI LCD init use the same pins and command sequence.
 
+## Cardputer ADV 8MB/no-PSRAM extreme profile
+
+`CARDPUTER_EXTREME_NO_PSRAM=ON` selects a separate M5Stack Cardputer ADV
+(K132-Adv) target.  It is not the original Cardputer and it does not replace
+the default CoreS3 SE build.  The profile has:
+
+- 8MB flash, a 1MB app partition, and a `0x6f0000` read-only `pal_nor`
+  partition;
+- no PSRAM and no engine/resource heap allocation;
+- exactly two named 320x200x8-bit logical screens plus one 4KB LCD DMA strip;
+- no audio, desktop codecs, runtime decompressor, splash sequence, or custom
+  screen layouts;
+- the Cardputer ADV vendor timing profile (240MHz CPU and a 1ms FreeRTOS tick);
+- ST7789 240x135 indexed presentation through SPI3 and TCA8418 keyboard input;
+- TF on independent SPI2 at 20MHz, with only a 2KB pack TOC resident in SRAM.
+
+Build the firmware and the chapter resource packs:
+
+```sh
+make -C esp32s3 cardputer-extreme-build
+make -C esp32s3 cardputer-extreme-pack-build
+```
+
+The stronger repeatable gate is:
+
+```sh
+make -C esp32s3 cardputer-extreme-check
+```
+
+It builds the Xtensa firmware, validates the ELF/partition/sdkconfig/pack
+budgets, checks source hashes and the declared candidate resource boundaries,
+streams an FBP chunk and one RNG frame from TF, then runs 3000 deterministic
+frames through the exact extreme engine profile.  The host run reaches the
+normal walking loop and injects team 0, a reachable two-enemy battle; it
+requires both battle entry and exit plus a nontrivial logical-screen PNG.  Its
+two compared traces are independent repeatability runs of the same extreme
+binary and packs, not parity against the unrestricted desktop engine.  The
+gate also injects a reproducible scene-20 stress state through GDB into the
+same binary and requires exactly 358 live draw entries and a 358-entry
+high-water mark; this is the measured counterexample to the old 256/320
+capacities.  The
+same gate also exercises the tagged save format, sparse event 5334
+persistence, corruption rejection, backup recovery, successful overwrite, and
+atomic replacement failure paths.  This is host behavioral verification, not
+a substitute for real-board heap/stack/LCD/TF testing or a story-route proof.
+
+The current chapter policy is `tools/pal_pack_layout_cardputer_extreme.json`.
+It is deliberately labelled a candidate rather than a completed story-route
+closure.  It preserves chunk numbering with zero-sized holes and retains
+scenes 1..20 plus 22, their 423 contiguous event objects, one 32-byte sparse
+global-state overlay for event 5334, the selected MAP/GOP/MGO set, and a
+conservative script-derived battle set.  The SZC2 tagged save persists that
+sparse state.  Static traversal still finds an unresolved transition from
+scene 22 to scene 21 in the original script.  The extreme interpreter replaces
+that exact transition with a visible `CHAPTER COMPLETE - SUZHOU NEXT` endpoint,
+and the deterministic gate executes entry 10600 and requires the engine to
+remain in scene 22.  This supplies a finite pre-Suzhou boundary, but the build
+is still not a route-proven “up to Suzhou” release: it lacks
+closure roots for every item/magic/poison/death script, intended-route
+coverage for all 20 statically selected battle teams, and a proof that the
+512-entry scene draw list covers every selected scene state.  The original
+256-entry extreme list and a 320-entry variant both have measured scene-20
+counterexamples; 512 is the SRAM-budgeted engineering setting, not a formal
+route bound.  The profile reduces the five formatting/path scratch strings
+from 1024 to 256 bytes each; target runtime paths are deliberately short.
+
+Const/random-access assets remain in NOR.  Four decoded FBP screens and
+decoded RNG movie 1 live on TF; the runtime reads FBP sequentially into screen
+B and reads only one RNG frame at a time.  NOR and TF may therefore contain
+disjoint chunks of the same archive, and the provider resolves ownership per
+chunk.  Both packs carry one deterministic pack-set ID and a whole-image
+CRC32; startup rejects a mismatched card, stale NOR/TF pair, or corrupted
+image before exposing resources to the engine.
+
+Prepare and flash:
+
+```sh
+make -C esp32s3 TF_MOUNT=/media/$USER/PALTF cardputer-extreme-prepare-tf
+make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-flash-nor
+make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-flash
+```
+
+`cardputer-extreme-prepare-tf` installs the generated TF image as
+`pal_tf.pak`.  The firmware logs both general internal-RAM and DMA-capable
+internal-RAM free/minimum/largest-block memory, plus the main-task stack
+high-water mark, at app entry, after board/pack startup, after resource loads,
+and around battle.  Real hardware validation must still capture those logs
+and verify LCD offsets/color order, keyboard matrix behavior, TF stability,
+save/reload, and an uninterrupted playthrough of the selected story range.
+
 Build the full original-engine CoreS3 SE host:
 
 ```sh
@@ -156,7 +246,7 @@ That target runs the full native/IDF port gate, stages `pal_tf.pak` to the mount
 
 The custom partition table assumes 16MB flash and reserves an 11MB read-only data partition named `pal_nor` at `0x310000`. Default NOR/TF archive placement is driven by `tools/pal_pack_layout_default.json`; move archives such as FIRE from NOR to TF there if the NOR budget tightens. The contract check also applies a 97% soft utilization gate to catch NOR growth before the partition is exhausted. The current generated NOR pack is about 10.45MB, so it fits there.
 
-`make -C esp32s3 pack-build` also accepts `PACK_LAYOUT`, `PACK_NOR_ARCHIVES`, and `PACK_TF_ARCHIVES` for explicit layout experiments. The engine bridge no longer hard-codes which archive IDs are TF-backed; it opens an archive from whichever generated pack actually contains that archive, and rejects missing or duplicate placement.
+`make -C esp32s3 pack-build` also accepts `PACK_LAYOUT`, `PACK_NOR_ARCHIVES`, and `PACK_TF_ARCHIVES` for explicit layout experiments. The engine bridge no longer hard-codes which archive IDs are TF-backed; it resolves each chunk from the generated packs, accepts disjoint sparse halves of one archive, and rejects ambiguous non-empty duplicate chunks.
 
 Flash the generated NOR pack:
 

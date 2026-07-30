@@ -23,21 +23,78 @@
 #include "resampler.h"
 #include "palcfg.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "pal_target_board.h"
+#endif
+
 static GLOBALVARS _gGlobals;
 GLOBALVARS * const  gpGlobals = &_gGlobals;
 
 CONFIGURATION gConfig;
 
+#if defined(PAL_CARDPUTER_EXTREME)
+#define PAL_EXTREME_SPARSE_EVENT_OBJECT_ID 5334u
+#define PAL_EXTREME_SPARSE_EVENT_OBJECTS 1u
+#endif
+
 #ifdef PAL_NO_RUNTIME_HEAP
 #if defined(__GNUC__)
+#if defined(PAL_CARDPUTER_EXTREME)
+#define PAL_GLOBAL_PSRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#else
 #define PAL_GLOBAL_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#endif
 #else
 #define PAL_GLOBAL_PSRAM
 #endif
 #define PAL_GLOBAL_MAGIC_SLOTS 114
-static uint8_t pal_psram_global_event_objects[MAX_EVENT_OBJECTS * sizeof(EVENTOBJECT)] PAL_GLOBAL_PSRAM;
-static uint8_t pal_psram_global_magics[PAL_GLOBAL_MAGIC_SLOTS * sizeof(MAGIC)] PAL_GLOBAL_PSRAM;
+#if defined(PAL_CARDPUTER_EXTREME)
+#define PAL_GLOBAL_EVENT_OBJECT_CAPACITY \
+   (PAL_EXTREME_CHAPTER_EVENT_OBJECTS + PAL_EXTREME_SPARSE_EVENT_OBJECTS)
+static uint8_t pal_sram_extreme_global_event_objects[
+   PAL_GLOBAL_EVENT_OBJECT_CAPACITY * sizeof(EVENTOBJECT)] PAL_GLOBAL_PSRAM;
+#define PAL_GLOBAL_EVENT_OBJECT_STORAGE pal_sram_extreme_global_event_objects
+#else
+#define PAL_GLOBAL_EVENT_OBJECT_CAPACITY MAX_EVENT_OBJECTS
+static uint8_t pal_psram_global_event_objects[
+   PAL_GLOBAL_EVENT_OBJECT_CAPACITY * sizeof(EVENTOBJECT)] PAL_GLOBAL_PSRAM;
+#define PAL_GLOBAL_EVENT_OBJECT_STORAGE pal_psram_global_event_objects
 #endif
+#if defined(PAL_CARDPUTER_EXTREME)
+static uint8_t pal_sram_extreme_global_magics[
+   PAL_GLOBAL_MAGIC_SLOTS * sizeof(MAGIC)] PAL_GLOBAL_PSRAM;
+#define PAL_GLOBAL_MAGIC_STORAGE pal_sram_extreme_global_magics
+#else
+static uint8_t pal_psram_global_magics[PAL_GLOBAL_MAGIC_SLOTS * sizeof(MAGIC)] PAL_GLOBAL_PSRAM;
+#define PAL_GLOBAL_MAGIC_STORAGE pal_psram_global_magics
+#endif
+#endif
+
+LPEVENTOBJECT
+PAL_GetEventObjectByID(
+   WORD event_object_id
+)
+{
+   if (event_object_id != 0 &&
+      event_object_id <= (WORD)gpGlobals->g.nEventObject)
+   {
+      return &gpGlobals->g.lprgEventObject[event_object_id - 1];
+   }
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   if (event_object_id == PAL_EXTREME_SPARSE_EVENT_OBJECT_ID &&
+      gpGlobals->g.lprgEventObject != NULL &&
+      gpGlobals->g.nEventObject == PAL_EXTREME_CHAPTER_EVENT_OBJECTS)
+   {
+      return &gpGlobals->g.lprgEventObject[PAL_EXTREME_CHAPTER_EVENT_OBJECTS];
+   }
+#endif
+
+   return NULL;
+}
 
 #if SDL_BYTEORDER == SDL_LIL_ENDIAN
 #define DO_BYTESWAP(buf, size)
@@ -428,7 +485,7 @@ PAL_InitGlobalGameData(
 #ifdef PAL_NO_RUNTIME_HEAP
       PAL_DOALLOCATE_STATIC(gpGlobals->f.fpSSS, 0, EVENTOBJECT, LPEVENTOBJECT,
          gpGlobals->g.lprgEventObject, gpGlobals->g.nEventObject,
-         pal_psram_global_event_objects);
+         PAL_GLOBAL_EVENT_OBJECT_STORAGE);
 
       PAL_DOMAP_STATIC(gpGlobals->f.fpSSS, 4, SCRIPTENTRY, LPSCRIPTENTRY,
          gpGlobals->g.lprgScriptEntry, gpGlobals->g.nScriptEntry);
@@ -444,7 +501,7 @@ PAL_InitGlobalGameData(
 
       PAL_DOALLOCATE_STATIC(gpGlobals->f.fpDATA, 4, MAGIC, LPMAGIC,
          gpGlobals->g.lprgMagic, gpGlobals->g.nMagic,
-         pal_psram_global_magics);
+         PAL_GLOBAL_MAGIC_STORAGE);
 
       PAL_DOMAP_STATIC(gpGlobals->f.fpDATA, 5, BATTLEFIELD, LPBATTLEFIELD,
          gpGlobals->g.lprgBattleField, gpGlobals->g.nBattleField);
@@ -514,6 +571,10 @@ PAL_LoadDefaultGame(
    //
    LOAD_DATA(p->lprgEventObject, p->nEventObject * sizeof(EVENTOBJECT),
       0, gpGlobals->f.fpSSS);
+#if defined(PAL_CARDPUTER_EXTREME)
+   memset(&p->lprgEventObject[PAL_EXTREME_CHAPTER_EVENT_OBJECTS], 0,
+      PAL_EXTREME_SPARSE_EVENT_OBJECTS * sizeof(EVENTOBJECT));
+#endif
    PAL_MKFReadChunk((LPBYTE)(p->rgScene), sizeof(p->rgScene), 1, gpGlobals->f.fpSSS);
    DO_BYTESWAP(p->rgScene, sizeof(p->rgScene));
    if (gConfig.fIsWIN95)
@@ -523,8 +584,27 @@ PAL_LoadDefaultGame(
    }
    else
    {
+#if defined(PAL_CARDPUTER_EXTREME)
+      LPCBYTE objects = NULL;
+      UINT objects_size = 0;
+      if (!PAL_MKFMapChunk(gpGlobals->f.fpSSS, 2, &objects, &objects_size) ||
+         objects_size == 0 ||
+         objects_size > MAX_OBJECTS * sizeof(OBJECT_DOS) ||
+         (objects_size % sizeof(OBJECT_DOS)) != 0)
+      {
+         TerminateOnError("PAL_LoadDefaultGame(): invalid native DOS object table");
+      }
+      memset(p->rgObject, 0, sizeof(p->rgObject));
+      for (i = 0; i < objects_size / sizeof(OBJECT_DOS); i++)
+      {
+         const OBJECT_DOS *object = (const OBJECT_DOS *)(objects + i * sizeof(OBJECT_DOS));
+         memcpy(&p->rgObject[i], object, sizeof(OBJECT_DOS));
+         p->rgObject[i].rgwData[6] = object->rgwData[5];
+         p->rgObject[i].rgwData[5] = 0;
+      }
+#else
       OBJECT_DOS objects[MAX_OBJECTS];
-	  PAL_MKFReadChunk((LPBYTE)(objects), sizeof(objects), 2, gpGlobals->f.fpSSS);
+		  PAL_MKFReadChunk((LPBYTE)(objects), sizeof(objects), 2, gpGlobals->f.fpSSS);
 	  DO_BYTESWAP(objects, sizeof(objects));
       //
       // Convert the DOS-style data structure to WIN-style data structure
@@ -535,6 +615,7 @@ PAL_LoadDefaultGame(
          p->rgObject[i].rgwData[6] = objects[i].rgwData[5];     // wFlags
          p->rgObject[i].rgwData[5] = 0;                         // wScriptDesc or wReserved2
       }
+#endif
    }
 
    PAL_MKFReadChunk((LPBYTE)(&(p->PlayerRoles)), sizeof(PLAYERROLES),
@@ -637,7 +718,11 @@ typedef struct tagSAVEDGAME_DOS
 	INVENTORY        rgInventory[MAX_INVENTORY];               // inventory status
 	SCENE            rgScene[MAX_SCENES];
 	OBJECT_DOS       rgObject[MAX_OBJECTS];
+#if defined(PAL_CARDPUTER_EXTREME)
+	EVENTOBJECT      rgEventObject[1]; /* streamed after the fixed header */
+#else
 	EVENTOBJECT      rgEventObject[MAX_EVENT_OBJECTS];
+#endif
 } SAVEDGAME_DOS, *LPSAVEDGAME_DOS;
 
 typedef struct tagSAVEDGAME_WIN
@@ -668,14 +753,907 @@ typedef struct tagSAVEDGAME_WIN
 	INVENTORY        rgInventory[MAX_INVENTORY];               // inventory status
 	SCENE            rgScene[MAX_SCENES];
 	OBJECT           rgObject[MAX_OBJECTS];
+#if defined(PAL_CARDPUTER_EXTREME)
+	EVENTOBJECT      rgEventObject[1]; /* streamed after the fixed header */
+#else
 	EVENTOBJECT      rgEventObject[MAX_EVENT_OBJECTS];
+#endif
 } SAVEDGAME_WIN, *LPSAVEDGAME_WIN;
 
 #ifdef PAL_NO_RUNTIME_HEAP
+#if defined(PAL_CARDPUTER_EXTREME)
+#define PAL_EXTREME_SAVE_DOS_BYTES offsetof(SAVEDGAME_DOS, rgEventObject)
+#define PAL_EXTREME_SAVE_WIN_BYTES offsetof(SAVEDGAME_WIN, rgEventObject)
+static uint8_t pal_sram_extreme_savegame_static[
+   ((PAL_EXTREME_SAVE_WIN_BYTES > PAL_EXTREME_SAVE_DOS_BYTES) ?
+      PAL_EXTREME_SAVE_WIN_BYTES : PAL_EXTREME_SAVE_DOS_BYTES)
+   + sizeof(EVENTOBJECT)
+] PAL_GLOBAL_PSRAM;
+#define PAL_SAVEGAME_STATIC pal_sram_extreme_savegame_static
+#else
 static uint8_t pal_psram_savegame_static[
    (sizeof(SAVEDGAME_WIN) > sizeof(SAVEDGAME_DOS)) ? sizeof(SAVEDGAME_WIN) : sizeof(SAVEDGAME_DOS)
 ] PAL_GLOBAL_PSRAM;
+#define PAL_SAVEGAME_STATIC pal_psram_savegame_static
 #endif
+#endif
+
+#define PAL_EXTREME_SAVE_MAGIC "PALXSAVE"
+
+#if defined(PAL_CARDPUTER_EXTREME)
+
+#if SDL_BYTEORDER != SDL_LIL_ENDIAN
+#error PAL_CARDPUTER_EXTREME save serialization requires a little-endian target
+#endif
+
+/*
+ * Cardputer saves are deliberately not truncated DOS/Win95 .rpg files.
+ * The tagged envelope makes the chapter/resource profile and the streamed
+ * event-object count part of the on-disk contract.  This prevents a desktop
+ * loader from treating a short extreme save as a legacy save and prevents a
+ * different extreme resource profile from accepting it by accident.
+ *
+ * PAL_EXTREME_SAVE_PROFILE_ID is "SZC2" in little-endian byte order: the
+ * current candidate profile containing scenes 1..20 plus 22 and a
+ * 423-event-object prefix plus the sparse global-state event 5334.  A future
+ * resource profile must use a new ID rather than silently broadening this one.
+ */
+#ifndef PAL_EXTREME_SAVE_PROFILE_ID
+#define PAL_EXTREME_SAVE_PROFILE_ID 0x32435a53u
+#endif
+
+#ifndef PAL_EXTREME_ALLOW_LEGACY_DOS_IMPORT
+#define PAL_EXTREME_ALLOW_LEGACY_DOS_IMPORT 1
+#endif
+
+#define PAL_EXTREME_SAVE_VERSION              1u
+#define PAL_EXTREME_SAVE_HEADER_BYTES        48u
+#define PAL_EXTREME_SAVE_FORMAT_DOS           1u
+#define PAL_EXTREME_SAVE_FORMAT_WIN95         2u
+#define PAL_EXTREME_SAVE_PATH_BYTES          32u
+#define PAL_EXTREME_SAVE_CONTIGUOUS_SCENE_MAX 20u
+#define PAL_EXTREME_SAVE_EXTRA_SCENE          22u
+#define PAL_EXTREME_SCENE_EVENT_OBJECTS_MAX  128u
+#define PAL_EXTREME_SAVE_EVENT_RECORDS \
+   (PAL_EXTREME_CHAPTER_EVENT_OBJECTS + PAL_EXTREME_SPARSE_EVENT_OBJECTS)
+
+#define PAL_EXTREME_HEADER_VERSION_OFFSET       8u
+#define PAL_EXTREME_HEADER_SIZE_OFFSET         10u
+#define PAL_EXTREME_HEADER_PROFILE_OFFSET      12u
+#define PAL_EXTREME_HEADER_FORMAT_OFFSET       16u
+#define PAL_EXTREME_HEADER_FLAGS_OFFSET        18u
+#define PAL_EXTREME_HEADER_FIXED_BYTES_OFFSET  20u
+#define PAL_EXTREME_HEADER_EVENT_COUNT_OFFSET  24u
+#define PAL_EXTREME_HEADER_EVENT_BYTES_OFFSET  28u
+#define PAL_EXTREME_HEADER_TOTAL_BYTES_OFFSET  32u
+#define PAL_EXTREME_HEADER_PAYLOAD_CRC_OFFSET  36u
+#define PAL_EXTREME_HEADER_SCENE_OFFSET        40u
+#define PAL_EXTREME_HEADER_PARTY_OFFSET        42u
+#define PAL_EXTREME_HEADER_CRC_OFFSET          44u
+
+typedef struct tagPAL_EXTREME_SAVE_META
+{
+   UINT32 payload_crc;
+   UINT32 source_event_count;
+   WORD   scene;
+   WORD   party_index;
+   BOOL   legacy_dos;
+} PAL_EXTREME_SAVE_META;
+
+typedef enum tagPAL_EXTREME_SAVE_QUALITY
+{
+   kPalExtremeSaveInvalid = 0,
+   kPalExtremeSaveLegacy,
+   kPalExtremeSaveTagged
+} PAL_EXTREME_SAVE_QUALITY;
+
+static WORD
+PAL_ExtremeReadLE16(
+   const uint8_t *p
+)
+{
+   return (WORD)((WORD)p[0] | ((WORD)p[1] << 8));
+}
+
+static UINT32
+PAL_ExtremeReadLE32(
+   const uint8_t *p
+)
+{
+   return (UINT32)p[0] |
+      ((UINT32)p[1] << 8) |
+      ((UINT32)p[2] << 16) |
+      ((UINT32)p[3] << 24);
+}
+
+static VOID
+PAL_ExtremeWriteLE16(
+   uint8_t *p,
+   WORD value
+)
+{
+   p[0] = (uint8_t)value;
+   p[1] = (uint8_t)(value >> 8);
+}
+
+static VOID
+PAL_ExtremeWriteLE32(
+   uint8_t *p,
+   UINT32 value
+)
+{
+   p[0] = (uint8_t)value;
+   p[1] = (uint8_t)(value >> 8);
+   p[2] = (uint8_t)(value >> 16);
+   p[3] = (uint8_t)(value >> 24);
+}
+
+static UINT32
+PAL_ExtremeCRC32Update(
+   UINT32         crc,
+   const uint8_t *bytes,
+   size_t         size
+)
+{
+   size_t i;
+
+   for (i = 0; i < size; i++)
+   {
+      UINT32 value = crc ^ bytes[i];
+      int bit;
+
+      for (bit = 0; bit < 8; bit++)
+      {
+         value = (value >> 1) ^
+            (0xedb88320u & (UINT32)-(int32_t)(value & 1u));
+      }
+      crc = value;
+   }
+   return crc;
+}
+
+static BOOL
+PAL_ExtremeSaveSceneAllowed(
+   WORD scene
+)
+{
+   return (scene >= 1 && scene <= PAL_EXTREME_SAVE_CONTIGUOUS_SCENE_MAX) ||
+      scene == PAL_EXTREME_SAVE_EXTRA_SCENE;
+}
+
+static BOOL
+PAL_ExtremeSaveSceneEventsValid(
+   LPSAVEDGAME_COMMON s,
+   WORD               scene,
+   UINT32             event_count
+)
+{
+   UINT32 start;
+   UINT32 end;
+
+   if (s == NULL || scene < 1 || scene >= MAX_SCENES)
+   {
+      return FALSE;
+   }
+
+   start = s->rgScene[scene - 1].wEventObjectIndex;
+   end = s->rgScene[scene].wEventObjectIndex;
+   return start <= end && end <= event_count &&
+      end - start <= PAL_EXTREME_SCENE_EVENT_OBJECTS_MAX;
+}
+
+static BOOL
+PAL_ExtremeEventStorageReady(
+   VOID
+)
+{
+   return gpGlobals->g.lprgEventObject != NULL &&
+      gpGlobals->g.nEventObject == PAL_EXTREME_CHAPTER_EVENT_OBJECTS &&
+      gpGlobals->g.nEventObject > 0 &&
+      gpGlobals->g.nEventObject <= PAL_GLOBAL_EVENT_OBJECT_CAPACITY;
+}
+
+static BOOL
+PAL_ExtremeSaveStateValid(
+   LPSAVEDGAME_COMMON          s,
+   const PAL_EXTREME_SAVE_META *meta
+)
+{
+   UINT32 i;
+   UINT32 active_party;
+
+   if (s == NULL || meta == NULL ||
+      !PAL_ExtremeSaveSceneAllowed(s->wNumScene) ||
+      s->nPartyMember >= MAX_PLAYERS_IN_PARTY)
+   {
+      return FALSE;
+   }
+
+   active_party = (UINT32)s->nPartyMember + 1u;
+   if ((UINT32)s->nFollower > MAX_PLAYABLE_PLAYER_ROLES - active_party ||
+      s->wPartyDirection >= kDirUnknown)
+   {
+      return FALSE;
+   }
+
+   for (i = 0; i < active_party + s->nFollower; i++)
+   {
+      if (s->rgParty[i].wPlayerRole >= MAX_PLAYER_ROLES)
+      {
+         return FALSE;
+      }
+   }
+
+   for (i = 1; i <= PAL_EXTREME_SAVE_CONTIGUOUS_SCENE_MAX; i++)
+   {
+      if (!PAL_ExtremeSaveSceneEventsValid(s, (WORD)i,
+         PAL_EXTREME_CHAPTER_EVENT_OBJECTS))
+      {
+         return FALSE;
+      }
+   }
+   if (!PAL_ExtremeSaveSceneEventsValid(s, PAL_EXTREME_SAVE_EXTRA_SCENE,
+      PAL_EXTREME_CHAPTER_EVENT_OBJECTS))
+   {
+      return FALSE;
+   }
+
+   if (!meta->legacy_dos &&
+      (meta->scene != s->wNumScene || meta->party_index != s->nPartyMember))
+   {
+      return FALSE;
+   }
+   return TRUE;
+}
+
+static BOOL
+PAL_ExtremeSaveBuildPath(
+   int         slot,
+   const char *extension,
+   char       *path,
+   size_t      path_bytes
+)
+{
+   char name[13];
+   size_t base_bytes;
+   BOOL append_separator;
+   int name_bytes;
+   int result;
+
+   if (slot <= 0 || slot > 99999999 || extension == NULL ||
+      strlen(extension) != 3 || path == NULL || path_bytes == 0 ||
+      gConfig.pszSavePath == NULL)
+   {
+      return FALSE;
+   }
+
+   name_bytes = snprintf(name, sizeof(name), "%d.%s", slot, extension);
+   if (name_bytes <= 0 || (size_t)name_bytes >= sizeof(name))
+   {
+      return FALSE;
+   }
+
+   base_bytes = strlen(gConfig.pszSavePath);
+   append_separator = base_bytes > 0 &&
+      !PAL_IS_PATH_SEPARATOR(gConfig.pszSavePath[base_bytes - 1]);
+   if (append_separator)
+   {
+      result = snprintf(path, path_bytes, "%s%c%s", gConfig.pszSavePath,
+         PAL_PATH_SEPARATORS[0], name);
+   }
+   else
+   {
+      result = snprintf(path, path_bytes, "%s%s", gConfig.pszSavePath, name);
+   }
+   return result > 0 && (size_t)result < path_bytes;
+}
+
+static BOOL
+PAL_ExtremeSaveFileExists(
+   const char *path
+)
+{
+   FILE *fp = fopen(path, "rb");
+
+   if (fp == NULL)
+   {
+      return FALSE;
+   }
+   return fclose(fp) == 0;
+}
+
+static BOOL
+PAL_ExtremeSaveAtomicReplace(
+   const char *temporary_path,
+   const char *final_path,
+   const char *backup_path,
+   PAL_EXTREME_SAVE_QUALITY final_quality
+)
+{
+   BOOL moved_final = FALSE;
+   BOOL backup_exists = PAL_ExtremeSaveFileExists(backup_path);
+
+   if (PAL_ExtremeSaveFileExists(final_path))
+   {
+      if (final_quality == kPalExtremeSaveInvalid ||
+         (final_quality == kPalExtremeSaveLegacy && backup_exists))
+      {
+         /*
+          * Never replace a known-good recovery file with a corrupt final.
+          * If installing the verified temporary file subsequently fails, the
+          * loader can still recover from the untouched backup.
+          */
+         if (!PalTarget_SaveUnlink(final_path, false))
+         {
+            return FALSE;
+         }
+      }
+      else
+      {
+         /*
+          * Tagged files have an integrity envelope and may replace the older
+          * backup.  A legacy file is rotated only when no recovery file
+          * already exists, because its event payload has no checksum.
+          */
+         if (final_quality == kPalExtremeSaveTagged &&
+            !PalTarget_SaveUnlink(backup_path, true))
+         {
+            return FALSE;
+         }
+         if (!PalTarget_SaveRename(final_path, backup_path))
+         {
+            return FALSE;
+         }
+         moved_final = TRUE;
+      }
+   }
+
+   if (!PalTarget_SaveRename(temporary_path, final_path))
+   {
+      if (moved_final)
+      {
+         (void)PalTarget_SaveRename(backup_path, final_path);
+      }
+      return FALSE;
+   }
+
+   /*
+    * Keep the previous committed save as a real recovery candidate.  The next
+    * successful transaction rotates the then-current valid final into it.
+    */
+   return TRUE;
+}
+
+static BOOL
+PAL_ExtremeSaveReadHeader(
+   FILE                  *fp,
+   size_t                 expected_fixed_bytes,
+   WORD                   expected_format,
+   uint8_t               *scratch,
+   size_t                 scratch_bytes,
+   PAL_EXTREME_SAVE_META *meta
+)
+{
+   uint8_t header[PAL_EXTREME_SAVE_HEADER_BYTES];
+   UINT32 fixed_bytes;
+   UINT32 event_count;
+   UINT32 event_bytes;
+   UINT32 total_bytes;
+   UINT32 expected_total;
+   UINT32 expected_header_crc;
+   UINT32 crc;
+   UINT32 remaining;
+   long file_bytes;
+
+   if (fp == NULL || scratch == NULL || scratch_bytes == 0 || meta == NULL ||
+      expected_fixed_bytes > UINT32_MAX)
+   {
+      return FALSE;
+   }
+
+   file_bytes = flength(fp);
+   if (file_bytes < 0 || fseek(fp, 0, SEEK_SET) != 0 ||
+      fread(header, 1, sizeof(header), fp) != sizeof(header) ||
+      memcmp(header, PAL_EXTREME_SAVE_MAGIC, 8) != 0)
+   {
+      return FALSE;
+   }
+
+   expected_header_crc = PAL_ExtremeCRC32Update(
+      0xffffffffu, header, PAL_EXTREME_HEADER_CRC_OFFSET) ^ 0xffffffffu;
+   fixed_bytes = PAL_ExtremeReadLE32(
+      header + PAL_EXTREME_HEADER_FIXED_BYTES_OFFSET);
+   event_count = PAL_ExtremeReadLE32(
+      header + PAL_EXTREME_HEADER_EVENT_COUNT_OFFSET);
+   event_bytes = PAL_ExtremeReadLE32(
+      header + PAL_EXTREME_HEADER_EVENT_BYTES_OFFSET);
+   total_bytes = PAL_ExtremeReadLE32(
+      header + PAL_EXTREME_HEADER_TOTAL_BYTES_OFFSET);
+
+   if (PAL_ExtremeReadLE16(header + PAL_EXTREME_HEADER_VERSION_OFFSET) !=
+         PAL_EXTREME_SAVE_VERSION ||
+      PAL_ExtremeReadLE16(header + PAL_EXTREME_HEADER_SIZE_OFFSET) !=
+         PAL_EXTREME_SAVE_HEADER_BYTES ||
+      PAL_ExtremeReadLE32(header + PAL_EXTREME_HEADER_PROFILE_OFFSET) !=
+         PAL_EXTREME_SAVE_PROFILE_ID ||
+      PAL_ExtremeReadLE16(header + PAL_EXTREME_HEADER_FORMAT_OFFSET) !=
+         expected_format ||
+      PAL_ExtremeReadLE16(header + PAL_EXTREME_HEADER_FLAGS_OFFSET) != 0 ||
+      fixed_bytes != expected_fixed_bytes ||
+      event_count != PAL_EXTREME_SAVE_EVENT_RECORDS ||
+      event_bytes != event_count * sizeof(EVENTOBJECT) ||
+      fixed_bytes > UINT32_MAX - PAL_EXTREME_SAVE_HEADER_BYTES ||
+      event_bytes > UINT32_MAX - PAL_EXTREME_SAVE_HEADER_BYTES - fixed_bytes ||
+      (expected_total = PAL_EXTREME_SAVE_HEADER_BYTES + fixed_bytes +
+         event_bytes) != total_bytes ||
+      file_bytes != (long)total_bytes ||
+      PAL_ExtremeReadLE32(header + PAL_EXTREME_HEADER_CRC_OFFSET) !=
+         expected_header_crc)
+   {
+      return FALSE;
+   }
+
+   crc = 0xffffffffu;
+   remaining = fixed_bytes + event_bytes;
+   while (remaining != 0)
+   {
+      size_t amount = remaining < scratch_bytes ? remaining : scratch_bytes;
+
+      if (fread(scratch, 1, amount, fp) != amount)
+      {
+         return FALSE;
+      }
+      crc = PAL_ExtremeCRC32Update(crc, scratch, amount);
+      remaining -= (UINT32)amount;
+   }
+   crc ^= 0xffffffffu;
+   if (crc != PAL_ExtremeReadLE32(
+         header + PAL_EXTREME_HEADER_PAYLOAD_CRC_OFFSET))
+   {
+      return FALSE;
+   }
+
+   meta->payload_crc = crc;
+   meta->source_event_count = event_count;
+   meta->scene = PAL_ExtremeReadLE16(
+      header + PAL_EXTREME_HEADER_SCENE_OFFSET);
+   meta->party_index = PAL_ExtremeReadLE16(
+      header + PAL_EXTREME_HEADER_PARTY_OFFSET);
+   meta->legacy_dos = FALSE;
+   return TRUE;
+}
+
+static BOOL
+PAL_ExtremeSaveReadTaggedPayload(
+   FILE                  *fp,
+   LPSAVEDGAME_COMMON     s,
+   size_t                 fixed_bytes,
+   PAL_EXTREME_SAVE_META *meta
+)
+{
+   size_t event_bytes = PAL_EXTREME_SAVE_EVENT_RECORDS *
+      sizeof(EVENTOBJECT);
+   UINT32 crc;
+
+   if (fseek(fp, PAL_EXTREME_SAVE_HEADER_BYTES, SEEK_SET) != 0 ||
+      fread(s, 1, fixed_bytes, fp) != fixed_bytes ||
+      fread(gpGlobals->g.lprgEventObject, 1, event_bytes, fp) != event_bytes)
+   {
+      return FALSE;
+   }
+
+   crc = PAL_ExtremeCRC32Update(0xffffffffu, (const uint8_t *)s,
+      fixed_bytes);
+   crc = PAL_ExtremeCRC32Update(crc,
+      (const uint8_t *)gpGlobals->g.lprgEventObject, event_bytes) ^
+      0xffffffffu;
+   return crc == meta->payload_crc;
+}
+
+static BOOL
+PAL_ExtremeSaveReadLegacyDOS(
+   FILE                  *fp,
+   LPSAVEDGAME_COMMON     s,
+   size_t                 fixed_bytes,
+   PAL_EXTREME_SAVE_META *meta
+)
+{
+#if PAL_EXTREME_ALLOW_LEGACY_DOS_IMPORT
+   long file_bytes = flength(fp);
+   size_t payload_event_bytes;
+   size_t source_event_count;
+   size_t required_event_bytes = PAL_EXTREME_CHAPTER_EVENT_OBJECTS *
+      sizeof(EVENTOBJECT);
+
+   if (file_bytes < 0 || (size_t)file_bytes < fixed_bytes ||
+      fixed_bytes != PAL_EXTREME_SAVE_DOS_BYTES)
+   {
+      return FALSE;
+   }
+
+   payload_event_bytes = (size_t)file_bytes - fixed_bytes;
+   if (payload_event_bytes % sizeof(EVENTOBJECT) != 0)
+   {
+      return FALSE;
+   }
+   source_event_count = payload_event_bytes / sizeof(EVENTOBJECT);
+   if (source_event_count < PAL_EXTREME_CHAPTER_EVENT_OBJECTS ||
+      source_event_count > MAX_EVENT_OBJECTS ||
+      fseek(fp, 0, SEEK_SET) != 0 ||
+      fread(s, 1, fixed_bytes, fp) != fixed_bytes ||
+      fread(gpGlobals->g.lprgEventObject, 1, required_event_bytes, fp) !=
+         required_event_bytes)
+   {
+      return FALSE;
+   }
+   memset(&gpGlobals->g.lprgEventObject[PAL_EXTREME_CHAPTER_EVENT_OBJECTS],
+      0, PAL_EXTREME_SPARSE_EVENT_OBJECTS * sizeof(EVENTOBJECT));
+
+   meta->payload_crc = 0;
+   meta->source_event_count = (UINT32)source_event_count;
+   meta->scene = 0;
+   meta->party_index = 0;
+   meta->legacy_dos = TRUE;
+   return TRUE;
+#else
+   (void)fp;
+   (void)s;
+   (void)fixed_bytes;
+   (void)meta;
+   return FALSE;
+#endif
+}
+
+static BOOL
+PAL_ExtremeSaveReadFile(
+   FILE              *fp,
+   LPSAVEDGAME_COMMON s,
+   size_t             fixed_bytes,
+   WORD               expected_format
+)
+{
+   uint8_t magic[8];
+   PAL_EXTREME_SAVE_META meta;
+   BOOL result;
+
+   if (fp == NULL || s == NULL || !PAL_ExtremeEventStorageReady() ||
+      fread(magic, 1, sizeof(magic), fp) != sizeof(magic) ||
+      fseek(fp, 0, SEEK_SET) != 0)
+   {
+      return FALSE;
+   }
+
+   if (memcmp(magic, PAL_EXTREME_SAVE_MAGIC, sizeof(magic)) == 0)
+   {
+      result = PAL_ExtremeSaveReadHeader(fp, fixed_bytes, expected_format,
+         PAL_SAVEGAME_STATIC, fixed_bytes, &meta) &&
+         PAL_ExtremeSaveReadTaggedPayload(fp, s, fixed_bytes, &meta);
+   }
+   else
+   {
+      result = expected_format == PAL_EXTREME_SAVE_FORMAT_DOS &&
+         PAL_ExtremeSaveReadLegacyDOS(fp, s, fixed_bytes, &meta);
+   }
+   if (!result)
+   {
+      return FALSE;
+   }
+
+   DO_BYTESWAP(s, fixed_bytes);
+   DO_BYTESWAP(gpGlobals->g.lprgEventObject,
+      PAL_EXTREME_SAVE_EVENT_RECORDS * sizeof(EVENTOBJECT));
+
+   if (!PAL_ExtremeSaveStateValid(s, &meta))
+   {
+      return FALSE;
+   }
+
+   if (meta.legacy_dos)
+   {
+      UTIL_LogOutput(LOGLEVEL_INFO,
+         "Imported legacy DOS save with %u event objects into extreme profile\n",
+         (unsigned)meta.source_event_count);
+   }
+   return TRUE;
+}
+
+static PAL_EXTREME_SAVE_QUALITY
+PAL_ExtremeSavePathQuality(
+   const char *path,
+   size_t      fixed_bytes,
+   WORD        format
+)
+{
+   FILE *fp;
+   uint8_t magic[8];
+   PAL_EXTREME_SAVE_META meta;
+   LPSAVEDGAME_COMMON state = (LPSAVEDGAME_COMMON)PAL_SAVEGAME_STATIC;
+   BOOL valid = FALSE;
+   BOOL tagged = FALSE;
+   long file_bytes;
+
+   if (path == NULL)
+   {
+      return FALSE;
+   }
+
+   fp = fopen(path, "rb");
+   if (fp == NULL)
+   {
+      return FALSE;
+   }
+
+   if (fread(magic, 1, sizeof(magic), fp) == sizeof(magic) &&
+      fseek(fp, 0, SEEK_SET) == 0)
+   {
+      if (memcmp(magic, PAL_EXTREME_SAVE_MAGIC, sizeof(magic)) == 0)
+      {
+         tagged = TRUE;
+         valid = PAL_ExtremeSaveReadHeader(fp, fixed_bytes, format,
+               PAL_SAVEGAME_STATIC, fixed_bytes, &meta) &&
+            fseek(fp, PAL_EXTREME_SAVE_HEADER_BYTES, SEEK_SET) == 0 &&
+            fread(state, 1, fixed_bytes, fp) == fixed_bytes;
+      }
+      else if (format == PAL_EXTREME_SAVE_FORMAT_DOS)
+      {
+         /*
+          * A legacy file has no integrity tag, but its fixed state can still
+          * be checked without copying event records over the live game.
+          */
+         file_bytes = flength(fp);
+         valid = file_bytes >= (long)(fixed_bytes +
+               PAL_EXTREME_CHAPTER_EVENT_OBJECTS * sizeof(EVENTOBJECT)) &&
+            ((size_t)file_bytes - fixed_bytes) % sizeof(EVENTOBJECT) == 0 &&
+            ((size_t)file_bytes - fixed_bytes) / sizeof(EVENTOBJECT) <=
+               MAX_EVENT_OBJECTS &&
+            fseek(fp, 0, SEEK_SET) == 0 &&
+            fread(state, 1, fixed_bytes, fp) == fixed_bytes;
+         if (valid)
+         {
+            memset(&meta, 0, sizeof(meta));
+            meta.source_event_count =
+               ((size_t)file_bytes - fixed_bytes) / sizeof(EVENTOBJECT);
+            meta.legacy_dos = TRUE;
+         }
+      }
+   }
+
+   if (valid)
+   {
+      DO_BYTESWAP(state, fixed_bytes);
+      valid = PAL_ExtremeSaveStateValid(state, &meta);
+   }
+   if (fclose(fp) != 0)
+   {
+      valid = FALSE;
+   }
+   return !valid ? kPalExtremeSaveInvalid :
+      (tagged ? kPalExtremeSaveTagged : kPalExtremeSaveLegacy);
+}
+
+static VOID
+PAL_ExtremeSaveBuildHeader(
+   uint8_t             header[PAL_EXTREME_SAVE_HEADER_BYTES],
+   WORD                format,
+   size_t              fixed_bytes,
+   UINT32              payload_crc,
+   LPSAVEDGAME_COMMON  s
+)
+{
+   UINT32 event_bytes = PAL_EXTREME_SAVE_EVENT_RECORDS *
+      sizeof(EVENTOBJECT);
+   UINT32 total_bytes = PAL_EXTREME_SAVE_HEADER_BYTES +
+      (UINT32)fixed_bytes + event_bytes;
+   UINT32 header_crc;
+
+   memset(header, 0, PAL_EXTREME_SAVE_HEADER_BYTES);
+   memcpy(header, PAL_EXTREME_SAVE_MAGIC, 8);
+   PAL_ExtremeWriteLE16(header + PAL_EXTREME_HEADER_VERSION_OFFSET,
+      PAL_EXTREME_SAVE_VERSION);
+   PAL_ExtremeWriteLE16(header + PAL_EXTREME_HEADER_SIZE_OFFSET,
+      PAL_EXTREME_SAVE_HEADER_BYTES);
+   PAL_ExtremeWriteLE32(header + PAL_EXTREME_HEADER_PROFILE_OFFSET,
+      PAL_EXTREME_SAVE_PROFILE_ID);
+   PAL_ExtremeWriteLE16(header + PAL_EXTREME_HEADER_FORMAT_OFFSET, format);
+   PAL_ExtremeWriteLE16(header + PAL_EXTREME_HEADER_FLAGS_OFFSET, 0);
+   PAL_ExtremeWriteLE32(header + PAL_EXTREME_HEADER_FIXED_BYTES_OFFSET,
+      (UINT32)fixed_bytes);
+   PAL_ExtremeWriteLE32(header + PAL_EXTREME_HEADER_EVENT_COUNT_OFFSET,
+      PAL_EXTREME_SAVE_EVENT_RECORDS);
+   PAL_ExtremeWriteLE32(header + PAL_EXTREME_HEADER_EVENT_BYTES_OFFSET,
+      event_bytes);
+   PAL_ExtremeWriteLE32(header + PAL_EXTREME_HEADER_TOTAL_BYTES_OFFSET,
+      total_bytes);
+   PAL_ExtremeWriteLE32(header + PAL_EXTREME_HEADER_PAYLOAD_CRC_OFFSET,
+      payload_crc);
+   PAL_ExtremeWriteLE16(header + PAL_EXTREME_HEADER_SCENE_OFFSET,
+      s->wNumScene);
+   PAL_ExtremeWriteLE16(header + PAL_EXTREME_HEADER_PARTY_OFFSET,
+      s->nPartyMember);
+   header_crc = PAL_ExtremeCRC32Update(0xffffffffu, header,
+      PAL_EXTREME_HEADER_CRC_OFFSET) ^ 0xffffffffu;
+   PAL_ExtremeWriteLE32(header + PAL_EXTREME_HEADER_CRC_OFFSET, header_crc);
+}
+
+static BOOL
+PAL_ExtremeSaveWriteFile(
+   int                 slot,
+   WORD                format,
+   LPSAVEDGAME_COMMON  s,
+   size_t              fixed_bytes
+)
+{
+   uint8_t header[PAL_EXTREME_SAVE_HEADER_BYTES];
+   PAL_EXTREME_SAVE_META state_meta;
+   PAL_EXTREME_SAVE_META verify_meta;
+   char temporary_path[PAL_EXTREME_SAVE_PATH_BYTES];
+   char final_path[PAL_EXTREME_SAVE_PATH_BYTES];
+   char backup_path[PAL_EXTREME_SAVE_PATH_BYTES];
+   FILE *fp;
+   size_t event_bytes = PAL_EXTREME_SAVE_EVENT_RECORDS *
+      sizeof(EVENTOBJECT);
+   UINT32 payload_crc;
+   BOOL result;
+   PAL_EXTREME_SAVE_QUALITY final_quality;
+
+   memset(&state_meta, 0, sizeof(state_meta));
+   state_meta.scene = s->wNumScene;
+   state_meta.party_index = s->nPartyMember;
+   if (!PAL_ExtremeEventStorageReady() ||
+      !PAL_ExtremeSaveStateValid(s, &state_meta) ||
+      !PAL_ExtremeSaveBuildPath(slot, "tmp", temporary_path,
+         sizeof(temporary_path)) ||
+      !PAL_ExtremeSaveBuildPath(slot, "rpg", final_path,
+         sizeof(final_path)) ||
+      !PAL_ExtremeSaveBuildPath(slot, "bak", backup_path,
+         sizeof(backup_path)))
+   {
+      return FALSE;
+   }
+
+   payload_crc = PAL_ExtremeCRC32Update(0xffffffffu, (const uint8_t *)s,
+      fixed_bytes);
+   payload_crc = PAL_ExtremeCRC32Update(payload_crc,
+      (const uint8_t *)gpGlobals->g.lprgEventObject, event_bytes) ^
+      0xffffffffu;
+   PAL_ExtremeSaveBuildHeader(header, format, fixed_bytes, payload_crc, s);
+
+   fp = fopen(temporary_path, "wb");
+   if (fp == NULL)
+   {
+      return FALSE;
+   }
+
+   result = fwrite(header, 1, sizeof(header), fp) == sizeof(header) &&
+      fwrite(s, 1, fixed_bytes, fp) == fixed_bytes &&
+      fwrite(gpGlobals->g.lprgEventObject, 1, event_bytes, fp) ==
+         event_bytes &&
+      fflush(fp) == 0 &&
+      ferror(fp) == 0;
+   if (fclose(fp) != 0)
+   {
+      result = FALSE;
+   }
+   if (!result)
+   {
+      (void)PalTarget_SaveUnlink(temporary_path, true);
+      return FALSE;
+   }
+
+   fp = fopen(temporary_path, "rb");
+   result = fp != NULL &&
+      PAL_ExtremeSaveReadHeader(fp, fixed_bytes, format,
+         PAL_SAVEGAME_STATIC, fixed_bytes, &verify_meta);
+   if (fp != NULL && fclose(fp) != 0)
+   {
+      result = FALSE;
+   }
+   final_quality = PAL_ExtremeSavePathQuality(final_path, fixed_bytes, format);
+   if (!result ||
+      !PAL_ExtremeSaveAtomicReplace(temporary_path, final_path, backup_path,
+         final_quality))
+   {
+      (void)PalTarget_SaveUnlink(temporary_path, true);
+      return FALSE;
+   }
+   return TRUE;
+}
+
+static BOOL
+PAL_ExtremeReadSavedTimesAtPath(
+   const char *path,
+   WORD       *saved_times
+)
+{
+   FILE *fp;
+   uint8_t saved_times_bytes[2];
+   size_t fixed_bytes = gConfig.fIsWIN95 ?
+      PAL_EXTREME_SAVE_WIN_BYTES : PAL_EXTREME_SAVE_DOS_BYTES;
+   WORD format = gConfig.fIsWIN95 ?
+      PAL_EXTREME_SAVE_FORMAT_WIN95 : PAL_EXTREME_SAVE_FORMAT_DOS;
+   PAL_EXTREME_SAVE_QUALITY quality;
+   BOOL valid = FALSE;
+
+   if (path == NULL || saved_times == NULL)
+   {
+      return FALSE;
+   }
+
+   quality = PAL_ExtremeSavePathQuality(path, fixed_bytes, format);
+   if (quality == kPalExtremeSaveInvalid)
+   {
+      return FALSE;
+   }
+
+   fp = fopen(path, "rb");
+   if (fp == NULL)
+   {
+      return FALSE;
+   }
+
+   valid = fseek(fp,
+         quality == kPalExtremeSaveTagged ?
+            PAL_EXTREME_SAVE_HEADER_BYTES : 0,
+         SEEK_SET) == 0 &&
+      fread(saved_times_bytes, 1, sizeof(saved_times_bytes), fp) ==
+         sizeof(saved_times_bytes);
+
+   if (fclose(fp) != 0)
+   {
+      valid = FALSE;
+   }
+   if (valid)
+   {
+      *saved_times = PAL_ExtremeReadLE16(saved_times_bytes);
+   }
+   return valid;
+}
+
+#endif
+
+WORD
+PAL_GetSavedTimes(
+   int iSaveSlot
+)
+{
+#if defined(PAL_CARDPUTER_EXTREME)
+   char final_path[PAL_EXTREME_SAVE_PATH_BYTES];
+   char backup_path[PAL_EXTREME_SAVE_PATH_BYTES];
+   WORD saved_times = 0;
+
+   if (!PAL_ExtremeSaveBuildPath(iSaveSlot, "rpg", final_path,
+         sizeof(final_path)) ||
+      !PAL_ExtremeSaveBuildPath(iSaveSlot, "bak", backup_path,
+         sizeof(backup_path)))
+   {
+      return 0;
+   }
+   if (PAL_ExtremeReadSavedTimesAtPath(final_path, &saved_times) ||
+      PAL_ExtremeReadSavedTimesAtPath(backup_path, &saved_times))
+   {
+      return saved_times;
+   }
+   return 0;
+#else
+   FILE *fp = UTIL_OpenFileAtPath(gConfig.pszSavePath,
+      PAL_va(0, "%d.rpg", iSaveSlot));
+   WORD saved_times = 0;
+
+   if (fp != NULL)
+   {
+      if (fread(&saved_times, sizeof(saved_times), 1, fp) == 1)
+      {
+         saved_times = SDL_SwapLE16(saved_times);
+      }
+      else
+      {
+         saved_times = 0;
+      }
+      fclose(fp);
+   }
+   return saved_times;
+#endif
+}
 
 static BOOL
 PAL_LoadGame_Common(
@@ -684,6 +1662,58 @@ PAL_LoadGame_Common(
 	size_t              size
 )
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+	char final_path[PAL_EXTREME_SAVE_PATH_BYTES];
+	char backup_path[PAL_EXTREME_SAVE_PATH_BYTES];
+	WORD format = gConfig.fIsWIN95 ?
+		PAL_EXTREME_SAVE_FORMAT_WIN95 : PAL_EXTREME_SAVE_FORMAT_DOS;
+	BOOL loaded = FALSE;
+	FILE *fp = NULL;
+
+	if (!PAL_ExtremeSaveBuildPath(iSaveSlot, "rpg", final_path,
+			sizeof(final_path)) ||
+		!PAL_ExtremeSaveBuildPath(iSaveSlot, "bak", backup_path,
+			sizeof(backup_path)))
+	{
+		return FALSE;
+	}
+
+	fp = fopen(final_path, "rb");
+	if (fp != NULL)
+	{
+		loaded = PAL_ExtremeSaveReadFile(fp, s, size, format);
+		if (fclose(fp) != 0)
+		{
+			loaded = FALSE;
+		}
+	}
+
+	if (!loaded)
+	{
+		fp = fopen(backup_path, "rb");
+		if (fp != NULL)
+		{
+			loaded = PAL_ExtremeSaveReadFile(fp, s, size, format);
+			if (fclose(fp) != 0)
+			{
+				loaded = FALSE;
+			}
+			if (loaded)
+			{
+				UTIL_LogOutput(LOGLEVEL_WARNING,
+					"Recovered extreme save slot %d from backup\n", iSaveSlot);
+			}
+		}
+	}
+
+	if (!loaded)
+	{
+		UTIL_LogOutput(LOGLEVEL_WARNING,
+			"Rejected missing, corrupt, incompatible, or out-of-profile "
+			"extreme save slot %d\n", iSaveSlot);
+		return FALSE;
+	}
+#else
 	//
 	// Try to open the specified file
 	//
@@ -698,15 +1728,19 @@ PAL_LoadGame_Common(
 		fclose(fp);
 	}
 
-	if (n < size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS)
+	if (n < size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS ||
+		(n >= 8 && memcmp(s, PAL_EXTREME_SAVE_MAGIC, 8) == 0))
 	{
 		return FALSE;
 	}
+#endif
 
 	//
 	// Adjust endianness
 	//
+#if !defined(PAL_CARDPUTER_EXTREME)
 	DO_BYTESWAP(s, size);
+#endif
 
 	//
 	// Cash amount is in DWORD, so do a wordswap in Big-Endian.
@@ -777,7 +1811,7 @@ PAL_LoadGame_DOS(
 --*/
 {
 #ifdef PAL_NO_RUNTIME_HEAP
-   SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)pal_psram_savegame_static;
+   SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)PAL_SAVEGAME_STATIC;
 #else
    SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)malloc(sizeof(SAVEDGAME_DOS));
 #endif
@@ -786,7 +1820,13 @@ PAL_LoadGame_DOS(
    //
    // Get all the data from the saved game struct.
    //
-   if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_DOS)))
+   if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s,
+#if defined(PAL_CARDPUTER_EXTREME)
+      PAL_EXTREME_SAVE_DOS_BYTES
+#else
+      sizeof(SAVEDGAME_DOS)
+#endif
+      ))
    {
 #ifndef PAL_NO_RUNTIME_HEAP
       free(s);
@@ -803,7 +1843,9 @@ PAL_LoadGame_DOS(
       gpGlobals->g.rgObject[i].rgwData[6] = s->rgObject[i].rgwData[5];     // wFlags
       gpGlobals->g.rgObject[i].rgwData[5] = 0;                            // wScriptDesc or wReserved2
    }
+#if !defined(PAL_CARDPUTER_EXTREME)
    memcpy(gpGlobals->g.lprgEventObject, s->rgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
+#endif
 
 #ifndef PAL_NO_RUNTIME_HEAP
    free(s);
@@ -835,7 +1877,7 @@ PAL_LoadGame_WIN(
 --*/
 {
 #ifdef PAL_NO_RUNTIME_HEAP
-   SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)pal_psram_savegame_static;
+   SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)PAL_SAVEGAME_STATIC;
 #else
    SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)malloc(sizeof(SAVEDGAME_WIN));
 #endif
@@ -843,7 +1885,13 @@ PAL_LoadGame_WIN(
    //
    // Get all the data from the saved game struct.
    //
-   if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_WIN)))
+   if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s,
+#if defined(PAL_CARDPUTER_EXTREME)
+      PAL_EXTREME_SAVE_WIN_BYTES
+#else
+      sizeof(SAVEDGAME_WIN)
+#endif
+      ))
    {
 #ifndef PAL_NO_RUNTIME_HEAP
       free(s);
@@ -852,7 +1900,9 @@ PAL_LoadGame_WIN(
    }
 
    memcpy(gpGlobals->g.rgObject, s->rgObject, sizeof(gpGlobals->g.rgObject));
+#if !defined(PAL_CARDPUTER_EXTREME)
    memcpy(gpGlobals->g.lprgEventObject, s->rgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
+#endif
     
 #ifndef PAL_NO_RUNTIME_HEAP
    free(s);
@@ -872,7 +1922,7 @@ PAL_LoadGame(
 	return gConfig.fIsWIN95 ? PAL_LoadGame_WIN(iSaveSlot) : PAL_LoadGame_DOS(iSaveSlot);
 }
 
-static VOID
+static BOOL
 PAL_SaveGame_Common(
 	int                iSaveSlot,
 	WORD               wSavedTimes,
@@ -880,8 +1930,10 @@ PAL_SaveGame_Common(
 	size_t             size
 )
 {
+#if !defined(PAL_CARDPUTER_EXTREME)
 	FILE *fp;
 	size_t i;
+#endif
 
 	s->wSavedTimes = wSavedTimes;
 	s->wViewportX = PAL_X(gpGlobals->viewport);
@@ -926,22 +1978,42 @@ PAL_SaveGame_Common(
 	s->dwCash = ((s->dwCash >> 16) | (s->dwCash << 16));
 #endif
 
+#if defined(PAL_CARDPUTER_EXTREME)
+	BOOL result = PAL_ExtremeSaveWriteFile(iSaveSlot,
+		gConfig.fIsWIN95 ? PAL_EXTREME_SAVE_FORMAT_WIN95 :
+			PAL_EXTREME_SAVE_FORMAT_DOS,
+		s, size);
+	if (!result)
+	{
+		UTIL_LogOutput(LOGLEVEL_ERROR,
+			"Failed to write, verify, or atomically replace extreme save "
+			"slot %d\n", iSaveSlot);
+	}
+	return result;
+#else
 	//
 	// Try writing to file
 	//
 	if ((fp = UTIL_OpenFileAtPathForMode(gConfig.pszSavePath, PAL_va(1, "%d.rpg", iSaveSlot), "wb")) == NULL)
 	{
-		return;
+		return FALSE;
 	}
 
 	i = PAL_MKFGetChunkSize(0, gpGlobals->f.fpSSS);
 	i += size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS;
 
-	fwrite(s, i, 1, fp);
-	fclose(fp);
+	{
+		BOOL result = fwrite(s, i, 1, fp) == 1;
+		if (fclose(fp) != 0)
+		{
+			result = FALSE;
+		}
+		return result;
+	}
+#endif
 }
 
-static VOID
+static BOOL
 PAL_SaveGame_DOS(
    int            iSaveSlot,
    WORD           wSavedTimes
@@ -962,11 +2034,12 @@ PAL_SaveGame_DOS(
 --*/
 {
 #ifdef PAL_NO_RUNTIME_HEAP
-   SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)pal_psram_savegame_static;
+   SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)PAL_SAVEGAME_STATIC;
 #else
    SAVEDGAME_DOS   *s = (SAVEDGAME_DOS*)malloc(sizeof(SAVEDGAME_DOS));
 #endif
    UINT32                    i;
+   BOOL                      result;
 
    //
    // Convert the WIN-style data structure to DOS-style data structure
@@ -976,18 +2049,27 @@ PAL_SaveGame_DOS(
       memcpy(&s->rgObject[i], &gpGlobals->g.rgObject[i], sizeof(OBJECT_DOS));
       s->rgObject[i].rgwData[5] = gpGlobals->g.rgObject[i].rgwData[6];     // wFlags
    }
+#if !defined(PAL_CARDPUTER_EXTREME)
    memcpy(s->rgEventObject, gpGlobals->g.lprgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
+#endif
 
    //
    // Put all the data to the saved game struct.
    //
-   PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_DOS));
+   result = PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s,
+#if defined(PAL_CARDPUTER_EXTREME)
+      PAL_EXTREME_SAVE_DOS_BYTES
+#else
+      sizeof(SAVEDGAME_DOS)
+#endif
+      );
 #ifndef PAL_NO_RUNTIME_HEAP
    free(s);
 #endif
+   return result;
 }
 
-static VOID
+static BOOL
 PAL_SaveGame_WIN(
    int            iSaveSlot,
    WORD           wSavedTimes
@@ -1008,34 +2090,43 @@ PAL_SaveGame_WIN(
 --*/
 {
 #ifdef PAL_NO_RUNTIME_HEAP
-   SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)pal_psram_savegame_static;
+   SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)PAL_SAVEGAME_STATIC;
 #else
    SAVEDGAME_WIN   *s = (SAVEDGAME_WIN*)malloc(sizeof(SAVEDGAME_WIN));
 #endif
+   BOOL result;
 
    //
    // Put all the data to the saved game struct.
    //
    memcpy(&s->rgObject, gpGlobals->g.rgObject, sizeof(gpGlobals->g.rgObject));
+#if !defined(PAL_CARDPUTER_EXTREME)
    memcpy(&s->rgEventObject, gpGlobals->g.lprgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
+#endif
 
-   PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s, sizeof(SAVEDGAME_WIN));
+   result = PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s,
+#if defined(PAL_CARDPUTER_EXTREME)
+      PAL_EXTREME_SAVE_WIN_BYTES
+#else
+      sizeof(SAVEDGAME_WIN)
+#endif
+      );
 
 #ifndef PAL_NO_RUNTIME_HEAP
    free(s);
 #endif
+   return result;
 }
 
-VOID
+BOOL
 PAL_SaveGame(
    int            iSaveSlot,
    WORD           wSavedTimes
 )
 {
 	if (gConfig.fIsWIN95)
-		PAL_SaveGame_WIN(iSaveSlot, wSavedTimes);
-	else
-		PAL_SaveGame_DOS(iSaveSlot, wSavedTimes);
+		return PAL_SaveGame_WIN(iSaveSlot, wSavedTimes);
+	return PAL_SaveGame_DOS(iSaveSlot, wSavedTimes);
 }
 
 VOID

@@ -9,6 +9,13 @@ PACK_TF_ARCHIVES ?=
 SCAFFOLD_BUILD_DIR ?= ../build-cores3se-scaffold
 BUILD_DIR ?= $(SCAFFOLD_BUILD_DIR)
 ENGINE_HOST_BUILD_DIR ?= ../build-cores3se-engine-host
+CARDPUTER_EXTREME_BUILD_DIR ?= ../build-cardputer-extreme
+CARDPUTER_EXTREME_SDKCONFIG ?= $(abspath $(CARDPUTER_EXTREME_BUILD_DIR)/sdkconfig)
+CARDPUTER_EXTREME_DEFAULTS ?= $(abspath sdkconfig.cardputer_extreme.defaults)
+CARDPUTER_EXTREME_LAYOUT ?= ../tools/pal_pack_layout_cardputer_extreme.json
+CARDPUTER_EXTREME_NOR ?= /tmp/pal_cardputer_extreme_nor.pak
+CARDPUTER_EXTREME_TF ?= /tmp/pal_cardputer_extreme_tf.pak
+CARDPUTER_EXTREME_MANIFEST ?= /tmp/pal_cardputer_extreme_manifest.json
 NATIVE_BUILD_DIR ?= /tmp/sdlpal-cores3se-native
 NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/cores3se_native_smoke
 NATIVE_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cores3se_scene.png
@@ -25,6 +32,21 @@ NATIVE_ENGINE_HOST_DETERMINISTIC_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cores3se_engi
 NATIVE_ENGINE_HOST_DETERMINISTIC_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/engine-host-deterministic-objects
 NATIVE_ENGINE_HOST_DETERMINISTIC_OBJECTS ?= $(NATIVE_ENGINE_HOST_DETERMINISTIC_BUILD_DIR)/objects.list
 NATIVE_PACK_PROVIDER_CACHE_TARGET ?= $(NATIVE_BUILD_DIR)/pack_provider_cache_smoke
+CARDPUTER_EXTREME_PACK_SMOKE_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_pack_smoke
+CARDPUTER_EXTREME_NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_engine_host
+CARDPUTER_EXTREME_NATIVE_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/cardputer-extreme-host-objects
+CARDPUTER_EXTREME_NATIVE_OBJECTS ?= $(CARDPUTER_EXTREME_NATIVE_BUILD_DIR)/objects.list
+CARDPUTER_EXTREME_NATIVE_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.png
+CARDPUTER_EXTREME_NATIVE_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.trace
+CARDPUTER_EXTREME_NATIVE_SCRIPT_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.script
+CARDPUTER_EXTREME_NATIVE_EVENT_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.event
+CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.reference.png
+CARDPUTER_EXTREME_NATIVE_REFERENCE_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.reference.trace
+CARDPUTER_EXTREME_NATIVE_REFERENCE_SCRIPT_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.reference.script
+CARDPUTER_EXTREME_NATIVE_REFERENCE_EVENT_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.reference.event
+CARDPUTER_EXTREME_NATIVE_FRAMES ?= 3000
+CARDPUTER_EXTREME_SCALER_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_scaler_test
+CARDPUTER_EXTREME_SOURCE_INVENTORY ?= $(abspath cardputer_extreme_sources.json)
 NATIVE_ENGINE_SHIM_BUILD_DIR ?= native_engine_shim/build
 NATIVE_ENGINE_SHIM_LIB ?= $(NATIVE_ENGINE_SHIM_BUILD_DIR)/libsdlshim.a
 NATIVE_ENGINE_SHIM_SDL_CONFIG = $(PYTHON) ../esp32s3/native_engine_shim/sdl2_config.py
@@ -39,6 +61,9 @@ IDF_ENGINE_BRIDGE_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/idf-engine-objects
 IDF_ENGINE_BRIDGE_OBJECTS ?= $(IDF_ENGINE_BRIDGE_BUILD_DIR)/objects.list
 IDF_ENGINE_BRIDGE_ELF ?= $(IDF_ENGINE_BRIDGE_BUILD_DIR)/sdlpal-engine-bridge.elf
 IDF_EXPORT ?= /home/john/esp-idf/export.sh
+CARDPUTER_EXTREME_TOOLCHAIN_GCC ?= $(lastword $(sort $(wildcard $(HOME)/.espressif/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc)))
+CARDPUTER_EXTREME_TOOLCHAIN_BIN ?= $(patsubst %/,%,$(dir $(CARDPUTER_EXTREME_TOOLCHAIN_GCC)))
+CARDPUTER_EXTREME_IDF_ENV = test -f "$(IDF_EXPORT)" || { echo "missing ESP-IDF environment: $(IDF_EXPORT)" >&2; exit 2; }; source "$(IDF_EXPORT)" >/dev/null; export IDF_MAINTAINER=1; test -x "$(CARDPUTER_EXTREME_TOOLCHAIN_BIN)/xtensa-esp32s3-elf-gcc" || { echo "missing local ESP32-S3 toolchain (set CARDPUTER_EXTREME_TOOLCHAIN_BIN; no download is attempted)" >&2; exit 2; }; export PATH="$(CARDPUTER_EXTREME_TOOLCHAIN_BIN):$$PATH"; command -v idf.py >/dev/null || { echo "idf.py not found after sourcing $(IDF_EXPORT)" >&2; exit 2; }; command -v esp-idf-configdep >/dev/null || { echo "esp-idf-configdep not found after sourcing $(IDF_EXPORT)" >&2; exit 2; }; python -c "import esptool" || { echo "esptool is unavailable in the ESP-IDF Python environment" >&2; exit 2; }
 PORT ?=
 BAUD ?= 460800
 ENGINE_HARDWARE_SMOKE_TIMEOUT ?= 45
@@ -350,7 +375,26 @@ NATIVE_ENGINE_HOST_DETERMINISTIC_SRCS = \
 	$(NATIVE_ENGINE_HOST_SRCS) \
 	../unix/deterministic.c
 
-.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check pack-build prepare-tf check native-smoke native-engine-smoke native-engine-shim-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
+CARDPUTER_EXTREME_NATIVE_CFLAGS = \
+	$(filter-out -DSHIM_MAX_SURFACES=8 -DSHIM_MAX_PALETTES=8 -DSHIM_SURFACE_PIXELS=65536u,$(NATIVE_ENGINE_HOST_DETERMINISTIC_CFLAGS)) \
+	-DPAL_CARDPUTER_EXTREME=1 \
+	-DPAL_TARGET_CARDPUTER_ADV=1 \
+	-DPAL_EXTREME_TWO_SCREENS=1 \
+	-DPAL_EXTREME_CHAPTER_EVENT_OBJECTS=423 \
+	-DPAL_EXTREME_SPRITES_TO_DRAW=512 \
+	-DPAL_GLOBAL_BUFFER_SIZE=256 \
+	-DPAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1 \
+	-DPAL_ENGINE_TF_TOC_BYTES=2048u \
+	-DPAL_LOG_BUFFER_SIZE=1024 \
+	-DSHIM_MAX_SURFACES=6 \
+	-DSHIM_MAX_PALETTES=1 \
+	-DSHIM_SURFACE_PIXELS=1u
+CARDPUTER_EXTREME_NATIVE_SRCS = \
+	$(filter-out main/cores3se_memory.c,$(NATIVE_ENGINE_HOST_DETERMINISTIC_SRCS)) \
+	main/cardputer_extreme_memory.c \
+	native_shim/cardputer_extreme_native_alias.c
+
+.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check cardputer-extreme-build cardputer-extreme-pack-build cardputer-extreme-pack-smoke cardputer-extreme-scaler-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-check cardputer-extreme-prepare-tf cardputer-extreme-flash cardputer-extreme-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
 
 all: build
 
@@ -361,6 +405,160 @@ scaffold-build:
 
 engine-host-build:
 	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && if [ ! -f "$(ENGINE_HOST_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 set-target esp32s3; fi && idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 build'
+
+cardputer-extreme-build:
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(CARDPUTER_EXTREME_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON set-target esp32s3; fi; idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON build'
+
+cardputer-extreme-pack-build:
+	$(PYTHON) -B ../tools/pal_pack_build.py "$(PAL_DATA_DIR)" \
+		--layout "$(CARDPUTER_EXTREME_LAYOUT)" \
+		--out-nor "$(CARDPUTER_EXTREME_NOR)" \
+		--out-tf "$(CARDPUTER_EXTREME_TF)" \
+		--manifest "$(CARDPUTER_EXTREME_MANIFEST)"
+
+$(CARDPUTER_EXTREME_PACK_SMOKE_TARGET): native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c engine_bridge/pal_engine_pack_provider.h Makefile
+	mkdir -p "$(NATIVE_BUILD_DIR)"
+	$(CC) -std=gnu99 -Wall -Wextra -O2 \
+		-DPAL_CARDPUTER_EXTREME=1 -DPAL_ENGINE_TF_TOC_BYTES=2048u \
+		-I engine_bridge -I engine_bridge/include -I native_engine_shim/include -I .. -I ../embedded -I ../sdl_compat \
+		native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c \
+		-o "$@" -Wl,--wrap=fclose
+
+cardputer-extreme-pack-smoke: cardputer-extreme-pack-build $(CARDPUTER_EXTREME_PACK_SMOKE_TARGET)
+	"$(CARDPUTER_EXTREME_PACK_SMOKE_TARGET)" \
+		"$(CARDPUTER_EXTREME_NOR)" "$(CARDPUTER_EXTREME_TF)"
+
+$(CARDPUTER_EXTREME_SCALER_TARGET): main/cardputer_extreme_scaler.c main/cardputer_extreme_scaler.h native_shim/cardputer_extreme_scaler_test.c Makefile
+	mkdir -p "$(NATIVE_BUILD_DIR)"
+	$(CC) -std=c99 -Wall -Wextra -Werror -I main \
+		main/cardputer_extreme_scaler.c \
+		native_shim/cardputer_extreme_scaler_test.c \
+		-o "$@"
+
+cardputer-extreme-scaler-check: $(CARDPUTER_EXTREME_SCALER_TARGET)
+	"$(CARDPUTER_EXTREME_SCALER_TARGET)"
+
+cardputer-extreme-contract-unit-check:
+	$(PYTHON) -B test_check_cardputer_extreme.py
+
+$(CARDPUTER_EXTREME_NATIVE_TARGET): $(CARDPUTER_EXTREME_NATIVE_SRCS) engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/ff.h Makefile
+	mkdir -p "$(CARDPUTER_EXTREME_NATIVE_BUILD_DIR)"
+	: >"$(CARDPUTER_EXTREME_NATIVE_OBJECTS)"
+	@set -e; for src in $(CARDPUTER_EXTREME_NATIVE_SRCS); do \
+		obj="$(CARDPUTER_EXTREME_NATIVE_BUILD_DIR)/$$(basename "$$src" .c).native.o"; \
+		extra=""; \
+		case "$$src" in ../main.c) extra="-Dmain=PAL_EngineMain";; esac; \
+		echo "[CARDPUTER-EXTREME-NATIVE-CC] $$src"; \
+		$(CC) $(CARDPUTER_EXTREME_NATIVE_CFLAGS) $$extra -c "$$src" -o "$$obj"; \
+		printf "%s\n" "$$obj" >>"$(CARDPUTER_EXTREME_NATIVE_OBJECTS)"; \
+	done
+	$(CC) $$(cat "$(CARDPUTER_EXTREME_NATIVE_OBJECTS)") -o "$@" $(NATIVE_ENGINE_HOST_DETERMINISTIC_LDFLAGS)
+
+cardputer-extreme-native-smoke: cardputer-extreme-pack-build $(CARDPUTER_EXTREME_NATIVE_TARGET)
+	@set -eu; \
+	test "$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT))" != "$(abspath $(CARDPUTER_EXTREME_NATIVE_SCREENSHOT))"; \
+	test "$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_TRACE))" != "$(abspath $(CARDPUTER_EXTREME_NATIVE_TRACE))"; \
+	test "$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCRIPT_TRACE))" != "$(abspath $(CARDPUTER_EXTREME_NATIVE_SCRIPT_TRACE))"; \
+	test "$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_EVENT_TRACE))" != "$(abspath $(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE))"; \
+	for run in reference candidate; do \
+		case "$$run" in \
+		reference) \
+			screenshot="$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT))"; \
+			trace="$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_TRACE))"; \
+			script="$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCRIPT_TRACE))"; \
+			event="$(abspath $(CARDPUTER_EXTREME_NATIVE_REFERENCE_EVENT_TRACE))";; \
+		candidate) \
+			screenshot="$(abspath $(CARDPUTER_EXTREME_NATIVE_SCREENSHOT))"; \
+			trace="$(abspath $(CARDPUTER_EXTREME_NATIVE_TRACE))"; \
+			script="$(abspath $(CARDPUTER_EXTREME_NATIVE_SCRIPT_TRACE))"; \
+			event="$(abspath $(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE))";; \
+		esac; \
+		$(RM) "$$screenshot" "$$trace" "$$script" "$$event"; \
+		rc=0; \
+		(cd "$(PAL_DATA_DIR)" && \
+			PAL_CORES3SE_NATIVE_NOR_PACK="$(abspath $(CARDPUTER_EXTREME_NOR))" \
+			PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(CARDPUTER_EXTREME_TF))" \
+			PAL_CORES3SE_NATIVE_SCREENSHOT_FRAME=999999 \
+			PAL_CORES3SE_NATIVE_MAX_PRESENTS=0 \
+			PAL_CORES3SE_NATIVE_FRAMES=1 \
+			PAL_DETERMINISTIC_REPLAY="$(abspath $(NATIVE_ENGINE_BRIDGE_ROUTE))" \
+			PAL_DETERMINISTIC_SCREENSHOT="$$screenshot" \
+			PAL_DETERMINISTIC_SCREENSHOT_LCD=0 \
+			PAL_DETERMINISTIC_SCREENSHOT_FRAME=$$(($(CARDPUTER_EXTREME_NATIVE_FRAMES) - 1)) \
+			PAL_DETERMINISTIC_CHECKPOINTS="$$trace" \
+			PAL_DETERMINISTIC_SCRIPT_TRACE="$$script" \
+			PAL_DETERMINISTIC_EVENT_TRACE="$$event" \
+			PAL_DETERMINISTIC_FORCE_BATTLE_TEAM=0 \
+			PAL_DETERMINISTIC_FORCE_BATTLE_FRAME=1300 \
+			PAL_DETERMINISTIC_FORCE_CHAPTER_BOUNDARY_FRAME=1600 \
+			PAL_DETERMINISTIC_MAX_PRESENTS=$(CARDPUTER_EXTREME_NATIVE_FRAMES) \
+			timeout 20 "$(abspath $(CARDPUTER_EXTREME_NATIVE_TARGET))") || rc=$$?; \
+		if [ "$$rc" -ne 1 ]; then \
+			echo "Cardputer deterministic $$run run: expected native-shim sentinel exit 1, got $$rc" >&2; \
+			exit 1; \
+		fi; \
+	done
+	$(PYTHON) -B ../tools/deterministic_trace_check.py \
+		--manifest "$(CARDPUTER_EXTREME_MANIFEST)" \
+		--golden-script-trace "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCRIPT_TRACE)" \
+		--candidate-script-trace "$(CARDPUTER_EXTREME_NATIVE_SCRIPT_TRACE)" \
+		--golden-event-trace "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_EVENT_TRACE)" \
+		--candidate-event-trace "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)" \
+		--require-field screen --require-field state --require-field script --require-field script_count \
+		--require-field scene --require-field battle --require-field battle_result --require-field game_frame --require-field dir \
+		--require-tag present --min-records $(CARDPUTER_EXTREME_NATIVE_FRAMES) \
+		--require-script-tag script --min-script-records 4000 \
+		--require-event-tag scene --require-event-tag reload --require-event-tag init --require-event-tag battle --require-event-tag chapter \
+		--min-event-records 8 \
+		--min-distinct-field screen=600 --min-distinct-field state=1000 \
+		--min-distinct-field scene=3 --min-distinct-field battle=2 \
+		--min-distinct-field battle_result=3 --min-distinct-field game_frame=1000 \
+		--min-distinct-field dir=5 \
+		"$(CARDPUTER_EXTREME_NATIVE_REFERENCE_TRACE)" \
+		"$(CARDPUTER_EXTREME_NATIVE_TRACE)"
+	grep -E ' battle .*from=0 to=1 .*enemies=[1-9]' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
+	grep -E ' battle .*from=1 to=0 .*result=3 ' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
+	grep -E ' chapter .*from=22 to=22 .*entry=10600 ' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
+	cmp -s "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT)" "$(CARDPUTER_EXTREME_NATIVE_SCREENSHOT)"
+	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT)" 320 200 10000 32
+	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_SCREENSHOT)" 320 200 10000 32
+
+cardputer-extreme-draw-stress-check: cardputer-extreme-pack-build $(CARDPUTER_EXTREME_NATIVE_TARGET)
+	@command -v gdb >/dev/null || { echo "gdb is required for the Cardputer scene draw-list stress gate" >&2; exit 2; }
+	cd "$(PAL_DATA_DIR)" && \
+		PAL_CORES3SE_NATIVE_NOR_PACK="$(abspath $(CARDPUTER_EXTREME_NOR))" \
+		PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(CARDPUTER_EXTREME_TF))" \
+		PAL_DETERMINISTIC_REPLAY="$(abspath $(NATIVE_ENGINE_BRIDGE_ROUTE))" \
+		PAL_DETERMINISTIC_MAX_PRESENTS=$(CARDPUTER_EXTREME_NATIVE_FRAMES) \
+		gdb -q -batch \
+			-x "$(abspath native_shim/cardputer_extreme_draw_stress.gdb)" \
+			"$(abspath $(CARDPUTER_EXTREME_NATIVE_TARGET))"
+
+cardputer-extreme-save-check: cardputer-extreme-pack-build $(CARDPUTER_EXTREME_NATIVE_TARGET)
+	$(PYTHON) -B native_shim/test_cardputer_extreme_save.py \
+		--binary "$(CARDPUTER_EXTREME_NATIVE_TARGET)" \
+		--nor "$(CARDPUTER_EXTREME_NOR)" \
+		--tf "$(CARDPUTER_EXTREME_TF)" \
+		--data-dir "$(PAL_DATA_DIR)" \
+		--route "$(NATIVE_ENGINE_BRIDGE_ROUTE)"
+
+cardputer-extreme-check: cardputer-extreme-build cardputer-extreme-pack-smoke cardputer-extreme-scaler-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check
+	$(PYTHON) -B ../tools/test_pal_pack_build.py
+	$(PYTHON) -B check_cardputer_extreme.py \
+		--root .. \
+		--build-dir "$(CARDPUTER_EXTREME_BUILD_DIR)" \
+		--nor-pack "$(CARDPUTER_EXTREME_NOR)" \
+		--tf-pack "$(CARDPUTER_EXTREME_TF)" \
+		--manifest "$(CARDPUTER_EXTREME_MANIFEST)" \
+		--expected-compiler "$(CARDPUTER_EXTREME_TOOLCHAIN_BIN)/xtensa-esp32s3-elf-gcc" \
+		--source-inventory "$(CARDPUTER_EXTREME_SOURCE_INVENTORY)"
+
+cardputer-extreme-prepare-tf: cardputer-extreme-pack-build
+	@test -n "$(TF_MOUNT)" || { echo "TF_MOUNT=/media/... is required"; exit 2; }
+	@test -d "$(TF_MOUNT)" || { echo "TF_MOUNT does not exist: $(TF_MOUNT)"; exit 2; }
+	cp -f "$(CARDPUTER_EXTREME_TF)" "$(TF_MOUNT)/pal_tf.pak"
+	sync "$(TF_MOUNT)/pal_tf.pak"
+	@ls -l "$(TF_MOUNT)/pal_tf.pak"
 
 engine-host-check: engine-host-build pack-build
 	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && $(PYTHON) -B check_engine_host.py --root .. --build-dir "$(ENGINE_HOST_BUILD_DIR)" --nor-pack "$(PACK_NOR)" --tf-pack "$(PACK_TF)" --manifest "$(PACK_MANIFEST)"'
@@ -801,6 +999,12 @@ flash-scaffold: scaffold-build
 flash-engine-host: engine-host-build
 	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" $(if $(PORT),-p "$(PORT)",) flash'
 
+cardputer-extreme-flash: cardputer-extreme-build
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" $(if $(PORT),-p "$(PORT)",) flash'
+
+cardputer-extreme-flash-nor: cardputer-extreme-pack-build
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); python -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode dio --flash-size 8MB --flash-freq 80m 0x110000 "$(CARDPUTER_EXTREME_NOR)"'
+
 flash-engine-port:
 	@test -n "$(TF_MOUNT)" || { echo "TF_MOUNT=/media/... is required"; exit 2; }
 	$(MAKE) engine-port-check
@@ -820,4 +1024,4 @@ flash-nor: pack-build
 	$(PYTHON) -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode $(FLASH_MODE) --flash-size $(FLASH_SIZE) --flash-freq $(FLASH_FREQ) $(PAL_NOR_OFFSET) $(PACK_NOR)
 
 clean:
-	rm -rf "$(BUILD_DIR)" "$(ENGINE_HOST_BUILD_DIR)" "$(NATIVE_BUILD_DIR)" "$(NATIVE_ENGINE_SHIM_BUILD_DIR)"
+	rm -rf "$(BUILD_DIR)" "$(ENGINE_HOST_BUILD_DIR)" "$(CARDPUTER_EXTREME_BUILD_DIR)" "$(NATIVE_BUILD_DIR)" "$(NATIVE_ENGINE_SHIM_BUILD_DIR)"

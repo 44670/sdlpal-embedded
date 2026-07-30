@@ -62,9 +62,14 @@ volatile BOOL g_bRenderPaused = FALSE;
 #define PAL_VIDEO_PSRAM
 #endif
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+#include "esp32s3/main/cardputer_extreme_memory.h"
+void PalEngineBridge_RenderPresentIndexed(const void *pixels, int pitch, int w, int h, const void *palette_rgba);
+#else
 static uint8_t pal_sram_video_screen[320u * 200u] PAL_VIDEO_SRAM;
 static uint8_t pal_psram_video_screen_bak[320u * 200u] PAL_VIDEO_PSRAM;
 static uint8_t pal_psram_video_screen_real[320u * 200u * 4u] PAL_VIDEO_PSRAM;
+#endif
 #endif
 
 static BOOL bScaleScreen = PAL_SCALE_SCREEN;
@@ -186,6 +191,19 @@ VIDEO_Startup(
 	SDL_Surface *surf = STBIMG_Load( PAL_va(0, "%s%s", dirname(dirname(dirname(gExecutablePath))), "/usr/share/icons/hicolor/256x256/apps/sdlpal.png" ) );
 #endif
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   gpScreen = SDL_CreateRGBSurfaceFrom(pal_sram_framebuffer, 320, 200, 8, 320, 0, 0, 0, 0);
+   gpScreenBak = SDL_CreateRGBSurfaceFrom(pal_sram_aux_framebuffer, 320, 200, 8, 320, 0, 0, 0, 0);
+   gpPalette = SDL_AllocPalette(256);
+   if (gpScreen == NULL || gpScreenBak == NULL || gpPalette == NULL)
+   {
+      VIDEO_Shutdown();
+      return -2;
+   }
+   SDL_SetSurfacePalette(gpScreen, gpPalette);
+   SDL_SetSurfacePalette(gpScreenBak, gpPalette);
+   return 0;
+#else
 #if SDL_VERSION_ATLEAST(2,0,0)
    int render_w, render_h;
 
@@ -417,6 +435,7 @@ VIDEO_Startup(
 #endif
 
    return 0;
+#endif
 }
 
 VOID
@@ -555,6 +574,29 @@ VIDEO_UpdateScreen(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   (void)lpRect;
+   if (!g_bRenderPaused && gpScreen != NULL && gpPalette != NULL)
+   {
+      PalEngineBridge_RenderPresentIndexed(gpScreen->pixels,
+         gpScreen->pitch,
+         gpScreen->w,
+         gpScreen->h,
+         gpPalette->colors);
+#if PAL_DETERMINISTIC
+      /*
+       * The target presents directly from the indexed screen.  Let the
+       * native deterministic harness observe the same frame boundary without
+       * adding a target texture or a third framebuffer.
+       */
+      SDL_RenderPresent(NULL);
+#endif
+      if (g_wShakeTime != 0)
+      {
+         g_wShakeTime--;
+      }
+   }
+#else
    SDL_Rect        srcrect, dstrect;
    short           offset = 240 - 200;
    short           screenRealHeight = gpScreenReal->h;
@@ -663,6 +705,7 @@ VIDEO_UpdateScreen(
    {
 	   SDL_UnlockSurface(gpScreenReal);
    }
+#endif
 }
 
 VOID
@@ -684,6 +727,12 @@ VIDEO_SetPalette(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   SDL_SetPaletteColors(gpPalette, rgPalette, 0, 256);
+   SDL_SetSurfacePalette(gpScreen, gpPalette);
+   SDL_SetSurfacePalette(gpScreenBak, gpPalette);
+   VIDEO_UpdateScreen(NULL);
+#else
 #if SDL_VERSION_ATLEAST(2,0,0)
    SDL_Rect rect;
 
@@ -722,6 +771,7 @@ VIDEO_SetPalette(
    }
 # endif
 #endif
+#endif
 }
 
 VOID
@@ -746,6 +796,11 @@ VIDEO_Resize(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   (void)w;
+   (void)h;
+   VIDEO_UpdateScreen(NULL);
+#else
 #if SDL_VERSION_ATLEAST(2,0,0)
    SDL_Rect rect;
 
@@ -805,6 +860,7 @@ VIDEO_Resize(
    VIDEO_UpdateScreen(NULL);
 
    gpPalette = gpScreenReal->format->palette;
+#endif
 #endif
 }
 
@@ -873,6 +929,10 @@ VIDEO_ToggleFullscreen(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   gConfig.fFullScreen = TRUE;
+   VIDEO_UpdateScreen(NULL);
+#else
 #if SDL_VERSION_ATLEAST(2,0,0)
 	if (gConfig.fFullScreen)
 	{
@@ -951,6 +1011,7 @@ VIDEO_ToggleFullscreen(
    // Update the screen
    //
    VIDEO_UpdateScreen(NULL);
+#endif
 #endif
 }
 
@@ -1095,6 +1156,10 @@ VIDEO_SwitchScreen(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   (void)wSpeed;
+   VIDEO_UpdateScreen(NULL);
+#else
    int               i, j;
    const int         rgIndex[6] = {0, 3, 1, 5, 2, 4};
    SDL_Rect          dstrect;
@@ -1147,6 +1212,7 @@ VIDEO_SwitchScreen(
 
       UTIL_Delay(wSpeed);
    }
+#endif
 }
 
 VOID
@@ -1169,6 +1235,10 @@ VIDEO_FadeScreen(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   (void)wSpeed;
+   VIDEO_UpdateScreen(NULL);
+#else
    int               i, j, k;
    DWORD             time;
    BYTE              a, b;
@@ -1310,7 +1380,47 @@ VIDEO_FadeScreen(
    // Draw the result buffer to the screen as the final step
    //
    VIDEO_UpdateScreen(NULL);
+#endif
 }
+
+#if defined(PAL_EXTREME_TWO_SCREENS)
+INT
+VIDEO_BackupScreenExtreme(
+   SDL_Surface *source
+)
+{
+   if (source == NULL || gpScreenBak == NULL)
+   {
+      return -1;
+   }
+   if (gpGlobals != NULL && gpGlobals->fInBattle)
+   {
+      return 0;
+   }
+   return SDL_BlitSurface(source, NULL, gpScreenBak, NULL);
+}
+
+INT
+VIDEO_RestoreScreenExtreme(
+   SDL_Surface *target
+)
+{
+   if (target == NULL || gpScreenBak == NULL)
+   {
+      return -1;
+   }
+   if (gpGlobals != NULL && gpGlobals->fInBattle)
+   {
+      PAL_BattleMakeScene();
+      if (g_Battle.lpSceneBuf != target)
+      {
+         return SDL_BlitSurface(g_Battle.lpSceneBuf, NULL, target, NULL);
+      }
+      return 0;
+   }
+   return SDL_BlitSurface(gpScreenBak, NULL, target, NULL);
+}
+#endif
 
 void
 VIDEO_SetWindowTitle(

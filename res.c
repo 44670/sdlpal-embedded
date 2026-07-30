@@ -21,6 +21,10 @@
 
 #include "main.h"
 
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "pal_engine_runtime_metrics.h"
+#endif
+
 typedef struct tagRESOURCES
 {
    BYTE             bLoadFlags;
@@ -36,13 +40,29 @@ static LPRESOURCES gpResources = NULL;
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
 #if defined(__GNUC__)
+#if defined(PAL_CARDPUTER_EXTREME)
+#define PAL_RES_PSRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
+#else
 #define PAL_RES_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
+#endif
 #else
 #define PAL_RES_PSRAM
 #endif
+#if defined(PAL_CARDPUTER_EXTREME)
+#define PAL_RES_EVENT_SPRITE_CAPACITY 128
+static uint8_t pal_sram_extreme_res_state[sizeof(RESOURCES)] PAL_RES_PSRAM;
+static uint8_t pal_sram_extreme_res_event_sprite_ptrs[
+   PAL_RES_EVENT_SPRITE_CAPACITY * sizeof(LPCSPRITE)] PAL_RES_PSRAM;
+#define PAL_RES_STATE_STORAGE pal_sram_extreme_res_state
+#define PAL_RES_EVENT_SPRITE_STORAGE pal_sram_extreme_res_event_sprite_ptrs
+#else
+#define PAL_RES_EVENT_SPRITE_CAPACITY MAX_EVENT_OBJECTS
 static uint8_t pal_psram_res_state[sizeof(RESOURCES)] PAL_RES_PSRAM;
 static uint8_t pal_psram_res_event_sprite_ptrs[MAX_EVENT_OBJECTS * sizeof(LPCSPRITE)] PAL_RES_PSRAM;
-#define PAL_RES_EVENT_SPRITE_PTRS ((LPCSPRITE *)pal_psram_res_event_sprite_ptrs)
+#define PAL_RES_STATE_STORAGE pal_psram_res_state
+#define PAL_RES_EVENT_SPRITE_STORAGE pal_psram_res_event_sprite_ptrs
+#endif
+#define PAL_RES_EVENT_SPRITE_PTRS ((LPCSPRITE *)PAL_RES_EVENT_SPRITE_STORAGE)
 #endif
 
 static VOID
@@ -134,8 +154,8 @@ PAL_InitResources(
 --*/
 {
 #ifdef PAL_NO_RUNTIME_HEAP
-   memset(pal_psram_res_state, 0, sizeof(pal_psram_res_state));
-   gpResources = (LPRESOURCES)pal_psram_res_state;
+   memset(PAL_RES_STATE_STORAGE, 0, sizeof(PAL_RES_STATE_STORAGE));
+   gpResources = (LPRESOURCES)PAL_RES_STATE_STORAGE;
 #else
    gpResources = (LPRESOURCES)UTIL_calloc(1, sizeof(RESOURCES));
 #endif
@@ -284,6 +304,14 @@ PAL_LoadResources(
       //
       // Load map
       //
+#if defined(PAL_CARDPUTER_EXTREME)
+      if (!((gpGlobals->wNumScene >= 1 && gpGlobals->wNumScene <= 20) ||
+            gpGlobals->wNumScene == 22))
+      {
+         TerminateOnError("Cardputer chapter boundary: scene %u is outside 1..20,22",
+            gpGlobals->wNumScene);
+      }
+#endif
       i = gpGlobals->wNumScene - 1;
       gpResources->lpMap = PAL_LoadMap(gpGlobals->g.rgScene[i].wMapNum,
          fpMAP, fpGOP);
@@ -301,6 +329,20 @@ PAL_LoadResources(
       // Load sprites
       //
       index = gpGlobals->g.rgScene[i].wEventObjectIndex;
+#if defined(PAL_CARDPUTER_EXTREME)
+      if (index < 0 ||
+         index > gpGlobals->g.rgScene[i + 1].wEventObjectIndex ||
+         gpGlobals->g.rgScene[i + 1].wEventObjectIndex >
+            gpGlobals->g.nEventObject)
+      {
+         TerminateOnError(
+            "Cardputer scene event boundary: scene %u uses %d..%u, capacity is %d",
+            gpGlobals->wNumScene,
+            index,
+            gpGlobals->g.rgScene[i + 1].wEventObjectIndex,
+            gpGlobals->g.nEventObject);
+      }
+#endif
 #ifdef PAL_NO_RUNTIME_HEAP
       eventObjectIndexBase = index;
 #endif
@@ -310,11 +352,16 @@ PAL_LoadResources(
       if (gpResources->nEventObject > 0)
       {
 #ifdef PAL_NO_RUNTIME_HEAP
-         if (gpResources->nEventObject > MAX_EVENT_OBJECTS)
+         if (gpResources->nEventObject > PAL_RES_EVENT_SPRITE_CAPACITY)
          {
+#if defined(PAL_CARDPUTER_EXTREME)
+            TerminateOnError("Cardputer scene sprite pointer capacity exceeded: %d > %d",
+               gpResources->nEventObject, PAL_RES_EVENT_SPRITE_CAPACITY);
+#else
             gpResources->nEventObject = MAX_EVENT_OBJECTS;
+#endif
          }
-         memset(pal_psram_res_event_sprite_ptrs, 0, sizeof(pal_psram_res_event_sprite_ptrs));
+         memset(PAL_RES_EVENT_SPRITE_STORAGE, 0, sizeof(PAL_RES_EVENT_SPRITE_STORAGE));
          gpResources->lppEventObjectSprites = PAL_RES_EVENT_SPRITE_PTRS;
 #else
          gpResources->lppEventObjectSprites =
@@ -488,6 +535,9 @@ PAL_LoadResources(
    // Clear all of the load flags
    //
    gpResources->bLoadFlags = 0;
+#if defined(PAL_CARDPUTER_EXTREME)
+   PalEngineBridge_LogRuntimeMemory("resources-loaded");
+#endif
 }
 
 LPPALMAP

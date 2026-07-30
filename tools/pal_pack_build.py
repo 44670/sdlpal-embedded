@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import struct
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,8 @@ VERSION = 1
 HEADER_SIZE = 32
 ARCHIVE_ENTRY_SIZE = 12
 CHUNK_ENTRY_SIZE = 16
+PACK_SET_ID_OFFSET = 20
+PACK_CRC32_OFFSET = 28
 
 FORMAT_RAW = 0
 FORMAT_NATIVE = 1
@@ -79,6 +82,25 @@ DEFAULT_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_default.json")
 class Chunk:
     payload: bytes
     fmt: int
+    present: bool = True
+
+
+@dataclass(frozen=True)
+class ChunkRule:
+    """A layout-v2 rule applied without renumbering the source chunks."""
+
+    all_chunks: bool
+    chunk_ids: frozenset[int]
+    ranges: tuple[tuple[int, int], ...]
+    prefix_bytes: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class PackLayout:
+    version: int
+    pack_names: dict[str, list[str]]
+    chunk_rules: dict[str, dict[str, ChunkRule]]
+    max_bytes: dict[str, int | None]
 
 
 def u16(data: bytes, offset: int) -> int:
@@ -536,18 +558,64 @@ def summarize_archives(archives: dict[str, list[Chunk]]) -> list[dict[str, objec
     return result
 
 
-def summarize_pack(path: Path, names: list[str], pack: bytes, archives: dict[str, list[Chunk]]) -> dict[str, object]:
+def ranges_from_ids(chunk_ids: list[int]) -> list[list[int]]:
+    if not chunk_ids:
+        return []
+
+    result: list[list[int]] = []
+    first = previous = chunk_ids[0]
+    for chunk_id in chunk_ids[1:]:
+        if chunk_id == previous + 1:
+            previous = chunk_id
+            continue
+        result.append([first, previous])
+        first = previous = chunk_id
+    result.append([first, previous])
+    return result
+
+
+def summarize_selection(archives: dict[str, list[Chunk]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for name in sorted(archives, key=lambda item: ARCHIVE_IDS[item]):
+        chunks = archives[name]
+        present = [index for index, chunk in enumerate(chunks) if chunk.present]
+        absent = [index for index, chunk in enumerate(chunks) if not chunk.present]
+        result[name] = {
+            "source_chunk_count": len(chunks),
+            "present_chunk_count": len(present),
+            "absent_chunk_count": len(absent),
+            "present_chunk_ids": present,
+            "absent_chunk_ranges": ranges_from_ids(absent),
+            "absent_payload_bytes_are_zero": True,
+        }
+    return result
+
+
+def summarize_pack(
+    path: Path,
+    names: list[str],
+    pack: bytes,
+    archives: dict[str, list[Chunk]],
+    sparse: bool,
+) -> dict[str, object]:
     archive_entries = summarize_archives(archives)
-    return {
+    result = {
         "path": str(path.resolve()),
         "size": len(pack),
         "archives": names,
         "archive_count": len(archive_entries),
+        "pack_set_id": u32(pack, PACK_SET_ID_OFFSET),
+        "crc32": u32(pack, PACK_CRC32_OFFSET),
         "chunk_count": sum(int(archive["chunk_count"]) for archive in archive_entries),
         "payload_bytes": sum(int(archive["payload_bytes"]) for archive in archive_entries),
         "max_payload_bytes": max((int(archive["max_payload_bytes"]) for archive in archive_entries), default=0),
         "archive_summaries": archive_entries,
     }
+    if sparse:
+        # Keep archive_summaries byte-for-byte compatible with manifest v1.
+        # Selection metadata lives alongside it so older checkers can ignore it.
+        result["chunk_selection"] = summarize_selection(archives)
+    return result
 
 
 def write_manifest(
@@ -593,7 +661,9 @@ def align4(value: int) -> int:
     return (value + 3) & ~3
 
 
-def build_pack(archives: dict[str, list[Chunk]]) -> bytes:
+def build_pack(
+    archives: dict[str, list[Chunk]], pack_set_id: int = 0
+) -> bytes:
     names = sorted(archives, key=lambda item: ARCHIVE_IDS[item])
     archive_table_offset = HEADER_SIZE
     chunk_table_offset = archive_table_offset + len(names) * ARCHIVE_ENTRY_SIZE
@@ -626,11 +696,13 @@ def build_pack(archives: dict[str, list[Chunk]]) -> bytes:
         0,
         archive_table_offset,
         data_offset,
-        0,
+        pack_set_id,
         cursor,
         0,
     )
-    return header + archive_entries + chunk_entries + payload
+    pack = bytearray(header + archive_entries + chunk_entries + payload)
+    struct.pack_into("<I", pack, PACK_CRC32_OFFSET, zlib.crc32(pack) & 0xFFFFFFFF)
+    return bytes(pack)
 
 
 def checked_range(offset: int, size: int, total: int) -> bool:
@@ -643,6 +715,7 @@ def verify_pack(pack: bytes) -> None:
     magic, version, header_size, archive_count, _reserved0 = struct.unpack_from("<IHHHH", pack, 0)
     archive_table_offset = u32(pack, 12)
     pack_size = u32(pack, 24)
+    declared_crc = u32(pack, PACK_CRC32_OFFSET)
 
     if magic != MAGIC:
         raise ValueError("bad pack magic")
@@ -652,6 +725,13 @@ def verify_pack(pack: bytes) -> None:
         raise ValueError(f"bad pack header size: {header_size}")
     if pack_size != len(pack):
         raise ValueError(f"pack size field is {pack_size}, actual {len(pack)}")
+    crc_image = bytearray(pack)
+    struct.pack_into("<I", crc_image, PACK_CRC32_OFFSET, 0)
+    actual_crc = zlib.crc32(crc_image) & 0xFFFFFFFF
+    if declared_crc == 0 or declared_crc != actual_crc:
+        raise ValueError(
+            f"pack CRC32 is {declared_crc:#010x}, expected {actual_crc:#010x}"
+        )
     if not checked_range(archive_table_offset, archive_count * ARCHIVE_ENTRY_SIZE, len(pack)):
         raise ValueError("archive table out of range")
 
@@ -703,9 +783,132 @@ def parse_names(raw: str | None, default: list[str]) -> list[str]:
     return validate_names(raw.split(","), "archive list")
 
 
-def load_pack_layout(path: Path) -> tuple[list[str], list[str]]:
+def parse_nonnegative_int(value: object, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise SystemExit(f"{label} must be a non-negative integer")
+    return value
+
+
+def parse_chunk_rule(value: object, label: str) -> ChunkRule:
+    if not isinstance(value, dict):
+        raise SystemExit(f"{label} must be an object")
+
+    all_chunks = value.get("all", False)
+    if not isinstance(all_chunks, bool):
+        raise SystemExit(f"{label}.all must be true or false")
+
+    raw_chunks = value.get("chunks", [])
+    if not isinstance(raw_chunks, list):
+        raise SystemExit(f"{label}.chunks must be an array")
+    chunk_ids = frozenset(parse_nonnegative_int(item, f"{label}.chunks item") for item in raw_chunks)
+    if len(chunk_ids) != len(raw_chunks):
+        raise SystemExit(f"{label}.chunks contains duplicate chunk IDs")
+
+    raw_ranges = value.get("ranges", [])
+    if not isinstance(raw_ranges, list):
+        raise SystemExit(f"{label}.ranges must be an array")
+    ranges: list[tuple[int, int]] = []
+    for index, item in enumerate(raw_ranges):
+        if not isinstance(item, list) or len(item) != 2:
+            raise SystemExit(f"{label}.ranges[{index}] must be [first, last]")
+        first = parse_nonnegative_int(item[0], f"{label}.ranges[{index}][0]")
+        last = parse_nonnegative_int(item[1], f"{label}.ranges[{index}][1]")
+        if first > last:
+            raise SystemExit(f"{label}.ranges[{index}] has first > last")
+        ranges.append((first, last))
+
+    if all_chunks and (chunk_ids or ranges):
+        raise SystemExit(f"{label} cannot combine all=true with chunks/ranges")
+    if not all_chunks and not chunk_ids and not ranges:
+        raise SystemExit(f"{label} must select all=true, chunks, or ranges")
+
+    raw_transforms = value.get("transforms", {})
+    if not isinstance(raw_transforms, dict):
+        raise SystemExit(f"{label}.transforms must be an object")
+    prefix_bytes: list[tuple[int, int]] = []
+    for raw_chunk_id, raw_transform in raw_transforms.items():
+        try:
+            chunk_id = int(raw_chunk_id, 10)
+        except (TypeError, ValueError):
+            raise SystemExit(f"{label}.transforms has invalid chunk ID: {raw_chunk_id!r}") from None
+        if str(chunk_id) != raw_chunk_id or chunk_id < 0:
+            raise SystemExit(f"{label}.transforms has invalid chunk ID: {raw_chunk_id!r}")
+        if not isinstance(raw_transform, dict) or set(raw_transform) != {"prefix_bytes"}:
+            raise SystemExit(f"{label}.transforms[{raw_chunk_id}] only supports prefix_bytes")
+        prefix_bytes.append(
+            (
+                chunk_id,
+                parse_nonnegative_int(
+                    raw_transform["prefix_bytes"],
+                    f"{label}.transforms[{raw_chunk_id}].prefix_bytes",
+                ),
+            )
+        )
+
+    return ChunkRule(all_chunks, chunk_ids, tuple(ranges), tuple(sorted(prefix_bytes)))
+
+
+def parse_chunk_rules(
+    data: dict[str, object],
+    pack_names: dict[str, list[str]],
+) -> dict[str, dict[str, ChunkRule]]:
+    raw_selection = data.get("chunk_selection")
+    if not isinstance(raw_selection, dict):
+        raise SystemExit("pack layout v2 must define a chunk_selection object")
+
+    result: dict[str, dict[str, ChunkRule]] = {"nor": {}, "tf": {}}
+    for label in ("nor", "tf"):
+        raw_pack_rules = raw_selection.get(label)
+        if not isinstance(raw_pack_rules, dict):
+            raise SystemExit(f"pack layout v2 must define chunk_selection.{label}")
+
+        normalized: dict[str, object] = {}
+        for raw_name, raw_rule in raw_pack_rules.items():
+            if not isinstance(raw_name, str):
+                raise SystemExit(f"chunk_selection.{label} contains a non-string archive name")
+            name = raw_name.strip().upper()
+            if name in normalized:
+                raise SystemExit(f"chunk_selection.{label} contains duplicate archive name: {name}")
+            normalized[name] = raw_rule
+
+        missing = sorted(set(pack_names[label]) - set(normalized))
+        extra = sorted(set(normalized) - set(pack_names[label]))
+        if missing:
+            raise SystemExit(
+                f"chunk_selection.{label} has no rule for: {', '.join(missing)}"
+            )
+        if extra:
+            raise SystemExit(
+                f"chunk_selection.{label} has rules for archives not in packs.{label}: "
+                f"{', '.join(extra)}"
+            )
+        for name in pack_names[label]:
+            result[label][name] = parse_chunk_rule(
+                normalized[name],
+                f"chunk_selection.{label}.{name}",
+            )
+    return result
+
+
+def parse_pack_limits(data: dict[str, object]) -> dict[str, int | None]:
+    raw_limits = data.get("pack_limits", {})
+    if not isinstance(raw_limits, dict):
+        raise SystemExit("pack_limits must be an object")
+
+    result: dict[str, int | None] = {"nor": None, "tf": None}
+    for label, value in raw_limits.items():
+        if label not in result:
+            raise SystemExit(f"pack_limits has unknown pack: {label}")
+        if not isinstance(value, dict) or set(value) != {"max_bytes"}:
+            raise SystemExit(f"pack_limits.{label} must contain only max_bytes")
+        result[label] = parse_nonnegative_int(value["max_bytes"], f"pack_limits.{label}.max_bytes")
+    return result
+
+
+def load_pack_layout(path: Path) -> PackLayout:
     data = json.loads(path.read_text(errors="replace"))
-    if data.get("schema") != "sdlpal-embedded-pack-layout" or data.get("version") != 1:
+    version = data.get("version")
+    if data.get("schema") != "sdlpal-embedded-pack-layout" or version not in (1, 2):
         raise SystemExit(f"unknown pack layout schema/version: {path}")
     packs = data.get("packs")
     if not isinstance(packs, dict):
@@ -714,17 +917,145 @@ def load_pack_layout(path: Path) -> tuple[list[str], list[str]]:
     tf = packs.get("tf")
     if not isinstance(nor, list) or not isinstance(tf, list):
         raise SystemExit(f"pack layout must define packs.nor and packs.tf arrays: {path}")
-    return validate_names(nor, "layout packs.nor"), validate_names(tf, "layout packs.tf")
+    pack_names = {
+        "nor": validate_names(nor, "layout packs.nor"),
+        "tf": validate_names(tf, "layout packs.tf"),
+    }
+    if version == 1:
+        return PackLayout(1, pack_names, {"nor": {}, "tf": {}}, {"nor": None, "tf": None})
+    return PackLayout(
+        2,
+        pack_names,
+        parse_chunk_rules(data, pack_names),
+        parse_pack_limits(data),
+    )
 
 
-def write_pack(data_dir: Path, out_path: Path, names: list[str]) -> dict[str, object]:
-    archives = {name: load_archive(data_dir, name) for name in names}
-    pack = build_pack(archives)
+def selected_chunk_ids(rule: ChunkRule, chunk_count: int, label: str) -> frozenset[int]:
+    if rule.all_chunks:
+        selected = set(range(chunk_count))
+    else:
+        selected = set(rule.chunk_ids)
+        for first, last in rule.ranges:
+            selected.update(range(first, last + 1))
+
+    out_of_range = sorted(chunk_id for chunk_id in selected if chunk_id >= chunk_count)
+    if out_of_range:
+        raise SystemExit(
+            f"{label} selects out-of-range chunks (source count {chunk_count}): "
+            f"{', '.join(str(item) for item in out_of_range)}"
+        )
+    return frozenset(selected)
+
+
+def apply_chunk_rule(chunks: list[Chunk], rule: ChunkRule, label: str) -> list[Chunk]:
+    selected = selected_chunk_ids(rule, len(chunks), label)
+    transforms = dict(rule.prefix_bytes)
+    unselected_transforms = sorted(set(transforms) - set(selected))
+    if unselected_transforms:
+        raise SystemExit(
+            f"{label} transforms unselected chunks: "
+            f"{', '.join(str(item) for item in unselected_transforms)}"
+        )
+
+    result: list[Chunk] = []
+    for chunk_id, chunk in enumerate(chunks):
+        if chunk_id not in selected:
+            result.append(Chunk(b"", chunk.fmt, False))
+            continue
+        payload = chunk.payload
+        if chunk_id in transforms:
+            prefix_size = transforms[chunk_id]
+            if prefix_size > len(payload):
+                raise SystemExit(
+                    f"{label} chunk {chunk_id} prefix_bytes={prefix_size} "
+                    f"exceeds decoded payload {len(payload)}"
+                )
+            payload = payload[:prefix_size]
+        result.append(Chunk(payload, chunk.fmt, True))
+    return result
+
+
+def load_selected_archives(
+    data_dir: Path,
+    names: list[str],
+    rules: dict[str, ChunkRule] | None,
+) -> dict[str, list[Chunk]]:
+    archives: dict[str, list[Chunk]] = {}
+    for name in names:
+        chunks = load_archive(data_dir, name)
+        if rules is not None:
+            chunks = apply_chunk_rule(chunks, rules[name], name)
+        archives[name] = chunks
+    return archives
+
+
+def validate_disjoint_pack_chunks(
+    nor_archives: dict[str, list[Chunk]],
+    tf_archives: dict[str, list[Chunk]],
+) -> None:
+    for name in sorted(set(nor_archives) & set(tf_archives)):
+        nor_chunks = nor_archives[name]
+        tf_chunks = tf_archives[name]
+        if len(nor_chunks) != len(tf_chunks):
+            raise SystemExit(f"split archive has inconsistent chunk count: {name}")
+        overlap = [
+            index
+            for index, (nor_chunk, tf_chunk) in enumerate(zip(nor_chunks, tf_chunks))
+            if nor_chunk.present and tf_chunk.present
+        ]
+        if overlap:
+            raise SystemExit(
+                f"archive chunks listed in both packs: {name} "
+                f"{','.join(str(index) for index in overlap)}"
+            )
+
+
+def write_pack(
+   out_path: Path,
+   names: list[str],
+   archives: dict[str, list[Chunk]],
+   sparse: bool,
+   max_bytes: int | None,
+   pack_set_id: int,
+) -> dict[str, object]:
+    pack = build_pack(archives, pack_set_id)
     verify_pack(pack)
+    if max_bytes is not None and len(pack) > max_bytes:
+        raise SystemExit(f"{out_path}: {len(pack)} bytes exceeds layout limit {max_bytes}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(pack)
     print(f"{out_path}: {len(pack)} bytes, archives={','.join(names)}")
-    return summarize_pack(out_path, names, pack, archives)
+    return summarize_pack(out_path, names, pack, archives, sparse)
+
+
+def canonical_pack_identity_image(
+    archives: dict[str, list[Chunk]],
+) -> bytes:
+    """Build bytes suitable for identifying exact pack contents.
+
+    The two self-referential header words are zeroed, so the resulting digest
+    changes with any TOC, format, selection, or payload change but can itself
+    be stored in both final pack headers.
+    """
+    image = bytearray(build_pack(archives, 0))
+    struct.pack_into("<I", image, PACK_SET_ID_OFFSET, 0)
+    struct.pack_into("<I", image, PACK_CRC32_OFFSET, 0)
+    return bytes(image)
+
+
+def compute_pack_set_id(
+    nor_archives: dict[str, list[Chunk]],
+    tf_archives: dict[str, list[Chunk]],
+) -> int:
+    digest = hashlib.sha256()
+    digest.update(b"sdlpal-pack-set-v1\0")
+    digest.update(b"NOR\0")
+    digest.update(canonical_pack_identity_image(nor_archives))
+    digest.update(b"TF\0")
+    digest.update(canonical_pack_identity_image(tf_archives))
+    value = int.from_bytes(digest.digest()[:4], "little")
+    return value if value != 0 else 1
 
 
 def main() -> int:
@@ -739,15 +1070,41 @@ def main() -> int:
     args = parser.parse_args()
 
     data_dir = args.data_dir
-    layout_nor_names, layout_tf_names = load_pack_layout(args.layout)
-    nor_names = parse_names(args.nor, layout_nor_names)
-    tf_names = parse_names(args.tf, layout_tf_names)
-    overlap = sorted(set(nor_names) & set(tf_names))
-    if overlap:
-        raise SystemExit(f"archives listed in both packs: {', '.join(overlap)}")
+    layout = load_pack_layout(args.layout)
+    nor_names = parse_names(args.nor, layout.pack_names["nor"])
+    tf_names = parse_names(args.tf, layout.pack_names["tf"])
 
-    nor_summary = write_pack(data_dir, args.out_nor, nor_names)
-    tf_summary = write_pack(data_dir, args.out_tf, tf_names)
+    nor_uses_layout_rules = layout.version == 2 and args.nor is None
+    tf_uses_layout_rules = layout.version == 2 and args.tf is None
+    nor_rules = layout.chunk_rules["nor"] if nor_uses_layout_rules else None
+    tf_rules = layout.chunk_rules["tf"] if tf_uses_layout_rules else None
+
+    if layout.version == 1 or args.nor is not None or args.tf is not None:
+        overlap = sorted(set(nor_names) & set(tf_names))
+        if overlap:
+            raise SystemExit(f"archives listed in both packs: {', '.join(overlap)}")
+
+    nor_archives = load_selected_archives(data_dir, nor_names, nor_rules)
+    tf_archives = load_selected_archives(data_dir, tf_names, tf_rules)
+    validate_disjoint_pack_chunks(nor_archives, tf_archives)
+    pack_set_id = compute_pack_set_id(nor_archives, tf_archives)
+
+    nor_summary = write_pack(
+        args.out_nor,
+        nor_names,
+        nor_archives,
+        nor_uses_layout_rules,
+        layout.max_bytes["nor"] if nor_uses_layout_rules else None,
+        pack_set_id,
+    )
+    tf_summary = write_pack(
+        args.out_tf,
+        tf_names,
+        tf_archives,
+        tf_uses_layout_rules,
+        layout.max_bytes["tf"] if tf_uses_layout_rules else None,
+        pack_set_id,
+    )
     if args.manifest:
         write_manifest(
             data_dir,

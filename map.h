@@ -58,7 +58,11 @@
 
 typedef struct tagPALMAP
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   const DWORD   (*Tiles)[64][2];
+#else
    DWORD          Tiles[128][64][2];
+#endif
    LPSPRITE       pTileSprite;
    INT            iMapNum;
 } PALMAP, *LPPALMAP;

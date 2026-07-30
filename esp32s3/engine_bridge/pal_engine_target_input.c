@@ -1,4 +1,4 @@
-#include "cores3se_board.h"
+#include "pal_target_board.h"
 
 #include "SDL.h"
 
@@ -15,6 +15,7 @@
 static int pal_engine_current_key;
 static int pal_engine_pending_key;
 
+#if !defined(PAL_CARDPUTER_EXTREME)
 static int
 touch_key_from_point(
    uint16_t x,
@@ -64,6 +65,42 @@ touch_key_from_point(
    }
    return SDLK_RIGHT;
 }
+#else
+static int
+cardputer_key_to_sdl(
+   uint8_t key
+)
+{
+   switch (key)
+   {
+   case 'i':
+   case 'I':
+      return SDLK_UP;
+   case 'k':
+   case 'K':
+      return SDLK_DOWN;
+   case 'j':
+   case 'J':
+      return SDLK_LEFT;
+   case 'l':
+   case 'L':
+      return SDLK_RIGHT;
+   case '\r':
+   case '\n':
+   case ' ':
+      return SDLK_RETURN;
+   case '\b':
+   case 0x7f:
+      return SDLK_ESCAPE;
+   case '[':
+      return SDLK_PAGEUP;
+   case ']':
+      return SDLK_PAGEDOWN;
+   default:
+      return (int)key;
+   }
+}
+#endif
 
 static void
 make_key_event(
@@ -85,9 +122,14 @@ PalEngineBridge_PollEvent(
    SDL_Event *event
 )
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   uint8_t raw_key = 0;
+   bool pressed = false;
+#else
    uint16_t x = 0;
    uint16_t y = 0;
    int desired_key = 0;
+#endif
 
    if (event == NULL)
    {
@@ -102,6 +144,21 @@ PalEngineBridge_PollEvent(
       return 1;
    }
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   if (!CardputerExtreme_PollKey(&raw_key, &pressed))
+   {
+      return 0;
+   }
+   {
+      int key = cardputer_key_to_sdl(raw_key);
+      if (key == 0)
+      {
+         return 0;
+      }
+      make_key_event(event, pressed ? SDL_KEYDOWN : SDL_KEYUP, key);
+      return 1;
+   }
+#else
    if (CoreS3Se_TouchPoint(&x, &y))
    {
       desired_key = touch_key_from_point(x, y);
@@ -127,4 +184,5 @@ PalEngineBridge_PollEvent(
    }
 
    return 0;
+#endif
 }

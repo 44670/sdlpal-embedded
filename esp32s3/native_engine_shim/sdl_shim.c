@@ -38,7 +38,9 @@ struct SDL_Texture {
     int w;
     int h;
     int pitch;
+#if !defined(PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY)
     Uint8 pixels[SHIM_TEXTURE_PIXELS];
+#endif
 };
 
 typedef struct ShimSurfaceSlot {
@@ -46,7 +48,9 @@ typedef struct ShimSurfaceSlot {
     int owns_pixels;
     SDL_Surface surface;
     SDL_PixelFormat format;
+#if !defined(PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY)
     Uint8 pixels[SHIM_SURFACE_PIXELS];
+#endif
 } ShimSurfaceSlot;
 
 typedef struct ShimPaletteSlot {
@@ -143,9 +147,15 @@ static SDL_Surface *create_surface_common(Uint32 flags, int width, int height, i
         if (slot->used) {
             continue;
         }
+#if defined(PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY)
+        if (pixels == NULL) {
+            return NULL;
+        }
+#else
         if (pixels == NULL && bytes > sizeof(slot->pixels)) {
             return NULL;
         }
+#endif
         memset(slot, 0, sizeof(*slot));
         slot->used = 1;
         slot->owns_pixels = pixels == NULL;
@@ -155,10 +165,15 @@ static SDL_Surface *create_surface_common(Uint32 flags, int width, int height, i
         slot->surface.w = width;
         slot->surface.h = height;
         slot->surface.pitch = pitch;
-        slot->surface.pixels = pixels != NULL ? pixels : slot->pixels;
+        slot->surface.pixels = pixels;
+#if !defined(PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY)
+        if (pixels == NULL) {
+            slot->surface.pixels = slot->pixels;
+        }
         if (pixels == NULL) {
             memset(slot->pixels, 0, bytes);
         }
+#endif
         return &slot->surface;
     }
     return NULL;
@@ -331,7 +346,18 @@ const Uint8 *SDL_GetKeyboardState(int *numkeys)
 
 int SDL_GetScancodeFromKey(int key)
 {
-    return key >= 0 && key < SHIM_KEYBOARD_KEYS ? key : 0;
+    /*
+     * SDL 1.2 key symbols use 256..383 for keypad/navigation/modifier
+     * keys.  The shim does not need a 512-byte identity table: fold that
+     * disjoint range into 128..255 and keep ASCII in 0..127.
+     */
+    if (key >= 0 && key < 128 && key < SHIM_KEYBOARD_KEYS) {
+        return key;
+    }
+    if (key >= 256 && key < 384 && key - 128 < SHIM_KEYBOARD_KEYS) {
+        return key - 128;
+    }
+    return 0;
 }
 
 SDL_Window *SDL_CreateWindow(const char *title, int x, int y, int w, int h, Uint32 flags)
@@ -383,6 +409,14 @@ int SDL_GetRendererOutputSize(SDL_Renderer *renderer, int *w, int *h)
 
 SDL_Texture *SDL_CreateTexture(SDL_Renderer *renderer, Uint32 format, int access, int w, int h)
 {
+#if defined(PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY)
+    (void)renderer;
+    (void)format;
+    (void)access;
+    (void)w;
+    (void)h;
+    return NULL;
+#else
     int i;
     (void)renderer;
     (void)format;
@@ -400,6 +434,7 @@ SDL_Texture *SDL_CreateTexture(SDL_Renderer *renderer, Uint32 format, int access
         return texture;
     }
     return NULL;
+#endif
 }
 
 void SDL_DestroyTexture(SDL_Texture *texture)
@@ -415,12 +450,19 @@ void SDL_DestroyTexture(SDL_Texture *texture)
 int SDL_LockTexture(SDL_Texture *texture, const SDL_Rect *rect, void **pixels, int *pitch)
 {
     (void)rect;
+#if defined(PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY)
+    (void)texture;
+    (void)pixels;
+    (void)pitch;
+    return -1;
+#else
     if (texture == NULL || pixels == NULL || pitch == NULL) {
         return -1;
     }
     *pixels = texture->pixels;
     *pitch = texture->pitch;
     return 0;
+#endif
 }
 
 void SDL_UnlockTexture(SDL_Texture *texture)
@@ -446,6 +488,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_Rect 
 void SDL_RenderPresent(SDL_Renderer *renderer)
 {
     (void)renderer;
+#if !defined(PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY)
 #if PAL_ENGINE_BRIDGE_REQUIRE_TARGET_HOOKS
     if (shim_present_texture != NULL) {
 #else
@@ -456,6 +499,7 @@ void SDL_RenderPresent(SDL_Renderer *renderer)
                                       shim_present_texture->w,
                                       shim_present_texture->h);
     }
+#endif
 }
 
 int SDL_SetHint(const char *name, const char *value)

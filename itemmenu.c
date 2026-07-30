@@ -47,7 +47,9 @@ PAL_ItemSelectMenuUpdate(
    int                i, j, k, line, item_delta;
    WORD               wObject, wScript;
    BYTE               bColor;
+#if !defined(PAL_CARDPUTER_EXTREME)
    static BYTE        bufImage[2048];
+#endif
    const int          iItemsPerLine = 32 / gConfig.dwWordLength;
    const int          iItemTextWidth = 8 * gConfig.dwWordLength + 20;
    const int          iLinesPerPage = 7 - gConfig.ScreenLayout.ExtraItemDescLines;
@@ -198,11 +200,25 @@ PAL_ItemSelectMenuUpdate(
             PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ITEMBOX), gpScreen,
                PAL_XY(xBase, yBase - iPictureYOffset));
 
+#if defined(PAL_CARDPUTER_EXTREME)
+            {
+               LPCBYTE lpImage;
+               UINT uiImageSize;
+               if (PAL_MKFMapChunk(gpGlobals->f.fpBALL,
+                  gpGlobals->g.rgObject[wObject].item.wBitmap, &lpImage, &uiImageSize) &&
+                  uiImageSize > 0)
+               {
+                  PAL_RLEBlitToSurface(lpImage, gpScreen,
+                     PAL_XY(xBase + 8, yBase + 7 - iPictureYOffset));
+               }
+            }
+#else
             if (PAL_MKFReadChunk(bufImage, 2048,
                gpGlobals->g.rgObject[wObject].item.wBitmap, gpGlobals->f.fpBALL) > 0)
             {
                PAL_RLEBlitToSurface(bufImage, gpScreen, PAL_XY(xBase + 8, yBase + 7 - iPictureYOffset));
             }
+#endif
          }
 
          //

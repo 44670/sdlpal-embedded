@@ -554,6 +554,11 @@ PAL_C_LINKAGE_BEGIN
 
 extern GLOBALVARS * const gpGlobals;
 
+LPEVENTOBJECT
+PAL_GetEventObjectByID(
+   WORD event_object_id
+);
+
 BOOL
 PAL_IsWINVersion(
    BOOL *pfIsWIN95
@@ -574,10 +579,15 @@ PAL_FreeGlobals(
    VOID
 );
 
-VOID
+BOOL
 PAL_SaveGame(
    int           iSaveSlot,
    WORD          wSavedTimes
+);
+
+WORD
+PAL_GetSavedTimes(
+   int           iSaveSlot
 );
 
 VOID

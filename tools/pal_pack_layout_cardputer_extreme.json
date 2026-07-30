@@ -1,0 +1,427 @@
+{
+  "schema": "sdlpal-embedded-pack-layout",
+  "version": 2,
+    "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile. It keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, excludes audio and the DOS splash, and preserves every source archive's chunk numbering with zero-sized absent entries. This layout is not a proof of a complete story-route closure.",
+  "range_semantics": "All chunk ranges are inclusive [first, last].",
+  "packs": {
+    "nor": [
+      "ABC",
+      "BALL",
+      "DATA",
+      "F",
+      "FBP",
+      "FIRE",
+      "GOP",
+      "MAP",
+      "MGO",
+      "PAT",
+      "RGM",
+      "SSS",
+      "TEXT",
+      "FONT"
+    ],
+    "tf": [
+      "FBP",
+      "RNG"
+    ]
+  },
+  "chunk_selection": {
+    "nor": {
+      "ABC": {
+        "chunks": [
+          1,
+          2,
+          3,
+          6,
+          7,
+          18,
+          46,
+          57,
+          82,
+          87,
+          97,
+          100,
+          132
+        ]
+      },
+      "BALL": {
+        "all": true
+      },
+      "DATA": {
+        "all": true
+      },
+      "F": {
+        "ranges": [
+          [
+            0,
+            18
+          ]
+        ]
+      },
+      "FBP": {
+        "chunks": [
+          0,
+          1,
+          60
+        ]
+      },
+      "FIRE": {
+        "ranges": [
+          [
+            0,
+            54
+          ]
+        ]
+      },
+      "GOP": {
+        "chunks": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          18,
+          19,
+          21,
+          22,
+          25,
+          119
+        ]
+      },
+      "MAP": {
+        "chunks": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          18,
+          19,
+          21,
+          22,
+          25,
+          119
+        ]
+      },
+      "MGO": {
+        "chunks": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          7,
+          8,
+          9,
+          10,
+          11,
+          13,
+          16,
+          18,
+          20,
+          21,
+          26,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          60,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          75,
+          84,
+          86,
+          87,
+          88,
+          90,
+          96,
+          110,
+          121,
+          127,
+          140,
+          144,
+          148,
+          158,
+          160,
+          161,
+          162,
+          163,
+          164,
+          165,
+          166,
+          193,
+          194,
+          195,
+          196,
+          197,
+          207,
+          208,
+          210,
+          211,
+          212,
+          213,
+          214,
+          215,
+          222,
+          223,
+          224,
+          225,
+          226,
+          227,
+          228,
+          229,
+          230,
+          231,
+          232,
+          233,
+          239,
+          244,
+          317,
+          338,
+          339,
+          355,
+          361,
+          362,
+          363,
+          364,
+          365,
+          366,
+          367,
+          398,
+          423,
+          443,
+          462,
+          466,
+          468,
+          473,
+          525,
+          627,
+          628
+        ]
+      },
+      "PAT": {
+        "all": true
+      },
+      "RGM": {
+        "all": true
+      },
+      "SSS": {
+        "all": true,
+        "transforms": {
+          "0": {
+            "prefix_bytes": 13536
+          }
+        }
+      },
+      "TEXT": {
+        "all": true
+      },
+      "FONT": {
+        "all": true
+      }
+    },
+    "tf": {
+      "FBP": {
+        "chunks": [
+          3,
+          6,
+          8,
+          21
+        ]
+      },
+      "RNG": {
+        "chunks": [
+          1
+        ]
+      }
+    }
+  },
+  "pack_limits": {
+    "nor": {
+      "max_bytes": 7274496
+    }
+    },
+    "closure_audit": {
+        "status": "candidate-not-route-proven",
+        "known_unresolved_scene_destinations": [
+        ],
+        "chapter_complete_scene_destinations": [
+            21
+        ],
+        "known_unresolved_event_object_targets": [
+        ],
+        "supported_sparse_event_object_targets": [
+            5334
+        ],
+        "known_unmodeled_script_root_classes": [
+            "item-use-equip-throw",
+            "magic-use-success",
+            "poison-player-dying-friend-death"
+        ],
+        "notes": "A conservative script traversal reaches scene 21 from selected scene 22. The extreme runtime replaces that exact transition with a visible chapter-complete endpoint, and a deterministic probe verifies that it remains in scene 22. Sparse global-state event 5334 is explicitly mapped and persisted by the SZC2 runtime. Full intended-route and indirect object-script closure are still required before this profile can be called route-proven.",
+        "dataset": "/mnt/hgfs/deb13/PAL",
+    "scenes": {
+      "ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        22
+      ],
+      "event_object_records": 423,
+      "map_chunks": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        18,
+        19,
+        21,
+        22,
+        25,
+        119
+      ],
+      "mgo_event_sprite_count": 114,
+      "mgo_extra_player_or_script_sprites": [
+        5,
+        26,
+        208,
+        228,
+        232,
+        361,
+        525,
+        627
+      ]
+    },
+    "battles": {
+      "reachable_team_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        15,
+        16,
+        17,
+        18,
+        19,
+        21,
+        22,
+        40
+      ],
+      "enemy_abc_chunks": [
+        1,
+        2,
+        3,
+        6,
+        7,
+        18,
+        46,
+        57,
+        82,
+        87,
+        97,
+        100,
+        132
+      ],
+      "policy": "All F and FIRE chunks are retained conservatively; ABC is closed over reachable teams. Battle/menu FBP is boundary-loaded from its selected NOR or TF chunk."
+    },
+    "excluded": {
+      "archives": [
+        "MIDI",
+        "MUS",
+        "VOC",
+        "SFX"
+      ],
+      "dos_splash_fbp_chunks": [
+        38,
+        39
+      ],
+      "dos_splash_mgo_chunks": [
+        71,
+        73
+      ]
+    }
+  }
+}

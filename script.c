@@ -27,6 +27,50 @@
 BOOL            g_fScriptSuccess = TRUE;
 static int      g_iCurEquipPart = -1;
 
+static LPEVENTOBJECT
+PAL_ScriptFindEventObject(
+   WORD           wEventObjectID
+)
+{
+   return PAL_GetEventObjectByID(wEventObjectID);
+}
+
+static LPEVENTOBJECT
+PAL_ScriptRequireEventObject(
+   WORD           wEventObjectID,
+   const char    *context
+)
+{
+   LPEVENTOBJECT p = PAL_ScriptFindEventObject(wEventObjectID);
+
+   if (p == NULL)
+   {
+      TerminateOnError(
+         "Script event-object boundary: %s requested %u, capacity is %d",
+         context,
+         wEventObjectID,
+         gpGlobals->g.nEventObject);
+   }
+   return p;
+}
+
+static VOID
+PAL_ScriptRequireEventPointer(
+   LPEVENTOBJECT  p,
+   WORD           wEventObjectID,
+   WORD           wOperation
+)
+{
+   if (p == NULL)
+   {
+      TerminateOnError(
+         "Script event-object boundary: opcode %04x requested %u, capacity is %d",
+         wOperation,
+         wEventObjectID,
+         gpGlobals->g.nEventObject);
+   }
+}
+
 static BOOL
 PAL_NPCWalkTo(
    WORD           wEventObjectID,
@@ -64,7 +108,7 @@ PAL_NPCWalkTo(
    LPEVENTOBJECT    pEvtObj;
    int              xOffset, yOffset;
 
-   pEvtObj = &(gpGlobals->g.lprgEventObject[wEventObjectID - 1]);
+   pEvtObj = PAL_ScriptRequireEventObject(wEventObjectID, "NPC walk");
 
    xOffset = (x * 32 + h * 16) - pEvtObj->x;
    yOffset = (y * 16 + h * 8) - pEvtObj->y;
@@ -236,7 +280,7 @@ PAL_PartyRideEventObject(
    DWORD            t;
    LPEVENTOBJECT    p;
 
-   p = &(gpGlobals->g.lprgEventObject[wEventObjectID - 1]);
+   p = PAL_ScriptRequireEventObject(wEventObjectID, "party ride");
 
    xOffset = x * 32 + h * 16 - PAL_X(gpGlobals->viewport) - PAL_X(gpGlobals->partyoffset);
    yOffset = y * 16 + h * 8 - PAL_Y(gpGlobals->viewport) - PAL_Y(gpGlobals->partyoffset);
@@ -334,7 +378,8 @@ PAL_MonsterChasePlayer(
 
 --*/
 {
-   LPEVENTOBJECT    pEvtObj = &gpGlobals->g.lprgEventObject[wEventObjectID - 1];
+   LPEVENTOBJECT    pEvtObj =
+      PAL_ScriptRequireEventObject(wEventObjectID, "monster chase");
    WORD             wMonsterSpeed = 0, prevx, prevy;
    int              x, y, i, j, l;
 
@@ -614,7 +659,7 @@ PAL_InterpretInstruction(
 
    if (wEventObjectID != 0)
    {
-      pEvtObj = &(gpGlobals->g.lprgEventObject[wEventObjectID - 1]);
+      pEvtObj = PAL_ScriptFindEventObject(wEventObjectID);
    }
    else
    {
@@ -634,7 +679,7 @@ PAL_InterpretInstruction(
          // HACK for Dream 2.11 to avoid crash
          i -= 0x9000;
       }
-      pCurrent = &(gpGlobals->g.lprgEventObject[i]);
+      pCurrent = PAL_ScriptFindEventObject((WORD)(i + 1));
       wCurEventObjectID = pScript->rgwOperand[0];
    }
 
@@ -656,6 +701,8 @@ PAL_InterpretInstruction(
       //
       // walk one step
       //
+      PAL_ScriptRequireEventPointer(
+         pEvtObj, wEventObjectID, pScript->wOperation);
       pEvtObj->wDirection = pScript->wOperation - 0x000B;
       PAL_NPCWalkOneStep(wEventObjectID, 2);
       break;
@@ -664,6 +711,8 @@ PAL_InterpretInstruction(
       //
       // Set the direction and/or gesture for event object
       //
+      PAL_ScriptRequireEventPointer(
+         pEvtObj, wEventObjectID, pScript->wOperation);
       if (pScript->rgwOperand[0] != 0xFFFF)
       {
          pEvtObj->wDirection = pScript->rgwOperand[0];
@@ -707,6 +756,8 @@ PAL_InterpretInstruction(
       //
       // Set the position of the event object, relative to the party
       //
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
       pCurrent->x =
          pScript->rgwOperand[1] + PAL_X(gpGlobals->viewport) + PAL_X(gpGlobals->partyoffset);
       pCurrent->y =
@@ -717,6 +768,8 @@ PAL_InterpretInstruction(
       //
       // Set the position of the event object
       //
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
       pCurrent->x = pScript->rgwOperand[1];
       pCurrent->y = pScript->rgwOperand[2];
       break;
@@ -725,6 +778,8 @@ PAL_InterpretInstruction(
       //
       // Set the gesture of the event object
       //
+      PAL_ScriptRequireEventPointer(
+         pEvtObj, wEventObjectID, pScript->wOperation);
       pEvtObj->wCurrentFrameNum = pScript->rgwOperand[0];
       pEvtObj->wDirection = kDirSouth;
       break;
@@ -744,6 +799,8 @@ PAL_InterpretInstruction(
       //
       if (pScript->rgwOperand[0] != 0)
       {
+         PAL_ScriptRequireEventPointer(
+            pCurrent, wCurEventObjectID, pScript->wOperation);
          pCurrent->wDirection = pScript->rgwOperand[1];
          pCurrent->wCurrentFrameNum = pScript->rgwOperand[2];
       }
@@ -1140,6 +1197,8 @@ PAL_InterpretInstruction(
       //
       if (pScript->rgwOperand[0] != 0)
       {
+         PAL_ScriptRequireEventPointer(
+            pCurrent, wCurEventObjectID, pScript->wOperation);
          pCurrent->wAutoScript = pScript->rgwOperand[1];
       }
       break;
@@ -1150,6 +1209,8 @@ PAL_InterpretInstruction(
       //
       if (pScript->rgwOperand[0] != 0)
       {
+         PAL_ScriptRequireEventPointer(
+            pCurrent, wCurEventObjectID, pScript->wOperation);
          pCurrent->wTriggerScript = pScript->rgwOperand[1];
       }
       break;
@@ -1488,6 +1549,18 @@ PAL_InterpretInstruction(
          PAL_RLEBlitToSurface(pBG, gpScreen, pos);
          
          WORD wObject = gpGlobals->g.lprgStore[0].rgwItems[i];
+#if defined(PAL_CARDPUTER_EXTREME)
+         LPCBYTE lpImage;
+         UINT uiImageSize;
+
+         if (PAL_MKFMapChunk(gpGlobals->f.fpBALL,
+               gpGlobals->g.rgObject[wObject].item.wBitmap, &lpImage, &uiImageSize) &&
+            uiImageSize > 0)
+         {
+            PAL_RLEBlitToSurface(lpImage, gpScreen,
+               PAL_XY(PAL_X(pos)+8, PAL_Y(pos)+7));
+         }
+#else
          static WORD wPrevImageIndex = 0xFFFF;
          static BYTE bufImage[2048];
          if (gpGlobals->g.rgObject[wObject].item.wBitmap != wPrevImageIndex)
@@ -1506,6 +1579,7 @@ PAL_InterpretInstruction(
          {
             PAL_RLEBlitToSurface(bufImage, gpScreen, PAL_XY(PAL_X(pos)+8, PAL_Y(pos)+7));
          }
+#endif
          
          VIDEO_UpdateScreen(&rect);
          
@@ -1616,6 +1690,8 @@ PAL_InterpretInstruction(
       //
       if (pScript->rgwOperand[0] != 0)
       {
+         PAL_ScriptRequireEventPointer(
+            pCurrent, wCurEventObjectID, pScript->wOperation);
          pCurrent->wTriggerMode = pScript->rgwOperand[1];
       }
       break;
@@ -1713,7 +1789,11 @@ PAL_InterpretInstruction(
       // Set the state of event object
       //
       if (pScript->rgwOperand[0] != 0)
+      {
+         PAL_ScriptRequireEventPointer(
+            pCurrent, wCurEventObjectID, pScript->wOperation);
          pCurrent->sState = pScript->rgwOperand[1];
+      }
       break;
 
    case 0x004A:
@@ -1727,6 +1807,8 @@ PAL_InterpretInstruction(
       //
       // Nullify the event object for a short while
       //
+      PAL_ScriptRequireEventPointer(
+         pEvtObj, wEventObjectID, pScript->wOperation);
       pEvtObj->sVanishTime = -15;
       break;
 
@@ -1795,6 +1877,8 @@ PAL_InterpretInstruction(
       //
       // hide the event object for a while, default 800 frames
       //
+      PAL_ScriptRequireEventPointer(
+         pEvtObj, wEventObjectID, pScript->wOperation);
       pEvtObj->sState *= -1;
       pEvtObj->sVanishTime = (pScript->rgwOperand[0] ? pScript->rgwOperand[0] : 800);
       break;
@@ -1871,6 +1955,22 @@ PAL_InterpretInstruction(
       //
       // Change to the specified scene
       //
+#if defined(PAL_CARDPUTER_EXTREME)
+      if (gpGlobals->wNumScene == 22 && pScript->rgwOperand[0] == 21)
+      {
+         /*
+          * Scene 21 is the first Suzhou interior and is deliberately outside
+          * this finite chapter profile.  Turn the original transition into a
+          * visible, repeatable endpoint instead of allowing a later resource
+          * lookup to fail.
+          */
+         UTIL_LogOutput(LOGLEVEL_INFO,
+            "Cardputer chapter complete at scene 22 -> 21 boundary\n");
+         PAL_StartDialog(kDialogCenterWindow, 0, 0, FALSE);
+         PAL_ShowDialogText(WIDETEXT("CHAPTER COMPLETE - SUZHOU NEXT"));
+         return 0;
+      }
+#endif
       if (pScript->rgwOperand[0] > 0 && pScript->rgwOperand[0] <= MAX_SCENES &&
          gpGlobals->wNumScene != pScript->rgwOperand[0])
       {
@@ -2057,6 +2157,8 @@ PAL_InterpretInstruction(
       //
       // Walk the NPC in one step
       //
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
       pCurrent->x += (SHORT)(pScript->rgwOperand[1]);
       pCurrent->y += (SHORT)(pScript->rgwOperand[2]);
       PAL_NPCWalkOneStep(wCurEventObjectID, 0);
@@ -2116,6 +2218,10 @@ PAL_InterpretInstruction(
       //
       // Sync the state of current event object with another event object
       //
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
+      PAL_ScriptRequireEventPointer(
+         pEvtObj, wEventObjectID, pScript->wOperation);
       if (pCurrent->sState == (SHORT)(pScript->rgwOperand[1]))
       {
          pEvtObj->sState = (SHORT)(pScript->rgwOperand[1]);
@@ -2278,6 +2384,8 @@ PAL_InterpretInstruction(
       //
       // Move the event object
       //
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
       pCurrent->x += (SHORT)(pScript->rgwOperand[1]);
       pCurrent->y += (SHORT)(pScript->rgwOperand[2]);
       break;
@@ -2286,6 +2394,8 @@ PAL_InterpretInstruction(
       //
       // Set the layer of event object
       //
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
       pCurrent->sLayer = (SHORT)(pScript->rgwOperand[1]);
       break;
 
@@ -2403,6 +2513,8 @@ PAL_InterpretInstruction(
             break;
          }
 
+         PAL_ScriptRequireEventPointer(
+            pCurrent, wCurEventObjectID, pScript->wOperation);
          x = pCurrent->x;
          y = pCurrent->y;
 
@@ -2416,7 +2528,9 @@ PAL_InterpretInstruction(
          x -= PAL_X(gpGlobals->viewport) + PAL_X(gpGlobals->partyoffset);
          y -= PAL_Y(gpGlobals->viewport) + PAL_Y(gpGlobals->partyoffset);
 
-         if (abs(x) + abs(y * 2) < pScript->rgwOperand[1] * 32 + 16 && gpGlobals->g.lprgEventObject[pScript->rgwOperand[0] - 1].sState > 0)
+         if (abs(x) + abs(y * 2) <
+               pScript->rgwOperand[1] * 32 + 16 &&
+            pCurrent->sState > 0)
          {
             if (pScript->rgwOperand[1] > 0)
             {
@@ -2460,6 +2574,10 @@ PAL_InterpretInstruction(
          break;
       }
 
+      PAL_ScriptRequireEventPointer(
+         pEvtObj, wEventObjectID, pScript->wOperation);
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
       x = pEvtObj->x - pCurrent->x;
       y = pEvtObj->y - pCurrent->y;
 
@@ -2502,6 +2620,8 @@ PAL_InterpretInstruction(
       }
       else
       {
+         PAL_ScriptRequireEventPointer(
+            pCurrent, wCurEventObjectID, pScript->wOperation);
          pCurrent->x = x;
          pCurrent->y = y;
          pCurrent->sState = (SHORT)(pScript->rgwOperand[1]);
@@ -2674,6 +2794,8 @@ PAL_InterpretInstruction(
       //
       // Jump if the state of event object is the specified one
       //
+      PAL_ScriptRequireEventPointer(
+         pCurrent, wCurEventObjectID, pScript->wOperation);
       if (pCurrent->sState == (SHORT)(pScript->rgwOperand[1]))
       {
          wScriptEntry = pScript->rgwOperand[2] - 1;
@@ -2757,6 +2879,16 @@ PAL_InterpretInstruction(
       //
       // Set the state for multiple event objects
       //
+      if (pScript->rgwOperand[0] == 0 ||
+         pScript->rgwOperand[0] > pScript->rgwOperand[1] ||
+         pScript->rgwOperand[1] > (WORD)gpGlobals->g.nEventObject)
+      {
+         TerminateOnError(
+            "Script event-object boundary: opcode 009a requested %u..%u, capacity is %d",
+            pScript->rgwOperand[0],
+            pScript->rgwOperand[1],
+            gpGlobals->g.nEventObject);
+      }
       for (i = pScript->rgwOperand[0]; i <= pScript->rgwOperand[1]; i++)
       {
          gpGlobals->g.lprgEventObject[i - 1].sState = pScript->rgwOperand[2];
@@ -3181,7 +3313,7 @@ PAL_RunTriggerScript(
 
    if (wEventObjectID != 0)
    {
-      pEvtObj = &(gpGlobals->g.lprgEventObject[wEventObjectID - 1]);
+      pEvtObj = PAL_ScriptFindEventObject(wEventObjectID);
    }
 
    g_fScriptSuccess = TRUE;
@@ -3220,6 +3352,11 @@ PAL_RunTriggerScript(
          //
          // Stop running and replace the entry with the specified one
          //
+         if (pScript->rgwOperand[1] != 0)
+         {
+            PAL_ScriptRequireEventPointer(
+               pEvtObj, wEventObjectID, pScript->wOperation);
+         }
          if (pScript->rgwOperand[1] == 0 ||
             ++(pEvtObj->nScriptIdleFrame) < pScript->rgwOperand[1])
          {
@@ -3240,6 +3377,11 @@ PAL_RunTriggerScript(
          //
          // unconditional jump
          //
+         if (pScript->rgwOperand[1] != 0)
+         {
+            PAL_ScriptRequireEventPointer(
+               pEvtObj, wEventObjectID, pScript->wOperation);
+         }
          if (pScript->rgwOperand[1] == 0 ||
             ++(pEvtObj->nScriptIdleFrame) < pScript->rgwOperand[1])
          {
@@ -3505,7 +3647,7 @@ PAL_RunAutoScript(
 
 begin:
    pScript = &(gpGlobals->g.lprgScriptEntry[wScriptEntry]);
-   pEvtObj = &(gpGlobals->g.lprgEventObject[wEventObjectID - 1]);
+   pEvtObj = PAL_ScriptRequireEventObject(wEventObjectID, "autoscript");
 
    UTIL_LogOutput(LOGLEVEL_DEBUG, "[AUTOSCRIPT] %04x %.4x: %.4x %.4x %.4x %.4x\n", wEventObjectID, wScriptEntry,
        pScript->wOperation, pScript->rgwOperand[0],

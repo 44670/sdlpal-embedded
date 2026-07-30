@@ -45,7 +45,8 @@ char gExecutablePath[PAL_MAX_PATH];
 #define SPRITENUM_SPLASH_CRANE      0x49
 #define NUM_RIX_TITLE               0x05
 
-#if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)) && \
+    !defined(PAL_CARDPUTER_EXTREME)
 #define PAL_STATIC_SPLASH_BUFFERS 1
 #if defined(__GNUC__)
 #define PAL_SPLASH_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
@@ -210,12 +211,21 @@ PAL_TrademarkScreen(
 
 --*/
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * The chapter pack intentionally omits RNG 6.  Skip the DOS trademark
+    * movie explicitly instead of relying on a missing TF chunk to produce an
+    * empty playback.
+    */
+   return;
+#else
    if (PAL_PlayAVI("1.avi")) return;
 
    PAL_SetPalette(3, FALSE);
    PAL_RNGPlay(6, 0, -1, 25);
    UTIL_Delay(1000);
    PAL_FadeOut(1);
+#endif
 }
 
 VOID
@@ -237,6 +247,13 @@ PAL_SplashScreen(
 
 --*/
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * The chapter pack intentionally omits the DOS title/splash assets. The
+    * first playable frame is the normal opening menu/game loop.
+    */
+   return;
+#else
    SDL_Color     *palette = PAL_GetPalette(1, FALSE);
    SDL_Color      rgCurrentPalette[256];
    SDL_Surface   *lpBitmapDown, *lpBitmapUp;
@@ -546,6 +563,7 @@ end:
    }
 
    PAL_FadeOut(1);
+#endif
 }
 
 

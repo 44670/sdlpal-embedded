@@ -79,16 +79,27 @@ PAL_CreateBoxInternal(
 	UINT uiNeededBytes;
 
 	if (rect == NULL || rect->w <= 0 || rect->h <= 0 ||
-		lpBox == NULL || lpSavedPixels == NULL)
+		lpBox == NULL
+#if !defined(PAL_CARDPUTER_EXTREME)
+		|| lpSavedPixels == NULL
+#endif
+		)
 	{
 		return NULL;
 	}
 
 	uiNeededBytes = (UINT)rect->w * (UINT)rect->h;
+#if !defined(PAL_CARDPUTER_EXTREME)
 	if (uiSavedPixelBytes < uiNeededBytes)
 	{
 		return NULL;
 	}
+#else
+	if (lpSavedPixels != NULL && uiSavedPixelBytes < uiNeededBytes)
+	{
+		return NULL;
+	}
+#endif
 
 	memset(lpBox, 0, sizeof(*lpBox));
 
@@ -98,7 +109,8 @@ PAL_CreateBoxInternal(
 	lpBox->wWidth = (WORD)rect->w;
 	lpBox->wHeight = (WORD)rect->h;
 
-	if (!PAL_CopyBoxPixels(rect, lpBox->lpSavedPixels, FALSE))
+	if (lpSavedPixels != NULL &&
+		!PAL_CopyBoxPixels(rect, lpBox->lpSavedPixels, FALSE))
 	{
 		memset(lpBox, 0, sizeof(*lpBox));
 		return NULL;

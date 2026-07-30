@@ -24,7 +24,11 @@
 
 #include "main.h"
 
+#if defined(PAL_EXTREME_SPRITES_TO_DRAW)
+#define MAX_SPRITE_TO_DRAW         PAL_EXTREME_SPRITES_TO_DRAW
+#else
 #define MAX_SPRITE_TO_DRAW         2048
+#endif
 
 typedef struct tagSPRITE_TO_DRAW
 {
@@ -35,6 +39,9 @@ typedef struct tagSPRITE_TO_DRAW
 
 static SPRITE_TO_DRAW    g_rgSpriteToDraw[MAX_SPRITE_TO_DRAW];
 static int               g_nSpriteToDraw;
+#if defined(PAL_CARDPUTER_EXTREME)
+static int               g_nSpriteToDrawHighWater;
+#endif
 
 static VOID
 PAL_AddSpriteToDraw(
@@ -64,7 +71,13 @@ PAL_AddSpriteToDraw(
 
 --*/
 {
-   assert(g_nSpriteToDraw < MAX_SPRITE_TO_DRAW);
+   if (g_nSpriteToDraw >= MAX_SPRITE_TO_DRAW)
+   {
+      TerminateOnError(
+         "Scene sprite boundary: scene %u needs more than %d draw entries",
+         gpGlobals->wNumScene,
+         MAX_SPRITE_TO_DRAW);
+   }
 
    g_rgSpriteToDraw[g_nSpriteToDraw].lpSpriteFrame = lpSpriteFrame;
    g_rgSpriteToDraw[g_nSpriteToDraw].pos = PAL_XY(x, y);
@@ -320,6 +333,23 @@ PAL_SceneDrawSprites(
       //
       PAL_CalcCoverTiles(&g_rgSpriteToDraw[g_nSpriteToDraw - 1]);
    }
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   if (g_nSpriteToDraw > g_nSpriteToDrawHighWater)
+   {
+      g_nSpriteToDrawHighWater = g_nSpriteToDraw;
+      if ((g_nSpriteToDrawHighWater % 32) == 0 ||
+         g_nSpriteToDrawHighWater * 4 >= MAX_SPRITE_TO_DRAW * 3)
+      {
+         UTIL_LogOutput(
+            LOGLEVEL_INFO,
+            "Cardputer scene sprite high-water: %d/%d in scene %u\n",
+            g_nSpriteToDrawHighWater,
+            MAX_SPRITE_TO_DRAW,
+            gpGlobals->wNumScene);
+      }
+   }
+#endif
 
    //
    // All sprites are now in our array; sort them by their vertical positions.

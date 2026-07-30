@@ -16,6 +16,12 @@ bool PalEngineBridge_SetTfPackReadAt(uint32_t pack_size, PalEngineBridgeReadAt r
 void PalEngineBridge_ClearPacks(void);
 bool PalEngineBridge_TargetInitPacks(void);
 bool PalEngineBridge_IsPackFile(FILE *fp);
+#if defined(PAL_CARDPUTER_EXTREME)
+int PalEngineBridge_ReadNativeRngFrame(uint16_t movie_id,
+                                      uint16_t frame_id,
+                                      uint8_t *dst,
+                                      uint32_t dst_capacity);
+#endif
 
 #ifdef __cplusplus
 }

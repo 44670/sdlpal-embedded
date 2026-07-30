@@ -56,12 +56,21 @@ static bool pal_deterministic_log_registered;
 static bool pal_deterministic_screenshot_written;
 static bool pal_deterministic_save_written;
 static bool pal_deterministic_reload_requested;
+static bool pal_deterministic_force_battle_enabled;
+static bool pal_deterministic_force_battle_active;
+static bool pal_deterministic_force_battle_done;
+static Uint32 pal_deterministic_force_battle_frame;
+static WORD pal_deterministic_force_battle_team;
+static bool pal_deterministic_force_chapter_enabled;
+static bool pal_deterministic_force_chapter_active;
+static bool pal_deterministic_force_chapter_done;
+static Uint32 pal_deterministic_force_chapter_frame;
 static png_byte pal_deterministic_png_row[PAL_DETERMINISTIC_PNG_MAX_WIDTH * 3u];
 
 void __real_SDL_RenderPresent(SDL_Renderer *renderer);
 WORD __real_PAL_RunTriggerScript(WORD wScriptEntry, WORD wEventObjectID);
 WORD __real_PAL_RunAutoScript(WORD wScriptEntry, WORD wEventObjectID);
-void __real_PAL_SaveGame(int iSaveSlot, WORD wSavedTimes);
+BOOL __real_PAL_SaveGame(int iSaveSlot, WORD wSavedTimes);
 void __real_PAL_InitGameData(INT iSaveSlot);
 void __real_PAL_ReloadInNextTick(INT iSaveSlot);
 
@@ -137,6 +146,25 @@ pal_deterministic_init(
    pal_deterministic_ticks = (Uint32)read_env_ulong("PAL_DETERMINISTIC_START_MS", 0);
    pal_deterministic_epoch = (time_t)read_env_ulong("PAL_DETERMINISTIC_EPOCH", 1);
    pal_deterministic_max_presents = (Uint32)read_env_ulong("PAL_DETERMINISTIC_MAX_PRESENTS", 0);
+   {
+      const char *force_team = SDL_getenv("PAL_DETERMINISTIC_FORCE_BATTLE_TEAM");
+      if (force_team != NULL && force_team[0] != '\0') {
+         pal_deterministic_force_battle_enabled = true;
+         pal_deterministic_force_battle_team =
+            (WORD)read_env_ulong("PAL_DETERMINISTIC_FORCE_BATTLE_TEAM", 0);
+         pal_deterministic_force_battle_frame =
+            (Uint32)read_env_ulong("PAL_DETERMINISTIC_FORCE_BATTLE_FRAME", 0);
+      }
+   }
+   {
+      const char *force_chapter =
+         SDL_getenv("PAL_DETERMINISTIC_FORCE_CHAPTER_BOUNDARY_FRAME");
+      if (force_chapter != NULL && force_chapter[0] != '\0') {
+         pal_deterministic_force_chapter_enabled = true;
+         pal_deterministic_force_chapter_frame = (Uint32)read_env_ulong(
+            "PAL_DETERMINISTIC_FORCE_CHAPTER_BOUNDARY_FRAME", 0);
+      }
+   }
    pal_deterministic_last_record_tick = (Uint32)-1;
    pal_deterministic_last_record_dir = -1;
    pal_deterministic_last_record_keys = (DWORD)-1;
@@ -384,6 +412,8 @@ pal_deterministic_maybe_save_game(
    unsigned long frame;
    int slot;
    WORD saved_times;
+   const char *sparse_state_text;
+   LPEVENTOBJECT sparse_event;
 
    if (pal_deterministic_save_written) {
       return;
@@ -403,6 +433,12 @@ pal_deterministic_maybe_save_game(
       slot = 5;
    }
    saved_times = (WORD)read_env_ulong("PAL_DETERMINISTIC_SAVE_TIMES", 1);
+   sparse_state_text = SDL_getenv("PAL_DETERMINISTIC_SPARSE_EVENT_5334_STATE");
+   sparse_event = PAL_GetEventObjectByID(5334);
+   if (sparse_state_text != NULL && sparse_state_text[0] != '\0' &&
+      sparse_event != NULL) {
+      sparse_event->sState = (SHORT)strtol(sparse_state_text, NULL, 0);
+   }
    PAL_SaveGame(slot, saved_times);
    pal_deterministic_save_written = true;
 }
@@ -780,15 +816,24 @@ pal_deterministic_emit_save_event(
 {
    uint32_t save_size = 0;
    uint32_t save_hash;
+   WORD menu_saved_times;
+   LPEVENTOBJECT sparse_event;
+   int sparse_state;
    const char *path;
-   char detail[128];
+   char detail[160];
 
    path = PAL_CombinePath(0, gConfig.pszSavePath, PAL_va(1, "%d.rpg", slot));
    save_hash = pal_deterministic_hash_file(path, &save_size);
+   menu_saved_times = PAL_GetSavedTimes(slot);
+   sparse_event = PAL_GetEventObjectByID(5334);
+   sparse_state = sparse_event != NULL ? sparse_event->sState : 0;
    snprintf(detail, sizeof(detail),
-      "slot=%d saved_times=%u save_size=%lu save=%08x",
+      "slot=%d saved_times=%u menu_saved_times=%u sparse5334=%d "
+      "save_size=%lu save=%08x",
       slot,
       (unsigned)saved_times,
+      (unsigned)menu_saved_times,
+      sparse_state,
       (unsigned long)save_size,
       (unsigned)save_hash);
    pal_deterministic_emit_event(tag, detail);
@@ -1079,10 +1124,61 @@ __wrap_SDL_RenderPresent(
    SDL_Renderer *renderer
 )
 {
+   BOOL old_auto_battle;
+   WORD old_scene;
+   WORD chapter_result;
+   char chapter_detail[96];
+
    pal_deterministic_maybe_write_screenshot();
    pal_deterministic_maybe_save_game();
    pal_deterministic_maybe_reload_game();
    pal_deterministic_emit_frame_checkpoint("present");
+   if (pal_deterministic_force_chapter_enabled &&
+       !pal_deterministic_force_chapter_done &&
+       !pal_deterministic_force_chapter_active &&
+       pal_deterministic_frame > pal_deterministic_force_chapter_frame &&
+       gpGlobals->wNumScene != 0 &&
+       !gpGlobals->fInBattle) {
+      /*
+       * Host-only boundary probe.  The scene value is restored immediately;
+       * the script must leave it at 22 and return without requesting scene 21.
+       */
+      pal_deterministic_force_chapter_active = true;
+      pal_deterministic_force_chapter_done = true;
+      old_scene = gpGlobals->wNumScene;
+      gpGlobals->wNumScene = 22;
+      chapter_result = PAL_RunTriggerScript(10600, 411);
+      snprintf(chapter_detail, sizeof(chapter_detail),
+         "from=22 to=%u entry=10600 result=%u",
+         (unsigned)gpGlobals->wNumScene, (unsigned)chapter_result);
+      pal_deterministic_emit_event("chapter", chapter_detail);
+      if (gpGlobals->wNumScene != 22) {
+         TerminateOnError(
+            "Cardputer chapter boundary probe entered scene %u",
+            gpGlobals->wNumScene);
+      }
+      gpGlobals->wNumScene = old_scene;
+      pal_deterministic_force_chapter_active = false;
+   }
+   if (pal_deterministic_force_battle_enabled &&
+       !pal_deterministic_force_battle_done &&
+       !pal_deterministic_force_battle_active &&
+       pal_deterministic_frame > pal_deterministic_force_battle_frame &&
+       gpGlobals->wNumScene != 0 &&
+       !gpGlobals->fInBattle) {
+      /*
+       * Host-only reachability probe: enter the unmodified battle loop after
+       * normal game initialization.  The active/done guards are set before
+       * PAL_StartBattle() because that loop presents recursively.
+       */
+      pal_deterministic_force_battle_active = true;
+      pal_deterministic_force_battle_done = true;
+      old_auto_battle = gpGlobals->fAutoBattle;
+      gpGlobals->fAutoBattle = TRUE;
+      (void)PAL_StartBattle(pal_deterministic_force_battle_team, FALSE);
+      gpGlobals->fAutoBattle = old_auto_battle;
+      pal_deterministic_force_battle_active = false;
+   }
    __real_SDL_RenderPresent(renderer);
 }
 
@@ -1114,14 +1210,15 @@ __wrap_PAL_RunAutoScript(
    return result;
 }
 
-void
+BOOL
 __wrap_PAL_SaveGame(
    int iSaveSlot,
    WORD wSavedTimes
 )
 {
-   __real_PAL_SaveGame(iSaveSlot, wSavedTimes);
+   BOOL result = __real_PAL_SaveGame(iSaveSlot, wSavedTimes);
    pal_deterministic_emit_save_event("save", iSaveSlot, wSavedTimes);
+   return result;
 }
 
 void

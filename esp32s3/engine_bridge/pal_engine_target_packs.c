@@ -1,6 +1,6 @@
 #include "pal_engine_pack_provider.h"
 
-#include "cores3se_board.h"
+#include "pal_target_board.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -34,7 +34,7 @@ tf_read_at(
    {
       return false;
    }
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    if (f_lseek(file, (FSIZE_t)offset) != FR_OK)
    {
       return false;
@@ -73,12 +73,12 @@ PalEngineBridge_TargetInitPacks(
       return false;
    }
 
-   if (!CoreS3Se_MountTf())
+   if (!PalTarget_MountTf())
    {
       ESP_LOGE(TAG, "TF mount failed");
       return false;
    }
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    if (!pal_engine_tf_open &&
       f_open(&pal_engine_tf_file, PAL_ENGINE_TF_PACK_PATH, FA_READ | FA_OPEN_EXISTING) != FR_OK)
    {

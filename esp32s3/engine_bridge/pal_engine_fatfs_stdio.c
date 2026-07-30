@@ -1,4 +1,4 @@
-#include "cores3se_board.h"
+#include "pal_target_board.h"
 
 #include "pal_engine_pack_provider.h"
 
@@ -259,7 +259,7 @@ __wrap_fopen(
       return NULL;
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    result = f_open(&slot->file, path, flags);
    if (result != FR_OK)
    {
@@ -289,7 +289,7 @@ __wrap_fclose(
       return __real_fclose(stream);
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    result = f_close(&slot->file);
    slot->magic = 0;
    if (result != FR_OK)
@@ -329,7 +329,7 @@ __wrap_fread(
       return 0;
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    result = f_read(&slot->file, ptr, bytes_requested, &bytes_read);
    if (result != FR_OK)
    {
@@ -373,7 +373,7 @@ __wrap_fwrite(
       return 0;
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    result = f_write(&slot->file, ptr, bytes_requested, &bytes_written);
    if (result != FR_OK)
    {
@@ -439,7 +439,7 @@ __wrap_fseek(
       target = base + (FSIZE_t)offset;
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    result = f_lseek(&slot->file, target);
    if (result != FR_OK)
    {
@@ -501,7 +501,7 @@ __wrap_fgets(
       UINT bytes_read = 0;
       FRESULT result;
 
-      CoreS3Se_PrepareTfAccess();
+      PalTarget_PrepareTfAccess();
       result = f_read(&slot->file, &ch, 1, &bytes_read);
       if (result != FR_OK)
       {
@@ -562,7 +562,7 @@ __wrap_fputs(
       return EOF;
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    result = f_write(&slot->file, s, bytes_requested, &bytes_written);
    if (result != FR_OK || bytes_written != bytes_requested)
    {
@@ -586,7 +586,7 @@ __wrap_fflush(
       return __real_fflush(stream);
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    result = f_sync(&slot->file);
    if (result != FR_OK)
    {
@@ -638,7 +638,7 @@ __wrap_rewind(
       return;
    }
 
-   CoreS3Se_PrepareTfAccess();
+   PalTarget_PrepareTfAccess();
    if (f_lseek(&slot->file, 0) != FR_OK)
    {
       slot->error = true;
