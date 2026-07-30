@@ -20,6 +20,7 @@
 #define PAL_ENGINE_PACK_SET_ID_OFFSET 20u
 #define PAL_ENGINE_PACK_SIZE_OFFSET 24u
 #define PAL_ENGINE_PACK_CRC32_OFFSET 28u
+#define PAL_ENGINE_PACK_ARCHIVE_ENTRY_SIZE 12u
 #ifndef PAL_ENGINE_TF_TOC_BYTES
 #define PAL_ENGINE_TF_TOC_BYTES (32u * 1024u)
 #endif
@@ -41,23 +42,29 @@
 
 typedef enum PalEngineArchiveStore {
    PAL_ENGINE_ARCHIVE_STORE_NONE = 0,
-   PAL_ENGINE_ARCHIVE_STORE_NOR,
-   PAL_ENGINE_ARCHIVE_STORE_TF,
-   PAL_ENGINE_ARCHIVE_STORE_BOTH
+   PAL_ENGINE_ARCHIVE_STORE_CORE,
+   PAL_ENGINE_ARCHIVE_STORE_OVERLAY,
+   PAL_ENGINE_ARCHIVE_STORE_TF
 } PalEngineArchiveStore;
 
 static PalPack pal_engine_nor_pack;
+static PalPack pal_engine_overlay_pack;
 static PalPackToc pal_engine_tf_toc;
 static PalEngineBridgeReadAt pal_engine_tf_read_at;
 static void *pal_engine_tf_user;
 static bool pal_engine_nor_ready;
+static bool pal_engine_overlay_ready;
 static bool pal_engine_tf_ready;
 static uint32_t pal_engine_nor_set_id;
+static uint32_t pal_engine_overlay_set_id;
+static uint32_t pal_engine_tf_set_id;
 static bool pal_engine_default_tried;
 static bool pal_engine_tf_map_valid;
+#if !defined(PAL_CARDPUTER_EXTREME)
 static uint16_t pal_engine_tf_map_archive;
 static uint16_t pal_engine_tf_map_chunk;
 static uint32_t pal_engine_tf_map_size;
+#endif
 #if defined(PAL_CARDPUTER_EXTREME)
 static uint8_t pal_sram_extreme_engine_tf_toc[PAL_ENGINE_TF_TOC_BYTES] PAL_ENGINE_PSRAM;
 #define PAL_ENGINE_TF_TOC_STORAGE pal_sram_extreme_engine_tf_toc
@@ -79,6 +86,14 @@ read_le32(
       ((uint32_t)p[1] << 8) |
       ((uint32_t)p[2] << 16) |
       ((uint32_t)p[3] << 24);
+}
+
+static uint16_t
+read_le16(
+   const uint8_t *p
+)
+{
+   return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
 #if defined(PAL_CARDPUTER_EXTREME)
@@ -155,6 +170,96 @@ pack_crc32_read_at(
 }
 #endif
 
+static bool
+const_packs_overlap(
+   const PalPack *left,
+   const PalPack *right
+)
+{
+   uint16_t archive_index;
+
+   if (left == NULL || right == NULL ||
+      left->base == NULL || right->base == NULL)
+   {
+      return false;
+   }
+
+   for (archive_index = 0;
+      archive_index < left->archive_count;
+      archive_index++)
+   {
+      const uint8_t *archive = left->base + left->archive_table_offset +
+         (uint32_t)archive_index * PAL_ENGINE_PACK_ARCHIVE_ENTRY_SIZE;
+      uint16_t archive_id = read_le16(archive);
+      uint16_t chunk_count;
+      uint16_t chunk_id;
+
+      if (!PalPack_GetChunkCount(left, archive_id, &chunk_count))
+      {
+         continue;
+      }
+      for (chunk_id = 0; chunk_id < chunk_count; chunk_id++)
+      {
+         PalPackSpan left_span;
+         PalPackSpan right_span;
+
+         if (PalPack_MapConst(left, archive_id, chunk_id, &left_span) &&
+            left_span.size != 0 &&
+            PalPack_MapConst(right, archive_id, chunk_id, &right_span) &&
+            right_span.size != 0)
+         {
+            return true;
+         }
+      }
+   }
+   return false;
+}
+
+static bool
+const_pack_toc_overlap(
+   const PalPack *pack,
+   const PalPackToc *toc
+)
+{
+   uint16_t archive_index;
+
+   if (pack == NULL || toc == NULL ||
+      pack->base == NULL || toc->base == NULL)
+   {
+      return false;
+   }
+
+   for (archive_index = 0;
+      archive_index < pack->archive_count;
+      archive_index++)
+   {
+      const uint8_t *archive = pack->base + pack->archive_table_offset +
+         (uint32_t)archive_index * PAL_ENGINE_PACK_ARCHIVE_ENTRY_SIZE;
+      uint16_t archive_id = read_le16(archive);
+      uint16_t chunk_count;
+      uint16_t chunk_id;
+
+      if (!PalPack_GetChunkCount(pack, archive_id, &chunk_count))
+      {
+         continue;
+      }
+      for (chunk_id = 0; chunk_id < chunk_count; chunk_id++)
+      {
+         PalPackSpan span;
+         PalPackChunkInfo info;
+
+         if (PalPack_MapConst(pack, archive_id, chunk_id, &span) &&
+            span.size != 0 &&
+            PalPackToc_GetChunkInfo(toc, archive_id, chunk_id, &info) &&
+            info.size != 0)
+         {
+            return true;
+         }
+      }
+   }
+   return false;
+}
+
 static void
 ensure_default_packs(
    void
@@ -194,9 +299,12 @@ find_archive_store(
    uint16_t *chunk_count
 )
 {
-   uint16_t nor_count = 0;
+   uint16_t core_count = 0;
+   uint16_t overlay_count = 0;
    uint16_t tf_count = 0;
-   bool in_nor;
+   uint16_t max_count = 0;
+   bool in_core;
+   bool in_overlay;
    bool in_tf;
 
    if (archive_id == 0 || archive_id > 0xffffu)
@@ -204,61 +312,112 @@ find_archive_store(
       return PAL_ENGINE_ARCHIVE_STORE_NONE;
    }
 
-   in_nor = pal_engine_nor_ready &&
-      PalPack_GetChunkCount(&pal_engine_nor_pack, (uint16_t)archive_id, &nor_count);
+   in_overlay = pal_engine_overlay_ready &&
+      PalPack_GetChunkCount(&pal_engine_overlay_pack,
+         (uint16_t)archive_id, &overlay_count);
+   in_core = pal_engine_nor_ready &&
+      PalPack_GetChunkCount(&pal_engine_nor_pack,
+         (uint16_t)archive_id, &core_count);
    in_tf = pal_engine_tf_ready &&
       PalPackToc_GetChunkCount(&pal_engine_tf_toc, (uint16_t)archive_id, &tf_count);
 
-   if (!in_nor && !in_tf)
+   if (!in_overlay && !in_core && !in_tf)
    {
       return PAL_ENGINE_ARCHIVE_STORE_NONE;
    }
    if (chunk_count != NULL)
    {
-      *chunk_count = in_nor && in_tf ?
-         (nor_count > tf_count ? nor_count : tf_count) :
-         (in_tf ? tf_count : nor_count);
+      if (in_overlay && overlay_count > max_count)
+      {
+         max_count = overlay_count;
+      }
+      if (in_core && core_count > max_count)
+      {
+         max_count = core_count;
+      }
+      if (in_tf && tf_count > max_count)
+      {
+         max_count = tf_count;
+      }
+      *chunk_count = max_count;
    }
-   return in_nor && in_tf ? PAL_ENGINE_ARCHIVE_STORE_BOTH :
-      (in_tf ? PAL_ENGINE_ARCHIVE_STORE_TF : PAL_ENGINE_ARCHIVE_STORE_NOR);
+   return in_overlay ? PAL_ENGINE_ARCHIVE_STORE_OVERLAY :
+      (in_core ? PAL_ENGINE_ARCHIVE_STORE_CORE :
+         PAL_ENGINE_ARCHIVE_STORE_TF);
 }
 
 static PalEngineArchiveStore
 find_chunk_store(
    uint16_t archive_id,
    uint16_t chunk_id,
-   PalPackSpan *nor_span,
+   PalPackSpan *const_span,
    PalPackChunkInfo *tf_info
 )
 {
-   PalPackSpan local_span;
+   PalPackSpan core_span;
+   PalPackSpan overlay_span;
    PalPackChunkInfo local_info;
-   PalPackSpan *span = nor_span != NULL ? nor_span : &local_span;
    PalPackChunkInfo *info = tf_info != NULL ? tf_info : &local_info;
-   bool in_nor = pal_engine_nor_ready &&
-      PalPack_MapConst(&pal_engine_nor_pack, archive_id, chunk_id, span);
+   bool in_overlay = pal_engine_overlay_ready &&
+      PalPack_MapConst(&pal_engine_overlay_pack,
+         archive_id, chunk_id, &overlay_span);
+   bool in_core = pal_engine_nor_ready &&
+      PalPack_MapConst(&pal_engine_nor_pack,
+         archive_id, chunk_id, &core_span);
    bool in_tf = pal_engine_tf_ready &&
       PalPackToc_GetChunkInfo(&pal_engine_tf_toc, archive_id, chunk_id, info);
+   unsigned int nonempty_count =
+      (in_overlay && overlay_span.size != 0 ? 1u : 0u) +
+      (in_core && core_span.size != 0 ? 1u : 0u) +
+      (in_tf && info->size != 0 ? 1u : 0u);
 
    /*
     * Layout-v2 packs preserve source chunk numbers with zero-sized holes.
-    * An archive may therefore be split across NOR and TF, but one concrete
-    * non-empty chunk must have exactly one owner.
+    * An archive may therefore be split across overlay, core and TF, but one
+    * concrete non-empty chunk must have exactly one owner.
     */
-   if (in_nor && in_tf && span->size != 0 && info->size != 0)
+   if (nonempty_count > 1u)
    {
       return PAL_ENGINE_ARCHIVE_STORE_NONE;
    }
-   if (in_nor && span->size != 0)
+   if (in_overlay && overlay_span.size != 0)
    {
-      return PAL_ENGINE_ARCHIVE_STORE_NOR;
+      if (const_span != NULL)
+      {
+         *const_span = overlay_span;
+      }
+      return PAL_ENGINE_ARCHIVE_STORE_OVERLAY;
+   }
+   if (in_core && core_span.size != 0)
+   {
+      if (const_span != NULL)
+      {
+         *const_span = core_span;
+      }
+      return PAL_ENGINE_ARCHIVE_STORE_CORE;
    }
    if (in_tf && info->size != 0)
    {
       return PAL_ENGINE_ARCHIVE_STORE_TF;
    }
-   return in_nor ? PAL_ENGINE_ARCHIVE_STORE_NOR :
-      (in_tf ? PAL_ENGINE_ARCHIVE_STORE_TF : PAL_ENGINE_ARCHIVE_STORE_NONE);
+   if (in_overlay)
+   {
+      if (const_span != NULL)
+      {
+         *const_span = overlay_span;
+      }
+      return PAL_ENGINE_ARCHIVE_STORE_OVERLAY;
+   }
+   if (in_core)
+   {
+      if (const_span != NULL)
+      {
+         *const_span = core_span;
+      }
+      return PAL_ENGINE_ARCHIVE_STORE_CORE;
+   }
+   return in_tf ? PAL_ENGINE_ARCHIVE_STORE_TF :
+      PAL_ENGINE_ARCHIVE_STORE_NONE;
 }
 
 bool
@@ -267,15 +426,13 @@ PalEngineBridge_SetNorPackConst(
    uint32_t image_size
 )
 {
+   PalPack candidate;
    uint32_t pack_size;
-#if defined(PAL_CARDPUTER_EXTREME)
    uint32_t pack_set_id;
+#if defined(PAL_CARDPUTER_EXTREME)
    uint32_t declared_crc;
 #endif
 
-   pal_engine_nor_ready = false;
-   pal_engine_nor_set_id = 0;
-   memset(&pal_engine_nor_pack, 0, sizeof(pal_engine_nor_pack));
    if (image == NULL || image_size < PAL_ENGINE_PACK_HEADER_SIZE)
    {
       return false;
@@ -286,8 +443,8 @@ PalEngineBridge_SetNorPackConst(
    {
       return false;
    }
-#if defined(PAL_CARDPUTER_EXTREME)
    pack_set_id = read_le32(image + PAL_ENGINE_PACK_SET_ID_OFFSET);
+#if defined(PAL_CARDPUTER_EXTREME)
    declared_crc = read_le32(image + PAL_ENGINE_PACK_CRC32_OFFSET);
    if (pack_set_id == 0 || declared_crc == 0 ||
       pack_crc32_const(image, pack_size) != declared_crc)
@@ -295,14 +452,120 @@ PalEngineBridge_SetNorPackConst(
       return false;
    }
 #endif
-   pal_engine_nor_ready = PalPack_OpenConst(&pal_engine_nor_pack, image, pack_size);
-#if defined(PAL_CARDPUTER_EXTREME)
-   if (pal_engine_nor_ready)
+   memset(&candidate, 0, sizeof(candidate));
+   if (!PalPack_OpenConst(&candidate, image, pack_size))
    {
-      pal_engine_nor_set_id = pack_set_id;
+      return false;
+   }
+   if (pal_engine_overlay_ready &&
+      (pack_set_id != pal_engine_overlay_set_id ||
+         const_packs_overlap(&candidate, &pal_engine_overlay_pack)))
+   {
+      return false;
+   }
+   if (pal_engine_tf_ready &&
+      (pack_set_id != pal_engine_tf_set_id ||
+         const_pack_toc_overlap(&candidate, &pal_engine_tf_toc)))
+   {
+      return false;
+   }
+
+   pal_engine_nor_pack = candidate;
+   pal_engine_nor_set_id = pack_set_id;
+   pal_engine_nor_ready = true;
+   return true;
+}
+
+bool
+PalEngineBridge_SetCorePackConst(
+   const uint8_t *image,
+   uint32_t image_size
+)
+{
+   return PalEngineBridge_SetNorPackConst(image, image_size);
+}
+
+bool
+PalEngineBridge_SetOverlayPackConst(
+   const uint8_t *image,
+   uint32_t image_size
+)
+{
+   PalPack candidate;
+   uint32_t pack_size;
+   uint32_t pack_set_id;
+#if defined(PAL_CARDPUTER_EXTREME)
+   uint32_t declared_crc;
+#endif
+
+   if (!pal_engine_nor_ready ||
+      image == NULL || image_size < PAL_ENGINE_PACK_HEADER_SIZE)
+   {
+      return false;
+   }
+   pack_size = read_le32(image + PAL_ENGINE_PACK_SIZE_OFFSET);
+   if (pack_size == 0 || pack_size > image_size)
+   {
+      return false;
+   }
+   pack_set_id = read_le32(image + PAL_ENGINE_PACK_SET_ID_OFFSET);
+#if defined(PAL_CARDPUTER_EXTREME)
+   declared_crc = read_le32(image + PAL_ENGINE_PACK_CRC32_OFFSET);
+   if (pack_set_id == 0 || declared_crc == 0 ||
+      pack_crc32_const(image, pack_size) != declared_crc)
+   {
+      return false;
    }
 #endif
-   return pal_engine_nor_ready;
+   memset(&candidate, 0, sizeof(candidate));
+   if (!PalPack_OpenConst(&candidate, image, pack_size) ||
+      pack_set_id != pal_engine_nor_set_id ||
+      const_packs_overlap(&candidate, &pal_engine_nor_pack))
+   {
+      return false;
+   }
+   if (pal_engine_tf_ready &&
+      (pack_set_id != pal_engine_tf_set_id ||
+         const_pack_toc_overlap(&candidate, &pal_engine_tf_toc)))
+   {
+      return false;
+   }
+
+   pal_engine_overlay_pack = candidate;
+   pal_engine_overlay_set_id = pack_set_id;
+   pal_engine_overlay_ready = true;
+   return true;
+}
+
+void
+PalEngineBridge_ClearOverlay(
+   void
+)
+{
+   memset(&pal_engine_overlay_pack, 0, sizeof(pal_engine_overlay_pack));
+   pal_engine_overlay_ready = false;
+   pal_engine_overlay_set_id = 0;
+}
+
+void
+PalEngineBridge_ClearOverlayPack(
+   void
+)
+{
+   PalEngineBridge_ClearOverlay();
+}
+
+static void
+clear_tf_pack(
+   void
+)
+{
+   memset(&pal_engine_tf_toc, 0, sizeof(pal_engine_tf_toc));
+   pal_engine_tf_read_at = NULL;
+   pal_engine_tf_user = NULL;
+   pal_engine_tf_ready = false;
+   pal_engine_tf_set_id = 0;
+   pal_engine_tf_map_valid = false;
 }
 
 bool
@@ -312,17 +575,13 @@ PalEngineBridge_SetTfPackReadAt(
    void *user
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
    uint32_t tf_set_id;
+#if defined(PAL_CARDPUTER_EXTREME)
    uint32_t declared_crc;
    uint32_t actual_crc;
 #endif
 
-   pal_engine_tf_ready = false;
-   pal_engine_tf_read_at = NULL;
-   pal_engine_tf_user = NULL;
-   pal_engine_tf_map_valid = false;
-   memset(&pal_engine_tf_toc, 0, sizeof(pal_engine_tf_toc));
+   clear_tf_pack();
    if (read_at == NULL || pack_size < PAL_ENGINE_PACK_HEADER_SIZE)
    {
       return false;
@@ -335,37 +594,51 @@ PalEngineBridge_SetTfPackReadAt(
       !read_at(user, 0, PAL_ENGINE_TF_TOC_STORAGE,
          PAL_ENGINE_PACK_HEADER_SIZE))
    {
-      pal_engine_tf_read_at = NULL;
-      pal_engine_tf_user = NULL;
+      clear_tf_pack();
       return false;
    }
    tf_set_id = read_le32(
       PAL_ENGINE_TF_TOC_STORAGE + PAL_ENGINE_PACK_SET_ID_OFFSET);
    declared_crc = read_le32(
       PAL_ENGINE_TF_TOC_STORAGE + PAL_ENGINE_PACK_CRC32_OFFSET);
-   if (tf_set_id == 0 || tf_set_id != pal_engine_nor_set_id ||
-      declared_crc == 0 ||
+   if (tf_set_id == 0 || declared_crc == 0 ||
       !pack_crc32_read_at(read_at, user, pack_size,
          PAL_ENGINE_TF_TOC_STORAGE, PAL_ENGINE_TF_TOC_BYTES, &actual_crc) ||
       actual_crc != declared_crc)
    {
-      pal_engine_tf_read_at = NULL;
-      pal_engine_tf_user = NULL;
+      clear_tf_pack();
       return false;
    }
 #endif
-   pal_engine_tf_ready = PalPack_OpenTocRead(&pal_engine_tf_toc,
+   if (!PalPack_OpenTocRead(&pal_engine_tf_toc,
       pal_engine_tf_read_at,
       pal_engine_tf_user,
       pack_size,
       PAL_ENGINE_TF_TOC_STORAGE,
-      PAL_ENGINE_TF_TOC_BYTES);
-   if (!pal_engine_tf_ready)
+      PAL_ENGINE_TF_TOC_BYTES))
    {
-      pal_engine_tf_read_at = NULL;
-      pal_engine_tf_user = NULL;
+      clear_tf_pack();
+      return false;
    }
-   return pal_engine_tf_ready;
+   tf_set_id = read_le32(
+      PAL_ENGINE_TF_TOC_STORAGE + PAL_ENGINE_PACK_SET_ID_OFFSET);
+   if ((pal_engine_nor_ready && tf_set_id != pal_engine_nor_set_id) ||
+      (pal_engine_overlay_ready &&
+         tf_set_id != pal_engine_overlay_set_id) ||
+      (pal_engine_nor_ready &&
+         const_pack_toc_overlap(&pal_engine_nor_pack,
+            &pal_engine_tf_toc)) ||
+      (pal_engine_overlay_ready &&
+         const_pack_toc_overlap(&pal_engine_overlay_pack,
+            &pal_engine_tf_toc)))
+   {
+      clear_tf_pack();
+      return false;
+   }
+
+   pal_engine_tf_set_id = tf_set_id;
+   pal_engine_tf_ready = true;
+   return true;
 }
 
 void
@@ -374,14 +647,11 @@ PalEngineBridge_ClearPacks(
 )
 {
    memset(&pal_engine_nor_pack, 0, sizeof(pal_engine_nor_pack));
-   memset(&pal_engine_tf_toc, 0, sizeof(pal_engine_tf_toc));
-   pal_engine_tf_read_at = NULL;
-   pal_engine_tf_user = NULL;
+   PalEngineBridge_ClearOverlay();
+   clear_tf_pack();
    pal_engine_nor_ready = false;
-   pal_engine_tf_ready = false;
    pal_engine_nor_set_id = 0;
    pal_engine_default_tried = false;
-   pal_engine_tf_map_valid = false;
 }
 
 FILE *
@@ -470,7 +740,8 @@ __wrap_PAL_MKFGetChunkSize(
    }
    store = find_chunk_store((uint16_t)archive_id, (uint16_t)chunk_id,
       &span, &info);
-   return store == PAL_ENGINE_ARCHIVE_STORE_NOR ? (INT)span.size :
+   return (store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE) ? (INT)span.size :
       (store == PAL_ENGINE_ARCHIVE_STORE_TF ? (INT)info.size : -1);
 }
 
@@ -500,7 +771,8 @@ __wrap_PAL_MKFMapChunk(
    }
    store = find_chunk_store((uint16_t)archive_id, (uint16_t)chunk_id,
       &span, &info);
-   if (store == PAL_ENGINE_ARCHIVE_STORE_NOR)
+   if (store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE)
    {
       *data = span.data;
       *size = span.size;
@@ -585,7 +857,8 @@ __wrap_PAL_MKFReadChunk(
       return pal_engine_tf_read_at(pal_engine_tf_user, info.offset, buffer, info.size)
          ? (INT)info.size : -1;
    }
-   if (store != PAL_ENGINE_ARCHIVE_STORE_NOR)
+   if (store != PAL_ENGINE_ARCHIVE_STORE_OVERLAY &&
+      store != PAL_ENGINE_ARCHIVE_STORE_CORE)
    {
       return -1;
    }
@@ -637,6 +910,7 @@ PalEngineBridge_ReadNativeRngFrame(
 {
    PalPackSpan span;
    PalPackChunkInfo info;
+   PalEngineArchiveStore store;
    uint8_t words[8];
    uint32_t frame_count;
    uint32_t start;
@@ -648,8 +922,10 @@ PalEngineBridge_ReadNativeRngFrame(
       return -1;
    }
 
-   if (pal_engine_nor_ready &&
-      PalPack_MapConst(&pal_engine_nor_pack, PAL_PACK_ARCHIVE_RNG, movie_id, &span) &&
+   store = find_chunk_store(PAL_PACK_ARCHIVE_RNG, movie_id,
+      &span, &info);
+   if ((store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE) &&
       span.size >= 4)
    {
       frame_count = read_le32(span.data);
@@ -669,12 +945,7 @@ PalEngineBridge_ReadNativeRngFrame(
       return (int)(end - start);
    }
 
-   if (!pal_engine_tf_ready ||
-      !PalPackToc_GetChunkInfo(&pal_engine_tf_toc,
-         PAL_PACK_ARCHIVE_RNG,
-         movie_id,
-         &info) ||
-      info.size < 4 ||
+   if (store != PAL_ENGINE_ARCHIVE_STORE_TF || info.size < 4 ||
       !pal_engine_tf_read_at(pal_engine_tf_user, info.offset, words, 4))
    {
       return -1;

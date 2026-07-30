@@ -23,6 +23,9 @@
 
 #if defined(PAL_CARDPUTER_EXTREME)
 #include "pal_engine_runtime_metrics.h"
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+#include "pal_engine_chapter_cache.h"
+#endif
 #endif
 
 typedef struct tagRESOURCES
@@ -277,6 +280,58 @@ PAL_LoadResources(
    {
       FILE              *fpMAP, *fpGOP;
 
+      if (gpGlobals->fEnteringScene)
+      {
+         gpGlobals->wScreenWave = 0;
+         gpGlobals->sWaveProgression = 0;
+      }
+
+      //
+      // Free previous loaded scene (sprites and map)
+      //
+      PAL_FreeEventObjectSprites();
+      PAL_FreeMap(gpResources->lpMap);
+      gpResources->lpMap = NULL;
+
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+      {
+         BOOL force_verify =
+            (gpResources->bLoadFlags & kLoadGlobalData) != 0;
+         BOOL changes_bundle =
+            PalEngineChapterCache_SceneNeedsBundle(gpGlobals->wNumScene);
+
+         if (gpGlobals->fInBattle &&
+            (force_verify || changes_bundle))
+         {
+            /*
+             * Enemy ABC/FIRE views can still point into the active overlay.
+             * A cache transaction is only legal after battle teardown.
+             */
+            TerminateOnError(
+               "Chapter cache switch requested during battle (scene %u)",
+               gpGlobals->wNumScene);
+         }
+
+         /*
+          * MGO player pointers are const views into the overlay just like the
+          * map and event sprites.  Drop them before PrepareScene() invokes the
+          * provider-clear callback and unmaps the old flash pages.
+          */
+         if (force_verify || changes_bundle)
+         {
+            PAL_FreePlayerSprites();
+            gpResources->bLoadFlags |= kLoadPlayerSprite;
+         }
+         if (!PalEngineChapterCache_PrepareScene(
+               gpGlobals->wNumScene, force_verify))
+         {
+            TerminateOnError(
+               "Chapter cache prepare failed for scene %u",
+               gpGlobals->wNumScene);
+         }
+      }
+#endif
+
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
       fpMAP = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_MAP);
       fpGOP = PAL_MKFOpenPackArchive(PAL_PACK_ARCHIVE_GOP);
@@ -289,22 +344,11 @@ PAL_LoadResources(
       fpGOP = UTIL_OpenRequiredFile("gop.mkf");
 #endif
 
-      if (gpGlobals->fEnteringScene)
-      {
-         gpGlobals->wScreenWave = 0;
-         gpGlobals->sWaveProgression = 0;
-      }
-
-      //
-      // Free previous loaded scene (sprites and map)
-      //
-      PAL_FreeEventObjectSprites();
-      PAL_FreeMap(gpResources->lpMap);
-
       //
       // Load map
       //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_CARDPUTER_EXTREME) && \
+   !defined(PAL_EXTREME_CHAPTER_CACHE)
       if (!((gpGlobals->wNumScene >= 1 && gpGlobals->wNumScene <= 20) ||
             gpGlobals->wNumScene == 22))
       {

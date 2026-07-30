@@ -145,6 +145,12 @@ set(PAL_ENGINE_HOST_SOURCES
     ${PAL_TARGET_BOARD_SOURCES}
 )
 
+if(CARDPUTER_EXTREME_CHAPTER_CACHE)
+    list(APPEND PAL_ENGINE_HOST_SOURCES
+        "../engine_bridge/pal_engine_chapter_cache.c"
+    )
+endif()
+
 set_source_files_properties("../../main.c" PROPERTIES COMPILE_DEFINITIONS "main=PAL_EngineMain")
 
 idf_component_register(
@@ -203,6 +209,11 @@ if(CARDPUTER_EXTREME_NO_PSRAM)
         SHIM_KEYBOARD_KEYS=256
         SHIM_EVENT_QUEUE=8
     )
+    if(CARDPUTER_EXTREME_CHAPTER_CACHE)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE
+            PAL_EXTREME_CHAPTER_CACHE=1
+        )
+    endif()
     if(CARDPUTER_EXTREME_MUSIC)
         target_compile_definitions(${COMPONENT_LIB} PRIVATE
             PAL_EXTREME_RIX_MUSIC=1

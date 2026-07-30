@@ -11,9 +11,9 @@
   "files": [
     {
       "path": "script.c",
-      "sha256": "c6b3284a217924ca74b29591d713bd3940f1b16fff5e244bf69389503bd8fdee",
+      "sha256": "171fc065accf43d1b3f5b99140798b6ade2e45d5a1a12a0e82043fc10733724e",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed bounded sparse-event lookup and the exact extreme-profile chapter endpoint"
+      "reason": "reviewed bounded sparse-event lookup, the finite-profile endpoint, and the compile-gated chapter-cache continuation"
     },
     {
       "path": "scene.c",
@@ -23,9 +23,9 @@
     },
     {
       "path": "res.c",
-      "sha256": "81dff9e18d86b7ec62e01924937bd9a7182646a74be13099bf40655576ef4495",
+      "sha256": "128bb8f7fc50f77da84cbc46f65315bbadb179e99596515fcaf4382ee9a4d3cb",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed pack views, sprite deduplication, and bounded event-resource storage"
+      "reason": "reviewed fixed pack views, sprite deduplication, bounded event-resource storage, and cache-safe pointer teardown before compile-gated overlay switches"
     },
     {
       "path": "global.c",

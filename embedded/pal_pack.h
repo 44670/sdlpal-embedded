@@ -32,6 +32,7 @@ enum PalPackArchiveId {
     PAL_PACK_ARCHIVE_TEXT = 17,
     PAL_PACK_ARCHIVE_FONT = 18,
     PAL_PACK_ARCHIVE_SFX = 19,
+    PAL_PACK_ARCHIVE_CACHE = 20,
 };
 
 enum PalPackFormat {

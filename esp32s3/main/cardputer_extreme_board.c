@@ -1173,6 +1173,113 @@ CardputerExtreme_FlushArgb8888Texture(
     return true;
 }
 
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+void
+CardputerExtreme_ShowLoading(
+    uint8_t percent)
+{
+    static uint8_t last_percent = UINT8_MAX;
+    static const uint8_t loading_glyphs[7][7] = {
+        {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f}, /* L */
+        {0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e}, /* O */
+        {0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11}, /* A */
+        {0x1e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1e}, /* D */
+        {0x1f, 0x04, 0x04, 0x04, 0x04, 0x04, 0x1f}, /* I */
+        {0x11, 0x19, 0x19, 0x15, 0x13, 0x13, 0x11}, /* N */
+        {0x0e, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0e}, /* G */
+    };
+    const uint16_t max_rows =
+        (uint16_t)(PAL_EXTREME_DISPLAY_DMA_BYTES /
+                   (CARDPUTER_EXTREME_LCD_WIDTH * 2u));
+    const uint16_t background = lcd_wire_rgb565(0, 8, 24);
+    const uint16_t foreground = lcd_wire_rgb565(232, 248, 255);
+    const uint16_t bar_empty = lcd_wire_rgb565(24, 48, 72);
+    const uint16_t bar_full = lcd_wire_rgb565(0, 184, 248);
+    const uint16_t glyph_scale = 3u;
+    const uint16_t glyph_x = 57u;
+    const uint16_t glyph_y = 25u;
+    const uint16_t bar_x = 20u;
+    const uint16_t bar_y = 81u;
+    const uint16_t bar_width = 200u;
+    const uint16_t bar_height = 18u;
+    uint16_t y;
+
+    if (percent > 100u) {
+        percent = 100u;
+    }
+    if (percent == last_percent) {
+        return;
+    }
+    last_percent = percent;
+    if (lcd_io == NULL || max_rows == 0u) {
+        return;
+    }
+
+    for (y = 0; y < CARDPUTER_EXTREME_LCD_HEIGHT;) {
+        uint16_t rows = (uint16_t)(CARDPUTER_EXTREME_LCD_HEIGHT - y);
+        uint16_t row;
+
+        if (rows > max_rows) {
+            rows = max_rows;
+        }
+        for (row = 0; row < rows; row++) {
+            uint16_t display_y = (uint16_t)(y + row);
+            uint16_t *destination =
+                (uint16_t *)pal_sram_display_dma +
+                (uint32_t)row * CARDPUTER_EXTREME_LCD_WIDTH;
+            uint16_t x;
+
+            for (x = 0; x < CARDPUTER_EXTREME_LCD_WIDTH; x++) {
+                uint16_t color = background;
+
+                if (display_y >= glyph_y &&
+                    display_y < glyph_y + 7u * glyph_scale &&
+                    x >= glyph_x &&
+                    x < glyph_x + 7u * 6u * glyph_scale) {
+                    uint16_t local_x = (uint16_t)(x - glyph_x);
+                    uint16_t character =
+                        (uint16_t)(local_x / (6u * glyph_scale));
+                    uint16_t column =
+                        (uint16_t)((local_x / glyph_scale) % 6u);
+                    uint16_t glyph_row =
+                        (uint16_t)((display_y - glyph_y) / glyph_scale);
+
+                    if (character < 7u && column < 5u &&
+                        (loading_glyphs[character][glyph_row] &
+                         (uint8_t)(0x10u >> column)) != 0u) {
+                        color = foreground;
+                    }
+                }
+
+                if (display_y >= bar_y &&
+                    display_y < bar_y + bar_height &&
+                    x >= bar_x && x < bar_x + bar_width) {
+                    uint16_t bar_local_x = (uint16_t)(x - bar_x);
+                    uint16_t bar_local_y = (uint16_t)(display_y - bar_y);
+
+                    if (bar_local_x < 2u ||
+                        bar_local_x >= bar_width - 2u ||
+                        bar_local_y < 2u ||
+                        bar_local_y >= bar_height - 2u) {
+                        color = foreground;
+                    } else if ((uint32_t)(bar_local_x - 2u) * 100u <
+                               (uint32_t)(bar_width - 4u) * percent) {
+                        color = bar_full;
+                    } else {
+                        color = bar_empty;
+                    }
+                }
+                destination[x] = color;
+            }
+        }
+        if (!lcd_send_strip(y, rows)) {
+            return;
+        }
+        y = (uint16_t)(y + rows);
+    }
+}
+#endif
+
 void
 CardputerExtreme_ShowError(
     const char *line1,

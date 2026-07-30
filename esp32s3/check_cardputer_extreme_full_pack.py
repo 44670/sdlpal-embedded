@@ -17,7 +17,7 @@ import pal_pack_build as builder  # noqa: E402
 
 
 ACTIVE_TF_TOC_BYTES = 2048
-EXPECTED_RUNTIME_ARCHIVES = set(builder.ARCHIVE_IDS) - {"VOC"}
+EXPECTED_RUNTIME_ARCHIVES = set(builder.ARCHIVE_IDS) - {"VOC", "CACHE"}
 
 
 def pack_archives(

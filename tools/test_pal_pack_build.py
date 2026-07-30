@@ -651,7 +651,7 @@ class CardputerExtremeClosureTests(unittest.TestCase):
         self.assertEqual(mirror.target_filename, "pal_full.pak")
         self.assertEqual(
             set(mirror.archives),
-            set(builder.ARCHIVE_IDS) - {"VOC"},
+            set(builder.ARCHIVE_IDS) - {"VOC", "CACHE"},
         )
         self.assertIn("SFX", mirror.archives)
         self.assertNotIn("VOC", mirror.archives)

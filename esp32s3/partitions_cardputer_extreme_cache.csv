@@ -1,0 +1,6 @@
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  0x0C0000,
+pal_core, data, 0x40,    0x0D0000, 0x460000,
+pal_cache,data, 0x41,    0x530000, 0x2D0000,

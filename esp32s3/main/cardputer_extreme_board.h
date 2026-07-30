@@ -107,6 +107,10 @@ bool CardputerExtreme_FlushArgb8888Texture(
     uint16_t width,
     uint16_t height,
     uint16_t pitch);
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+/* Draw the cache-rebuild screen directly at native 240x135 resolution. */
+void CardputerExtreme_ShowLoading(uint8_t percent);
+#endif
 void CardputerExtreme_ShowError(const char *line1, const char *line2);
 
 #ifdef __cplusplus

@@ -1955,7 +1955,8 @@ PAL_InterpretInstruction(
       //
       // Change to the specified scene
       //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_CARDPUTER_EXTREME) && \
+   !defined(PAL_EXTREME_CHAPTER_CACHE)
       if (gpGlobals->wNumScene == 22 && pScript->rgwOperand[0] == 21)
       {
          /*

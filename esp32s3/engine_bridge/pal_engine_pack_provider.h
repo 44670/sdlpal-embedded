@@ -14,6 +14,10 @@ extern "C" {
 typedef bool (*PalEngineBridgeReadAt)(void *user, uint32_t offset, uint8_t *dst, uint32_t size);
 
 bool PalEngineBridge_SetNorPackConst(const uint8_t *image, uint32_t image_size);
+bool PalEngineBridge_SetCorePackConst(const uint8_t *image, uint32_t image_size);
+bool PalEngineBridge_SetOverlayPackConst(const uint8_t *image, uint32_t image_size);
+void PalEngineBridge_ClearOverlay(void);
+void PalEngineBridge_ClearOverlayPack(void);
 bool PalEngineBridge_SetTfPackReadAt(uint32_t pack_size, PalEngineBridgeReadAt read_at, void *user);
 void PalEngineBridge_ClearPacks(void);
 bool PalEngineBridge_TargetInitPacks(void);

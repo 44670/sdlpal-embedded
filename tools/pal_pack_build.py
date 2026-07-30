@@ -73,6 +73,9 @@ ARCHIVE_IDS = {
     "TEXT": 17,
     "FONT": 18,
     "SFX": 19,
+    # Host-generated chapter-cache catalog.  This archive has no loose PAL
+    # source file; tools/pal_chapter_pack_build.py injects its binary chunk.
+    "CACHE": 20,
 }
 
 DEFAULT_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_default.json")

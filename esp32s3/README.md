@@ -28,6 +28,41 @@ make -C esp32s3 cardputer-extreme-build
 make -C esp32s3 cardputer-extreme-pack-build
 ```
 
+### TF-backed chapter cache experiment
+
+`CARDPUTER_EXTREME_CHAPTER_CACHE=ON` selects a separate 8MB flash layout:
+the 768KB app is followed by a `0x460000` immutable `pal_core` partition and
+one `0x2d0000` replaceable `pal_cache` partition.  The host tool builds 15
+conservative scene bundles (`b00.pak` through `b14.pak`) plus the active
+`pal_tf.pak` and complete decoded/native `pal_full.pak` TF mirror:
+
+```sh
+make -C esp32s3 cardputer-extreme-chapter-cache-check
+make -C esp32s3 TF_MOUNT=/media/$USER/PALTF \
+  cardputer-extreme-chapter-prepare-tf
+make -C esp32s3 PORT=/dev/ttyACM0 \
+  cardputer-extreme-chapter-cache-flash-core
+make -C esp32s3 PORT=/dev/ttyACM0 \
+  cardputer-extreme-chapter-cache-flash
+```
+
+After a save is loaded, and whenever a scene crosses a bundle boundary, the
+engine compares the exact cached SPI-NOR payload SHA-256 with the descriptor
+in the immutable core catalog.  A matching bundle is mapped directly.  A
+mismatch shows a native 240x135 `LOADING` progress screen, streams the matching
+short-name TF file through a caller-owned static FatFS `FIL` into SPI NOR,
+verifies both the TF-side and flash-readback SHA-256, validates the pack CRC/set
+ID/ownership through the normal provider, and writes the commit record last.
+Erasing the commit sector before the payload makes an interrupted update
+rebuild deterministically on the next attempt.
+
+The generated resource closure covers scenes 1 through 299, but this is not
+yet a full-game runtime claim.  The current no-PSRAM mutable event storage and
+tagged save format still contain only the 423-event prefix used by scenes
+1 through 22; later scenes fail safely at the existing event-boundary check.
+`pal_full.pak` retains the complete 5,369-event template for the planned
+TF-backed event-state pager and full save streaming work.
+
 The default firmware and pack targets remain the established no-audio
 profile.  The explicit music-only profile builds in a fixed-storage OPL2/RIX
 backend and adds 25 sparse, original-numbered tracks from `MUS.MKF` to NOR,
