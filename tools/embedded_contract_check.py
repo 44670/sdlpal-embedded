@@ -897,7 +897,39 @@ def check_manifest(path: Path) -> tuple[list[str], str]:
                 errors.append(f"{path}: pack layout {layout_path} sha256 changed")
             raw_layout_file_packs = layout_file.get("packs")
             if isinstance(raw_layout_file_packs, dict):
-                layout_file_packs = raw_layout_file_packs
+                layout_file_packs = {
+                    label: list(raw_layout_file_packs.get(label, []))
+                    for label in ("nor", "tf")
+                }
+                layout_profile = pack_layout.get("profile")
+                if layout_profile is not None:
+                    raw_profiles = layout_file.get("profiles")
+                    raw_profile = (
+                        raw_profiles.get(layout_profile)
+                        if isinstance(raw_profiles, dict)
+                        and isinstance(layout_profile, str)
+                        else None
+                    )
+                    raw_additions = (
+                        raw_profile.get("pack_additions")
+                        if isinstance(raw_profile, dict)
+                        else None
+                    )
+                    if not isinstance(raw_additions, dict):
+                        errors.append(
+                            f"{path}: pack layout {layout_path} has no "
+                            f"profile {layout_profile!r}"
+                        )
+                    else:
+                        for label in ("nor", "tf"):
+                            additions = raw_additions.get(label, {})
+                            if not isinstance(additions, dict):
+                                errors.append(
+                                    f"{path}: pack layout profile "
+                                    f"{layout_profile!r} has invalid {label} additions"
+                                )
+                                continue
+                            layout_file_packs[label].extend(additions)
             else:
                 errors.append(f"{path}: pack layout {layout_path} has no packs object")
     layout_overrides = pack_layout.get("overrides")

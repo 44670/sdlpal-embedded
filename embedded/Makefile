@@ -1,4 +1,5 @@
 CC ?= gcc
+CXX ?= g++
 OBJDUMP ?= objdump
 NM ?= nm
 SIZE ?= size
@@ -10,6 +11,7 @@ PACK_MANIFEST ?= /tmp/pal_pack_default_manifest.json
 PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
 
 CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections
+CXXFLAGS ?= -std=gnu++11 -Wall -Wextra -Werror -Os -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections
 LDFLAGS ?= -Wl,--gc-sections
 MAP_LDFLAGS = -Wl,-Map,$@.map,--cref
 NOHEAP_LDFLAGS = -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free
@@ -25,8 +27,17 @@ MEMORY_SMOKE := $(BUILD_DIR)/pal_memory_smoke
 NATIVE_SDL_SMOKE := $(BUILD_DIR)/pal_native_sdl_smoke
 REALDATA_SDL_SMOKE := $(BUILD_DIR)/pal_realdata_sdl_smoke
 PACK_CHECK := $(BUILD_DIR)/pal_pack_check
+MAME_OPL2_STATIC_OBJ := $(BUILD_DIR)/pal_mame_opl2_static.o
+MAME_OPL2_STATIC_SMOKE := $(BUILD_DIR)/pal_mame_opl2_static_smoke
+RIX_MAME_OPL2_SMOKE := $(BUILD_DIR)/pal_rix_mame_opl2_smoke
+RIX_MAME_OPL2_PLAYER_OBJ := $(BUILD_DIR)/pal_rix_player.o
+RIX_MAME_OPL2_DECODER_OBJ := $(BUILD_DIR)/pal_rix_decoder.o
+RIX_MAME_OPL2_PACK_OBJ := $(BUILD_DIR)/pal_rix_pack.o
+RIX_MAME_OPL2_CACHE_OBJ := $(BUILD_DIR)/pal_rix_music_cache.o
+RIX_MAME_OPL2_NOHEAP_OBJ := $(BUILD_DIR)/pal_rix_noheap.o
+RIX_EXPECTED_TRACKS ?= 86
 
-.PHONY: all clean check pack-build realdata-check artifact-check contract-check sanitize-check
+.PHONY: all clean check pack-build realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check
 
 all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK)
 
@@ -47,6 +58,39 @@ $(REALDATA_SDL_SMOKE): pal_noheap.c pal_memory.c pal_memory.h pal_pack.c pal_pac
 
 $(PACK_CHECK): pal_noheap.c pal_pack.c pal_pack.h ../tools/pal_pack_check.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I. pal_noheap.c pal_pack.c ../tools/pal_pack_check.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
+
+$(MAME_OPL2_STATIC_OBJ): pal_mame_opl2_static.cpp pal_mame_opl2_static.h pal_mame_opl2_fixed_tables.inc ../adplug/mame/fmopl.cpp.h ../adplug/mame/fmopl.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I.. -c pal_mame_opl2_static.cpp -o $@
+
+$(MAME_OPL2_STATIC_SMOKE): pal_mame_opl2_static_smoke.cpp $(MAME_OPL2_STATIC_OBJ) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -Wno-class-memaccess -Wno-unused-parameter -Wno-unused-function -I.. pal_mame_opl2_static_smoke.cpp $(MAME_OPL2_STATIC_OBJ) -o $@ $(LDFLAGS) -lm
+
+mame-opl2-static-check: $(MAME_OPL2_STATIC_SMOKE)
+	$(PYTHON) -B ../tools/pal_mame_opl2_tables.py --output pal_mame_opl2_fixed_tables.inc --check
+	$(MAME_OPL2_STATIC_SMOKE)
+	! $(NM) -u -C $(MAME_OPL2_STATIC_OBJ) | grep -E 'malloc|calloc|realloc|free|operator new|operator delete|pow|sin|log'
+
+$(RIX_MAME_OPL2_PLAYER_OBJ): ../adplug/player.cpp ../adplug/player.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -Wno-ignored-qualifiers -Wno-unused-parameter -Wno-unused-function -DPAL_NO_RUNTIME_HEAP=1 -DUSE_RIX_EXTRA_INIT=0 -DUSE_SDL3=0 -I../unix -I../sdl_compat -I.. -c $< -o $@
+
+$(RIX_MAME_OPL2_DECODER_OBJ): ../adplug/rix.cpp ../adplug/rix.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -Wno-ignored-qualifiers -Wno-unused-parameter -Wno-unused-function -DPAL_NO_RUNTIME_HEAP=1 -DUSE_RIX_EXTRA_INIT=0 -DUSE_SDL3=0 -I../unix -I../sdl_compat -I.. -c $< -o $@
+
+$(RIX_MAME_OPL2_PACK_OBJ): pal_pack.c pal_pack.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I.. -c $< -o $@
+
+$(RIX_MAME_OPL2_CACHE_OBJ): pal_music_cache.c pal_music_cache.h pal_pack.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I.. -c $< -o $@
+
+$(RIX_MAME_OPL2_NOHEAP_OBJ): pal_noheap.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I.. -c $< -o $@
+
+$(RIX_MAME_OPL2_SMOKE): pal_rix_mame_opl2_smoke.cpp $(MAME_OPL2_STATIC_OBJ) $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(RIX_MAME_OPL2_PACK_OBJ) $(RIX_MAME_OPL2_CACHE_OBJ) $(RIX_MAME_OPL2_NOHEAP_OBJ) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -Wno-ignored-qualifiers -Wno-unused-parameter -Wno-unused-function -DPAL_NO_RUNTIME_HEAP=1 -DUSE_RIX_EXTRA_INIT=0 -DUSE_SDL3=0 -I../unix -I../sdl_compat -I.. pal_rix_mame_opl2_smoke.cpp $(MAME_OPL2_STATIC_OBJ) $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(RIX_MAME_OPL2_PACK_OBJ) $(RIX_MAME_OPL2_CACHE_OBJ) $(RIX_MAME_OPL2_NOHEAP_OBJ) -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(SDL_LIBS)
+
+rix-mame-opl2-check: $(RIX_MAME_OPL2_SMOKE)
+	$(RIX_MAME_OPL2_SMOKE) $(PACK_NOR) $(RIX_EXPECTED_TRACKS)
+	! $(NM) -u -C $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(MAME_OPL2_STATIC_OBJ) | grep -E ' U (malloc|calloc|realloc|free|pow|sin|log)(@[^ ]*)?$$| U operator (new|delete)'
 
 check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE)
 	$(SMOKE)

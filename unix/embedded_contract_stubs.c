@@ -24,6 +24,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(PAL_CONTRACT_NO_AUDIO) || defined(PAL_CONTRACT_NO_SFX)
+#define PAL_CONTRACT_DISABLE_SFX 1
+#endif
 #ifndef PAL_CONTRACT_TARGET_PACK_PROVIDER
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -33,7 +37,7 @@
 
 #define PAL_CONTRACT_TEXT_SLOTS 8u
 #define PAL_CONTRACT_TEXT_CHARS 64u
-#ifndef PAL_CONTRACT_NO_AUDIO
+#ifndef PAL_CONTRACT_DISABLE_SFX
 # define PAL_CONTRACT_SFX_BYTES (212u * 1024u)
 # define PAL_CONTRACT_SFX_MAGIC 0x58465350u
 # define PAL_CONTRACT_SFX_VERSION 1u
@@ -70,7 +74,7 @@ static bool pal_contract_font_ready;
 static PalMusicTrack pal_contract_music_track;
 static AUDIOPLAYER pal_contract_music_player;
 #endif
-#ifndef PAL_CONTRACT_NO_AUDIO
+#ifndef PAL_CONTRACT_DISABLE_SFX
 static AUDIOPLAYER pal_contract_sound_player;
 static const uint8_t *pal_contract_sfx_pcm;
 static uint32_t pal_contract_sfx_samples;
@@ -80,7 +84,7 @@ static bool pal_contract_sfx_active;
 static uint8_t pal_sram_contract_text_slots
     [PAL_CONTRACT_TEXT_SLOTS][PAL_CONTRACT_TEXT_CHARS * sizeof(WCHAR)] PAL_CONTRACT_SRAM;
 static uint8_t pal_sram_contract_dialog_palette[256u * sizeof(SDL_Color)] PAL_CONTRACT_SRAM;
-#ifndef PAL_CONTRACT_NO_AUDIO
+#ifndef PAL_CONTRACT_DISABLE_SFX
 static uint8_t pal_psram_contract_sfx[PAL_CONTRACT_SFX_BYTES] PAL_CONTRACT_PSRAM;
 #endif
 static unsigned int pal_contract_text_slot;
@@ -110,7 +114,7 @@ bool PalContract_TargetOpenNorPack(PalPack *pack);
 bool PalContract_TargetOpenTfPack(PalPack *pack);
 #endif
 
-#ifndef PAL_CONTRACT_NO_AUDIO
+#ifndef PAL_CONTRACT_DISABLE_SFX
 static int16_t
 PalContract_ReadI16(
     const uint8_t *p
@@ -300,7 +304,7 @@ PalContract_DrawGlyph16(
     }
 }
 
-#ifndef PAL_CONTRACT_NO_AUDIO
+#ifndef PAL_CONTRACT_DISABLE_SFX
 static bool
 PalContract_OpenSfx(
     const uint8_t *payload,
@@ -393,7 +397,7 @@ PalContract_MusicFillBuffer(
 }
 #endif
 
-#ifndef PAL_CONTRACT_NO_AUDIO
+#ifndef PAL_CONTRACT_DISABLE_SFX
 static BOOL
 PalContract_SoundPlay(
     VOID *player,
@@ -1057,7 +1061,7 @@ LPAUDIOPLAYER RIX_Init(LPCSTR szFileName)
 }
 #endif
 
-#ifndef PAL_CONTRACT_NO_AUDIO
+#ifndef PAL_CONTRACT_DISABLE_SFX
 LPAUDIOPLAYER SOUND_Init(VOID)
 {
     if (!PalContract_OpenTfPack()) {

@@ -87,6 +87,44 @@ Linker script and memory map
             (0x3FC88000, 0x53700),
         )
 
+    def test_symbol_section_parser_keeps_flash_and_dram_placement(self) -> None:
+        text = """
+3c0b4e80 g     O .flash.rodata  00006100 pal_mame_opl2_fixed_tl_tab
+3fc9c510 g     O .dram0.bss     000006a8 pal_mame_opl2_state
+00000000         *UND*          00000000 malloc
+"""
+        self.assertEqual(
+            check.parse_symbol_sections(text),
+            {
+                "pal_mame_opl2_fixed_tl_tab": (0x6100, ".flash.rodata"),
+                "pal_mame_opl2_state": (0x6A8, ".dram0.bss"),
+            },
+        )
+
+    def test_cmake_cache_parser_strips_types_and_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "CMakeCache.txt"
+            path.write_text(
+                "\n".join(
+                    (
+                        "// generated cache",
+                        "CARDPUTER_EXTREME_MUSIC:BOOL=ON",
+                        "CARDPUTER_EXTREME_NO_PSRAM:UNINITIALIZED=ON",
+                        "PAL_CORES3SE_ENGINE_HOST:UNINITIALIZED=1",
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                check.parse_cmake_cache(path),
+                {
+                    "CARDPUTER_EXTREME_MUSIC": "ON",
+                    "CARDPUTER_EXTREME_NO_PSRAM": "ON",
+                    "PAL_CORES3SE_ENGINE_HOST": "1",
+                },
+            )
+
     def test_heap_telemetry_queries_are_allowed(self) -> None:
         for name in (
             "heap_caps_get_free_size",

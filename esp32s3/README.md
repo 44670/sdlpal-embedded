@@ -14,8 +14,9 @@ the default CoreS3 SE build.  The profile has:
   partition;
 - no PSRAM and no engine/resource heap allocation;
 - exactly two named 320x200x8-bit logical screens plus one 4KB LCD DMA strip;
-- no audio, desktop codecs, runtime decompressor, splash sequence, or custom
-  screen layouts;
+- no audio in the default build; the explicit music build adds RIX/OPL2 only,
+  while desktop codecs and SFX remain excluded;
+- no runtime decompressor, splash sequence, or custom screen layouts;
 - the Cardputer ADV vendor timing profile (240MHz CPU and a 1ms FreeRTOS tick);
 - ST7789 240x135 indexed presentation through SPI3 and TCA8418 keyboard input;
 - TF on independent SPI2 at 20MHz, with only a 2KB pack TOC resident in SRAM.
@@ -26,6 +27,56 @@ Build the firmware and the chapter resource packs:
 make -C esp32s3 cardputer-extreme-build
 make -C esp32s3 cardputer-extreme-pack-build
 ```
+
+The default firmware and pack targets remain the established no-audio
+profile.  The explicit music-only profile builds in a fixed-storage OPL2/RIX
+backend and adds 25 sparse, original-numbered tracks from `MUS.MKF` to NOR,
+while continuing to exclude MIDI, VOC, and SFX:
+
+```sh
+make -C esp32s3 cardputer-extreme-music-build
+make -C esp32s3 cardputer-extreme-music-check
+```
+
+The music firmware uses its own `build-cardputer-extreme-music` directory and
+sdkconfig, leaving `build-cardputer-extreme` as the no-audio build.  The full
+gate also writes `/tmp/pal_cardputer_extreme_music_nor.pak`,
+`/tmp/pal_cardputer_extreme_music_tf.pak`, the complete decoded mirror
+`/tmp/pal_cardputer_extreme_music_full.pak`, and a separate music manifest.
+It checks the exact track-ID closure, all 88 source chunk slots, RIX headers,
+zero-sized absent chunks, the 8MB NOR partition budget, the 2KB active-TF TOC
+budget, and the shared three-image pack-set ID.  On the linked firmware it additionally
+checks the exact 48-source inventory, music/no-SFX compile defines and symbols,
+OPL table placement in flash, OPL/audio state in SRAM, stack reports, and
+separate music SRAM/flash budgets.  The current measured result is a
+420,112-byte app in the 1,048,576-byte partition (628,464 bytes physically
+free, or 104,176 bytes below the stricter 524,288-byte music gate).
+`.dram0.bss` is 220,816/225,280 bytes (4,464 bytes of gate headroom), combined
+DIRAM static use is 267,480/270,336 bytes (2,856 bytes of gate headroom), and
+IRAM static use is 52,736/65,536 bytes.  The linker leaves 74,272 bytes of
+DRAM before the 16KB main-task stack and 57,888 bytes after it.  These are
+link-time reserve figures, not a substitute for the runtime low-water logs.
+The music-owned named BSS is 8,310/12,288 bytes; the 24,832-byte fixed OPL
+tables reside in `.flash.rodata`.  The matching NOR pack is
+6,861,772/7,274,496 bytes (412,724 physical bytes free and 194,489 bytes below
+the 97% soft cap); TF is 1,233,092 bytes, with a 1,400/2,048-byte resident TOC.
+The separate complete mirror is 57,755,986 bytes: 18 runtime-native archives,
+2,213 original-numbered chunks, 57,718,385 payload bytes, and a 35,656-byte
+TOC.  It contains every host-decoded/preconverted resource, including all
+MIDI/MUS tracks and host-converted PCM SFX, while deliberately omitting raw
+`VOC.MKF` in favor of the generated `SFX` archive.
+
+Install the matching firmware and pack bundle with:
+
+```sh
+make -C esp32s3 TF_MOUNT=/media/$USER/PALTF cardputer-extreme-music-prepare-tf
+make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-music-flash-nor
+make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-music-flash
+```
+
+The active music TF payload size is currently unchanged, but its pack-set ID
+differs; it must not be mixed with the default no-audio NOR image.  The prepare
+target installs both `pal_tf.pak` and `pal_full.pak`.
 
 The stronger repeatable gate is:
 
@@ -78,6 +129,18 @@ chunk.  Both packs carry one deterministic pack-set ID and a whole-image
 CRC32; startup rejects a mismatched card, stale NOR/TF pair, or corrupted
 image before exposing resources to the engine.
 
+The same TF card also receives `pal_full.pak`, an independent complete mirror
+that may overlap every active NOR/TF chunk.  The current no-PSRAM firmware does
+not open or index this file: its 35,656-byte TOC cannot fit the 2KB active
+index budget.  Keeping the verified sparse `pal_tf.pak` as the runtime image
+avoids changing chunk precedence or the current read path.  The mirror is a
+future-expansion source for generating a larger sparse active pack or for a
+later bounded streaming-index implementation.  The build manifest records
+the mirror's whole-pack SHA-256/CRC32 plus every archive/chunk format, size,
+and SHA-256.  The checker rebuilds all host conversions from the source files,
+compares every chunk, rejects residual YJ1 payloads, and verifies all three
+pack-set IDs.
+
 Prepare and flash:
 
 ```sh
@@ -86,8 +149,9 @@ make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-flash-nor
 make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-flash
 ```
 
-`cardputer-extreme-prepare-tf` installs the generated TF image as
-`pal_tf.pak`.  The firmware logs both general internal-RAM and DMA-capable
+`cardputer-extreme-prepare-tf` installs the generated active TF image as
+`pal_tf.pak` and the complete decoded mirror as `pal_full.pak`.  Only
+`pal_tf.pak` is runtime-active.  The firmware logs both general internal-RAM and DMA-capable
 internal-RAM free/minimum/largest-block memory, plus the main-task stack
 high-water mark, at app entry, after board/pack startup, after resource loads,
 and around battle.  Real hardware validation must still capture those logs

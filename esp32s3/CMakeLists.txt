@@ -9,8 +9,16 @@ if(NOT DEFINED CARDPUTER_EXTREME_NO_PSRAM)
         "Build the Cardputer ADV 8MB/no-PSRAM/two-screen extreme profile")
 endif()
 
+if(NOT DEFINED CARDPUTER_EXTREME_MUSIC)
+    set(CARDPUTER_EXTREME_MUSIC OFF CACHE BOOL
+        "Enable fixed-memory MUS/RIX background music on Cardputer ADV")
+endif()
+
 if(CARDPUTER_EXTREME_NO_PSRAM AND NOT PAL_CORES3SE_ENGINE_HOST)
     message(FATAL_ERROR "CARDPUTER_EXTREME_NO_PSRAM requires PAL_CORES3SE_ENGINE_HOST=ON")
+endif()
+if(CARDPUTER_EXTREME_MUSIC AND NOT CARDPUTER_EXTREME_NO_PSRAM)
+    message(FATAL_ERROR "CARDPUTER_EXTREME_MUSIC requires CARDPUTER_EXTREME_NO_PSRAM=ON")
 endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

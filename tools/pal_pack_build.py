@@ -101,6 +101,17 @@ class PackLayout:
     pack_names: dict[str, list[str]]
     chunk_rules: dict[str, dict[str, ChunkRule]]
     max_bytes: dict[str, int | None]
+    profile: str | None = None
+    tf_complete_mirror: CompleteMirrorLayout | None = None
+
+
+@dataclass(frozen=True)
+class CompleteMirrorLayout:
+    """Host-generated full native resource mirror staged beside pal_tf.pak."""
+
+    archives: tuple[str, ...]
+    target_filename: str
+    index_strategy: str
 
 
 def u16(data: bytes, offset: int) -> int:
@@ -528,7 +539,10 @@ def source_file_manifest(data_dir: Path, names: list[str]) -> list[dict[str, obj
     return result
 
 
-def summarize_archives(archives: dict[str, list[Chunk]]) -> list[dict[str, object]]:
+def summarize_archives(
+    archives: dict[str, list[Chunk]],
+    include_chunk_hashes: bool = False,
+) -> list[dict[str, object]]:
     result = []
     for name in sorted(archives, key=lambda item: ARCHIVE_IDS[item]):
         chunks = archives[name]
@@ -537,13 +551,14 @@ def summarize_archives(archives: dict[str, list[Chunk]]) -> list[dict[str, objec
         for index, chunk in enumerate(chunks):
             format_name = FORMAT_NAMES.get(chunk.fmt, str(chunk.fmt))
             format_counts[format_name] = format_counts.get(format_name, 0) + 1
-            chunk_entries.append(
-                {
-                    "id": index,
-                    "format": format_name,
-                    "payload_bytes": len(chunk.payload),
-                }
-            )
+            chunk_entry = {
+                "id": index,
+                "format": format_name,
+                "payload_bytes": len(chunk.payload),
+            }
+            if include_chunk_hashes:
+                chunk_entry["sha256"] = hashlib.sha256(chunk.payload).hexdigest()
+            chunk_entries.append(chunk_entry)
         result.append(
             {
                 "name": name,
@@ -597,15 +612,18 @@ def summarize_pack(
     pack: bytes,
     archives: dict[str, list[Chunk]],
     sparse: bool,
+    include_chunk_hashes: bool = False,
 ) -> dict[str, object]:
-    archive_entries = summarize_archives(archives)
+    archive_entries = summarize_archives(archives, include_chunk_hashes)
     result = {
         "path": str(path.resolve()),
         "size": len(pack),
+        "sha256": hashlib.sha256(pack).hexdigest(),
         "archives": names,
         "archive_count": len(archive_entries),
         "pack_set_id": u32(pack, PACK_SET_ID_OFFSET),
         "crc32": u32(pack, PACK_CRC32_OFFSET),
+        "toc_bytes": u32(pack, 16),
         "chunk_count": sum(int(archive["chunk_count"]) for archive in archive_entries),
         "payload_bytes": sum(int(archive["payload_bytes"]) for archive in archive_entries),
         "max_payload_bytes": max((int(archive["max_payload_bytes"]) for archive in archive_entries), default=0),
@@ -622,12 +640,19 @@ def write_manifest(
     data_dir: Path,
     manifest_path: Path,
     layout_path: Path,
+    layout_profile: str | None,
     layout_overrides: dict[str, bool],
     nor_summary: dict[str, object],
     tf_summary: dict[str, object],
     nor_names: list[str],
     tf_names: list[str],
+    tf_complete_summary: dict[str, object] | None,
+    tf_complete_layout: CompleteMirrorLayout | None,
 ) -> None:
+    source_names = [*nor_names, *tf_names]
+    if tf_complete_layout is not None:
+        source_names.extend(tf_complete_layout.archives)
+
     manifest = {
         "schema": "sdlpal-embedded-pack-manifest",
         "version": 1,
@@ -646,12 +671,24 @@ def write_manifest(
                 "tf": tf_names,
             },
         },
-        "source_files": source_file_manifest(data_dir, [*nor_names, *tf_names]),
+        "source_files": source_file_manifest(data_dir, source_names),
         "packs": {
             "nor": nor_summary,
             "tf": tf_summary,
         },
     }
+    if layout_profile is not None:
+        manifest["pack_layout"]["profile"] = layout_profile
+    if tf_complete_layout is not None and tf_complete_summary is not None:
+        manifest["pack_layout"]["tf_complete_mirror"] = {
+            "archives": list(tf_complete_layout.archives),
+            "target_filename": tf_complete_layout.target_filename,
+            "runtime_active": False,
+            "all_chunks": True,
+            "allow_overlap": True,
+            "index_strategy": tf_complete_layout.index_strategy,
+        }
+        manifest["packs"]["tf_complete"] = tf_complete_summary
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     print(f"{manifest_path}: manifest source_files={len(manifest['source_files'])}")
@@ -905,11 +942,151 @@ def parse_pack_limits(data: dict[str, object]) -> dict[str, int | None]:
     return result
 
 
-def load_pack_layout(path: Path) -> PackLayout:
+def apply_pack_profile(
+    data: dict[str, object],
+    profile: str | None,
+    pack_names: dict[str, list[str]],
+) -> tuple[dict[str, list[str]], dict[str, object]]:
+    """Apply an additive sparse-pack profile without changing the base layout.
+
+    Profiles are deliberately additive: the base Cardputer extreme layout
+    remains the no-audio contract, while an explicitly selected profile can
+    add an archive and its sparse chunk rule.  This prevents an audio-capable
+    pack build from silently changing the established no-audio artifacts.
+    """
+    if profile is None:
+        return pack_names, data
+
+    raw_profiles = data.get("profiles")
+    if not isinstance(raw_profiles, dict):
+        raise SystemExit(f"pack layout has no profiles object: {profile}")
+    raw_profile = raw_profiles.get(profile)
+    if not isinstance(raw_profile, dict):
+        raise SystemExit(f"pack layout has no profile: {profile}")
+    raw_additions = raw_profile.get("pack_additions")
+    if not isinstance(raw_additions, dict):
+        raise SystemExit(f"pack profile {profile} has no pack_additions object")
+
+    result_names = {label: list(names) for label, names in pack_names.items()}
+    raw_selection = data.get("chunk_selection")
+    if not isinstance(raw_selection, dict):
+        raise SystemExit("pack layout profile requires a chunk_selection object")
+    merged_selection: dict[str, dict[str, object]] = {}
+
+    for label in ("nor", "tf"):
+        raw_base_rules = raw_selection.get(label)
+        if not isinstance(raw_base_rules, dict):
+            raise SystemExit(f"pack layout must define chunk_selection.{label}")
+        merged_rules = dict(raw_base_rules)
+        raw_pack_additions = raw_additions.get(label, {})
+        if not isinstance(raw_pack_additions, dict):
+            raise SystemExit(
+                f"pack profile {profile} pack_additions.{label} must be an object"
+            )
+        for raw_name, raw_rule in raw_pack_additions.items():
+            if not isinstance(raw_name, str):
+                raise SystemExit(
+                    f"pack profile {profile} pack_additions.{label} "
+                    "contains a non-string archive name"
+                )
+            name = raw_name.strip().upper()
+            if name not in ARCHIVE_IDS:
+                raise SystemExit(
+                    f"pack profile {profile} adds unknown archive: {name}"
+                )
+            if name in result_names[label] or name in merged_rules:
+                raise SystemExit(
+                    f"pack profile {profile} adds duplicate {label} archive: {name}"
+                )
+            result_names[label].append(name)
+            merged_rules[name] = raw_rule
+        merged_selection[label] = merged_rules
+
+    merged_data = dict(data)
+    merged_data["chunk_selection"] = merged_selection
+    return result_names, merged_data
+
+
+def parse_complete_tf_mirror(
+    data: dict[str, object],
+) -> CompleteMirrorLayout | None:
+    raw = data.get("tf_complete_mirror")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise SystemExit("tf_complete_mirror must be an object")
+
+    required_keys = {
+        "archives",
+        "target_filename",
+        "runtime_active",
+        "all_chunks",
+        "allow_overlap",
+        "index_strategy",
+    }
+    if set(raw) != required_keys:
+        missing = sorted(required_keys - set(raw))
+        extra = sorted(set(raw) - required_keys)
+        detail = []
+        if missing:
+            detail.append(f"missing {','.join(missing)}")
+        if extra:
+            detail.append(f"unknown {','.join(extra)}")
+        raise SystemExit(
+            "tf_complete_mirror has invalid fields: " + "; ".join(detail)
+        )
+
+    archives = raw["archives"]
+    if not isinstance(archives, list):
+        raise SystemExit("tf_complete_mirror.archives must be an array")
+    names = validate_names(archives, "tf_complete_mirror.archives")
+    if not names:
+        raise SystemExit("tf_complete_mirror.archives must not be empty")
+    if raw["runtime_active"] is not False:
+        raise SystemExit("tf_complete_mirror.runtime_active must be false")
+    if raw["all_chunks"] is not True:
+        raise SystemExit("tf_complete_mirror.all_chunks must be true")
+    if raw["allow_overlap"] is not True:
+        raise SystemExit("tf_complete_mirror.allow_overlap must be true")
+
+    target_filename = raw["target_filename"]
+    if not isinstance(target_filename, str):
+        raise SystemExit("tf_complete_mirror.target_filename must be a string")
+    target_path = Path(target_filename)
+    if (
+        "/" in target_filename
+        or "\\" in target_filename
+        or target_path.name != target_filename
+        or len(target_path.stem) > 8
+        or target_path.suffix.lower() != ".pak"
+    ):
+        raise SystemExit(
+            "tf_complete_mirror.target_filename must be a short 8.3 .pak name"
+        )
+
+    index_strategy = raw["index_strategy"]
+    if (
+        not isinstance(index_strategy, str)
+        or index_strategy != "offline-mirror-not-runtime-indexed"
+    ):
+        raise SystemExit(
+            "tf_complete_mirror.index_strategy must be "
+            "offline-mirror-not-runtime-indexed"
+        )
+    return CompleteMirrorLayout(
+        tuple(names),
+        target_filename,
+        index_strategy,
+    )
+
+
+def load_pack_layout(path: Path, profile: str | None = None) -> PackLayout:
     data = json.loads(path.read_text(errors="replace"))
     version = data.get("version")
     if data.get("schema") != "sdlpal-embedded-pack-layout" or version not in (1, 2):
         raise SystemExit(f"unknown pack layout schema/version: {path}")
+    if profile is not None and version != 2:
+        raise SystemExit("pack profiles require a version-2 sparse layout")
     packs = data.get("packs")
     if not isinstance(packs, dict):
         raise SystemExit(f"pack layout has no packs object: {path}")
@@ -921,13 +1098,23 @@ def load_pack_layout(path: Path) -> PackLayout:
         "nor": validate_names(nor, "layout packs.nor"),
         "tf": validate_names(tf, "layout packs.tf"),
     }
+    pack_names, effective_data = apply_pack_profile(data, profile, pack_names)
     if version == 1:
-        return PackLayout(1, pack_names, {"nor": {}, "tf": {}}, {"nor": None, "tf": None})
+        return PackLayout(
+            1,
+            pack_names,
+            {"nor": {}, "tf": {}},
+            {"nor": None, "tf": None},
+            profile,
+            parse_complete_tf_mirror(data),
+        )
     return PackLayout(
         2,
         pack_names,
-        parse_chunk_rules(data, pack_names),
+        parse_chunk_rules(effective_data, pack_names),
         parse_pack_limits(data),
+        profile,
+        parse_complete_tf_mirror(data),
     )
 
 
@@ -980,10 +1167,16 @@ def load_selected_archives(
     data_dir: Path,
     names: list[str],
     rules: dict[str, ChunkRule] | None,
+    cache: dict[str, list[Chunk]] | None = None,
 ) -> dict[str, list[Chunk]]:
     archives: dict[str, list[Chunk]] = {}
     for name in names:
-        chunks = load_archive(data_dir, name)
+        if cache is not None and name in cache:
+            chunks = cache[name]
+        else:
+            chunks = load_archive(data_dir, name)
+            if cache is not None:
+                cache[name] = chunks
         if rules is not None:
             chunks = apply_chunk_rule(chunks, rules[name], name)
         archives[name] = chunks
@@ -1018,6 +1211,7 @@ def write_pack(
    sparse: bool,
    max_bytes: int | None,
    pack_set_id: int,
+   include_chunk_hashes: bool = False,
 ) -> dict[str, object]:
     pack = build_pack(archives, pack_set_id)
     verify_pack(pack)
@@ -1026,7 +1220,14 @@ def write_pack(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(pack)
     print(f"{out_path}: {len(pack)} bytes, archives={','.join(names)}")
-    return summarize_pack(out_path, names, pack, archives, sparse)
+    return summarize_pack(
+        out_path,
+        names,
+        pack,
+        archives,
+        sparse,
+        include_chunk_hashes,
+    )
 
 
 def canonical_pack_identity_image(
@@ -1047,6 +1248,7 @@ def canonical_pack_identity_image(
 def compute_pack_set_id(
     nor_archives: dict[str, list[Chunk]],
     tf_archives: dict[str, list[Chunk]],
+    tf_complete_archives: dict[str, list[Chunk]] | None = None,
 ) -> int:
     digest = hashlib.sha256()
     digest.update(b"sdlpal-pack-set-v1\0")
@@ -1054,6 +1256,9 @@ def compute_pack_set_id(
     digest.update(canonical_pack_identity_image(nor_archives))
     digest.update(b"TF\0")
     digest.update(canonical_pack_identity_image(tf_archives))
+    if tf_complete_archives is not None:
+        digest.update(b"TF-COMPLETE\0")
+        digest.update(canonical_pack_identity_image(tf_complete_archives))
     value = int.from_bytes(digest.digest()[:4], "little")
     return value if value != 0 else 1
 
@@ -1063,16 +1268,33 @@ def main() -> int:
     parser.add_argument("data_dir", type=Path)
     parser.add_argument("--out-nor", type=Path, required=True)
     parser.add_argument("--out-tf", type=Path, required=True)
+    parser.add_argument(
+        "--out-tf-complete",
+        type=Path,
+        help="write the layout-declared complete decoded TF mirror",
+    )
     parser.add_argument("--nor", help="comma-separated archives for NOR pack")
     parser.add_argument("--tf", help="comma-separated archives for TF pack")
     parser.add_argument("--layout", type=Path, default=DEFAULT_LAYOUT_PATH, help="JSON archive-to-pack layout policy")
+    parser.add_argument(
+        "--profile",
+        help="explicit additive profile declared by a version-2 pack layout",
+    )
     parser.add_argument("--manifest", type=Path, help="write a source-hash and decoded-size manifest")
     args = parser.parse_args()
 
     data_dir = args.data_dir
-    layout = load_pack_layout(args.layout)
+    layout = load_pack_layout(args.layout, args.profile)
     nor_names = parse_names(args.nor, layout.pack_names["nor"])
     tf_names = parse_names(args.tf, layout.pack_names["tf"])
+    if layout.tf_complete_mirror is not None and args.out_tf_complete is None:
+        raise SystemExit(
+            "layout requires --out-tf-complete for its complete TF mirror"
+        )
+    if layout.tf_complete_mirror is None and args.out_tf_complete is not None:
+        raise SystemExit(
+            "--out-tf-complete requires a layout tf_complete_mirror policy"
+        )
 
     nor_uses_layout_rules = layout.version == 2 and args.nor is None
     tf_uses_layout_rules = layout.version == 2 and args.tf is None
@@ -1084,10 +1306,33 @@ def main() -> int:
         if overlap:
             raise SystemExit(f"archives listed in both packs: {', '.join(overlap)}")
 
-    nor_archives = load_selected_archives(data_dir, nor_names, nor_rules)
-    tf_archives = load_selected_archives(data_dir, tf_names, tf_rules)
+    archive_cache: dict[str, list[Chunk]] = {}
+    nor_archives = load_selected_archives(
+        data_dir,
+        nor_names,
+        nor_rules,
+        archive_cache,
+    )
+    tf_archives = load_selected_archives(
+        data_dir,
+        tf_names,
+        tf_rules,
+        archive_cache,
+    )
+    tf_complete_archives = None
+    if layout.tf_complete_mirror is not None:
+        tf_complete_archives = load_selected_archives(
+            data_dir,
+            list(layout.tf_complete_mirror.archives),
+            None,
+            archive_cache,
+        )
     validate_disjoint_pack_chunks(nor_archives, tf_archives)
-    pack_set_id = compute_pack_set_id(nor_archives, tf_archives)
+    pack_set_id = compute_pack_set_id(
+        nor_archives,
+        tf_archives,
+        tf_complete_archives,
+    )
 
     nor_summary = write_pack(
         args.out_nor,
@@ -1105,16 +1350,34 @@ def main() -> int:
         layout.max_bytes["tf"] if tf_uses_layout_rules else None,
         pack_set_id,
     )
+    tf_complete_summary = None
+    if (
+        layout.tf_complete_mirror is not None
+        and tf_complete_archives is not None
+        and args.out_tf_complete is not None
+    ):
+        tf_complete_summary = write_pack(
+            args.out_tf_complete,
+            list(layout.tf_complete_mirror.archives),
+            tf_complete_archives,
+            False,
+            None,
+            pack_set_id,
+            True,
+        )
     if args.manifest:
         write_manifest(
             data_dir,
             args.manifest,
             args.layout,
+            layout.profile,
             {"nor": args.nor is not None, "tf": args.tf is not None},
             nor_summary,
             tf_summary,
             nor_names,
             tf_names,
+            tf_complete_summary,
+            layout.tf_complete_mirror,
         )
     return 0
 

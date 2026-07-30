@@ -96,6 +96,10 @@ Revision History:
 #include <math.h>
 #include <algorithm>
 
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+#include "../../embedded/pal_mame_opl2_fixed_tables.inc"
+#endif
+
 /* output final shift */
 #if (OPL_SAMPLE_BITS==16)
 	#define FINAL_SH    (0)
@@ -347,6 +351,11 @@ struct OPL_CH
 /* OPL state */
 class FM_OPL
 {
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+public:
+	FM_OPL() = default;
+	~FM_OPL() = default;
+#else
 protected:
 	FM_OPL()
 #if BUILD_Y8950
@@ -360,6 +369,7 @@ public:
 	{
 		UnLockTable();
 	}
+#endif
 
 	/* FM channel slots */
 	OPL_CH  P_CH[9];                /* OPL/OPL2 chips have 9 channels*/
@@ -371,7 +381,9 @@ public:
 
 	uint8_t   rhythm;                 /* Rhythm mode                  */
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 	uint32_t  fn_tab[1024];           /* fnumber->increment counter   */
+#endif
 
 	/* LFO */
 	uint32_t  LFO_AM;
@@ -423,9 +435,11 @@ public:
 	uint8_t statusmask;               /* status mask                  */
 	uint8_t mode;                     /* Reg.08 : CSM,notesel,etc.    */
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 	uint32_t clock;                   /* master clock  (Hz)           */
 	uint32_t rate;                    /* sampling rate (Hz)           */
-	double freqbase;                /* frequency base               */
+	double freqbase;                  /* frequency base               */
+#endif
 	//attotime TimerBase;         /* Timer base time (==sampling time)*/
 	device_t *device;
 
@@ -534,7 +548,7 @@ public:
 					{
 						op.volume += eg_inc[op.eg_sel_dr + ((eg_cnt>>op.eg_sh_dr)&7)];
 
-						if ( op.volume >= op.sl )
+						if ( op.volume >= static_cast<int32_t>(op.sl) )
 							op.state = EG_SUS;
 
 					}
@@ -601,7 +615,7 @@ public:
 				{
 					block_fnum += lfo_fn_table_index_offset;
 					uint8_t const block = (block_fnum&0x1c00) >> 10;
-					op.Cnt += (fn_tab[block_fnum&0x03ff] >> (7-block)) * op.mul;
+					op.Cnt += (fn_value(block_fnum&0x03ff) >> (7-block)) * op.mul;
 				}
 				else    /* LFO phase modulation  = zero */
 				{
@@ -671,7 +685,17 @@ public:
 		{
 			if (!SLOT->FB)
 				out = 0;
-			SLOT->op1_out[1] = op_calc1(SLOT->Cnt, env, (out<<SLOT->FB), SLOT->wavetable );
+			/*
+			 * Feedback output is signed.  Left-shifting a negative C++
+			 * value is undefined, while multiplication by the same
+			 * power of two preserves the YM3812 fixed-point result.
+			 */
+			SLOT->op1_out[1] = op_calc1(
+				SLOT->Cnt,
+				env,
+				out * static_cast<signed int>(1u << SLOT->FB),
+				SLOT->wavetable
+			);
 		}
 
 		/* SLOT 2 */
@@ -751,7 +775,12 @@ public:
 		{
 			if (!SLOT->FB)
 				out = 0;
-			SLOT->op1_out[1] = op_calc1(SLOT->Cnt, env, (out<<SLOT->FB), SLOT->wavetable );
+			SLOT->op1_out[1] = op_calc1(
+				SLOT->Cnt,
+				env,
+				out * static_cast<signed int>(1u << SLOT->FB),
+				SLOT->wavetable
+			);
 		}
 
 		/* SLOT 2 */
@@ -956,12 +985,19 @@ public:
 
 
 	void ResetChip();
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 	void postload();
+#endif
 
 	void clock_changed(uint32_t c, uint32_t r)
 	{
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+		(void)c;
+		(void)r;
+#else
 		clock = c;
 		rate  = r;
+#endif
 
 		/* init global tables */
 		initialize();
@@ -1075,6 +1111,7 @@ public:
 	/* Create one of virtual YM3812/YM3526/Y8950 */
 	/* 'clock' is chip clock in Hz  */
 	/* 'rate'  is sampling rate  */
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 	static FM_OPL *Create(device_t *device, uint32_t clock, uint32_t rate, int type)
 	{
 		if (LockTable(device) == -1)
@@ -1109,6 +1146,7 @@ public:
 
 		return OPL;
 	}
+#endif
 
 
 	/* Optional handlers */
@@ -1129,6 +1167,14 @@ public:
 		UpdateParam = device;
 	}
 
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+	static constexpr size_t FixedMemberTableBytes()
+	{
+		return sizeof(ksl_shift) + sizeof(sl_tab) + sizeof(eg_inc) +
+			sizeof(mul_tab) + sizeof(lfo_am_table) + sizeof(lfo_pm_table);
+	}
+#endif
+
 private:
 	void WriteReg(int r, int v);
 
@@ -1139,18 +1185,31 @@ private:
 
 	static inline signed int op_calc(uint32_t phase, unsigned int env, signed int pm, unsigned int wave_tab)
 	{
-		uint32_t const p = (env<<4) + sin_tab[wave_tab + ((((signed int)((phase & ~FREQ_MASK) + (pm<<16))) >> FREQ_SH ) & SIN_MASK) ];
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+		uint32_t const p = (env<<4) + pal_mame_opl2_fixed_sin_tab[wave_tab + ((((signed int)((phase & ~FREQ_MASK) + (static_cast<uint32_t>(pm)<<16))) >> FREQ_SH ) & SIN_MASK) ];
+
+		return (p >= TL_TAB_LEN) ? 0 : pal_mame_opl2_fixed_tl_tab[p];
+#else
+		uint32_t const p = (env<<4) + sin_tab[wave_tab + ((((signed int)((phase & ~FREQ_MASK) + (static_cast<uint32_t>(pm)<<16))) >> FREQ_SH ) & SIN_MASK) ];
 
 		return (p >= TL_TAB_LEN) ? 0 : tl_tab[p];
+#endif
 	}
 
 	static inline signed int op_calc1(uint32_t phase, unsigned int env, signed int pm, unsigned int wave_tab)
 	{
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+		uint32_t const p = (env<<4) + pal_mame_opl2_fixed_sin_tab[wave_tab + ((((signed int)((phase & ~FREQ_MASK) + pm      )) >> FREQ_SH ) & SIN_MASK) ];
+
+		return (p >= TL_TAB_LEN) ? 0 : pal_mame_opl2_fixed_tl_tab[p];
+#else
 		uint32_t const p = (env<<4) + sin_tab[wave_tab + ((((signed int)((phase & ~FREQ_MASK) + pm      )) >> FREQ_SH ) & SIN_MASK) ];
 
 		return (p >= TL_TAB_LEN) ? 0 : tl_tab[p];
+#endif
 	}
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 
 	/* lock/unlock for common table */
 	static int LockTable(device_t *device)
@@ -1187,6 +1246,25 @@ private:
 		fclose(sample[0]);
 #endif
 	}
+#endif
+
+	uint32_t fn_value(uint32_t index) const
+	{
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+		return pal_mame_opl2_fixed_fn_tab[index];
+#else
+		return fn_tab[index];
+#endif
+	}
+
+	static uint32_t ksl_value(uint32_t index)
+	{
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+		return pal_mame_opl2_fixed_ksl_tab[index];
+#else
+		return static_cast<uint32_t>(ksl_tab[index]);
+#endif
+	}
 
 
 	static constexpr uint32_t SC(uint32_t db) { return uint32_t(db * (2.0 / ENV_STEP)); }
@@ -1205,19 +1283,25 @@ private:
 
 	static constexpr unsigned LFO_AM_TAB_ELEMENTS = 210;
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 	static const double ksl_tab[8*16];
+#endif
 	static const uint32_t ksl_shift[4];
 	static const uint32_t sl_tab[16];
 	static const unsigned char eg_inc[15 * RATE_STEPS];
 
 	static const uint8_t mul_tab[16];
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 	static signed int tl_tab[TL_TAB_LEN];
 	static unsigned int sin_tab[SIN_LEN * 4];
+#endif
 
 	static const uint8_t lfo_am_table[LFO_AM_TAB_ELEMENTS];
 	static const int8_t lfo_pm_table[8 * 8 * 2];
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 	static int num_lock;
+#endif
 };
 
 
@@ -1234,6 +1318,7 @@ static const int slot_array[32]=
 /* key scale level */
 /* table is 3dB/octave , DV converts this into 6dB/octave */
 /* 0.1875 is bit 0 weight of the envelope counter (volume) expressed in the 'decibel' scale */
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 const double FM_OPL::ksl_tab[8*16]=
 {
 	/* OCT 0 */
@@ -1277,6 +1362,7 @@ const double FM_OPL::ksl_tab[8*16]=
 		18.000/DV,18.750/DV,19.125/DV,19.500/DV,
 		19.875/DV,20.250/DV,20.625/DV,21.000/DV
 };
+#endif
 
 /* 0 / 3.0 / 1.5 / 6.0 dB/OCT */
 const uint32_t FM_OPL::ksl_shift[4] = { 31, 1, 2, 0 };
@@ -1404,11 +1490,13 @@ const uint8_t FM_OPL::mul_tab[16]= {
 };
 #undef ML
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 signed int FM_OPL::tl_tab[TL_TAB_LEN];
 
 /* sin waveform table in 'decibel' scale */
 /* four waveforms on OPL2 type chips */
 unsigned int FM_OPL::sin_tab[SIN_LEN * 4];
+#endif
 
 
 /* LFO Amplitude Modulation table (verified on real YM3812)
@@ -1515,8 +1603,10 @@ const int8_t FM_OPL::lfo_pm_table[8*8*2] = {
 };
 
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 /* lock level of common table */
 int FM_OPL::num_lock = 0;
+#endif
 
 
 
@@ -1530,6 +1620,7 @@ static inline int limit( int val, int max, int min ) {
 }
 
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 /* generic table initialize */
 int FM_OPL::init_tables()
 {
@@ -1636,10 +1727,18 @@ int FM_OPL::init_tables()
 
 	return 1;
 }
+#endif
 
 
 void FM_OPL::initialize()
 {
+#if defined(SDLPAL_MAME_OPL2_STATIC_22050)
+	lfo_am_inc = PAL_MAME_OPL2_FIXED_LFO_AM_INC;
+	lfo_pm_inc = PAL_MAME_OPL2_FIXED_LFO_PM_INC;
+	noise_f = PAL_MAME_OPL2_FIXED_NOISE_F;
+	eg_timer_add = PAL_MAME_OPL2_FIXED_EG_TIMER_ADD;
+	eg_timer_overflow = PAL_MAME_OPL2_FIXED_EG_TIMER_OVERFLOW;
+#else
 	int i;
 
 	/* frequency base */
@@ -1699,6 +1798,7 @@ void FM_OPL::initialize()
 	eg_timer_add  = (1<<EG_SH)  * freqbase;
 	eg_timer_overflow = ( 1 ) * (1<<EG_SH);
 	/*logerror("OPLinit eg_timer_add=%8x eg_timer_overflow=%8x\n", eg_timer_add, eg_timer_overflow);*/
+#endif
 }
 
 
@@ -1707,7 +1807,7 @@ void FM_OPL::WriteReg(int r, int v)
 {
 	OPL_CH *CH;
 	int slot;
-	int block_fnum;
+	uint32_t block_fnum;
 
 
 	/* adjust bus to 8 bits */
@@ -1925,8 +2025,8 @@ void FM_OPL::WriteReg(int r, int v)
 
 			CH->block_fnum = block_fnum;
 
-			CH->ksl_base = static_cast<uint32_t>(ksl_tab[block_fnum>>6]);
-			CH->fc       = fn_tab[block_fnum&0x03ff] >> (7-block);
+			CH->ksl_base = ksl_value(block_fnum>>6);
+			CH->fc       = fn_value(block_fnum&0x03ff) >> (7-block);
 
 			/* BLK 2,1,0 bits -> bits 3,2,1 of kcode */
 			CH->kcode    = (CH->block_fnum&0x1c00)>>9;
@@ -2011,14 +2111,15 @@ void FM_OPL::ResetChip()
 }
 
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 void FM_OPL::postload()
 {
 	for(OPL_CH &CH : P_CH)
 	{
 		/* Look up key scale level */
 		uint32_t const block_fnum = CH.block_fnum;
-		CH.ksl_base = static_cast<uint32_t>(ksl_tab[block_fnum >> 6]);
-		CH.fc       = fn_tab[block_fnum & 0x03ff] >> (7 - (block_fnum >> 10));
+		CH.ksl_base = ksl_value(block_fnum >> 6);
+		CH.fc       = fn_value(block_fnum & 0x03ff) >> (7 - (block_fnum >> 10));
 
 		for(OPL_SLOT &SLOT : CH.SLOT)
 		{
@@ -2060,6 +2161,7 @@ void FM_OPL::postload()
 	}
 #endif
 }
+#endif
 
 } // anonymous namespace
 
@@ -2160,6 +2262,7 @@ static void OPL_save_state(FM_OPL *OPL, device_t *device)
 
 #if (BUILD_YM3812)
 
+#if !defined(SDLPAL_MAME_OPL2_STATIC_22050)
 void ym3812_clock_changed(void *chip, uint32_t clock, uint32_t rate)
 {
 	reinterpret_cast<FM_OPL *>(chip)->clock_changed(clock, rate);
@@ -2184,6 +2287,7 @@ void ym3812_shutdown(void *chip)
 	/* emulator shutdown */
 	delete YM3812;
 }
+
 void ym3812_reset_chip(void *chip)
 {
 	FM_OPL *YM3812 = (FM_OPL *)chip;
@@ -2220,6 +2324,7 @@ void ym3812_set_update_handler(void *chip,OPL_UPDATEHANDLER UpdateHandler,device
 {
 	reinterpret_cast<FM_OPL *>(chip)->SetUpdateHandler(UpdateHandler, device);
 }
+#endif
 
 
 /*

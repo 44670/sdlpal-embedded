@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import collections
+import hashlib
 import importlib.util
 import json
 import struct
@@ -17,6 +18,34 @@ TOOLS_DIR = Path(__file__).resolve().parent
 BUILDER_PATH = TOOLS_DIR / "pal_pack_build.py"
 DEFAULT_LAYOUT_PATH = TOOLS_DIR / "pal_pack_layout_default.json"
 EXTREME_LAYOUT_PATH = TOOLS_DIR / "pal_pack_layout_cardputer_extreme.json"
+EXTREME_MUSIC_PROFILE = "rix-music"
+EXTREME_MUSIC_TRACKS = {
+    1,
+    2,
+    3,
+    4,
+    8,
+    11,
+    12,
+    24,
+    30,
+    31,
+    33,
+    34,
+    36,
+    37,
+    38,
+    49,
+    61,
+    65,
+    70,
+    71,
+    75,
+    76,
+    77,
+    86,
+    87,
+}
 PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PAL")
 
 spec = importlib.util.spec_from_file_location("pal_pack_build_under_test", BUILDER_PATH)
@@ -131,6 +160,7 @@ class PackBuilderUnitTests(unittest.TestCase):
         self.assertIn("MGO", layout.pack_names["nor"])
         self.assertIn("MAP", layout.pack_names["tf"])
         self.assertEqual(layout.chunk_rules, {"nor": {}, "tf": {}})
+        self.assertIsNone(layout.tf_complete_mirror)
 
     def test_v2_sparse_pack_keeps_chunk_numbers_and_zeroes_absent_payloads(self) -> None:
         chunks = [
@@ -195,6 +225,118 @@ class PackBuilderUnitTests(unittest.TestCase):
         self.assertEqual([chunk.present for chunk in nor["MGO"]], [True, True, False, False])
         self.assertEqual([chunk.present for chunk in tf["MGO"]], [False, False, True, True])
 
+    def test_v2_additive_profile_does_not_change_base_layout(self) -> None:
+        layout_data = {
+            "schema": "sdlpal-embedded-pack-layout",
+            "version": 2,
+            "packs": {"nor": ["MGO"], "tf": ["FBP"]},
+            "profiles": {
+                "music": {
+                    "pack_additions": {
+                        "nor": {"MUS": {"chunks": [1, 3]}},
+                        "tf": {},
+                    }
+                }
+            },
+            "chunk_selection": {
+                "nor": {"MGO": {"all": True}},
+                "tf": {"FBP": {"all": True}},
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "layout.json"
+            path.write_text(json.dumps(layout_data))
+            base = builder.load_pack_layout(path)
+            music = builder.load_pack_layout(path, "music")
+
+        self.assertNotIn("MUS", base.pack_names["nor"])
+        self.assertNotIn("MUS", base.chunk_rules["nor"])
+        self.assertEqual(base.profile, None)
+        self.assertEqual(music.pack_names["nor"], ["MGO", "MUS"])
+        self.assertEqual(music.chunk_rules["nor"]["MUS"].chunk_ids, {1, 3})
+        self.assertEqual(music.profile, "music")
+
+    def test_complete_tf_mirror_policy_is_strict_and_profile_independent(self) -> None:
+        mirror = {
+            "archives": ["MGO", "MUS", "SFX"],
+            "target_filename": "pal_full.pak",
+            "runtime_active": False,
+            "all_chunks": True,
+            "allow_overlap": True,
+            "index_strategy": "offline-mirror-not-runtime-indexed",
+        }
+        layout_data = {
+            "schema": "sdlpal-embedded-pack-layout",
+            "version": 2,
+            "packs": {"nor": ["MGO"], "tf": ["FBP"]},
+            "profiles": {
+                "music": {
+                    "pack_additions": {
+                        "nor": {"MUS": {"all": True}},
+                        "tf": {},
+                    }
+                }
+            },
+            "tf_complete_mirror": mirror,
+            "chunk_selection": {
+                "nor": {"MGO": {"all": True}},
+                "tf": {"FBP": {"all": True}},
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "layout.json"
+            path.write_text(json.dumps(layout_data))
+            base = builder.load_pack_layout(path)
+            music = builder.load_pack_layout(path, "music")
+
+            self.assertEqual(
+                base.tf_complete_mirror.archives,
+                ("MGO", "MUS", "SFX"),
+            )
+            self.assertEqual(
+                base.tf_complete_mirror,
+                music.tf_complete_mirror,
+            )
+
+            for key, invalid_value in (
+                ("runtime_active", True),
+                ("all_chunks", False),
+                ("allow_overlap", False),
+                ("target_filename", "too_long_name.pak"),
+                ("target_filename", "bad\\name.pak"),
+                ("index_strategy", "runtime"),
+            ):
+                invalid = json.loads(json.dumps(layout_data))
+                invalid["tf_complete_mirror"][key] = invalid_value
+                path.write_text(json.dumps(invalid))
+                with self.assertRaises(SystemExit):
+                    builder.load_pack_layout(path)
+
+    def test_v2_profile_rejects_unknown_or_duplicate_additions(self) -> None:
+        layout_data = {
+            "schema": "sdlpal-embedded-pack-layout",
+            "version": 2,
+            "packs": {"nor": ["MUS"], "tf": []},
+            "profiles": {
+                "duplicate": {
+                    "pack_additions": {
+                        "nor": {"MUS": {"chunks": [1]}},
+                    }
+                }
+            },
+            "chunk_selection": {
+                "nor": {"MUS": {"chunks": [1]}},
+                "tf": {},
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "layout.json"
+            path.write_text(json.dumps(layout_data))
+            with self.assertRaises(SystemExit):
+                builder.load_pack_layout(path, "missing")
+            with self.assertRaises(SystemExit):
+                builder.load_pack_layout(path, "duplicate")
+
     def test_pack_set_id_covers_exact_contents_of_both_packs(self) -> None:
         nor = {"MGO": [builder.Chunk(b"nor", builder.FORMAT_NATIVE)]}
         tf = {"FBP": [builder.Chunk(b"tf", builder.FORMAT_NATIVE)]}
@@ -230,6 +372,55 @@ class PackBuilderUnitTests(unittest.TestCase):
         corrupt[-1] ^= 1
         with self.assertRaises(ValueError):
             builder.verify_pack(bytes(corrupt))
+
+        full = {
+            "MGO": [builder.Chunk(b"nor", builder.FORMAT_NATIVE)],
+            "FBP": [builder.Chunk(b"tf", builder.FORMAT_NATIVE)],
+        }
+        full_set_id = builder.compute_pack_set_id(nor, tf, full)
+        self.assertNotEqual(full_set_id, pack_set_id)
+        self.assertNotEqual(
+            full_set_id,
+            builder.compute_pack_set_id(
+                nor,
+                tf,
+                {
+                    "MGO": [builder.Chunk(b"NOR", builder.FORMAT_NATIVE)],
+                    "FBP": [builder.Chunk(b"tf", builder.FORMAT_NATIVE)],
+                },
+            ),
+        )
+
+    def test_complete_pack_manifest_records_chunk_hashes(self) -> None:
+        archives = {
+            "MGO": [
+                builder.Chunk(b"first", builder.FORMAT_NATIVE),
+                builder.Chunk(b"second", builder.FORMAT_NATIVE),
+            ]
+        }
+        pack = builder.build_pack(archives, 123)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "pal_full.pak"
+            path.write_bytes(pack)
+            summary = builder.summarize_pack(
+                path,
+                ["MGO"],
+                pack,
+                archives,
+                False,
+                True,
+            )
+
+        self.assertEqual(summary["toc_bytes"], builder.u32(pack, 16))
+        self.assertEqual(summary["sha256"], hashlib.sha256(pack).hexdigest())
+        chunks = summary["archive_summaries"][0]["chunks"]
+        self.assertEqual(
+            [item["sha256"] for item in chunks],
+            [
+                hashlib.sha256(b"first").hexdigest(),
+                hashlib.sha256(b"second").hexdigest(),
+            ],
+        )
 
 
 @unittest.skipUnless(PAL_DATA_DIR.is_dir(), f"real PAL data is unavailable at {PAL_DATA_DIR}")
@@ -453,6 +644,89 @@ class CardputerExtremeClosureTests(unittest.TestCase):
         packed = set(self.layout.pack_names["nor"]) | set(self.layout.pack_names["tf"])
         self.assertTrue({"MIDI", "MUS", "VOC", "SFX"}.isdisjoint(packed))
         self.assertEqual(self.layout.max_bytes["nor"], 0x6F0000)
+
+    def test_complete_tf_mirror_covers_every_runtime_native_archive(self) -> None:
+        mirror = self.layout.tf_complete_mirror
+        self.assertIsNotNone(mirror)
+        self.assertEqual(mirror.target_filename, "pal_full.pak")
+        self.assertEqual(
+            set(mirror.archives),
+            set(builder.ARCHIVE_IDS) - {"VOC"},
+        )
+        self.assertIn("SFX", mirror.archives)
+        self.assertNotIn("VOC", mirror.archives)
+        self.assertTrue(
+            set(self.layout.pack_names["nor"]) <= set(mirror.archives)
+        )
+        self.assertTrue(
+            set(self.layout.pack_names["tf"]) <= set(mirror.archives)
+        )
+
+    def test_rix_music_profile_is_sparse_and_keeps_the_noaudio_base(self) -> None:
+        music = builder.load_pack_layout(
+            EXTREME_LAYOUT_PATH, EXTREME_MUSIC_PROFILE
+        )
+        self.assertEqual(music.profile, EXTREME_MUSIC_PROFILE)
+        self.assertIn("MUS", music.pack_names["nor"])
+        self.assertNotIn("MUS", music.pack_names["tf"])
+        self.assertEqual(
+            selected_ids(music.chunk_rules["nor"]["MUS"], 88),
+            EXTREME_MUSIC_TRACKS,
+        )
+        packed = set(music.pack_names["nor"]) | set(music.pack_names["tf"])
+        self.assertTrue({"MIDI", "VOC", "SFX"}.isdisjoint(packed))
+
+        profile = self.layout_json["profiles"][EXTREME_MUSIC_PROFILE]
+        audit = profile["music_audit"]
+        self.assertEqual(audit["source_chunk_count"], 88)
+        self.assertEqual(
+            set(audit["selected_track_ids"]),
+            EXTREME_MUSIC_TRACKS,
+        )
+
+        scripted_tracks = {
+            self.entries[index][1]
+            for index in self.seen
+            if self.entries[index][0] in (0x0043, 0x0045)
+            and self.entries[index][1] != 0
+        }
+        scripted_tracks.update(
+            self.entries[index][2]
+            for index in self.seen
+            if self.entries[index][0] == 0x00A3
+            and self.entries[index][2] != 0
+        )
+
+        # Object 273 is the usable, apply-to-all item whose use script selects
+        # music 36. It is an explicit dynamic root outside the scene traversal.
+        item_273 = struct.unpack_from("<6H", self.objects, 273 * 12)
+        self.assertEqual(item_273[5] & (1 | 16), 1 | 16)
+        item_seen = traverse_scripts(
+            self.entries,
+            {entry for entry in item_273[2:5] if entry},
+            self.max_event_end,
+            self.scene_ids,
+        )
+        item_tracks = {
+            self.entries[index][1]
+            for index in item_seen
+            if self.entries[index][0] in (0x0043, 0x0045)
+            and self.entries[index][1] != 0
+        }
+        self.assertEqual(item_tracks, {36})
+
+        # Opening menu 4 and battle victory 2/3 are direct engine call sites.
+        self.assertEqual(
+            scripted_tracks | item_tracks | {2, 3, 4},
+            EXTREME_MUSIC_TRACKS,
+        )
+
+        mus = source_chunks("MUS")
+        self.assertEqual(len(mus), 88)
+        selected_payloads = [mus[track_id] for track_id in EXTREME_MUSIC_TRACKS]
+        self.assertTrue(all(payload[:2] == b"\xaa\x55" for payload in selected_payloads))
+        self.assertEqual(sum(map(len, selected_payloads)), 75636)
+        self.assertEqual(max(map(len, selected_payloads)), 8998)
 
 
 if __name__ == "__main__":

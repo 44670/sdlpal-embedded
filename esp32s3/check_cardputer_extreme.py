@@ -35,6 +35,44 @@ MIN_LINKER_DRAM_RESERVE = 80 * 1024
 MAIN_TASK_STACK = 16 * 1024
 MIN_POST_MAIN_STACK_RESERVE = 64 * 1024
 MAX_STATIC_STACK = 2048
+MUSIC_MAX_APP_BYTES = 512 * 1024
+MUSIC_MAX_NOR_BYTES = NOR_BYTES * 97 // 100
+MUSIC_MAX_DRAM_BSS = 220 * 1024
+MUSIC_MAX_DIRAM_STATIC = 264 * 1024
+MUSIC_MIN_LINKER_DRAM_RESERVE = 72 * 1024
+MUSIC_MIN_POST_MAIN_STACK_RESERVE = 56 * 1024
+MUSIC_OPL_STATE_BYTES = 1704
+MUSIC_OPL_TABLE_BYTES = 24832
+MUSIC_AUDIO_TASK_STACK_BYTES = 4096
+MUSIC_TICK_BYTES = 315 * 2
+MUSIC_MAX_OWNED_BSS = 12 * 1024
+MUSIC_TRACK_IDS = {
+    1,
+    2,
+    3,
+    4,
+    8,
+    11,
+    12,
+    24,
+    30,
+    31,
+    33,
+    34,
+    36,
+    37,
+    38,
+    49,
+    61,
+    65,
+    70,
+    71,
+    75,
+    76,
+    77,
+    86,
+    87,
+}
 PARTITION_MAGIC = 0x50AA
 PARTITION_END_MAGIC = 0xEBEB
 PARTITION_ENTRY_BYTES = 32
@@ -136,6 +174,21 @@ def parse_symbols(text: str) -> dict[str, tuple[int, str]]:
         except ValueError:
             continue
         result[fields[3]] = (size, fields[2])
+    return result
+
+
+def parse_symbol_sections(text: str) -> dict[str, tuple[int, str]]:
+    result: dict[str, tuple[int, str]] = {}
+    for line in text.splitlines():
+        fields = line.split()
+        sections = [field for field in fields if field.startswith(".")]
+        if len(fields) < 3 or len(sections) != 1:
+            continue
+        try:
+            size = int(fields[-2], 16)
+        except ValueError:
+            continue
+        result[fields[-1]] = (size, sections[0])
     return result
 
 
@@ -342,6 +395,17 @@ def parse_sdkconfig(path: Path) -> dict[str, str]:
     return result
 
 
+def parse_cmake_cache(path: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line or line.startswith(("#", "//")) or "=" not in line:
+            continue
+        key_and_type, value = line.split("=", 1)
+        key = key_and_type.split(":", 1)[0]
+        result[key] = value
+    return result
+
+
 def parse_pack(path: Path, errors: list[str]) -> tuple[int, dict[int, dict[int, tuple[int, int]]]]:
     data = path.read_bytes()
     archives: dict[int, dict[int, tuple[int, int]]] = {}
@@ -416,8 +480,14 @@ def main() -> int:
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--expected-compiler", type=Path)
     parser.add_argument("--source-inventory", type=Path)
+    parser.add_argument(
+        "--firmware-profile",
+        choices=("no-audio", "rix-music"),
+        default="no-audio",
+    )
     args = parser.parse_args()
 
+    music_profile = args.firmware_profile == "rix-music"
     root = args.root.resolve()
     build = args.build_dir.resolve()
     nor_path = args.nor_pack.resolve()
@@ -426,7 +496,13 @@ def main() -> int:
     inventory_path = (
         args.source_inventory.resolve()
         if args.source_inventory
-        else root / "esp32s3/cardputer_extreme_sources.json"
+        else root
+        / "esp32s3"
+        / (
+            "cardputer_extreme_music_sources.json"
+            if music_profile
+            else "cardputer_extreme_sources.json"
+        )
     )
     elf = build / "sdlpal_cardputer_extreme.elf"
     app_bin = build / "sdlpal_cardputer_extreme.bin"
@@ -483,9 +559,10 @@ def main() -> int:
     if not compiler.is_absolute():
         errors.append(f"project compiler is not an absolute path: {compiler}")
     compiler = compiler.resolve()
+    cxx_compiler = compiler_sibling(compiler, "g++")
     objdump = compiler_sibling(compiler, "objdump")
     nm = compiler_sibling(compiler, "nm")
-    for tool in (compiler, objdump, nm):
+    for tool in (compiler, cxx_compiler, objdump, nm):
         if not tool.is_file():
             errors.append(f"recorded build tool is missing: {tool}")
     if compiler.name != "xtensa-esp32s3-elf-gcc":
@@ -507,12 +584,16 @@ def main() -> int:
 
     sections: dict[str, tuple[int, int]] = {}
     symbols: dict[str, tuple[int, str]] = {}
+    symbol_sections: dict[str, tuple[int, str]] = {}
     toolchain_version = "unavailable"
     if compiler.is_file() and objdump.is_file() and nm.is_file():
         try:
             sections = parse_sections(run_text([str(objdump), "-h", str(elf)]))
             symbols = parse_symbols(
                 run_text([str(nm), "-S", "--size-sort", str(elf)])
+            )
+            symbol_sections = parse_symbol_sections(
+                run_text([str(objdump), "-t", str(elf)])
             )
             toolchain_version = run_text([str(compiler), "--version"]).splitlines()[0]
         except (OSError, subprocess.CalledProcessError) as exc:
@@ -522,8 +603,22 @@ def main() -> int:
     section_vma = lambda name: sections.get(name, (0, -1))[1]
     dram_bss = section_size(".dram0.bss")
     dram_data = section_size(".dram0.data")
-    if dram_bss < 0 or dram_bss > MAX_DRAM_BSS:
-        errors.append(f".dram0.bss {dram_bss} exceeds {MAX_DRAM_BSS}")
+    max_dram_bss = MUSIC_MAX_DRAM_BSS if music_profile else MAX_DRAM_BSS
+    max_diram_static = (
+        MUSIC_MAX_DIRAM_STATIC if music_profile else MAX_DIRAM_STATIC
+    )
+    min_linker_dram_reserve = (
+        MUSIC_MIN_LINKER_DRAM_RESERVE
+        if music_profile
+        else MIN_LINKER_DRAM_RESERVE
+    )
+    min_post_main_stack_reserve = (
+        MUSIC_MIN_POST_MAIN_STACK_RESERVE
+        if music_profile
+        else MIN_POST_MAIN_STACK_RESERVE
+    )
+    if dram_bss < 0 or dram_bss > max_dram_bss:
+        errors.append(f".dram0.bss {dram_bss} exceeds {max_dram_bss}")
     if dram_data < 0 or dram_data > MAX_DRAM_DATA:
         errors.append(f".dram0.data {dram_data} exceeds {MAX_DRAM_DATA}")
     if section_size(".ext_ram.bss") not in (-1, 0):
@@ -532,8 +627,10 @@ def main() -> int:
         max(0, section_size(name))
         for name in (".dram0.dummy", ".dram0.data", ".noinit", ".dram0.bss")
     )
-    if diram_static > MAX_DIRAM_STATIC:
-        errors.append(f"DIRAM static use {diram_static} exceeds {MAX_DIRAM_STATIC}")
+    if diram_static > max_diram_static:
+        errors.append(
+            f"DIRAM static use {diram_static} exceeds {max_diram_static}"
+        )
     iram_static = sum(
         max(0, section_size(name))
         for name in (
@@ -559,18 +656,21 @@ def main() -> int:
         dram_origin, dram_length = dram_region
         dram_end = dram_origin + dram_length
         linker_dram_reserve = dram_end - heap_start
-        if heap_start < dram_origin or linker_dram_reserve < MIN_LINKER_DRAM_RESERVE:
+        if (
+            heap_start < dram_origin
+            or linker_dram_reserve < min_linker_dram_reserve
+        ):
             errors.append(
                 f"linker DRAM reserve {linker_dram_reserve} is below "
-                f"{MIN_LINKER_DRAM_RESERVE}"
+                f"{min_linker_dram_reserve}"
             )
     post_main_stack_reserve = (
         linker_dram_reserve - MAIN_TASK_STACK if linker_dram_reserve >= 0 else -1
     )
-    if 0 <= post_main_stack_reserve < MIN_POST_MAIN_STACK_RESERVE:
+    if 0 <= post_main_stack_reserve < min_post_main_stack_reserve:
         errors.append(
             f"linker DRAM reserve after main-task stack {post_main_stack_reserve} "
-            f"is below {MIN_POST_MAIN_STACK_RESERVE}"
+            f"is below {min_post_main_stack_reserve}"
         )
 
     required_sizes = {
@@ -583,6 +683,13 @@ def main() -> int:
         "g_rgSpriteToDraw": 512 * 12,
         "internal_buffer": 5 * 256,
     }
+    if music_profile:
+        required_sizes.update(
+            {
+                "pal_sram_audio_task_stack_bytes": MUSIC_AUDIO_TASK_STACK_BYTES,
+                "pal_sram_audio_tick_bytes": MUSIC_TICK_BYTES,
+            }
+        )
     for name, expected in required_sizes.items():
         actual = symbols.get(name, (-1, ""))[0]
         if actual != expected:
@@ -598,15 +705,77 @@ def main() -> int:
             "expected exactly two 64,000-byte logical framebuffer symbols, got "
             + ",".join(sorted(framebuffer_symbols))
         )
-    forbidden_prefixes = (
-        "pal_psram_",
-        "pal_audio_",
-        "pal_sfx_",
-        "pal_music_",
-    )
+    forbidden_prefixes = ["pal_psram_", "pal_sfx_"]
+    if not music_profile:
+        forbidden_prefixes.extend(
+            (
+                "pal_audio_",
+                "pal_sram_audio_",
+                "pal_music_",
+                "pal_sram_music_",
+            )
+        )
     for name in symbols:
-        if name.startswith(forbidden_prefixes):
+        if name.startswith(tuple(forbidden_prefixes)):
             errors.append(f"forbidden linked symbol: {name}")
+        if music_profile and (
+            name.startswith("PalSfx_")
+            or name in ("PalAudio_OpenSfx", "PalAudio_MixSfx")
+            or name.startswith(("pal_psram_sfx_", "pal_sram_audio_mix_"))
+        ):
+            errors.append(f"SFX symbol linked into music-only profile: {name}")
+    if music_profile:
+        opl_state = [
+            (name, size)
+            for name, (size, _kind) in symbols.items()
+            if "pal_mame_opl2_state" in name
+        ]
+        if len(opl_state) != 1 or opl_state[0][1] != MUSIC_OPL_STATE_BYTES:
+            errors.append(
+                f"fixed OPL2 state must be one {MUSIC_OPL_STATE_BYTES}-byte "
+                f"symbol, got {opl_state!r}"
+            )
+        elif symbol_sections.get(opl_state[0][0], (0, ""))[1] != ".dram0.bss":
+            errors.append("fixed OPL2 state is not placed in .dram0.bss")
+        opl_tables = [
+            (name, size, section)
+            for name, (size, section) in symbol_sections.items()
+            if "pal_mame_opl2_fixed_" in name
+        ]
+        opl_table_bytes = sum(
+            size
+            for _name, size, section in opl_tables
+            if section == ".flash.rodata"
+        )
+        if (
+            len(opl_tables) != 4
+            or any(section != ".flash.rodata" for _name, _size, section in opl_tables)
+            or opl_table_bytes != MUSIC_OPL_TABLE_BYTES
+        ):
+            errors.append(
+                f"fixed OPL2 tables must be four .flash.rodata symbols totaling "
+                f"{MUSIC_OPL_TABLE_BYTES}, got {opl_tables!r}"
+            )
+        music_owned_bss = sum(
+            size
+            for name, (size, kind) in symbols.items()
+            if kind.lower() == "b"
+            and any(
+                token in name
+                for token in (
+                    "pal_audio_",
+                    "pal_sram_audio_",
+                    "pal_music_",
+                    "pal_sram_music_",
+                    "pal_mame_opl2_state",
+                )
+            )
+        )
+        if music_owned_bss <= 0 or music_owned_bss > MUSIC_MAX_OWNED_BSS:
+            errors.append(
+                f"named music/audio BSS {music_owned_bss} is outside "
+                f"1..{MUSIC_MAX_OWNED_BSS}"
+            )
     for name in (
         "CoreS3Se_Begin",
         "PAL_MKFDecompressChunk",
@@ -617,7 +786,7 @@ def main() -> int:
     ):
         if name in symbols:
             errors.append(f"forbidden linked symbol: {name}")
-    for name in (
+    required_symbols = [
         "CardputerExtreme_Begin",
         "CardputerExtreme_MountTf",
         "CardputerExtreme_PollKey",
@@ -625,16 +794,52 @@ def main() -> int:
         "CardputerExtreme_ScaleIndexedStrip",
         "PalEngineBridge_LogRuntimeMemory",
         "PalEngineBridge_ReadNativeRngFrame",
-    ):
+    ]
+    if music_profile:
+        required_symbols.extend(
+            (
+                "AUDIO_PlayMusic",
+                "AUDIO_PlaySound",
+                "CardputerExtremeAudio_Begin",
+                "CardputerExtremeAudio_LogTelemetry",
+                "PalMameOpl2_Init",
+                "PalMameOpl2_Render",
+                "PalMusic_MapMus",
+            )
+        )
+    for name in required_symbols:
         if name not in symbols:
             errors.append(f"required linked symbol missing: {name}")
 
     if app_bin.stat().st_size > APP_BYTES:
         errors.append(f"app binary {app_bin.stat().st_size} exceeds {APP_BYTES}")
+    if music_profile and app_bin.stat().st_size > MUSIC_MAX_APP_BYTES:
+        errors.append(
+            f"music app binary {app_bin.stat().st_size} exceeds soft budget "
+            f"{MUSIC_MAX_APP_BYTES}"
+        )
     if nor_path.stat().st_size > NOR_BYTES:
         errors.append(f"NOR pack {nor_path.stat().st_size} exceeds {NOR_BYTES}")
+    if music_profile and nor_path.stat().st_size > MUSIC_MAX_NOR_BYTES:
+        errors.append(
+            f"music NOR pack {nor_path.stat().st_size} exceeds 97% soft budget "
+            f"{MUSIC_MAX_NOR_BYTES}"
+        )
     if tf_path.stat().st_size == 0:
         errors.append("TF pack is empty")
+
+    cmake_cache = parse_cmake_cache(cache_path)
+    required_cache = {
+        "PAL_CORES3SE_ENGINE_HOST": "1",
+        "CARDPUTER_EXTREME_NO_PSRAM": "ON",
+        "CARDPUTER_EXTREME_MUSIC": "ON" if music_profile else "OFF",
+    }
+    for key, expected in required_cache.items():
+        if cmake_cache.get(key) != expected:
+            errors.append(
+                f"CMake cache {key}: expected {expected}, "
+                f"got {cmake_cache.get(key)!r}"
+            )
 
     config = parse_sdkconfig(sdkconfig)
     required_config = {
@@ -726,9 +931,30 @@ def main() -> int:
             errors.append(
                 f"archive {archive_id} has non-empty chunks in both packs: {sorted(overlap)}"
             )
-    audio_ids = {ARCHIVE[name] for name in ("MIDI", "MUS", "VOC", "SFX")}
-    if audio_ids & (set(nor) | set(tf)):
-        errors.append("audio archives are present in the no-audio profile")
+    if music_profile:
+        for name in ("MIDI", "VOC", "SFX"):
+            archive_id = ARCHIVE[name]
+            if archive_id in nor or archive_id in tf:
+                errors.append(
+                    f"{name} archive is present in the music-only profile"
+                )
+        mus = nor.get(ARCHIVE["MUS"], {})
+        if len(mus) != 88:
+            errors.append(
+                f"MUS archive has {len(mus)} slots instead of sparse 88"
+            )
+        if nonempty(nor, ARCHIVE["MUS"]) != MUSIC_TRACK_IDS:
+            errors.append("unexpected MUS chapter track selection")
+        if ARCHIVE["MUS"] in tf:
+            errors.append("MUS must be mapped from NOR, not TF")
+        if any(fmt != 1 for size, fmt in mus.values() if size):
+            errors.append("selected MUS chunks are not runtime-native")
+    else:
+        audio_ids = {
+            ARCHIVE[name] for name in ("MIDI", "MUS", "VOC", "SFX")
+        }
+        if audio_ids & (set(nor) | set(tf)):
+            errors.append("audio archives are present in the no-audio profile")
 
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -737,6 +963,16 @@ def main() -> int:
         manifest = {}
     if manifest.get("schema") != "sdlpal-embedded-pack-manifest":
         errors.append("unexpected manifest schema")
+    manifest_profile = manifest.get("pack_layout", {}).get("profile")
+    if music_profile:
+        if manifest_profile != "rix-music":
+            errors.append(
+                f"manifest profile is {manifest_profile!r}, expected 'rix-music'"
+            )
+    elif manifest_profile is not None:
+        errors.append(
+            f"no-audio manifest unexpectedly selects profile {manifest_profile!r}"
+        )
     runtime = manifest.get("runtime", {})
     if runtime != {
         "heap_required": False,
@@ -808,7 +1044,21 @@ def main() -> int:
         "-DPAL_GLOBAL_BUFFER_SIZE=256",
         "-DPAL_NO_RUNTIME_HEAP=1",
         "-DPAL_NO_RUNTIME_DECOMPRESS=1",
+        "-DPAL_ESP_CORES3SE_NO_SFX=1",
         "-fstack-usage",
+    )
+    profile_compile_tokens = (
+        ("-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_NO_SFX=1")
+        if music_profile
+        else (
+            "-DPAL_CONTRACT_NO_AUDIO=1",
+            "-DPAL_ESP_CORES3SE_NO_AUDIO=1",
+        )
+    )
+    forbidden_compile_tokens = (
+        ("-DPAL_CONTRACT_NO_AUDIO=1", "-DPAL_ESP_CORES3SE_NO_AUDIO=1")
+        if music_profile
+        else ("-DPAL_EXTREME_RIX_MUSIC=1",)
     )
     for entry in compile_entries:
         source = normalized_source(Path(str(entry.get("file", ""))), root)
@@ -818,18 +1068,30 @@ def main() -> int:
         except ValueError as exc:
             errors.append(f"{source}: malformed compile command: {exc}")
             command_words = []
+        expected_source_compiler = (
+            cxx_compiler
+            if Path(source).suffix.lower() in (".cc", ".cpp", ".cxx")
+            else compiler
+        )
         compilers = [
             Path(word).resolve()
             for word in command_words
-            if Path(word).name == "xtensa-esp32s3-elf-gcc"
+            if Path(word).name
+            in ("xtensa-esp32s3-elf-gcc", "xtensa-esp32s3-elf-g++")
         ]
-        if compilers != [compiler]:
+        if compilers != [expected_source_compiler]:
             errors.append(
-                f"{source}: compile command did not use recorded compiler {compiler}"
+                f"{source}: compile command did not use expected compiler "
+                f"{expected_source_compiler}"
             )
-        for token in required_compile_tokens:
+        for token in (*required_compile_tokens, *profile_compile_tokens):
             if token not in command_words:
                 errors.append(f"{source}: compile command is missing {token}")
+        for token in forbidden_compile_tokens:
+            if token in command_words:
+                errors.append(
+                    f"{source}: compile command unexpectedly contains {token}"
+                )
         output = Path(str(entry.get("output", "")))
         if not output.is_absolute():
             output = Path(str(entry.get("directory", build))) / output
@@ -864,6 +1126,39 @@ def main() -> int:
     ):
         if token not in ninja:
             errors.append(f"build graph is missing {token}")
+    if music_profile:
+        for token in (
+            "PAL_EXTREME_RIX_MUSIC=1",
+            "PAL_CONTRACT_NO_SFX=1",
+            "cardputer_extreme_audio.c",
+            "pal_engine_target_music.cpp",
+            "pal_mame_opl2_static.cpp",
+            "pal_music_cache.c",
+            "adplug/rix.cpp",
+        ):
+            if token not in ninja:
+                errors.append(f"music build graph is missing {token}")
+        for token in (
+            "contract_noaudio.c.obj",
+            "pal_audio_static.c.obj",
+            "pal_sfx_cache.c.obj",
+        ):
+            if token in ninja:
+                errors.append(
+                    f"music-only build graph contains forbidden object {token}"
+                )
+    else:
+        if "contract_noaudio.c.obj" not in ninja:
+            errors.append("no-audio build graph is missing contract_noaudio.c")
+        for token in (
+            "cardputer_extreme_audio.c.obj",
+            "pal_engine_target_music.cpp.obj",
+            "pal_mame_opl2_static.cpp.obj",
+        ):
+            if token in ninja:
+                errors.append(
+                    f"no-audio build graph contains music object {token}"
+                )
     if "cores3se_board.c.obj" in ninja or "cores3se_memory.c.obj" in ninja:
         errors.append("CoreS3 SE board/memory object leaked into Cardputer profile")
 
@@ -898,19 +1193,19 @@ def main() -> int:
                 f"exceeds {MAX_STATIC_STACK}"
             )
 
-    print("Cardputer ADV extreme contract")
+    print(f"Cardputer ADV extreme contract ({args.firmware_profile})")
     print(f"  compiler={toolchain_version}")
     print(
         f"  app={app_bin.stat().st_size} / {APP_BYTES} bytes, "
         f"NOR={nor_path.stat().st_size} / {NOR_BYTES}, TF={tf_path.stat().st_size}"
     )
     print(
-        f"  .dram0.bss={dram_bss} / {MAX_DRAM_BSS}, "
+        f"  .dram0.bss={dram_bss} / {max_dram_bss}, "
         f".dram0.data={dram_data} / {MAX_DRAM_DATA}, "
         f"max_stack={max_stack} ({max_stack_name})"
     )
     print(
-        f"  DIRAM_static={diram_static}/{MAX_DIRAM_STATIC}, "
+        f"  DIRAM_static={diram_static}/{max_diram_static}, "
         f"IRAM_static={iram_static}/{MAX_IRAM_STATIC}, "
         f"linker_DRAM_reserve={linker_dram_reserve}, "
         f"after_main_stack={post_main_stack_reserve}"
@@ -920,14 +1215,32 @@ def main() -> int:
         f"MAP/GOP={len(nonempty(nor, ARCHIVE['MAP']))} chunks, "
         f"sources={len(actual_sources)}, stack_reports={stack_reports}"
     )
+    if music_profile:
+        print(
+            f"  music_owned_bss={music_owned_bss}/{MUSIC_MAX_OWNED_BSS}, "
+            f"OPL_state={MUSIC_OPL_STATE_BYTES}, "
+            f"OPL_tables={opl_table_bytes}/{MUSIC_OPL_TABLE_BYTES}, "
+            f"MUS_tracks={len(MUSIC_TRACK_IDS)}"
+        )
+        print(
+            f"  music_soft_flash: app={app_bin.stat().st_size}/"
+            f"{MUSIC_MAX_APP_BYTES}, NOR={nor_path.stat().st_size}/"
+            f"{MUSIC_MAX_NOR_BYTES}"
+        )
     if errors:
         for error in errors:
             print(f"ERROR: {error}")
         return 1
-    print(
-        "PASS: 8MB/no-PSRAM/two-screen mechanical candidate contract; "
-        "STORY ROUTE NOT PROVEN (indirect roots/full route coverage pending)"
-    )
+    if music_profile:
+        print(
+            "PASS: 8MB/no-PSRAM/two-screen RIX music-only contract; "
+            "SFX DISABLED; STORY ROUTE NOT PROVEN"
+        )
+    else:
+        print(
+            "PASS: 8MB/no-PSRAM/two-screen mechanical candidate contract; "
+            "STORY ROUTE NOT PROVEN (indirect roots/full route coverage pending)"
+        )
     return 0
 
 

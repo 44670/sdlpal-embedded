@@ -1,7 +1,7 @@
 {
   "schema": "sdlpal-embedded-pack-layout",
   "version": 2,
-    "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile. It keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, excludes audio and the DOS splash, and preserves every source archive's chunk numbering with zero-sized absent entries. This layout is not a proof of a complete story-route closure.",
+  "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile. The active NOR/pal_tf.pak pair keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, excludes audio and the DOS splash unless an explicit profile adds it, and preserves source chunk numbering with zero-sized absent entries. A separate pal_full.pak TF mirror contains every host-decoded/runtime-converted archive for future expansion but is not indexed by the current firmware. This layout is not a proof of a complete story-route closure.",
   "range_semantics": "All chunk ranges are inclusive [first, last].",
   "packs": {
     "nor": [
@@ -24,6 +24,112 @@
       "FBP",
       "RNG"
     ]
+  },
+  "tf_complete_mirror": {
+    "archives": [
+      "ABC",
+      "BALL",
+      "DATA",
+      "F",
+      "FBP",
+      "FIRE",
+      "GOP",
+      "MAP",
+      "MGO",
+      "MIDI",
+      "MUS",
+      "PAT",
+      "RGM",
+      "RNG",
+      "SSS",
+      "TEXT",
+      "FONT",
+      "SFX"
+    ],
+    "target_filename": "pal_full.pak",
+    "runtime_active": false,
+    "all_chunks": true,
+    "allow_overlap": true,
+    "index_strategy": "offline-mirror-not-runtime-indexed"
+  },
+  "profiles": {
+    "rix-music": {
+      "description": "Adds only the chapter music closure from MUS.MKF to NOR. Chunk numbering remains the original sparse 88-slot archive; MIDI, VOC, and SFX remain excluded.",
+      "pack_additions": {
+        "nor": {
+          "MUS": {
+            "chunks": [
+              1,
+              2,
+              3,
+              4,
+              8,
+              11,
+              12,
+              24,
+              30,
+              31,
+              33,
+              34,
+              36,
+              37,
+              38,
+              49,
+              61,
+              65,
+              70,
+              71,
+              75,
+              76,
+              77,
+              86,
+              87
+            ]
+          }
+        },
+        "tf": {}
+      },
+      "music_audit": {
+        "format": "RIX/OPL2",
+        "source_archive": "MUS.MKF",
+        "source_chunk_count": 88,
+        "selected_payload_bytes": 75636,
+        "max_selected_track_bytes": 8998,
+        "selected_track_ids": [
+          1,
+          2,
+          3,
+          4,
+          8,
+          11,
+          12,
+          24,
+          30,
+          31,
+          33,
+          34,
+          36,
+          37,
+          38,
+          49,
+          61,
+          65,
+          70,
+          71,
+          75,
+          76,
+          77,
+          86,
+          87
+        ],
+        "excluded_audio_archives": [
+          "MIDI",
+          "VOC",
+          "SFX"
+        ],
+        "notes": "The closure includes normal scene, menu, battle, victory, and the dynamically selected item-use track 36. Track IDs are not renumbered."
+      }
+    }
   },
   "chunk_selection": {
     "nor": {

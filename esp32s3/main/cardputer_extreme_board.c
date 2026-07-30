@@ -1,5 +1,6 @@
 #include "cardputer_extreme_board.h"
 
+#include "cardputer_extreme_board_internal.h"
 #include "cardputer_extreme_memory.h"
 #include "cardputer_extreme_scaler.h"
 
@@ -152,6 +153,12 @@ static uint64_t physical_key_mask;
 static uint32_t action_mask;
 static uint32_t action_pressed_mask;
 static uint32_t action_released_mask;
+
+i2c_master_bus_handle_t
+CardputerExtreme_I2cBus(void)
+{
+    return i2c_bus;
+}
 
 static bool
 log_error(
@@ -825,7 +832,7 @@ CardputerExtreme_Begin(void)
     action_released_mask = 0;
     ESP_LOGI(
         TAG,
-        "Cardputer ADV ready: ST7789 SPI3, TCA8418 I2C, no audio/PSRAM");
+        "Cardputer ADV ready: ST7789 SPI3, TCA8418 I2C, no PSRAM");
     return true;
 }
 

@@ -25,6 +25,11 @@ idf_component_register(
     REQUIRES
         esp_driver_gpio
         esp_driver_i2c
+        # ESP-IDF's early component-dependency scan does not import the
+        # project-only CARDPUTER_EXTREME_MUSIC cache option, so it enters this
+        # registration branch even for the music build.  Keep the conditional
+        # engine branch's I2S dependency in this discovery superset.
+        esp_driver_i2s
         esp_driver_sdspi
         esp_driver_spi
         esp_lcd
@@ -54,6 +59,22 @@ if(CARDPUTER_EXTREME_NO_PSRAM)
         "cardputer_extreme_memory.c"
         "cardputer_extreme_scaler.c"
     )
+    if(CARDPUTER_EXTREME_MUSIC)
+        list(APPEND PAL_TARGET_BOARD_SOURCES
+            "cardputer_extreme_audio.c"
+        )
+        set(PAL_TARGET_AUDIO_SOURCES
+            "../../adplug/player.cpp"
+            "../../adplug/rix.cpp"
+            "../../embedded/pal_mame_opl2_static.cpp"
+            "../../embedded/pal_music_cache.c"
+            "../engine_bridge/pal_engine_target_music.cpp"
+        )
+    else()
+        set(PAL_TARGET_AUDIO_SOURCES
+            "../../unix/contract_noaudio.c"
+        )
+    endif()
     set(PAL_ENGINE_LDFRAGMENT_ARGS)
 else()
     set(PAL_TARGET_BOARD_SOURCES
@@ -64,8 +85,22 @@ else()
         LDFRAGMENTS
             "pal_engine_psram.lf"
     )
+    set(PAL_TARGET_AUDIO_SOURCES
+        "../../unix/contract_noaudio.c"
+    )
 endif()
 
+set(PAL_ENGINE_REQUIRED_COMPONENTS
+    esp_driver_gpio
+    esp_driver_i2c
+    esp_driver_sdspi
+    esp_driver_spi
+    esp_lcd
+    esp_partition
+    esp_timer
+    fatfs
+    sdmmc
+)
 set(PAL_ENGINE_HOST_SOURCES
     "../../battle.c"
     "../../ending.c"
@@ -94,7 +129,6 @@ set(PAL_ENGINE_HOST_SOURCES
     "../../video.c"
     "../../sdl_compat/sdl_compat.c"
     "../../unix/embedded_contract_stubs.c"
-    "../../unix/contract_noaudio.c"
     "../../embedded/pal_pack.c"
     "../../embedded/pal_text_cache.c"
     "../../embedded/pal_font_cache.c"
@@ -107,6 +141,7 @@ set(PAL_ENGINE_HOST_SOURCES
     "../engine_bridge/pal_engine_target_time.c"
     "../engine_bridge/pal_engine_target_video.c"
     "../native_engine_shim/sdl_shim.c"
+    ${PAL_TARGET_AUDIO_SOURCES}
     ${PAL_TARGET_BOARD_SOURCES}
 )
 
@@ -124,15 +159,7 @@ idf_component_register(
         "../../embedded"
         "../../sdl_compat"
     REQUIRES
-        esp_driver_gpio
-        esp_driver_i2c
-        esp_driver_sdspi
-        esp_driver_spi
-        esp_lcd
-        esp_partition
-        esp_timer
-        fatfs
-        sdmmc
+        ${PAL_ENGINE_REQUIRED_COMPONENTS}
     ${PAL_ENGINE_LDFRAGMENT_ARGS}
 )
 
@@ -153,8 +180,6 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     PAL_CONTRACT_TARGET_PACK_PROVIDER=1
     PAL_ENGINE_BRIDGE_REQUIRE_TARGET_HOOKS=1
     USE_RIX_EXTRA_INIT=0
-    PAL_CONTRACT_NO_AUDIO=1
-    PAL_ESP_CORES3SE_NO_AUDIO=1
     PAL_ESP_CORES3SE_NO_SFX=1
     USE_SDL3=0
 )
@@ -178,8 +203,21 @@ if(CARDPUTER_EXTREME_NO_PSRAM)
         SHIM_KEYBOARD_KEYS=256
         SHIM_EVENT_QUEUE=8
     )
+    if(CARDPUTER_EXTREME_MUSIC)
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE
+            PAL_EXTREME_RIX_MUSIC=1
+            PAL_CONTRACT_NO_SFX=1
+        )
+    else()
+        target_compile_definitions(${COMPONENT_LIB} PRIVATE
+            PAL_CONTRACT_NO_AUDIO=1
+            PAL_ESP_CORES3SE_NO_AUDIO=1
+        )
+    endif()
 else()
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        PAL_CONTRACT_NO_AUDIO=1
+        PAL_ESP_CORES3SE_NO_AUDIO=1
         SHIM_MAX_SURFACES=8
         SHIM_MAX_PALETTES=8
         SHIM_MAX_TEXTURES=1

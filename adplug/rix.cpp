@@ -48,6 +48,63 @@ using namespace std;
 #define RELEASE_INLINE inline
 #endif
 
+/*
+ * A RIX stream is consumed in two-byte records, with the control byte at the
+ * odd address and its argument at the preceding even address.  The original
+ * replay code trusted both the event-channel nibble and instrument offsets.
+ * Generated packs are trusted inputs, but validating once at track switch
+ * keeps a damaged pack from turning an audio-task read into an out-of-bounds
+ * access.
+ */
+static bool rix_validate_buffer(const uint8_t *data, uint32_t size)
+{
+  uint32_t instrument_block;
+  uint32_t music_block;
+  uint32_t cursor;
+
+  if (data == NULL || size < 16 ||
+      RIX_SWAP16((uint16_t)(data[0] | ((uint16_t)data[1] << 8))) != 0x55aa) {
+    return false;
+  }
+
+  instrument_block = (uint32_t)data[0x08] | ((uint32_t)data[0x09] << 8);
+  music_block = (uint32_t)data[0x0c] | ((uint32_t)data[0x0d] << 8);
+  if (instrument_block >= size || music_block + 1u >= size) {
+    return false;
+  }
+
+  cursor = music_block + 1u;
+  while (cursor < size) {
+    uint8_t argument = data[cursor - 1u];
+    uint8_t control = data[cursor];
+    uint8_t operation;
+
+    if (control == 0x80u) {
+      return true;
+    }
+
+    operation = control & 0xf0u;
+    if ((operation == 0x90u || operation == 0xa0u ||
+         operation == 0xb0u || operation == 0xc0u) &&
+        (control & 0x0fu) > 10u) {
+      return false;
+    }
+    if (operation == 0x90u) {
+      uint32_t offset = instrument_block + ((uint32_t)argument << 6);
+
+      if (offset > size || size - offset < 28u * 2u) {
+        return false;
+      }
+    }
+
+    if (cursor > UINT32_MAX - 2u) {
+      return false;
+    }
+    cursor += 2u;
+  }
+  return false;
+}
+
 const uint8_t CrixPlayer::adflag[] = {0,0,0,1,1,1,0,0,0,1,1,1,0,0,0,1,1,1};
 const uint8_t CrixPlayer::reg_data[] = {0,1,2,3,4,5,8,9,10,11,12,13,16,17,18,19,20,21};
 const uint8_t CrixPlayer::ad_C0_offs[] = {0,1,2,0,1,2,3,4,5,3,4,5,6,7,8,6,7,8};
@@ -196,7 +253,7 @@ bool CrixPlayer::load(const std::string &filename, const CFileProvider &cfp)
 #ifdef PAL_NO_RUNTIME_HEAP
 bool CrixPlayer::load_buffer(const uint8_t *data, uint32_t size)
 {
-  if (data == NULL || size < 16 || RIX_SWAP16((uint16_t)(data[0] | ((uint16_t)data[1] << 8))) != 0x55aa) {
+  if (!rix_validate_buffer(data, size)) {
     return false;
   }
   flag_mkf = 0;
@@ -418,7 +475,7 @@ RELEASE_INLINE uint16_t CrixPlayer::rix_proc()
   uint8_t ctrl = 0;
   if(music_on == 0||pause_flag == 1) return 0;
   band = 0;
-  while(rix_buf[I] != 0x80 && I<length-1)
+  while(I < length && rix_buf[I] != 0x80)
     {
       band_low = rix_buf[I-1];
       ctrl = rix_buf[I]; I+=2;

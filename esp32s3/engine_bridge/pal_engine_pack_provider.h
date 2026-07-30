@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "../../embedded/pal_pack.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -15,6 +17,8 @@ bool PalEngineBridge_SetNorPackConst(const uint8_t *image, uint32_t image_size);
 bool PalEngineBridge_SetTfPackReadAt(uint32_t pack_size, PalEngineBridgeReadAt read_at, void *user);
 void PalEngineBridge_ClearPacks(void);
 bool PalEngineBridge_TargetInitPacks(void);
+bool PalContract_TargetOpenNorPack(PalPack *pack);
+bool PalContract_TargetOpenTfPack(PalPack *pack);
 bool PalEngineBridge_IsPackFile(FILE *fp);
 #if defined(PAL_CARDPUTER_EXTREME)
 int PalEngineBridge_ReadNativeRngFrame(uint16_t movie_id,
