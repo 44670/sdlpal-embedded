@@ -83,10 +83,13 @@ ARCHIVE_IDS = {
 
 DEFAULT_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_default.json")
 
-# The native small-screen path reuses the original WORD.DAT/M.MSG labels.
-# Keep an explicit empty mapping in the manifest so any future non-game text
-# changes the FONT10 identity visibly instead of arriving as hidden chrome.
-FONT10_UI_LABELS: dict[str, str] = {}
+# The native small-screen path reuses the original WORD.DAT/M.MSG text and may
+# add only strings that the target engine actually renders.  Keep every such
+# string explicit so it changes the FONT10 identity and pack manifest visibly;
+# this is not a source for replacement-menu labels or alternative UI chrome.
+FONT10_UI_LABELS: dict[str, str] = {
+    "chapter_complete": "CHAPTER COMPLETE - SUZHOU NEXT",
+}
 
 
 @dataclass(frozen=True)

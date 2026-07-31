@@ -1605,7 +1605,7 @@ PAL_PlayerStatus(
 #if defined(PAL_CARDPUTER_EXTREME)
    if (gpGlobals->fInBattle)
    {
-      WORD focus_player = g_Battle.UI.wCurPlayerIndex;
+      WORD focus_player = PAL_BattleUIGetFocusPlayerIndex();
 
       /*
        * PAL_BattleStartFrame() presents gpScreen after this modal returns.
@@ -1613,14 +1613,6 @@ PAL_PlayerStatus(
        * is still available, so that presentation cannot flash the status FBP.
        */
       VIDEO_RestoreScreen(gpScreen);
-      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
-      {
-         focus_player = g_Battle.wMovingPlayerIndex;
-      }
-      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
-      {
-         focus_player = 0;
-      }
       PalNativeUi_FocusLogical(
          (int16_t)PAL_X(g_Battle.rgPlayer[focus_player].pos),
          (int16_t)PAL_Y(g_Battle.rgPlayer[focus_player].pos),

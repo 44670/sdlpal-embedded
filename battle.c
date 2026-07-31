@@ -621,15 +621,7 @@ PAL_BattleMakeScene(
 
 #if defined(PAL_CARDPUTER_EXTREME)
    {
-      WORD focus_player = g_Battle.UI.wCurPlayerIndex;
-      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
-      {
-         focus_player = g_Battle.wMovingPlayerIndex;
-      }
-      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
-      {
-         focus_player = 0;
-      }
+      WORD focus_player = PAL_BattleUIGetFocusPlayerIndex();
       PalNativeUi_FocusLogical(
          (int16_t)PAL_X(g_Battle.rgPlayer[focus_player].pos),
          (int16_t)PAL_Y(g_Battle.rgPlayer[focus_player].pos),

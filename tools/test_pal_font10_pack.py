@@ -415,7 +415,7 @@ class Font10PackBuilderTests(unittest.TestCase):
         PAL_DATA_DIR.is_dir(),
         f"real PAL data is unavailable at {PAL_DATA_DIR}",
     )
-    def test_real_pal_corpus_has_no_invented_ui_labels(
+    def test_real_pal_corpus_has_only_explicit_runtime_labels(
         self,
     ) -> None:
         pal = set(font_tool.collect_pal_corpus_characters(PAL_DATA_DIR))
@@ -426,12 +426,19 @@ class Font10PackBuilderTests(unittest.TestCase):
             )
         )
         self.assertEqual(len(pal), 2631)
-        self.assertEqual(builder.FONT10_UI_LABELS, {})
-        self.assertEqual(with_ui, pal)
+        self.assertEqual(
+            builder.FONT10_UI_LABELS,
+            {"chapter_complete": "CHAPTER COMPLETE - SUZHOU NEXT"},
+        )
+        self.assertEqual(
+            with_ui - pal,
+            {ord(ch) for ch in "HLMOPRSTUXZ"},
+        )
+        self.assertEqual(len(with_ui), 2642)
         self.assertEqual(
             font_tool.FONT10_HEADER_BYTES
             + len(with_ui) * font_tool.FONT10_RECORD_BYTES,
-            42128,
+            42304,
         )
 
     @unittest.skipUnless(
@@ -456,7 +463,7 @@ class Font10PackBuilderTests(unittest.TestCase):
             135,
             pack_summary["font10"],
         )
-        self.assertEqual(len(pack_chunk.payload), 42128)
+        self.assertEqual(len(pack_chunk.payload), 42304)
         self.assertEqual(profile.font["image_bytes"], len(pack_chunk.payload))
         self.assertEqual(
             profile.font["payload_crc32"],

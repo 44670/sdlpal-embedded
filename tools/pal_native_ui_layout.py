@@ -25,10 +25,18 @@ WORLD_FOCUS_X = 160
 WORLD_FOCUS_Y = 112
 FONT_LINE_HEIGHT = 10
 DIALOG_PAGE_LINES = 4
+DIALOG_POPUP_SINGLE_TEXT_INSET_Y = 10
+DIALOG_POPUP_MULTI_TEXT_INSET_Y = 12
 BATTLE_ACTION_GROUP_RIGHT = 84
 BATTLE_INFO_ORIGINAL_X = 91
 BATTLE_INFO_FRAME_WIDTH = 75
 BATTLE_INFO_FACE_LEFT_INSET = 2
+BATTLE_VIEW_FOCUS_Y = 170
+BATTLE_ATTACK_POS = (27, 140)
+BATTLE_MAGIC_POS = (0, 155)
+BATTLE_COOP_MAGIC_POS = (54, 155)
+BATTLE_MISC_POS = (27, 170)
+BATTLE_INFO_Y = 165
 
 
 @dataclass(frozen=True)
@@ -63,7 +71,6 @@ class BattleLayout:
     coop_magic: Point
     misc: Point
     info_local_x: int
-    info_stride: int
     info_y: int
 
 
@@ -130,6 +137,10 @@ def build_profile(
     if font["cell_width"] != 10 or font["cell_height"] != 10:
         raise ValueError("native PAL UI requires the pinned 10x10 FONT10 cell")
 
+    battle_origin_y = _origin(
+        BATTLE_VIEW_FOCUS_Y, height, LOGICAL_HEIGHT
+    )
+
     return Profile(
         name=f"{width}x{height}",
         display_width=width,
@@ -190,10 +201,22 @@ def build_profile(
             # placement.  X is local to the live player-focused viewport so
             # the original assets remain reachable without panning away from
             # the acting player.
-            attack=Point(27, 140),
-            magic=Point(0, 155),
-            coop_magic=Point(54, 155),
-            misc=Point(27, 170),
+            attack=Point(
+                BATTLE_ATTACK_POS[0],
+                BATTLE_ATTACK_POS[1] - battle_origin_y,
+            ),
+            magic=Point(
+                BATTLE_MAGIC_POS[0],
+                BATTLE_MAGIC_POS[1] - battle_origin_y,
+            ),
+            coop_magic=Point(
+                BATTLE_COOP_MAGIC_POS[0],
+                BATTLE_COOP_MAGIC_POS[1] - battle_origin_y,
+            ),
+            misc=Point(
+                BATTLE_MISC_POS[0],
+                BATTLE_MISC_POS[1] - battle_origin_y,
+            ),
             # The original face extends two pixels left of the 75px info
             # frame.  Solve for the closest placement to PAL's x=91 that
             # keeps the face clear of the 84px-wide action group and, when
@@ -201,8 +224,7 @@ def build_profile(
             # 160px those constraints meet at x=86, so only the last
             # decorative frame-edge pixel is clipped.
             info_local_x=_battle_info_local_x(width),
-            info_stride=77,
-            info_y=165,
+            info_y=BATTLE_INFO_Y - battle_origin_y,
         ),
         font=font,
     )
@@ -255,6 +277,8 @@ def emit_header(profile: Profile) -> str:
         f"#define {p}_FONT_DESCENT {profile.font['descent']}u",
         f"#define {p}_DIALOG_LINE_HEIGHT {FONT_LINE_HEIGHT}u",
         f"#define {p}_DIALOG_PAGE_LINES {DIALOG_PAGE_LINES}u",
+        f"#define {p}_DIALOG_POPUP_SINGLE_TEXT_INSET_Y {DIALOG_POPUP_SINGLE_TEXT_INSET_Y}u",
+        f"#define {p}_DIALOG_POPUP_MULTI_TEXT_INSET_Y {DIALOG_POPUP_MULTI_TEXT_INSET_Y}u",
         "",
         "/* Original DATA.MKF #9 visual contract; no replacement chrome. */",
         f"#define {p}_UI_ARCHIVE_CHUNK 9u",
@@ -272,18 +296,17 @@ def emit_header(profile: Profile) -> str:
         f"#define {p}_MENU_CONFIRMED_COLOR 0x2cu",
         f"#define {p}_MENU_SELECTED_FIRST_COLOR 0xf9u",
         "",
-        "/* Original battle HUD assets, placed inside the player viewport. */",
+        "/* Original battle HUD assets, placed inside the live viewport. */",
         f"#define {p}_BATTLE_ATTACK_LOCAL_X {profile.battle.attack.x}",
-        f"#define {p}_BATTLE_ATTACK_Y {profile.battle.attack.y}",
+        f"#define {p}_BATTLE_ATTACK_LOCAL_Y {profile.battle.attack.y}",
         f"#define {p}_BATTLE_MAGIC_LOCAL_X {profile.battle.magic.x}",
-        f"#define {p}_BATTLE_MAGIC_Y {profile.battle.magic.y}",
+        f"#define {p}_BATTLE_MAGIC_LOCAL_Y {profile.battle.magic.y}",
         f"#define {p}_BATTLE_COOP_MAGIC_LOCAL_X {profile.battle.coop_magic.x}",
-        f"#define {p}_BATTLE_COOP_MAGIC_Y {profile.battle.coop_magic.y}",
+        f"#define {p}_BATTLE_COOP_MAGIC_LOCAL_Y {profile.battle.coop_magic.y}",
         f"#define {p}_BATTLE_MISC_LOCAL_X {profile.battle.misc.x}",
-        f"#define {p}_BATTLE_MISC_Y {profile.battle.misc.y}",
+        f"#define {p}_BATTLE_MISC_LOCAL_Y {profile.battle.misc.y}",
         f"#define {p}_BATTLE_INFO_LOCAL_X {profile.battle.info_local_x}",
-        f"#define {p}_BATTLE_INFO_STRIDE {profile.battle.info_stride}u",
-        f"#define {p}_BATTLE_INFO_Y {profile.battle.info_y}",
+        f"#define {p}_BATTLE_INFO_LOCAL_Y {profile.battle.info_y}",
         "",
         "/* Chapter-cache loading screen geometry; not gameplay UI. */",
         f"#define {p}_LOADING_GLYPH_WIDTH {loading_glyph_width}u",

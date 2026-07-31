@@ -60,11 +60,13 @@ class NativeUiLayoutTests(unittest.TestCase):
         self.assertIn("WORLD_ORIGIN_X 40u", header)
         self.assertNotIn("SCALE_", header)
         self.assertNotIn("SAMPLE_", header)
+        self.assertIn("DIALOG_POPUP_SINGLE_TEXT_INSET_Y 10u", header)
+        self.assertIn("DIALOG_POPUP_MULTI_TEXT_INSET_Y 12u", header)
 
     def test_battle_keeps_original_hud_shape_inside_player_view(self) -> None:
-        for width, height, info_x in (
-            (240, 135, 91),
-            (160, 128, 86),
+        for width, height, info_x, battle_y in (
+            (240, 135, 91, (75, 90, 90, 105, 100)),
+            (160, 128, 86, (68, 83, 83, 98, 93)),
         ):
             profile = layout.build_profile(width, height, FONT)
             battle = profile.battle
@@ -75,19 +77,26 @@ class NativeUiLayoutTests(unittest.TestCase):
                     (battle.coop_magic.x, battle.coop_magic.y),
                     (battle.misc.x, battle.misc.y),
                 ),
-                ((27, 140), (0, 155), (54, 155), (27, 170)),
+                (
+                    (27, battle_y[0]),
+                    (0, battle_y[1]),
+                    (54, battle_y[2]),
+                    (27, battle_y[3]),
+                ),
             )
             self.assertLess(battle.coop_magic.x, width)
             self.assertEqual(battle.info_local_x, info_x)
-            self.assertEqual(battle.info_stride, 77)
-            self.assertEqual(battle.info_y, 165)
+            self.assertEqual(battle.info_y, battle_y[4])
 
             header = layout.emit_header(profile)
             self.assertIn("BATTLE_ATTACK_LOCAL_X 27", header)
             self.assertIn(
                 f"BATTLE_INFO_LOCAL_X {info_x}", header
             )
-            self.assertIn("BATTLE_INFO_STRIDE 77u", header)
+            self.assertIn(
+                f"BATTLE_ATTACK_LOCAL_Y {battle_y[0]}", header
+            )
+            self.assertNotIn("BATTLE_INFO_STRIDE", header)
 
         # The solver returns to PAL's original x=91 as soon as the 75px
         # frame fits without touching the 84px action group.

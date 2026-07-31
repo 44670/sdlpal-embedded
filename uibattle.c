@@ -42,6 +42,191 @@ PAL_BattleNativeFocusPoint(
       (int16_t)y,
       PAL_NATIVE_UI_VIEW_UI);
 }
+
+WORD
+PAL_BattleUIGetFocusPlayerIndex(
+   VOID
+)
+{
+   WORD focus_player;
+
+   if (g_Battle.Phase == kBattlePhasePerformAction)
+   {
+      focus_player = g_Battle.wMovingPlayerIndex;
+      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
+      {
+         focus_player = g_Battle.UI.wCurPlayerIndex;
+      }
+   }
+   else
+   {
+      focus_player = g_Battle.UI.wCurPlayerIndex;
+      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
+      {
+         focus_player = g_Battle.wMovingPlayerIndex;
+      }
+   }
+   if (focus_player > gpGlobals->wMaxPartyMemberIndex)
+   {
+      focus_player = 0;
+   }
+   return focus_player;
+}
+
+static VOID
+PAL_BattleNativeFocusSubjectWithPlayer(
+   INT subject_x,
+   INT subject_y
+)
+{
+   WORD focus_player = PAL_BattleUIGetFocusPlayerIndex();
+   INT player_x = PAL_X(g_Battle.rgPlayer[focus_player].pos);
+   INT player_y = PAL_Y(g_Battle.rgPlayer[focus_player].pos);
+   INT focus_x = (player_x + subject_x) / 2;
+   INT focus_y = (player_y + subject_y) / 2;
+   LPCBITMAPRLE player_frame = NULL;
+
+   /* Begin with equal actor/subject context, then move only as far as needed
+    * to keep the active player's actual unscaled frame in view.  A wide
+    * encounter may clip the target, but never at the expense of the actor. */
+   if (g_Battle.rgPlayer[focus_player].lpSprite != NULL)
+   {
+      player_frame = PAL_SpriteGetFrame(
+         g_Battle.rgPlayer[focus_player].lpSprite,
+         g_Battle.rgPlayer[focus_player].wCurrentFrame);
+   }
+   if (player_frame != NULL)
+   {
+      INT frame_width = PAL_RLEGetWidth(player_frame);
+      INT frame_height = PAL_RLEGetHeight(player_frame);
+      INT view_left = focus_x -
+         PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH / 2;
+      INT view_top = focus_y -
+         PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT / 2;
+      INT player_left = player_x - frame_width / 2;
+      INT player_right = player_left + frame_width;
+      INT player_top = player_y - frame_height;
+
+      if (frame_width > 0 &&
+         frame_width <= PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH)
+      {
+         if (player_left < view_left)
+         {
+            focus_x -= view_left - player_left;
+         }
+         else if (player_right >
+            view_left + PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH)
+         {
+            focus_x += player_right -
+               (view_left + PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH);
+         }
+      }
+      if (frame_height > 0 &&
+         frame_height <= PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT)
+      {
+         if (player_top < view_top)
+         {
+            focus_y -= view_top - player_top;
+         }
+         else if (player_y >
+            view_top + PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT)
+         {
+            focus_y += player_y -
+               (view_top + PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT);
+         }
+      }
+   }
+   PalNativeUi_FocusLogical(
+      (int16_t)focus_x,
+      (int16_t)focus_y,
+      PAL_NATIVE_UI_VIEW_UI);
+}
+
+static VOID
+PAL_BattleNativeFocusSelection(
+   VOID
+)
+{
+   INT i;
+   INT focus_x;
+   INT focus_y;
+   INT focus_count;
+   WORD focus_player = PAL_BattleUIGetFocusPlayerIndex();
+
+   switch (g_Battle.UI.state)
+   {
+   case kBattleUISelectMove:
+      if (g_Battle.UI.MenuState == kBattleMenuMain)
+      {
+         PAL_BattleNativeFocusPoint(
+            PAL_X(g_Battle.rgPlayer[focus_player].pos),
+            PAL_Y(g_Battle.rgPlayer[focus_player].pos));
+      }
+      break;
+
+   case kBattleUISelectTargetEnemy:
+      if (g_Battle.UI.iSelectedIndex >= 0 &&
+         g_Battle.UI.iSelectedIndex <= g_Battle.wMaxEnemyIndex &&
+         g_Battle.rgEnemy[g_Battle.UI.iSelectedIndex].wObjectID != 0)
+      {
+         PAL_BattleNativeFocusSubjectWithPlayer(
+            PAL_X(g_Battle.rgEnemy[g_Battle.UI.iSelectedIndex].pos),
+            PAL_Y(g_Battle.rgEnemy[g_Battle.UI.iSelectedIndex].pos));
+      }
+      break;
+
+   case kBattleUISelectTargetPlayer:
+      if (g_Battle.UI.iSelectedIndex >= 0 &&
+         g_Battle.UI.iSelectedIndex <= gpGlobals->wMaxPartyMemberIndex)
+      {
+         PAL_BattleNativeFocusSubjectWithPlayer(
+            PAL_X(g_Battle.rgPlayer[g_Battle.UI.iSelectedIndex].pos),
+            PAL_Y(g_Battle.rgPlayer[g_Battle.UI.iSelectedIndex].pos));
+      }
+      break;
+
+   case kBattleUISelectTargetEnemyAll:
+      focus_x = 0;
+      focus_y = 0;
+      focus_count = 0;
+      for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
+      {
+         if (g_Battle.rgEnemy[i].wObjectID != 0)
+         {
+            focus_x += PAL_X(g_Battle.rgEnemy[i].pos);
+            focus_y += PAL_Y(g_Battle.rgEnemy[i].pos);
+            focus_count++;
+         }
+      }
+      if (focus_count > 0)
+      {
+         PAL_BattleNativeFocusSubjectWithPlayer(
+            focus_x / focus_count, focus_y / focus_count);
+      }
+      break;
+
+   case kBattleUISelectTargetPlayerAll:
+      focus_x = 0;
+      focus_y = 0;
+      focus_count = 0;
+      for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
+      {
+         focus_x += PAL_X(g_Battle.rgPlayer[i].pos);
+         focus_y += PAL_Y(g_Battle.rgPlayer[i].pos);
+         focus_count++;
+      }
+      if (focus_count > 0)
+      {
+         PAL_BattleNativeFocusSubjectWithPlayer(
+            focus_x / focus_count, focus_y / focus_count);
+      }
+      break;
+
+   case kBattleUIWait:
+   default:
+      break;
+   }
+}
 #endif
 
 VOID
@@ -833,6 +1018,8 @@ PAL_BattleUIUpdate(
 --*/
 {
    int              i, j, x, y;
+   int              first_info_player = 0;
+   int              last_info_player = gpGlobals->wMaxPartyMemberIndex;
    WORD             wPlayerRole, w;
    static int       s_iFrame = 0;
 
@@ -849,26 +1036,37 @@ PAL_BattleUIUpdate(
    };
 #ifdef PAL_CARDPUTER_EXTREME
    PalNativeUiViewport native_viewport;
-   BOOL native_viewport_ready = PalNativeUi_GetViewport(&native_viewport);
+   BOOL native_viewport_ready;
+
+   PAL_BattleNativeFocusSelection();
+   native_viewport_ready = PalNativeUi_GetViewport(&native_viewport);
 
    if (native_viewport_ready)
    {
+      WORD focus_player = PAL_BattleUIGetFocusPlayerIndex();
+
+      first_info_player = focus_player;
+      last_info_player = focus_player;
       rgItems[0].pos = PAL_XY(
          native_viewport.source_x +
             PAL_NATIVE_UI_GENERATED_BATTLE_ATTACK_LOCAL_X,
-         PAL_NATIVE_UI_GENERATED_BATTLE_ATTACK_Y);
+         native_viewport.source_y +
+            PAL_NATIVE_UI_GENERATED_BATTLE_ATTACK_LOCAL_Y);
       rgItems[1].pos = PAL_XY(
          native_viewport.source_x +
             PAL_NATIVE_UI_GENERATED_BATTLE_MAGIC_LOCAL_X,
-         PAL_NATIVE_UI_GENERATED_BATTLE_MAGIC_Y);
+         native_viewport.source_y +
+            PAL_NATIVE_UI_GENERATED_BATTLE_MAGIC_LOCAL_Y);
       rgItems[2].pos = PAL_XY(
          native_viewport.source_x +
             PAL_NATIVE_UI_GENERATED_BATTLE_COOP_MAGIC_LOCAL_X,
-         PAL_NATIVE_UI_GENERATED_BATTLE_COOP_MAGIC_Y);
+         native_viewport.source_y +
+            PAL_NATIVE_UI_GENERATED_BATTLE_COOP_MAGIC_LOCAL_Y);
       rgItems[3].pos = PAL_XY(
          native_viewport.source_x +
             PAL_NATIVE_UI_GENERATED_BATTLE_MISC_LOCAL_X,
-         PAL_NATIVE_UI_GENERATED_BATTLE_MISC_Y);
+         native_viewport.source_y +
+            PAL_NATIVE_UI_GENERATED_BATTLE_MISC_LOCAL_Y);
    }
 #endif
 
@@ -887,8 +1085,21 @@ PAL_BattleUIUpdate(
       else
       {
          LPCWSTR itemText = PAL_GetWord(BATTLEUI_LABEL_AUTO);
+#ifdef PAL_CARDPUTER_EXTREME
+         PAL_POS text_pos = PAL_XY(312-PAL_TextWidth(itemText), 10);
+         if (native_viewport_ready)
+         {
+            text_pos = PAL_XY(
+               native_viewport.source_x + native_viewport.width -
+                  PAL_TextWidth(itemText) - 4,
+               native_viewport.source_y + 4);
+         }
+         PAL_DrawText(itemText, text_pos,
+            MENUITEM_COLOR_CONFIRMED, TRUE, FALSE, FALSE);
+#else
          PAL_DrawText(itemText, PAL_XY(312-PAL_TextWidth(itemText), 10),
             MENUITEM_COLOR_CONFIRMED, TRUE, FALSE, FALSE);
+#endif
       }
    }
 
@@ -953,7 +1164,7 @@ PAL_BattleUIUpdate(
       //
       // Draw the player info boxes.
       //
-      for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
+      for (i = first_info_player; i <= last_info_player; i++)
       {
          PAL_POS info_pos = PAL_XY(91 + 77 * i, 165);
          wPlayerRole = gpGlobals->rgParty[i].wPlayerRole;
@@ -982,12 +1193,11 @@ PAL_BattleUIUpdate(
 #ifdef PAL_CARDPUTER_EXTREME
          if (native_viewport_ready)
          {
-            INT local_x = PAL_NATIVE_UI_GENERATED_BATTLE_INFO_LOCAL_X +
-               (i - (INT)g_Battle.UI.wCurPlayerIndex) *
-                  PAL_NATIVE_UI_GENERATED_BATTLE_INFO_STRIDE;
             info_pos = PAL_XY(
-               native_viewport.source_x + local_x,
-               PAL_NATIVE_UI_GENERATED_BATTLE_INFO_Y);
+               native_viewport.source_x +
+                  PAL_NATIVE_UI_GENERATED_BATTLE_INFO_LOCAL_X,
+               native_viewport.source_y +
+                  PAL_NATIVE_UI_GENERATED_BATTLE_INFO_LOCAL_Y);
          }
 #endif
          PAL_PlayerInfoBox(info_pos, wPlayerRole,
@@ -1608,16 +1818,6 @@ PAL_BattleUIUpdate(
             if( g_Battle.UI.iSelectedIndex >= MAX_ENEMIES_IN_TEAM ) g_Battle.UI.iSelectedIndex = 0;
          }
       }
-#ifdef PAL_CARDPUTER_EXTREME
-      if (g_Battle.UI.state == kBattleUISelectTargetEnemy &&
-         g_Battle.UI.iSelectedIndex >= 0 &&
-         g_Battle.UI.iSelectedIndex <= g_Battle.wMaxEnemyIndex)
-      {
-         PAL_BattleNativeFocusPoint(
-            PAL_X(g_Battle.rgEnemy[g_Battle.UI.iSelectedIndex].pos),
-            PAL_Y(g_Battle.rgEnemy[g_Battle.UI.iSelectedIndex].pos));
-      }
-#endif
       break;
 
    case kBattleUISelectTargetPlayer:
@@ -1684,17 +1884,6 @@ PAL_BattleUIUpdate(
          }
       }
 
-#ifdef PAL_CARDPUTER_EXTREME
-      if (g_Battle.UI.state == kBattleUISelectTargetPlayer &&
-         g_Battle.UI.iSelectedIndex >= 0 &&
-         g_Battle.UI.iSelectedIndex <= gpGlobals->wMaxPartyMemberIndex)
-      {
-         PAL_BattleNativeFocusPoint(
-            PAL_X(g_Battle.rgPlayer[g_Battle.UI.iSelectedIndex].pos),
-            PAL_Y(g_Battle.rgPlayer[g_Battle.UI.iSelectedIndex].pos));
-      }
-#endif
-
       break;
 
    case kBattleUISelectTargetEnemyAll:
@@ -1745,30 +1934,6 @@ PAL_BattleUIUpdate(
          g_Battle.UI.iSelectedIndex = -1;
          PAL_BattleCommitAction(FALSE);
       }
-#ifdef PAL_CARDPUTER_EXTREME
-      if (g_Battle.UI.state == kBattleUISelectTargetEnemyAll)
-      {
-         INT focus_x = 0;
-         INT focus_y = 0;
-         INT focus_count = 0;
-
-         for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
-         {
-            if (g_Battle.rgEnemy[i].wObjectID != 0)
-            {
-               focus_x += PAL_X(g_Battle.rgEnemy[i].pos);
-               focus_y += PAL_Y(g_Battle.rgEnemy[i].pos);
-               focus_count++;
-            }
-         }
-         if (focus_count > 0)
-         {
-            PAL_BattleNativeFocusPoint(
-               focus_x / focus_count,
-               focus_y / focus_count);
-         }
-      }
-#endif
 #endif
       break;
 
@@ -1816,15 +1981,6 @@ PAL_BattleUIUpdate(
          g_Battle.UI.iSelectedIndex = -1;
          PAL_BattleCommitAction(FALSE);
       }
-#ifdef PAL_CARDPUTER_EXTREME
-      if (g_Battle.UI.state == kBattleUISelectTargetPlayerAll &&
-         g_Battle.UI.wCurPlayerIndex <= gpGlobals->wMaxPartyMemberIndex)
-      {
-         PAL_BattleNativeFocusPoint(
-            PAL_X(g_Battle.rgPlayer[g_Battle.UI.wCurPlayerIndex].pos),
-            PAL_Y(g_Battle.rgPlayer[g_Battle.UI.wCurPlayerIndex].pos));
-      }
-#endif
 #endif
       break;
    }
@@ -1836,6 +1992,9 @@ end:
 #ifndef PAL_CLASSIC
    if (!SDL_TICKS_PASSED(SDL_GetTicks(), g_Battle.UI.dwMsgShowTime))
    {
+#ifdef PAL_CARDPUTER_EXTREME
+      PAL_DrawNativeBattleMessage(g_Battle.UI.szMsg);
+#else
       //
       // The text should be shown in a small window at the center of the screen
       //
@@ -1856,6 +2015,7 @@ end:
       //
       pos = PAL_XY(PAL_X(pos) + 8 + ((len & 1) << 2), PAL_Y(pos) + 10);
       PAL_DrawText(g_Battle.UI.szMsg, pos, 0, FALSE, FALSE, FALSE);
+#endif
    }
    else if (g_Battle.UI.szNextMsg[0] != '\0')
    {

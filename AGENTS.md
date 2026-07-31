@@ -100,8 +100,10 @@ size 18,220,904 bytes
 The archive is supplied out of band through `FONT10_ARCHIVE`; do not vendor
 the release zip. The OFL-1.1 license is kept at
 `third_party/fusion-pixel-font/OFL.txt`. Host tooling subsets the actual
-`WORD.DAT` and `M.MSG` corpus only; it must not add invented replacement-menu
-labels. Missing glyphs or a wrong archive must fail the build.
+`WORD.DAT`/`M.MSG` corpus plus the target-authored strings explicitly listed
+in `tools/pal_pack_build.py`; it must not add invented replacement-menu
+labels. The finite-profile chapter-complete endpoint is one such real runtime
+string. Missing glyphs or a wrong archive must fail the build.
 
 ## Resource and state architecture
 
@@ -203,19 +205,25 @@ invent content.
 Presentation rules:
 
 - map view centres the canonical party anchor;
-- battle view follows the active player during animation and main-action
-  selection; the original four-icon diamond and player-info sprites are moved
-  as intact groups into that viewport, while target/list selection may pan to
-  the selected target or list cursor;
+- battle view follows the moving player during action animation and the
+  current player during selection; the original four-icon diamond and the one
+  active-player info sprite are moved as intact groups into the live viewport
+  (multiple full info frames cannot coexist with the action diamond at 160
+  pixels). Target selection starts at the actor/subject midpoint, then shifts
+  only enough to retain the active player's actual unscaled sprite; list
+  selection may pan to its cursor;
 - original menus remain on the 320x200 canvas and the native viewport pans to
   keep the active selection visible, including item, magic-target, and
   equipment player selectors; the status screen uses a stable upper-left crop
   containing role identity and primary values;
-- dialogue uses the generated viewport, reflows actual message text at glyph
-  boundaries with the 10px font, and keeps the original control-code timing,
+- dialogue uses the generated viewport, reflows actual message text at word
+  boundaries when available and at glyph boundaries otherwise with the 10px
+  font, and keeps the original control-code timing,
   color, pagination, and interaction behavior; in particular, `~nn` ends the
   current message exactly as `TEXT_DisplayText()` does, so suffix controls are
-  not reinterpreted as another wrapped line;
+  not reinterpreted as another wrapped line. A center-window line that cannot
+  fit uses the original style-1 DATA #9 border as a multi-line popup rather
+  than clipping or introducing new chrome;
 - only bounded assets that genuinely do not fit, currently dialogue portraits,
   may be downsampled on-device with deterministic nearest-centre sampling,
   preserved aspect ratio, and preserved RLE transparency.

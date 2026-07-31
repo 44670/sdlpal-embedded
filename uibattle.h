@@ -128,6 +128,13 @@ PAL_BattleUIShowText(
    WORD          wDuration
 );
 
+#ifdef PAL_CARDPUTER_EXTREME
+WORD
+PAL_BattleUIGetFocusPlayerIndex(
+   VOID
+);
+#endif
+
 VOID
 PAL_BattleUIPlayerReady(
    WORD          wPlayerIndex

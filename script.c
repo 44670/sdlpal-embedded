@@ -2131,7 +2131,8 @@ PAL_InterpretInstruction(
          UTIL_LogOutput(LOGLEVEL_INFO,
             "Cardputer chapter complete at scene 22 -> 21 boundary\n");
          PAL_StartDialog(kDialogCenterWindow, 0, 0, FALSE);
-         PAL_ShowDialogText(WIDETEXT("CHAPTER COMPLETE - SUZHOU NEXT"));
+         /* '-' is a dialogue color control unless escaped. */
+         PAL_ShowDialogText(WIDETEXT("CHAPTER COMPLETE \\- SUZHOU NEXT"));
          return 0;
       }
 #endif

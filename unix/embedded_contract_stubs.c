@@ -948,6 +948,8 @@ PalContract_NativeDialogLine(
 {
     int width = 0;
     size_t used = 0u;
+    LPCWSTR word_break = NULL;
+    size_t word_break_used = 0u;
 
     if (source == NULL || line == NULL || line_capacity < 2u ||
         terminated == NULL) {
@@ -957,16 +959,34 @@ PalContract_NativeDialogLine(
     while (*source != 0) {
         int token_width;
         bool terminates = source[0] == '~';
+        bool is_space = source[0] == ' ';
         size_t token = PalContract_NativeDialogToken(
             source, &token_width);
         size_t i;
 
-        if (token == 0u || token >= line_capacity - used) {
+        if (token == 0u) {
             break;
         }
-        if (token_width > 0 && width > 0 &&
-            width + token_width > max_width) {
+        if (token >= line_capacity - used ||
+            (token_width > 0 && width > 0 &&
+                width + token_width > max_width)) {
+            if (word_break != NULL && word_break_used > 0u) {
+                source = word_break;
+                used = word_break_used;
+                while (*source == ' ') {
+                    source++;
+                }
+            } else if (is_space && used > 0u) {
+                source += token;
+                while (*source == ' ') {
+                    source++;
+                }
+            }
             break;
+        }
+        if (is_space && used > 0u) {
+            word_break = source + token;
+            word_break_used = used;
         }
         for (i = 0u; i < token; i++) {
             line[used++] = source[i];
@@ -980,6 +1000,238 @@ PalContract_NativeDialogLine(
     }
     line[used] = 0;
     return source;
+}
+
+static bool
+PalContract_NativePopupLineMetrics(
+    LPCWSTR text,
+    int wrap_width,
+    int max_lines,
+    int *line_count,
+    int *max_line_width
+)
+{
+    WCHAR line[PAL_CONTRACT_TEXT_CHARS];
+    LPCWSTR cursor = text != NULL ? text : pal_empty_text;
+    int count = 0;
+    int widest = 0;
+
+    if (wrap_width <= 0 || max_lines <= 0 ||
+        line_count == NULL || max_line_width == NULL) {
+        return false;
+    }
+    do {
+        LPCWSTR next;
+        bool terminated;
+        int width;
+
+        if (count >= max_lines) {
+            return false;
+        }
+        next = PalContract_NativeDialogLine(
+            cursor,
+            wrap_width,
+            line,
+            sizeof(line) / sizeof(line[0]),
+            &terminated);
+        if (next == NULL || (next == cursor && *cursor != 0)) {
+            return false;
+        }
+        width = PalContract_NativeDialogMeasure(line);
+        if (width > widest) {
+            widest = width;
+        }
+        count++;
+        cursor = next;
+        if (terminated) {
+            break;
+        }
+    } while (*cursor != 0);
+
+    *line_count = count;
+    *max_line_width = widest;
+    return true;
+}
+
+static bool
+PalContract_NativeDrawPopup(
+    LPCWSTR text,
+    PalNativeUiViewport viewport,
+    int text_y,
+    int x_offset,
+    int shadow_offset
+)
+{
+    LPCBITMAPRLE single_left = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_LEFT_FRAME);
+    LPCBITMAPRLE single_middle = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_MIDDLE_FRAME);
+    LPCBITMAPRLE single_right = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_RIGHT_FRAME);
+    LPCBITMAPRLE multi_top_left = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_BOX_STYLE1_FIRST);
+    LPCBITMAPRLE multi_top_middle = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_BOX_STYLE1_FIRST + 1u);
+    LPCBITMAPRLE multi_top_right = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_BOX_STYLE1_FIRST + 2u);
+    LPCBITMAPRLE multi_middle_left = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_BOX_STYLE1_FIRST + 3u);
+    LPCBITMAPRLE multi_bottom_left = PAL_SpriteGetFrame(
+        gpSpriteUI, PAL_NATIVE_UI_GENERATED_BOX_STYLE1_FIRST + 6u);
+    bool previous_font10 = pal_contract_dialog_font10;
+    bool drawn = false;
+    int single_left_width;
+    int single_middle_width;
+    int single_right_width;
+    int text_width;
+
+    if (single_left == NULL || single_middle == NULL ||
+        single_right == NULL || multi_top_left == NULL ||
+        multi_top_middle == NULL || multi_top_right == NULL ||
+        multi_middle_left == NULL || multi_bottom_left == NULL) {
+        return false;
+    }
+    single_left_width = PAL_RLEGetWidth(single_left);
+    single_middle_width = PAL_RLEGetWidth(single_middle);
+    single_right_width = PAL_RLEGetWidth(single_right);
+    if (single_left_width <= 0 || single_middle_width <= 0 ||
+        single_right_width <= 0) {
+        return false;
+    }
+    if (shadow_offset < 0) {
+        shadow_offset = 0;
+    }
+
+    pal_contract_dialog_font10 = true;
+    text_width = PalContract_NativeDialogMeasure(text);
+    if (text_width <= (int)viewport.width -
+            single_left_width - single_right_width) {
+        int box_units = (text_width + single_middle_width - 1) /
+            single_middle_width;
+        int box_width;
+        int box_x;
+        int box_y;
+        int draw_x;
+
+        if (box_units < 1) {
+            box_units = 1;
+        }
+        box_width = single_left_width + single_right_width +
+            box_units * single_middle_width;
+        box_x = viewport.source_x +
+            ((int)viewport.width - box_width) / 2 + x_offset;
+        box_y = text_y -
+            PAL_NATIVE_UI_GENERATED_DIALOG_POPUP_SINGLE_TEXT_INSET_Y;
+        draw_x = box_x + (box_width - text_width) / 2;
+        (void)PAL_CreateSingleLineBoxWithShadow(
+            PAL_XY(box_x, box_y), box_units, FALSE, shadow_offset);
+        (void)TEXT_DisplayText(text, draw_x, text_y, TRUE);
+        drawn = true;
+    } else {
+        int left_width = PAL_RLEGetWidth(multi_top_left);
+        int middle_width = PAL_RLEGetWidth(multi_top_middle);
+        int right_width = PAL_RLEGetWidth(multi_top_right);
+        int top_height = PAL_RLEGetHeight(multi_top_left);
+        int middle_height = PAL_RLEGetHeight(multi_middle_left);
+        int bottom_height = PAL_RLEGetHeight(multi_bottom_left);
+        int max_columns;
+        int max_lines;
+        int line_count;
+        int max_line_width;
+        int columns;
+        int inner_width;
+        int box_width;
+        int box_x;
+        int box_y;
+        WCHAR line[PAL_CONTRACT_TEXT_CHARS];
+        LPCWSTR cursor = text != NULL ? text : pal_empty_text;
+        int line_index;
+
+        if (left_width <= 0 || middle_width <= 0 || right_width <= 0 ||
+            top_height <= 0 || middle_height <= 0 || bottom_height <= 0) {
+            goto done;
+        }
+        max_columns = ((int)viewport.width - left_width - right_width) /
+            middle_width;
+        max_lines = 1 + ((int)viewport.height - top_height -
+            bottom_height) / middle_height;
+        if (!PalContract_NativePopupLineMetrics(
+                text,
+                max_columns * middle_width,
+                max_lines,
+                &line_count,
+                &max_line_width)) {
+            goto done;
+        }
+        columns = (max_line_width + middle_width - 1) / middle_width;
+        if (columns < 1) {
+            columns = 1;
+        }
+        if (columns > max_columns) {
+            columns = max_columns;
+        }
+        inner_width = columns * middle_width;
+        box_width = left_width + inner_width + right_width;
+        box_x = viewport.source_x +
+            ((int)viewport.width - box_width) / 2 + x_offset;
+        box_y = text_y -
+            PAL_NATIVE_UI_GENERATED_DIALOG_POPUP_MULTI_TEXT_INSET_Y;
+        (void)PAL_CreateBoxWithShadow(
+            PAL_XY(box_x, box_y), line_count - 1, columns, 1,
+            FALSE, shadow_offset);
+
+        for (line_index = 0; line_index < line_count; line_index++) {
+            LPCWSTR next;
+            bool terminated;
+            int line_width;
+            int draw_x;
+            int draw_y;
+
+            next = PalContract_NativeDialogLine(
+                cursor,
+                max_columns * middle_width,
+                line,
+                sizeof(line) / sizeof(line[0]),
+                &terminated);
+            if (next == NULL || (next == cursor && *cursor != 0)) {
+                goto done;
+            }
+            line_width = PalContract_NativeDialogMeasure(line);
+            draw_x = box_x + left_width +
+                (inner_width - line_width) / 2;
+            draw_y = box_y +
+                PAL_NATIVE_UI_GENERATED_DIALOG_POPUP_MULTI_TEXT_INSET_Y +
+                line_index * middle_height;
+            (void)TEXT_DisplayText(line, draw_x, draw_y, TRUE);
+            cursor = next;
+            if (terminated) {
+                break;
+            }
+        }
+        drawn = true;
+    }
+
+done:
+    pal_contract_dialog_font10 = previous_font10;
+    return drawn;
+}
+
+VOID
+PAL_DrawNativeBattleMessage(
+    LPCWSTR text
+)
+{
+    PalNativeUiViewport viewport;
+
+    if (PalNativeUi_GetViewport(&viewport)) {
+        (void)PalContract_NativeDrawPopup(
+            text,
+            viewport,
+            viewport.source_y +
+                PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_Y,
+            0,
+            6);
+    }
 }
 
 static void
@@ -1151,41 +1403,28 @@ VOID PAL_ShowDialogText(LPCWSTR lpszText)
     len = lpszText != NULL ? wcslen(lpszText) : 0;
     if (g_TextLib.bDialogPosition == kDialogCenterWindow) {
         PalNativeUiViewport viewport;
-        int text_width;
-        int box_units;
-        int box_width;
-        PAL_POS pos;
+        int x_offset;
 
-        pal_contract_dialog_font10 = true;
-        text_width = PalContract_NativeDialogMeasure(lpszText);
-        box_units = (text_width + 15) / 16;
-        if (box_units < 1) {
-            box_units = 1;
-        }
-        if (box_units >
-            ((int)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 16) / 16) {
-            box_units =
-                ((int)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 16) / 16;
-        }
-        box_width = box_units * 16 + 16;
-        if (!PalNativeUi_GetViewport(&viewport)) {
-            pal_contract_dialog_font10 = false;
+#ifndef PAL_CLASSIC
+        if (gpGlobals->fInBattle &&
+            g_Battle.BattleResult == kBattleResultOnGoing) {
+            PAL_BattleUIShowText(lpszText, 1400);
             return;
         }
-        pos = PAL_XY(
-            viewport.source_x +
-                ((int)viewport.width - box_width) / 2,
-            viewport.source_y +
-                PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_Y - 10);
+#endif
+        if (!PalNativeUi_GetViewport(&viewport)) {
+            return;
+        }
+        x_offset = pal_contract_dialog_layout.text.x -
+            ((int)viewport.source_x +
+                PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_X);
         VIDEO_BackupScreen(gpScreen);
-        (void)PAL_CreateSingleLineBoxWithShadow(
-            pos, box_units, FALSE, g_TextLib.iDialogShadow);
-        TEXT_DisplayText(
+        (void)PalContract_NativeDrawPopup(
             lpszText,
-            PAL_X(pos) + 8,
-            PAL_Y(pos) + 10,
-            TRUE);
-        pal_contract_dialog_font10 = false;
+            viewport,
+            pal_contract_dialog_layout.text.y,
+            x_offset,
+            g_TextLib.iDialogShadow);
         VIDEO_UpdateScreen(NULL);
         PalContract_DialogWaitForKey(1.4f);
         VIDEO_RestoreScreen(gpScreen);

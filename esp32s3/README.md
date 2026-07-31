@@ -43,13 +43,18 @@ also require `FONT10_ARCHIVE`.
 native-view contracts.  Gameplay retains its canonical 320x200 indexed frame,
 original palette and original DATA.MKF UI assets, while the LCD copies a 1:1
 player-focused viewport with no whole-frame scaling.  Map view follows the
-party; battle view keeps the active player visible and relocates the intact
-original action/HUD sprite groups into that crop; target and list selection
-may pan to the selected subject.  Unchanged menus pan the viewport to the
+party; battle view follows the moving/current player, relocates the intact
+original action group plus one active-player info frame into the live crop,
+and starts target views at the actor/subject midpoint before shifting only as
+needed to retain the active player's actual unscaled sprite.
+List selection may pan to its cursor. Unchanged menus pan the viewport to the
 current selection, including custom player selectors, while status opens on
 its identity/primary-value region.  Dialogue uses the corpus-subsetted 10px
-FONT10 glyphs with generated wrapping/page geometry; only an overlarge
-portrait is fitted with deterministic aspect-preserving RLE sampling.  The
+FONT10 glyphs with word-aware wrapping and glyph fallback inside generated
+page geometry; an overlong center popup
+reuses the original style-1 DATA.MKF border for multiple lines. Only an
+overlarge portrait is fitted with deterministic aspect-preserving RLE
+sampling. The
 relevant runtime files are `embedded/pal_native_ui.[ch]` and
 `main/cardputer_extreme_native_view.[ch]`.
 
