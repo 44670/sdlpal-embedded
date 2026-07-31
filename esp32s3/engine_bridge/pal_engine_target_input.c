@@ -73,15 +73,19 @@ cardputer_key_to_sdl(
 {
    switch (key)
    {
+   case ';':
    case 'i':
    case 'I':
       return SDLK_UP;
+   case '.':
    case 'k':
    case 'K':
       return SDLK_DOWN;
+   case ',':
    case 'j':
    case 'J':
       return SDLK_LEFT;
+   case '/':
    case 'l':
    case 'L':
       return SDLK_RIGHT;
@@ -91,6 +95,7 @@ cardputer_key_to_sdl(
       return SDLK_RETURN;
    case '\b':
    case 0x7f:
+   case '`':
       return SDLK_ESCAPE;
    case '[':
       return SDLK_PAGEUP;

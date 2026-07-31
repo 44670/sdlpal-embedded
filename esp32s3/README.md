@@ -20,6 +20,8 @@ the default CoreS3 SE build.  The profile has:
 - the Cardputer ADV vendor timing profile (240MHz CPU and a 1ms FreeRTOS tick);
 - ST7789 240x135 indexed presentation through SPI3 and TCA8418 keyboard input;
 - TF on independent SPI2 at 20MHz, with only a 2KB pack TOC resident in SRAM.
+- USB Serial/JTAG as the console, leaving the ES8311 word-select GPIO43 free
+  from UART0 output.
 
 Build the firmware and the chapter resource packs:
 
@@ -57,16 +59,17 @@ Erasing the commit sector before the payload makes an interrupted update
 rebuild deterministically on the next attempt.
 
 The generated resource closure covers scenes 1 through 299, but this is not
-yet a full-game runtime claim.  The current no-PSRAM mutable event storage and
-tagged save format still contain only the 423-event prefix used by scenes
-1 through 22; later scenes fail safely at the existing event-boundary check.
-`pal_full.pak` retains the complete 5,369-event template for the planned
-TF-backed event-state pager and full save streaming work.
+yet a full-game runtime claim.  The no-PSRAM profile pages all 5,369 mutable
+event records and all 300 scene records through the fixed `EVENT.STA` journal
+on TF, with three 4KB event pages resident in SRAM.  `EVENT.DEF` supplies the
+matching immutable defaults generated from `pal_full.pak`; tagged saves stream
+the complete event/scene state through the same fixed page storage.
 
 The default firmware and pack targets remain the established no-audio
 profile.  The explicit music-only profile builds in a fixed-storage OPL2/RIX
-backend and adds 25 sparse, original-numbered tracks from `MUS.MKF` to NOR,
-while continuing to exclude MIDI, VOC, and SFX:
+backend and adds the complete original-numbered `MUS.MKF` archive to NOR:
+all 88 source slots are retained, slots 0 and 29 are empty in the source data,
+and the other 86 tracks are playable.  MIDI, VOC, and SFX remain excluded:
 
 ```sh
 make -C esp32s3 cardputer-extreme-music-build
@@ -78,23 +81,45 @@ sdkconfig, leaving `build-cardputer-extreme` as the no-audio build.  The full
 gate also writes `/tmp/pal_cardputer_extreme_music_nor.pak`,
 `/tmp/pal_cardputer_extreme_music_tf.pak`, the complete decoded mirror
 `/tmp/pal_cardputer_extreme_music_full.pak`, and a separate music manifest.
-It checks the exact track-ID closure, all 88 source chunk slots, RIX headers,
-zero-sized absent chunks, the 8MB NOR partition budget, the 2KB active-TF TOC
-budget, and the shared three-image pack-set ID.  On the linked firmware it additionally
-checks the exact 48-source inventory, music/no-SFX compile defines and symbols,
-OPL table placement in flash, OPL/audio state in SRAM, stack reports, and
-separate music SRAM/flash budgets.  The current measured result is a
-420,112-byte app in the 1,048,576-byte partition (628,464 bytes physically
-free, or 104,176 bytes below the stricter 524,288-byte music gate).
-`.dram0.bss` is 220,816/225,280 bytes (4,464 bytes of gate headroom), combined
-DIRAM static use is 267,480/270,336 bytes (2,856 bytes of gate headroom), and
-IRAM static use is 52,736/65,536 bytes.  The linker leaves 74,272 bytes of
-DRAM before the 16KB main-task stack and 57,888 bytes after it.  These are
-link-time reserve figures, not a substitute for the runtime low-water logs.
-The music-owned named BSS is 8,310/12,288 bytes; the 24,832-byte fixed OPL
-tables reside in `.flash.rodata`.  The matching NOR pack is
-6,861,772/7,274,496 bytes (412,724 physical bytes free and 194,489 bytes below
-the 97% soft cap); TF is 1,233,092 bytes, with a 1,400/2,048-byte resident TOC.
+It checks the exact track-ID closure, all 88 source chunk slots, both required
+zero-sized slots, every RIX payload, the 8MB NOR partition budget, the 2KB
+active-TF TOC budget, and the shared three-image pack-set ID.  Firmware startup
+also maps and asks the bounded RIX decoder to validate all 86 non-empty tracks
+before starting the real-time audio task, so a wrong or damaged NOR music
+profile fails visibly instead of becoming a later silent track.  On the linked
+firmware the gate additionally checks the exact 51-source inventory,
+music/no-SFX compile defines and symbols, OPL table placement in flash,
+OPL/audio state in SRAM, stack reports, fixed music state-machine semantics,
+and separate music SRAM/flash budgets.  It also renders every track through the
+same fixed OPL2 core and requires audible PCM from all 86 tracks.
+The extreme backend deliberately freezes the sequencer, OPL state, and
+sample-counted fades while music is disabled or its volume is zero.  This is
+deterministic but differs from the desktop RIX player's one-time wall-clock
+catch-up when a newly requested fade-out has not emitted any samples yet.
+
+The gate runs the complete 5,369-event save/reopen/fault-recovery test against
+the music pack-set ID rather than testing event persistence only with the
+no-audio bundle.  Moving between the same-data no-audio and RIX-music profiles
+atomically rebinds the committed `EVENT.STA` page set when the `EVENT.DEF`
+payload CRC is identical.  An explicit New Game still resets every event and
+scene to template defaults; loading a compatible tagged save restores its full
+event state.  A different template CRC rebases immediately to the new
+defaults.  This compatibility rule is intended for these checked same-dataset
+profiles, not as a promise that arbitrary packs with unrelated scripts or
+object tables are save-compatible.
+
+The current measured result is a 436,768-byte app in the 1,048,576-byte
+partition (611,808 bytes physically free, or 87,520 bytes below the stricter
+524,288-byte music gate).  `.dram0.bss` is 221,056/225,280 bytes (4,224 bytes
+of gate headroom), combined DIRAM static use is 267,128/270,336 bytes (3,208
+bytes of gate headroom), and IRAM static use is 52,480/65,536 bytes.  The
+linker leaves 74,624 bytes of DRAM before the 16KB main-task stack and 58,240
+bytes after it.  These are link-time reserve figures, not a substitute for the
+runtime low-water logs.  The music-owned named BSS is 8,406/12,288 bytes; the
+24,832-byte fixed OPL tables reside in `.flash.rodata`.  The matching NOR pack
+is 7,117,120/7,274,496 bytes, leaving 157,376 physical bytes.  Its stricter
+7,143,424-byte music gate reserves 128KB and has only 26,304 bytes of growth
+headroom.  TF is 1,233,092 bytes, with a 1,400/2,048-byte resident TOC.
 The separate complete mirror is 57,755,986 bytes: 18 runtime-native archives,
 2,213 original-numbered chunks, 57,718,385 payload bytes, and a 35,656-byte
 TOC.  It contains every host-decoded/preconverted resource, including all
@@ -105,9 +130,27 @@ Install the matching firmware and pack bundle with:
 
 ```sh
 make -C esp32s3 TF_MOUNT=/media/$USER/PALTF cardputer-extreme-music-prepare-tf
-make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-music-flash-nor
-make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-music-flash
+make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-music-flash-all
 ```
+
+The TF preparation target syncs and byte-compares all three installed files.
+Both `cardputer-extreme-music-flash` and
+`cardputer-extreme-music-flash-all` write bootloader, partition table,
+application, and the matching music NOR image in one esptool session, so the
+board is not deliberately rebooted between mismatched firmware/resource
+images.
+
+For a real-board acceptance run, leave the headphone jack unplugged so the
+on-board speaker amplifier is enabled.  The USB Serial/JTAG log must report
+the ES8311/I2S path and fixed RIX player ready.  After music starts, its
+periodic telemetry must show `nonzero > 0`, `peak > 0`,
+`deadline_miss=0`, `write_err=0`, `send_q_ovf=0`, and `source_fault=0`.
+`tick_gap_max_us` and `tick_gap_excess_max_us` expose scheduling stalls that
+render-time-only measurements cannot see; `send_q_ovf` is the driver signal
+that a completed DMA-buffer notification was overwritten.  Periodic formatting
+and USB logging run from the cooperative engine/input path rather than the
+real-time audio task; inspect the cumulative values together with the reported
+stack, internal-heap, and DMA-heap low-water marks.
 
 The active music TF payload size is currently unchanged, but its pack-set ID
 differs; it must not be mixed with the default no-audio NOR image.  The prepare

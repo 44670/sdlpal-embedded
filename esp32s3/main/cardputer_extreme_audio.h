@@ -26,10 +26,18 @@ typedef void (*CardputerExtremeAudioRenderCallback)(
 typedef struct CardputerExtremeAudioTelemetry {
     uint32_t rendered_ticks;
     uint32_t rendered_samples;
+    uint32_t nonzero_ticks;
+    uint32_t peak_abs_sample;
     uint32_t render_deadline_misses;
+    uint32_t max_tick_gap_us;
+    uint32_t max_tick_gap_excess_us;
     uint32_t write_errors;
+    int32_t last_write_error;
+    uint32_t zero_progress_writes;
     uint32_t command_queue_overflows;
     uint32_t driver_send_queue_overflows;
+    uint32_t source_faults;
+    int32_t last_source_fault;
     uint32_t max_render_us;
     uint32_t max_write_us;
     /* Smallest free audio-task stack observed, in bytes. */
@@ -78,8 +86,18 @@ bool CardputerExtremeAudio_Started(void);
 void CardputerExtremeAudio_GetTelemetry(
     CardputerExtremeAudioTelemetry *telemetry);
 /*
- * The backend emits this snapshot itself about every ten seconds while
- * running.  Lifecycle code may call it for additional named checkpoints.
+ * Record a renderer/source failure without logging in the real-time task.
+ * A positive source_code is normally the requested RIX track number.
+ */
+void CardputerExtremeAudio_RecordSourceFault(int32_t source_code);
+/*
+ * Call PollTelemetry() periodically from the lower-priority engine task.  It
+ * emits at most one snapshot per ten seconds; keeping ESP_LOG out of the
+ * real-time audio task avoids making the diagnostic create its own underrun.
+ */
+void CardputerExtremeAudio_PollTelemetry(void);
+/*
+ * Lifecycle code may emit additional named checkpoints explicitly.
  */
 void CardputerExtremeAudio_LogTelemetry(const char *stage);
 

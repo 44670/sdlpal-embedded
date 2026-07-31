@@ -39,10 +39,15 @@ set gpGlobals->rgParty[2].wFrame=4
 set gpGlobals->rgParty[3].wFrame=2
 set gpGlobals->rgParty[4].wFrame=11
 
-set gpGlobals->g.lprgEventObject[356].sState=1
-set gpGlobals->g.lprgEventObject[356].sVanishTime=0
-set gpGlobals->g.lprgEventObject[357].sState=1
-set gpGlobals->g.lprgEventObject[357].sVanishTime=0
+set $event_object=(EVENTOBJECT *)&pal_sram_extreme_event_sector
+call PAL_EventObjectRead(357, $event_object)
+set $event_object->sState=1
+set $event_object->sVanishTime=0
+call PAL_EventObjectWrite(357, $event_object)
+call PAL_EventObjectRead(358, $event_object)
+set $event_object->sState=1
+set $event_object->sVanishTime=0
+call PAL_EventObjectWrite(358, $event_object)
 set g_nSpriteToDrawHighWater=0
 call PAL_MakeScene()
 

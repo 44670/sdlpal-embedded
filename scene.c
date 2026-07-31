@@ -24,6 +24,34 @@
 
 #include "main.h"
 
+#if defined(PAL_CARDPUTER_EXTREME)
+static VOID
+PAL_SceneReadEventObject(
+   WORD             wEventObjectID,
+   LPEVENTOBJECT    lpEventObject
+)
+{
+   if (!PAL_EventObjectRead(wEventObjectID, lpEventObject))
+   {
+      TerminateOnError("Event-state read failed for object %u",
+         wEventObjectID);
+   }
+}
+
+static VOID
+PAL_SceneWriteEventObject(
+   WORD                  wEventObjectID,
+   const EVENTOBJECT    *lpEventObject
+)
+{
+   if (!PAL_EventObjectWrite(wEventObjectID, lpEventObject))
+   {
+      TerminateOnError("Event-state write failed for object %u",
+         wEventObjectID);
+   }
+}
+#endif
+
 #if defined(PAL_EXTREME_SPRITES_TO_DRAW)
 #define MAX_SPRITE_TO_DRAW         PAL_EXTREME_SPRITES_TO_DRAW
 #else
@@ -253,7 +281,14 @@ PAL_SceneDrawSprites(
       LPCBITMAPRLE     lpFrame;
       LPCSPRITE        lpSprite;
 
+#if defined(PAL_CARDPUTER_EXTREME)
+      EVENTOBJECT      eventObject;
+      LPEVENTOBJECT    lpEvtObj = &eventObject;
+
+      PAL_SceneReadEventObject((WORD)(i + 1), lpEvtObj);
+#else
       LPEVENTOBJECT    lpEvtObj = &(gpGlobals->g.lprgEventObject[i]);
+#endif
 
       int              iFrame;
 
@@ -634,7 +669,14 @@ PAL_CheckObstacleWithRange(
       for (i = gpGlobals->g.rgScene[gpGlobals->wNumScene - 1].wEventObjectIndex;
          i < gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex; i++)
       {
+#if defined(PAL_CARDPUTER_EXTREME)
+         EVENTOBJECT eventObject;
+         LPEVENTOBJECT p = &eventObject;
+
+         PAL_SceneReadEventObject((WORD)(i + 1), p);
+#else
          LPEVENTOBJECT p = &(gpGlobals->g.lprgEventObject[i]);
+#endif
          if (i == wSelfObject - 1)
          {
             //
@@ -900,6 +942,9 @@ PAL_NPCWalkOneStep(
 --*/
 {
    LPEVENTOBJECT        p;
+#if defined(PAL_CARDPUTER_EXTREME)
+   EVENTOBJECT          eventObject;
+#endif
 
    //
    // Check for invalid parameters
@@ -909,7 +954,12 @@ PAL_NPCWalkOneStep(
       return;
    }
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   PAL_SceneReadEventObject(wEventObjectID, &eventObject);
+   p = &eventObject;
+#else
    p = &(gpGlobals->g.lprgEventObject[wEventObjectID - 1]);
+#endif
 
    //
    // Move the event object by the specified direction
@@ -930,4 +980,8 @@ PAL_NPCWalkOneStep(
       p->wCurrentFrameNum++;
       p->wCurrentFrameNum %= p->nSpriteFramesAuto;
    }
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   PAL_SceneWriteEventObject(wEventObjectID, p);
+#endif
 }

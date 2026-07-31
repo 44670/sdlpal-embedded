@@ -21,6 +21,34 @@
 
 #include "main.h"
 
+#if defined(PAL_CARDPUTER_EXTREME)
+static VOID
+PAL_PlayReadEventObject(
+   WORD             wEventObjectID,
+   LPEVENTOBJECT    lpEventObject
+)
+{
+   if (!PAL_EventObjectRead(wEventObjectID, lpEventObject))
+   {
+      TerminateOnError("Event-state read failed for object %u",
+         wEventObjectID);
+   }
+}
+
+static VOID
+PAL_PlayWriteEventObject(
+   WORD                  wEventObjectID,
+   const EVENTOBJECT    *lpEventObject
+)
+{
+   if (!PAL_EventObjectWrite(wEventObjectID, lpEventObject))
+   {
+      TerminateOnError("Event-state write failed for object %u",
+         wEventObjectID);
+   }
+}
+#endif
+
 VOID
 PAL_GameUpdate(
    BOOL       fTrigger
@@ -44,6 +72,9 @@ PAL_GameUpdate(
    int             i;
    LPEVENTOBJECT   p;
    WORD            wResult;
+#if defined(PAL_CARDPUTER_EXTREME)
+   EVENTOBJECT     eventObject;
+#endif
 
    //
    // Check for trigger events
@@ -61,7 +92,21 @@ PAL_GameUpdate(
          gpGlobals->fEnteringScene = FALSE;
 
          i = gpGlobals->wNumScene - 1;
-         gpGlobals->g.rgScene[i].wScriptOnEnter = PAL_RunTriggerScript(gpGlobals->g.rgScene[i].wScriptOnEnter, 0xFFFF);
+         wResult = PAL_RunTriggerScript(
+            gpGlobals->g.rgScene[i].wScriptOnEnter, 0xFFFF);
+#if defined(PAL_CARDPUTER_EXTREME)
+         if (gpGlobals->g.rgScene[i].wScriptOnEnter != wResult)
+         {
+            gpGlobals->g.rgScene[i].wScriptOnEnter = wResult;
+            if (!PAL_SceneMarkDirty((WORD)i))
+            {
+               TerminateOnError("Scene-state dirty mark failed for scene %u",
+                  (unsigned)(i + 1));
+            }
+         }
+#else
+         gpGlobals->g.rgScene[i].wScriptOnEnter = wResult;
+#endif
 
          if (gpGlobals->fEnteringScene)
          {
@@ -82,7 +127,12 @@ PAL_GameUpdate(
          wEventObjectID <= gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex;
          wEventObjectID++)
       {
+#if defined(PAL_CARDPUTER_EXTREME)
+         PAL_PlayReadEventObject(wEventObjectID, &eventObject);
+         p = &eventObject;
+#else
          p = &gpGlobals->g.lprgEventObject[wEventObjectID - 1];
+#endif
 
          if (p->sVanishTime != 0)
          {
@@ -90,6 +140,9 @@ PAL_GameUpdate(
             // Update the vanish time for all event objects
             //
             p->sVanishTime += ((p->sVanishTime < 0) ? 1 : -1);
+#if defined(PAL_CARDPUTER_EXTREME)
+            PAL_PlayWriteEventObject(wEventObjectID, p);
+#endif
             continue;
          }
 
@@ -102,6 +155,9 @@ PAL_GameUpdate(
             {
                p->sState = abs(p->sState);
                p->wCurrentFrameNum = 0;
+#if defined(PAL_CARDPUTER_EXTREME)
+               PAL_PlayWriteEventObject(wEventObjectID, p);
+#endif
             }
          }
          else if (p->sState > 0 && p->wTriggerMode >= kTriggerTouchNear)
@@ -138,6 +194,10 @@ PAL_GameUpdate(
                      p->wDirection = ((yOffset > 0) ? kDirSouth : kDirWest);
                   }
 
+#if defined(PAL_CARDPUTER_EXTREME)
+                  PAL_PlayWriteEventObject(wEventObjectID, p);
+#endif
+
                   //
                   // Redraw the scene
                   //
@@ -150,7 +210,16 @@ PAL_GameUpdate(
                //
                // Execute the script.
                //
-               p->wTriggerScript = PAL_RunTriggerScript(p->wTriggerScript, wEventObjectID);
+               wResult = PAL_RunTriggerScript(
+                  p->wTriggerScript, wEventObjectID);
+#if defined(PAL_CARDPUTER_EXTREME)
+               PAL_PlayReadEventObject(wEventObjectID, &eventObject);
+               eventObject.wTriggerScript = wResult;
+               PAL_PlayWriteEventObject(wEventObjectID, &eventObject);
+               p = &eventObject;
+#else
+               p->wTriggerScript = wResult;
+#endif
 
                PAL_ClearKeyState();
 
@@ -173,14 +242,27 @@ PAL_GameUpdate(
       wEventObjectID <= gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex;
       wEventObjectID++)
    {
+#if defined(PAL_CARDPUTER_EXTREME)
+      PAL_PlayReadEventObject(wEventObjectID, &eventObject);
+      p = &eventObject;
+#else
       p = &gpGlobals->g.lprgEventObject[wEventObjectID - 1];
+#endif
 
       if (p->sState > 0 && p->sVanishTime == 0)
       {
          WORD wScriptEntry = p->wAutoScript;
          if (wScriptEntry != 0)
          {
-            p->wAutoScript = PAL_RunAutoScript(wScriptEntry, wEventObjectID);
+            wResult = PAL_RunAutoScript(wScriptEntry, wEventObjectID);
+#if defined(PAL_CARDPUTER_EXTREME)
+            PAL_PlayReadEventObject(wEventObjectID, &eventObject);
+            eventObject.wAutoScript = wResult;
+            PAL_PlayWriteEventObject(wEventObjectID, &eventObject);
+            p = &eventObject;
+#else
+            p->wAutoScript = wResult;
+#endif
             if (gpGlobals->fEnteringScene)
             {
                //
@@ -378,7 +460,6 @@ PAL_GetSearchTriggerRange(
 --*/
 {
    int                x, y, xOffset, yOffset, i;
-   LPEVENTOBJECT      p;
    TRIGGERRANGE       rgRange;
 
    //
@@ -438,9 +519,13 @@ PAL_Search(
 
 --*/
 {
-   int                x, y, xOffset, yOffset, dx, dy, dh, ex, ey, eh, i, k, l;
+   int                dx, dy, dh, ex, ey, eh, i, k, l;
    LPEVENTOBJECT      p;
+   WORD               wResult;
    TRIGGERRANGE       rgRange;
+#if defined(PAL_CARDPUTER_EXTREME)
+   EVENTOBJECT        eventObject;
+#endif
 
    rgRange = PAL_GetSearchTriggerRange();
 
@@ -459,7 +544,12 @@ PAL_Search(
       for (k = gpGlobals->g.rgScene[gpGlobals->wNumScene - 1].wEventObjectIndex;
          k < gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex; k++)
       {
+#if defined(PAL_CARDPUTER_EXTREME)
+         PAL_PlayReadEventObject((WORD)(k + 1), &eventObject);
+         p = &eventObject;
+#else
          p = &(gpGlobals->g.lprgEventObject[k]);
+#endif
          ex = p->x / 32;
          ey = p->y / 16;
          eh = ((p->x % 32) ? 1 : 0);
@@ -477,6 +567,10 @@ PAL_Search(
          {
             p->wCurrentFrameNum = 0; // use standing gesture
             p->wDirection = (gpGlobals->wPartyDirection + 2) % 4; // face the party
+
+#if defined(PAL_CARDPUTER_EXTREME)
+            PAL_PlayWriteEventObject((WORD)(k + 1), p);
+#endif
 
             for (l = 0; l <= gpGlobals->wMaxPartyMemberIndex; l++)
             {
@@ -496,7 +590,14 @@ PAL_Search(
          //
          // Execute the script
          //
-         p->wTriggerScript = PAL_RunTriggerScript(p->wTriggerScript, k + 1);
+         wResult = PAL_RunTriggerScript(p->wTriggerScript, k + 1);
+#if defined(PAL_CARDPUTER_EXTREME)
+         PAL_PlayReadEventObject((WORD)(k + 1), &eventObject);
+         eventObject.wTriggerScript = wResult;
+         PAL_PlayWriteEventObject((WORD)(k + 1), &eventObject);
+#else
+         p->wTriggerScript = wResult;
+#endif
 
          //
          // Clear inputs and delay for a short time
@@ -629,8 +730,8 @@ PAL_WaitForKeyInternal(
    {
       UTIL_Delay(5);
 
-      if (g_InputState.dwKeyPress && fAllowAnyKey
-         || g_InputState.dwKeyPress & (kKeySearch | kKeyMenu))
+      if ((g_InputState.dwKeyPress && fAllowAnyKey) ||
+         (g_InputState.dwKeyPress & (kKeySearch | kKeyMenu)))
       {
          break;
       }

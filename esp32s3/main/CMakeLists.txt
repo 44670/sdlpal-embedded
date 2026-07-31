@@ -151,6 +151,14 @@ if(CARDPUTER_EXTREME_CHAPTER_CACHE)
     )
 endif()
 
+if(CARDPUTER_EXTREME_NO_PSRAM)
+    list(APPEND PAL_ENGINE_HOST_SOURCES
+        "../../embedded/pal_event_journal.c"
+        "../../embedded/pal_event_pager.c"
+        "../engine_bridge/pal_engine_event_state.c"
+    )
+endif()
+
 set_source_files_properties("../../main.c" PROPERTIES COMPILE_DEFINITIONS "main=PAL_EngineMain")
 
 idf_component_register(

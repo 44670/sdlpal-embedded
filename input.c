@@ -22,6 +22,10 @@
 #include "main.h"
 #include <math.h>
 
+#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_EXTREME_RIX_MUSIC)
+#include "cardputer_extreme_audio.h"
+#endif
+
 volatile PALINPUTSTATE   g_InputState;
 #if PAL_HAS_JOYSTICKS
 static SDL_Joystick     *g_pJoy = NULL;
@@ -1323,6 +1327,20 @@ PAL_ProcessEvent(
 
 --*/
 {
+#if defined(PAL_CARDPUTER_EXTREME)
+   /*
+    * PAL_ProcessEvent is the cooperative yield point shared by the normal
+    * game, battle, scripted delays and menus, so it also enforces the dirty
+    * event-state age bound outside the main scene loop.
+    */
+   if (!PAL_EventStateCheckpoint())
+   {
+      TerminateOnError("TF event-state checkpoint failed");
+   }
+#if defined(PAL_EXTREME_RIX_MUSIC)
+   CardputerExtremeAudio_PollTelemetry();
+#endif
+#endif
 #if PAL_HAS_JOYSTICKS
    g_InputState.joystickNeedUpdate = FALSE;
 #endif

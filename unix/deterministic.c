@@ -22,6 +22,7 @@
 #define PAL_DETERMINISTIC_LCD_WIDTH 320u
 #define PAL_DETERMINISTIC_LCD_HEIGHT 240u
 #define PAL_DETERMINISTIC_LCD_Y_OFFSET 20u
+#define PAL_DETERMINISTIC_EVENT_OBJECT_COUNT 5369u
 
 static Uint32 pal_deterministic_ticks;
 static bool pal_deterministic_init_done;
@@ -100,6 +101,21 @@ read_env_ulong(
       return default_value;
    }
    return value;
+}
+
+static WORD
+pal_deterministic_event_id_env(
+   void
+)
+{
+   unsigned long event_id =
+      read_env_ulong("PAL_DETERMINISTIC_EVENT_ID", 0);
+
+   if (event_id == 0 ||
+      event_id > PAL_DETERMINISTIC_EVENT_OBJECT_COUNT) {
+      return 0;
+   }
+   return (WORD)event_id;
 }
 
 static void
@@ -413,7 +429,14 @@ pal_deterministic_maybe_save_game(
    int slot;
    WORD saved_times;
    const char *sparse_state_text;
+   const char *generic_state_text;
+   WORD generic_event_id;
+   EVENTOBJECT generic_event;
+#if defined(PAL_CARDPUTER_EXTREME)
+   EVENTOBJECT sparse_event;
+#else
    LPEVENTOBJECT sparse_event;
+#endif
 
    if (pal_deterministic_save_written) {
       return;
@@ -434,10 +457,38 @@ pal_deterministic_maybe_save_game(
    }
    saved_times = (WORD)read_env_ulong("PAL_DETERMINISTIC_SAVE_TIMES", 1);
    sparse_state_text = SDL_getenv("PAL_DETERMINISTIC_SPARSE_EVENT_5334_STATE");
+#if defined(PAL_CARDPUTER_EXTREME)
+   if (sparse_state_text != NULL && sparse_state_text[0] != '\0') {
+      if (!PAL_EventObjectRead(5334, &sparse_event)) {
+         TerminateOnError(
+            "deterministic save: event-object 5334 read failed");
+      }
+      sparse_event.sState = (SHORT)strtol(sparse_state_text, NULL, 0);
+      if (!PAL_EventObjectWrite(5334, &sparse_event)) {
+         TerminateOnError(
+            "deterministic save: event-object 5334 write failed");
+      }
+   }
+#else
    sparse_event = PAL_GetEventObjectByID(5334);
    if (sparse_state_text != NULL && sparse_state_text[0] != '\0' &&
       sparse_event != NULL) {
       sparse_event->sState = (SHORT)strtol(sparse_state_text, NULL, 0);
+   }
+#endif
+   generic_event_id = pal_deterministic_event_id_env();
+   generic_state_text = SDL_getenv("PAL_DETERMINISTIC_EVENT_STATE");
+   if (generic_event_id != 0 &&
+      generic_state_text != NULL && generic_state_text[0] != '\0') {
+      if (!PAL_EventObjectRead(generic_event_id, &generic_event)) {
+         TerminateOnError(
+            "deterministic save: event-object read failed");
+      }
+      generic_event.sState = (SHORT)strtol(generic_state_text, NULL, 0);
+      if (!PAL_EventObjectWrite(generic_event_id, &generic_event)) {
+         TerminateOnError(
+            "deterministic save: event-object write failed");
+      }
    }
    PAL_SaveGame(slot, saved_times);
    pal_deterministic_save_written = true;
@@ -668,11 +719,28 @@ pal_deterministic_event_object_crc(
    uint32_t hash = 2166136261u;
 
    hash = pal_deterministic_crc_u32(hash, (uint32_t)gpGlobals->g.nEventObject);
+#if defined(PAL_CARDPUTER_EXTREME)
+   {
+      EVENTOBJECT event_object;
+      WORD event_object_id;
+
+      for (event_object_id = 1;
+           event_object_id <= (WORD)PAL_DETERMINISTIC_EVENT_OBJECT_COUNT;
+           event_object_id++) {
+         if (!PAL_EventObjectRead(event_object_id, &event_object)) {
+            return 0;
+         }
+         hash = pal_deterministic_crc_bytes(hash,
+            (const uint8_t *)&event_object, (uint32_t)sizeof(event_object));
+      }
+   }
+#else
    if (gpGlobals->g.lprgEventObject != NULL && gpGlobals->g.nEventObject > 0) {
       hash = pal_deterministic_crc_bytes(hash,
          (const uint8_t *)gpGlobals->g.lprgEventObject,
          (uint32_t)gpGlobals->g.nEventObject * (uint32_t)sizeof(*gpGlobals->g.lprgEventObject));
    }
+#endif
    return hash;
 }
 
@@ -817,23 +885,43 @@ pal_deterministic_emit_save_event(
    uint32_t save_size = 0;
    uint32_t save_hash;
    WORD menu_saved_times;
+#if defined(PAL_CARDPUTER_EXTREME)
+   EVENTOBJECT sparse_event;
+#else
    LPEVENTOBJECT sparse_event;
+#endif
    int sparse_state;
+   WORD generic_event_id;
+   EVENTOBJECT generic_event;
+   int generic_state;
    const char *path;
    char detail[160];
 
    path = PAL_CombinePath(0, gConfig.pszSavePath, PAL_va(1, "%d.rpg", slot));
    save_hash = pal_deterministic_hash_file(path, &save_size);
    menu_saved_times = PAL_GetSavedTimes(slot);
+#if defined(PAL_CARDPUTER_EXTREME)
+   sparse_state =
+      PAL_EventObjectRead(5334, &sparse_event) ? sparse_event.sState : 0;
+#else
    sparse_event = PAL_GetEventObjectByID(5334);
    sparse_state = sparse_event != NULL ? sparse_event->sState : 0;
+#endif
+   generic_event_id = pal_deterministic_event_id_env();
+   generic_state = 0;
+   if (generic_event_id != 0 &&
+      PAL_EventObjectRead(generic_event_id, &generic_event)) {
+      generic_state = generic_event.sState;
+   }
    snprintf(detail, sizeof(detail),
       "slot=%d saved_times=%u menu_saved_times=%u sparse5334=%d "
-      "save_size=%lu save=%08x",
+      "generic_id=%u generic_state=%d save_size=%lu save=%08x",
       slot,
       (unsigned)saved_times,
       (unsigned)menu_saved_times,
       sparse_state,
+      (unsigned)generic_event_id,
+      generic_state,
       (unsigned long)save_size,
       (unsigned)save_hash);
    pal_deterministic_emit_event(tag, detail);

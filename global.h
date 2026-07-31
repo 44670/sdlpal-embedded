@@ -120,6 +120,15 @@ typedef struct tagSCENE
    WORD         wEventObjectIndex;  // event objects in this scene begins from number wEventObjectIndex + 1
 } SCENE, *LPSCENE;
 
+#if defined(PAL_CARDPUTER_EXTREME)
+/*
+ * The audited data peaks at 142 event objects in one scene.  The extreme
+ * sprite-pointer table reserves 160, so every template/save boundary check
+ * must enforce the same limit before a scene is installed.
+ */
+#define PAL_EXTREME_SCENE_EVENT_OBJECT_CAPACITY 160u
+#endif
+
 // object including system strings, players, items, magics, enemies and poison scripts.
 
 // system strings and players
@@ -554,10 +563,44 @@ PAL_C_LINKAGE_BEGIN
 
 extern GLOBALVARS * const gpGlobals;
 
+BOOL
+PAL_EventObjectRead(
+   WORD          event_object_id,
+   LPEVENTOBJECT event_object
+);
+
+BOOL
+PAL_EventObjectWrite(
+   WORD                event_object_id,
+   const EVENTOBJECT  *event_object
+);
+
+BOOL
+PAL_EventObjectPinScene(
+   WORD scene
+);
+
+BOOL
+PAL_EventStateFlush(
+   INT reason
+);
+
+BOOL
+PAL_EventStateCheckpoint(
+   VOID
+);
+
+BOOL
+PAL_SceneMarkDirty(
+   WORD scene_index
+);
+
+#if !defined(PAL_CARDPUTER_EXTREME)
 LPEVENTOBJECT
 PAL_GetEventObjectByID(
    WORD event_object_id
 );
+#endif
 
 BOOL
 PAL_IsWINVersion(

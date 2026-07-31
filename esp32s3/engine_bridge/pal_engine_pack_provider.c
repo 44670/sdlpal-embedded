@@ -641,6 +641,48 @@ PalEngineBridge_SetTfPackReadAt(
    return true;
 }
 
+bool
+PalEngineBridge_GetActivePackSetId(
+   uint32_t *pack_set_id
+)
+{
+   ensure_default_packs();
+   if (pack_set_id == NULL || !pal_engine_nor_ready ||
+      !pal_engine_tf_ready || pal_engine_nor_set_id == 0u ||
+      pal_engine_nor_set_id != pal_engine_tf_set_id ||
+      (pal_engine_overlay_ready &&
+         pal_engine_overlay_set_id != pal_engine_nor_set_id))
+   {
+      return false;
+   }
+   *pack_set_id = pal_engine_nor_set_id;
+   return true;
+}
+
+bool
+PalEngineBridge_HasNativeChunk(
+   uint16_t archive_id,
+   uint16_t chunk_id
+)
+{
+   PalPackSpan span;
+   PalPackChunkInfo info;
+   PalEngineArchiveStore store;
+
+   ensure_default_packs();
+   store = find_chunk_store(archive_id, chunk_id, &span, &info);
+   if (store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE)
+   {
+      return span.data != NULL && span.size != 0u &&
+         span.format == PAL_PACK_FORMAT_NATIVE &&
+         (span.flags & PAL_PACK_CHUNK_F_COMPRESSED) == 0u;
+   }
+   return store == PAL_ENGINE_ARCHIVE_STORE_TF &&
+      info.size != 0u && info.format == PAL_PACK_FORMAT_NATIVE &&
+      (info.flags & PAL_PACK_CHUNK_F_COMPRESSED) == 0u;
+}
+
 void
 PalEngineBridge_ClearPacks(
    void

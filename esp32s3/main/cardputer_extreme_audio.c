@@ -48,11 +48,13 @@ enum {
     AUDIO_WRITE_RETRY_DELAY_MS =
         1000u / CARDPUTER_EXTREME_AUDIO_TICK_HZ,
     AUDIO_RUNTIME_REPORT_SECONDS = 10,
-    AUDIO_RUNTIME_REPORT_TICKS =
-        CARDPUTER_EXTREME_AUDIO_TICK_HZ *
-        AUDIO_RUNTIME_REPORT_SECONDS,
+    AUDIO_RUNTIME_REPORT_US =
+        1000000u * AUDIO_RUNTIME_REPORT_SECONDS,
     AUDIO_TICK_DEADLINE_US =
         1000000u / CARDPUTER_EXTREME_AUDIO_TICK_HZ,
+    AUDIO_TICK_PERIOD_CEIL_US =
+        (1000000u + CARDPUTER_EXTREME_AUDIO_TICK_HZ - 1u) /
+            CARDPUTER_EXTREME_AUDIO_TICK_HZ,
 };
 
 typedef enum CardputerExtremeAudioCommandType {
@@ -82,7 +84,8 @@ static const Es8311Register es8311_speaker_enable[] = {
     {0x0D, 0x01},
     {0x12, 0x00},
     {0x13, 0x10},
-    {0x32, 0xBF},
+    /* Keep the DAC muted until I2S has enabled BCLK/LRCK. */
+    {0x32, 0x00},
     {0x37, 0x08},
 };
 
@@ -111,6 +114,8 @@ static uint8_t
     PAL_EXTREME_AUDIO_SRAM;
 static CardputerExtremeAudioTelemetry
     pal_audio_telemetry PAL_EXTREME_AUDIO_SRAM;
+static int64_t
+    pal_audio_next_report_us PAL_EXTREME_AUDIO_SRAM;
 
 typedef char cardputer_extreme_audio_stack_bytes_are_uint8[
     sizeof(StackType_t) == sizeof(uint8_t) ? 1 : -1];
@@ -268,7 +273,10 @@ audio_sample_runtime_metrics(void)
         heap_caps_get_minimum_free_size(internal_caps);
     size_t dma_low_water =
         heap_caps_get_minimum_free_size(dma_caps);
-    UBaseType_t stack_high_water = uxTaskGetStackHighWaterMark(NULL);
+    UBaseType_t stack_high_water =
+        audio_task_handle != NULL
+            ? uxTaskGetStackHighWaterMark(audio_task_handle)
+            : 0;
 
     portENTER_CRITICAL(&audio_state_lock);
     if (pal_audio_telemetry.minimum_internal_free == 0 ||
@@ -304,28 +312,13 @@ audio_write_tick(void)
             AUDIO_WRITE_TIMEOUT_MS);
 
         if (error != ESP_OK || written == 0) {
-            uint32_t write_error_count;
-
             portENTER_CRITICAL(&audio_state_lock);
-            write_error_count = ++pal_audio_telemetry.write_errors;
-            portEXIT_CRITICAL(&audio_state_lock);
-            if (write_error_count == 1 ||
-                write_error_count %
-                        AUDIO_RUNTIME_REPORT_TICKS ==
-                    0) {
-                if (error != ESP_OK) {
-                    ESP_LOGE(
-                        TAG,
-                        "I2S write: %s (errors=%u)",
-                        esp_err_to_name(error),
-                        write_error_count);
-                } else {
-                    ESP_LOGE(
-                        TAG,
-                        "I2S write made no progress (errors=%u)",
-                        write_error_count);
-                }
+            pal_audio_telemetry.write_errors++;
+            pal_audio_telemetry.last_write_error = error;
+            if (error == ESP_OK) {
+                pal_audio_telemetry.zero_progress_writes++;
             }
+            portEXIT_CRITICAL(&audio_state_lock);
             return false;
         }
         total_written += written;
@@ -341,13 +334,15 @@ audio_task(
 
     for (;;) {
         bool stopping = false;
-        uint32_t report_countdown =
-            AUDIO_RUNTIME_REPORT_TICKS;
+        int64_t previous_tick_start = 0;
 
         while (!stopping) {
             CardputerExtremeAudioCommand command;
             int64_t render_start;
             uint32_t render_us;
+            uint32_t tick_peak = 0;
+            uint32_t tick_gap_us = 0;
+            uint32_t tick_gap_excess_us = 0;
             int64_t write_start;
             uint32_t write_us;
             bool write_ok;
@@ -377,11 +372,37 @@ audio_task(
                 0,
                 sizeof(pal_sram_audio_tick_bytes));
             render_start = esp_timer_get_time();
+            if (previous_tick_start != 0 &&
+                render_start > previous_tick_start) {
+                uint64_t gap =
+                    (uint64_t)(render_start - previous_tick_start);
+
+                tick_gap_us = gap > UINT32_MAX
+                    ? UINT32_MAX : (uint32_t)gap;
+                if (tick_gap_us > AUDIO_TICK_PERIOD_CEIL_US) {
+                    tick_gap_excess_us =
+                        tick_gap_us - AUDIO_TICK_PERIOD_CEIL_US;
+                }
+            }
+            previous_tick_start = render_start;
             if (!audio_paused && audio_render != NULL) {
+                size_t sample;
+
                 audio_render(
                     audio_render_user,
                     PAL_AUDIO_TICK_BUFFER,
                     CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES);
+                for (sample = 0;
+                     sample < CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES;
+                     sample++) {
+                    int32_t value = PAL_AUDIO_TICK_BUFFER[sample];
+                    uint32_t magnitude =
+                        value < 0 ? (uint32_t)-value : (uint32_t)value;
+
+                    if (magnitude > tick_peak) {
+                        tick_peak = magnitude;
+                    }
+                }
             }
             render_us =
                 (uint32_t)(esp_timer_get_time() - render_start);
@@ -390,8 +411,22 @@ audio_task(
             pal_audio_telemetry.rendered_ticks++;
             pal_audio_telemetry.rendered_samples +=
                 CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES;
+            if (tick_peak != 0) {
+                pal_audio_telemetry.nonzero_ticks++;
+            }
+            if (tick_peak > pal_audio_telemetry.peak_abs_sample) {
+                pal_audio_telemetry.peak_abs_sample = tick_peak;
+            }
             if (render_us > pal_audio_telemetry.max_render_us) {
                 pal_audio_telemetry.max_render_us = render_us;
+            }
+            if (tick_gap_us > pal_audio_telemetry.max_tick_gap_us) {
+                pal_audio_telemetry.max_tick_gap_us = tick_gap_us;
+            }
+            if (tick_gap_excess_us >
+                pal_audio_telemetry.max_tick_gap_excess_us) {
+                pal_audio_telemetry.max_tick_gap_excess_us =
+                    tick_gap_excess_us;
             }
             if (render_us > AUDIO_TICK_DEADLINE_US) {
                 pal_audio_telemetry.render_deadline_misses++;
@@ -416,12 +451,6 @@ audio_task(
                  */
                 vTaskDelay(
                     pdMS_TO_TICKS(AUDIO_WRITE_RETRY_DELAY_MS));
-            }
-            if (--report_countdown == 0) {
-                audio_sample_runtime_metrics();
-                CardputerExtremeAudio_LogTelemetry("runtime");
-                report_countdown =
-                    AUDIO_RUNTIME_REPORT_TICKS;
             }
         }
 
@@ -584,6 +613,7 @@ CardputerExtremeAudio_Begin(
             MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     portENTER_CRITICAL(&audio_state_lock);
     memset(&pal_audio_telemetry, 0, sizeof(pal_audio_telemetry));
+    pal_audio_next_report_us = 0;
     pal_audio_telemetry.internal_free_before_driver =
         internal_free_before_driver;
     pal_audio_telemetry.dma_free_before_driver =
@@ -628,11 +658,20 @@ CardputerExtremeAudio_Begin(
         audio_render_user = NULL;
         return false;
     }
+    if (!es8311_write_register(0x32, 0xBF)) {
+        es8311_mute_speaker();
+        (void)audio_destroy_i2s();
+        audio_render = NULL;
+        audio_render_user = NULL;
+        return false;
+    }
 
     portENTER_CRITICAL(&audio_state_lock);
     audio_started = true;
     audio_task_running = true;
     pal_audio_telemetry.started = true;
+    pal_audio_next_report_us =
+        esp_timer_get_time() + AUDIO_RUNTIME_REPORT_US;
     portEXIT_CRITICAL(&audio_state_lock);
 
     restarting = audio_task_handle != NULL;
@@ -654,6 +693,7 @@ CardputerExtremeAudio_Begin(
             audio_started = false;
             audio_task_running = false;
             pal_audio_telemetry.started = false;
+            pal_audio_next_report_us = 0;
             portEXIT_CRITICAL(&audio_state_lock);
             es8311_mute_speaker();
             (void)audio_destroy_i2s();
@@ -759,6 +799,7 @@ CardputerExtremeAudio_Stop(void)
     portENTER_CRITICAL(&audio_state_lock);
     audio_started = false;
     pal_audio_telemetry.started = false;
+    pal_audio_next_report_us = 0;
     portEXIT_CRITICAL(&audio_state_lock);
     audio_render = NULL;
     audio_render_user = NULL;
@@ -790,6 +831,38 @@ CardputerExtremeAudio_GetTelemetry(
 }
 
 void
+CardputerExtremeAudio_RecordSourceFault(
+    int32_t source_code)
+{
+    portENTER_CRITICAL(&audio_state_lock);
+    pal_audio_telemetry.source_faults++;
+    pal_audio_telemetry.last_source_fault = source_code;
+    portEXIT_CRITICAL(&audio_state_lock);
+}
+
+void
+CardputerExtremeAudio_PollTelemetry(void)
+{
+    int64_t now = esp_timer_get_time();
+    bool report = false;
+
+    portENTER_CRITICAL(&audio_state_lock);
+    if (audio_started &&
+        pal_audio_next_report_us != 0 &&
+        now >= pal_audio_next_report_us) {
+        pal_audio_next_report_us =
+            now + AUDIO_RUNTIME_REPORT_US;
+        report = true;
+    }
+    portEXIT_CRITICAL(&audio_state_lock);
+
+    if (report) {
+        audio_sample_runtime_metrics();
+        CardputerExtremeAudio_LogTelemetry("runtime");
+    }
+}
+
+void
 CardputerExtremeAudio_LogTelemetry(
     const char *stage)
 {
@@ -799,20 +872,32 @@ CardputerExtremeAudio_LogTelemetry(
     ESP_LOGI(
         TAG,
         "stage=%s started=%u paused=%u ticks=%u samples=%u "
-        "render_max_us=%u deadline_miss=%u write_max_us=%u "
-        "write_err=%u cmd_q_ovf=%u send_q_ovf=%u stack_free_min=%u "
+        "nonzero=%u peak=%u "
+        "render_max_us=%u deadline_miss=%u tick_gap_max_us=%u "
+        "tick_gap_excess_max_us=%u write_max_us=%u "
+        "write_err=%u last_write_err=%d zero_write=%u "
+        "cmd_q_ovf=%u send_q_ovf=%u source_fault=%u last_source=%d "
+        "stack_free_min=%u "
         "driver_dma=%u internal=%u->%u low=%u dma=%u->%u low=%u",
         stage != NULL ? stage : "?",
         telemetry.started,
         telemetry.paused,
         telemetry.rendered_ticks,
         telemetry.rendered_samples,
+        telemetry.nonzero_ticks,
+        telemetry.peak_abs_sample,
         telemetry.max_render_us,
         telemetry.render_deadline_misses,
+        telemetry.max_tick_gap_us,
+        telemetry.max_tick_gap_excess_us,
         telemetry.max_write_us,
         telemetry.write_errors,
+        telemetry.last_write_error,
+        telemetry.zero_progress_writes,
         telemetry.command_queue_overflows,
         telemetry.driver_send_queue_overflows,
+        telemetry.source_faults,
+        telemetry.last_source_fault,
         telemetry.task_stack_high_water_bytes,
         telemetry.driver_dma_bytes,
         telemetry.internal_free_before_driver,

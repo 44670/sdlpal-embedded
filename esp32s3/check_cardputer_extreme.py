@@ -36,7 +36,8 @@ MAIN_TASK_STACK = 16 * 1024
 MIN_POST_MAIN_STACK_RESERVE = 64 * 1024
 MAX_STATIC_STACK = 2048
 MUSIC_MAX_APP_BYTES = 512 * 1024
-MUSIC_MAX_NOR_BYTES = NOR_BYTES * 97 // 100
+MUSIC_MIN_NOR_RESERVE = 128 * 1024
+MUSIC_MAX_NOR_BYTES = NOR_BYTES - MUSIC_MIN_NOR_RESERVE
 MUSIC_MAX_DRAM_BSS = 220 * 1024
 MUSIC_MAX_DIRAM_STATIC = 264 * 1024
 MUSIC_MIN_LINKER_DRAM_RESERVE = 72 * 1024
@@ -46,33 +47,7 @@ MUSIC_OPL_TABLE_BYTES = 24832
 MUSIC_AUDIO_TASK_STACK_BYTES = 4096
 MUSIC_TICK_BYTES = 315 * 2
 MUSIC_MAX_OWNED_BSS = 12 * 1024
-MUSIC_TRACK_IDS = {
-    1,
-    2,
-    3,
-    4,
-    8,
-    11,
-    12,
-    24,
-    30,
-    31,
-    33,
-    34,
-    36,
-    37,
-    38,
-    49,
-    61,
-    65,
-    70,
-    71,
-    75,
-    76,
-    77,
-    86,
-    87,
-}
+MUSIC_TRACK_IDS = set(range(1, 88)) - {29}
 PARTITION_MAGIC = 0x50AA
 PARTITION_END_MAGIC = 0xEBEB
 PARTITION_ENTRY_BYTES = 32
@@ -677,8 +652,13 @@ def main() -> int:
         "pal_sram_framebuffer": 320 * 200,
         "pal_sram_aux_framebuffer": 320 * 200,
         "pal_sram_display_dma": 4096,
-        # 423 contiguous scene records plus the explicit sparse event 5334.
-        "pal_sram_extreme_global_event_objects": 424 * 32,
+        # The old 424-record chapter array occupied 13,568 bytes.  The full
+        # 5,369-record TF pager must fit entirely inside that same envelope.
+        "pal_sram_extreme_event_pages": 3 * 4096,
+        "pal_sram_extreme_event_pager": 312,
+        "pal_sram_extreme_event_journal": 328,
+        "pal_sram_extreme_event_sector": 512,
+        "pal_sram_extreme_event_bookkeeping": 120,
         "pal_sram_extreme_engine_tf_toc": TF_TOC_BYTES,
         "g_rgSpriteToDraw": 512 * 12,
         "internal_buffer": 5 * 256,
@@ -694,6 +674,23 @@ def main() -> int:
         actual = symbols.get(name, (-1, ""))[0]
         if actual != expected:
             errors.append(f"{name}: expected {expected} bytes, got {actual}")
+    event_pager_sram = sum(
+        symbols.get(name, (0, ""))[0]
+        for name in (
+            "pal_sram_extreme_event_pages",
+            "pal_sram_extreme_event_pager",
+            "pal_sram_extreme_event_journal",
+            "pal_sram_extreme_event_sector",
+            "pal_sram_extreme_event_bookkeeping",
+        )
+    )
+    if event_pager_sram > 424 * 32:
+        errors.append(
+            f"full TF event pager SRAM {event_pager_sram} exceeds replaced "
+            f"chapter array budget {424 * 32}"
+        )
+    if "pal_sram_extreme_global_event_objects" in symbols:
+        errors.append("obsolete chapter-only event array is still linked")
     framebuffer_symbols = [
         name for name, (size, _kind) in symbols.items() if size == 320 * 200
     ]
@@ -794,6 +791,11 @@ def main() -> int:
         "CardputerExtreme_ScaleIndexedStrip",
         "PalEngineBridge_LogRuntimeMemory",
         "PalEngineBridge_ReadNativeRngFrame",
+        "PalEngineEventState_Init",
+        "PalEngineEventState_ReadEvent",
+        "PalEngineEventState_WriteEvent",
+        "PAL_EventObjectRead",
+        "PAL_EventObjectWrite",
     ]
     if music_profile:
         required_symbols.extend(
@@ -801,6 +803,7 @@ def main() -> int:
                 "AUDIO_PlayMusic",
                 "AUDIO_PlaySound",
                 "CardputerExtremeAudio_Begin",
+                "CardputerExtremeAudio_PollTelemetry",
                 "CardputerExtremeAudio_LogTelemetry",
                 "PalMameOpl2_Init",
                 "PalMameOpl2_Render",
@@ -822,7 +825,8 @@ def main() -> int:
         errors.append(f"NOR pack {nor_path.stat().st_size} exceeds {NOR_BYTES}")
     if music_profile and nor_path.stat().st_size > MUSIC_MAX_NOR_BYTES:
         errors.append(
-            f"music NOR pack {nor_path.stat().st_size} exceeds 97% soft budget "
+            f"music NOR pack {nor_path.stat().st_size} leaves less than "
+            f"{MUSIC_MIN_NOR_RESERVE} bytes reserved: maximum "
             f"{MUSIC_MAX_NOR_BYTES}"
         )
     if tf_path.stat().st_size == 0:
@@ -851,6 +855,10 @@ def main() -> int:
         "CONFIG_SPIRAM": "n",
         "CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240": "y",
         "CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ": "240",
+        "CONFIG_ESP_CONSOLE_UART_DEFAULT": "n",
+        "CONFIG_ESP_CONSOLE_UART_NUM": "-1",
+        "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG": "y",
+        "CONFIG_ESP_CONSOLE_SECONDARY_NONE": "y",
         "CONFIG_FREERTOS_UNICORE": "y",
         "CONFIG_FREERTOS_HZ": "1000",
         "CONFIG_FATFS_VOLUME_COUNT": "1",
@@ -941,7 +949,7 @@ def main() -> int:
         mus = nor.get(ARCHIVE["MUS"], {})
         if len(mus) != 88:
             errors.append(
-                f"MUS archive has {len(mus)} slots instead of sparse 88"
+                f"MUS archive has {len(mus)} slots instead of original 88"
             )
         if nonempty(nor, ARCHIVE["MUS"]) != MUSIC_TRACK_IDS:
             errors.append("unexpected MUS chapter track selection")

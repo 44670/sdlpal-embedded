@@ -25,7 +25,34 @@
 #include "pal_engine_runtime_metrics.h"
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
 #include "pal_engine_chapter_cache.h"
+#include "pal_engine_event_state.h"
 #endif
+
+static VOID
+PAL_ResReadEventObject(
+   WORD             wEventObjectID,
+   LPEVENTOBJECT    lpEventObject
+)
+{
+   if (!PAL_EventObjectRead(wEventObjectID, lpEventObject))
+   {
+      TerminateOnError("Event-state read failed for object %u",
+         wEventObjectID);
+   }
+}
+
+static VOID
+PAL_ResWriteEventObject(
+   WORD                  wEventObjectID,
+   const EVENTOBJECT    *lpEventObject
+)
+{
+   if (!PAL_EventObjectWrite(wEventObjectID, lpEventObject))
+   {
+      TerminateOnError("Event-state write failed for object %u",
+         wEventObjectID);
+   }
+}
 #endif
 
 typedef struct tagRESOURCES
@@ -52,7 +79,13 @@ static LPRESOURCES gpResources = NULL;
 #define PAL_RES_PSRAM
 #endif
 #if defined(PAL_CARDPUTER_EXTREME)
-#define PAL_RES_EVENT_SPRITE_CAPACITY 128
+/*
+ * The complete 5,369-object data set peaks at 142 objects in one scene.
+ * Round that audited maximum up to 160 so the fixed table also tolerates
+ * modest save/script variations without reserving MAX_EVENT_OBJECTS pointers.
+ */
+#define PAL_RES_EVENT_SPRITE_CAPACITY \
+   PAL_EXTREME_SCENE_EVENT_OBJECT_CAPACITY
 static uint8_t pal_sram_extreme_res_state[sizeof(RESOURCES)] PAL_RES_PSRAM;
 static uint8_t pal_sram_extreme_res_event_sprite_ptrs[
    PAL_RES_EVENT_SPRITE_CAPACITY * sizeof(LPCSPRITE)] PAL_RES_PSRAM;
@@ -322,6 +355,11 @@ PAL_LoadResources(
             PAL_FreePlayerSprites();
             gpResources->bLoadFlags |= kLoadPlayerSprite;
          }
+         if (!PAL_EventStateFlush(PAL_EVENT_WRITE_SCENE))
+         {
+            TerminateOnError(
+               "Event-state flush failed before chapter cache prepare");
+         }
          if (!PalEngineChapterCache_PrepareScene(
                gpGlobals->wNumScene, force_verify))
          {
@@ -386,6 +424,12 @@ PAL_LoadResources(
             gpGlobals->g.rgScene[i + 1].wEventObjectIndex,
             gpGlobals->g.nEventObject);
       }
+      if (!PAL_EventObjectPinScene(gpGlobals->wNumScene))
+      {
+         TerminateOnError(
+            "Cardputer event-state pin failed for scene %u",
+            gpGlobals->wNumScene);
+      }
 #endif
 #ifdef PAL_NO_RUNTIME_HEAP
       eventObjectIndexBase = index;
@@ -415,7 +459,14 @@ PAL_LoadResources(
 
       for (i = 0; i < gpResources->nEventObject; i++, index++)
       {
+#if defined(PAL_CARDPUTER_EXTREME)
+         EVENTOBJECT eventObject;
+
+         PAL_ResReadEventObject((WORD)(index + 1), &eventObject);
+         n = eventObject.wSpriteNum;
+#else
          n = gpGlobals->g.lprgEventObject[index].wSpriteNum;
+#endif
          if (n == 0)
          {
             //
@@ -428,12 +479,28 @@ PAL_LoadResources(
 #ifdef PAL_NO_RUNTIME_HEAP
          for (l = 0; l < i; l++)
          {
+#if defined(PAL_CARDPUTER_EXTREME)
+            EVENTOBJECT previousEventObject;
+
+            PAL_ResReadEventObject(
+               (WORD)(eventObjectIndexBase + l + 1),
+               &previousEventObject);
+            if (previousEventObject.wSpriteNum == n &&
+                gpResources->lppEventObjectSprites[l] != NULL)
+#else
             if (gpGlobals->g.lprgEventObject[eventObjectIndexBase + l].wSpriteNum == n &&
                 gpResources->lppEventObjectSprites[l] != NULL)
+#endif
             {
                gpResources->lppEventObjectSprites[i] = gpResources->lppEventObjectSprites[l];
+#if defined(PAL_CARDPUTER_EXTREME)
+               eventObject.nSpriteFramesAuto =
+                  PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
+               PAL_ResWriteEventObject((WORD)(index + 1), &eventObject);
+#else
                gpGlobals->g.lprgEventObject[index].nSpriteFramesAuto =
                   PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
+#endif
                break;
             }
          }
@@ -478,8 +545,14 @@ PAL_LoadResources(
 #endif
 #endif
          {
+#if defined(PAL_CARDPUTER_EXTREME)
+            eventObject.nSpriteFramesAuto =
+               PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
+            PAL_ResWriteEventObject((WORD)(index + 1), &eventObject);
+#else
             gpGlobals->g.lprgEventObject[index].nSpriteFramesAuto =
                PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
+#endif
          }
       }
 

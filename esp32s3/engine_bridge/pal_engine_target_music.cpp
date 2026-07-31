@@ -31,6 +31,9 @@ constexpr unsigned kCommandCount = 8;
 constexpr int32_t kQ15One = 1 << 15;
 constexpr uint32_t kFadePhaseOne = UINT32_C(1) << 31;
 constexpr uint32_t kMaximumHalfFadeSamples = kSampleRate * 30u;
+constexpr uint16_t kMusChunkCount = 88u;
+constexpr uint16_t kEmptyMusTrackA = 0u;
+constexpr uint16_t kEmptyMusTrackB = 29u;
 
 static_assert(
     CARDPUTER_EXTREME_AUDIO_TICK_HZ == 70u &&
@@ -57,15 +60,18 @@ enum class CommandType : uint8_t
 {
     Play,
     Volume,
+    Enable,
 };
 
 struct MusicCommand
 {
     CommandType type;
     uint8_t loop;
+    uint8_t enabled;
     int16_t track;
     uint16_t volume_q15;
     uint32_t half_fade_samples;
+    uint32_t play_generation;
 };
 
 enum class FadeState : uint8_t
@@ -117,6 +123,7 @@ struct MusicRuntime
     bool current_loop;
     bool pending_loop;
     bool playing;
+    bool enabled;
     FadeState fade;
     uint32_t fade_total;
     uint32_t fade_remaining;
@@ -126,6 +133,7 @@ struct MusicRuntime
     uint32_t fade_step_remainder;
     uint32_t fade_step_error;
     uint32_t fade_step_denominator;
+    uint32_t applied_play_generation;
     uint16_t volume_q15;
     uint32_t rendered_ticks;
     uint32_t completed_loops;
@@ -142,6 +150,7 @@ static uint8_t
     pal_sram_music_command_queue_storage[
         kCommandCount * sizeof(MusicCommand)] PAL_EXTREME_MUSIC_SRAM;
 static QueueHandle_t pal_music_command_queue;
+static MusicCommand pal_music_desired PAL_EXTREME_MUSIC_SRAM;
 static uint32_t pal_music_command_drops;
 
 static int
@@ -194,9 +203,76 @@ music_half_fade_samples(FLOAT seconds)
 }
 
 static bool
+music_validate_nor_profile()
+{
+    MusicRuntime &state = pal_music_runtime;
+    PalMusicTrack track;
+    PalPackSpan span;
+    uint16_t chunk_count = 0;
+
+    if (!PalPack_GetChunkCount(
+            &state.nor_pack,
+            PAL_PACK_ARCHIVE_MUS,
+            &chunk_count) ||
+        chunk_count != kMusChunkCount)
+    {
+        ESP_LOGE(
+            kTag,
+            "MUS profile mismatch: chunks=%u expected=%u",
+            static_cast<unsigned>(chunk_count),
+            static_cast<unsigned>(kMusChunkCount));
+        return false;
+    }
+
+    for (uint16_t track_number = 0;
+         track_number < kMusChunkCount;
+         track_number++)
+    {
+        if (track_number == kEmptyMusTrackA ||
+            track_number == kEmptyMusTrackB)
+        {
+            if (!PalPack_MapConst(
+                    &state.nor_pack,
+                    PAL_PACK_ARCHIVE_MUS,
+                    track_number,
+                    &span) ||
+                span.size != 0)
+            {
+                ESP_LOGE(
+                    kTag,
+                    "MUS profile mismatch: track %u must be empty",
+                    static_cast<unsigned>(track_number));
+                return false;
+            }
+            continue;
+        }
+
+        /*
+         * MapMus checks the pack entry/header while load_buffer performs the
+         * decoder's full bounded RIX record/instrument-offset validation.
+         * This runs once before the real-time audio task starts.
+         */
+        if (!PalMusic_MapMus(
+                &state.nor_pack,
+                track_number,
+                &track) ||
+            !pal_music_decoder.load_buffer(track.data, track.size))
+        {
+            ESP_LOGE(
+                kTag,
+                "MUS profile mismatch: invalid RIX track %u",
+                static_cast<unsigned>(track_number));
+            return false;
+        }
+    }
+
+    PalMameOpl2_Reset();
+    return true;
+}
+
+static bool
 music_send_command(
-    const MusicCommand &command,
-    bool supersede_on_full)
+    const MusicCommand &command)
 {
     if (pal_music_command_queue == nullptr)
     {
@@ -211,23 +287,21 @@ music_send_command(
     }
 
     /*
-     * Play and stop requests describe the latest desired state.  In
-     * particular, disabling music must not fail because obsolete requests
-     * filled the queue.  xQueueReset is task-safe for this normal queue; the
-     * audio task either owns a copied command or observes this one next tick.
+     * Every command is a complete desired-state snapshot.  Resetting a full
+     * queue therefore retains the latest play generation, enable flag and
+     * volume together instead of allowing one field to drift indefinitely.
+     * The audio task either owns a copied older snapshot or observes this one
+     * no later than its next tick.
      */
-    if (supersede_on_full)
+    (void)xQueueReset(pal_music_command_queue);
+    if (xQueueSend(
+            pal_music_command_queue,
+            &command,
+            0) == pdTRUE)
     {
-        (void)xQueueReset(pal_music_command_queue);
-        if (xQueueSend(
-                pal_music_command_queue,
-                &command,
-                0) == pdTRUE)
-        {
-            pal_music_command_drops++;
-            ESP_LOGW(kTag, "coalesced stale music commands");
-            return true;
-        }
+        pal_music_command_drops++;
+        ESP_LOGW(kTag, "coalesced stale music commands");
+        return true;
     }
 
     pal_music_command_drops++;
@@ -365,26 +439,6 @@ music_begin_fade_out(uint32_t total_samples)
         current_phase);
 }
 
-static void
-music_reverse_fade_to_current(uint32_t total_samples)
-{
-    MusicRuntime &state = pal_music_runtime;
-    const uint32_t current_phase = state.fade == FadeState::None
-        ? kFadePhaseOne
-        : state.fade_phase_q31;
-
-    if (total_samples == 0 || current_phase >= kFadePhaseOne)
-    {
-        music_clear_fade();
-        return;
-    }
-
-    music_configure_fade(
-        FadeState::In,
-        total_samples,
-        current_phase);
-}
-
 static bool
 music_advance_fade_one_sample()
 {
@@ -462,6 +516,7 @@ music_start_pending()
             state.mapped_track.size))
     {
         state.missing_tracks++;
+        CardputerExtremeAudio_RecordSourceFault(track_number);
         music_stop_now();
         return false;
     }
@@ -484,30 +539,22 @@ music_start_pending()
 }
 
 static void
-music_apply_play(const MusicCommand &command)
+music_apply_play_control(const MusicCommand &command)
 {
     MusicRuntime &state = pal_music_runtime;
 
-    state.volume_q15 = command.volume_q15;
-
     /*
-     * Reissuing the active track updates its loop policy instead of rewinding.
-     * It also cancels an obsolete pending switch.  If that switch had begun
-     * fading out, reverse smoothly from the current gain.
+     * Desktop RIX changes only the loop policy when the requested track is
+     * already active and there is no pending switch.  Once a fade-out has a
+     * destination, even requesting the current track must finish the fade,
+     * rewind that track, and apply the requested fade-in.
      */
     if (state.playing &&
         command.track > 0 &&
-        command.track == state.current_track)
+        command.track == state.current_track &&
+        state.pending_track < 0)
     {
         state.current_loop = command.loop != 0;
-        state.pending_track = -1;
-        state.pending_loop = false;
-        state.fade_in_samples = 0;
-        if (state.fade == FadeState::Out)
-        {
-            music_reverse_fade_to_current(
-                command.half_fade_samples);
-        }
         return;
     }
 
@@ -515,12 +562,44 @@ music_apply_play(const MusicCommand &command)
     state.pending_loop = command.loop != 0;
     state.fade_in_samples = command.half_fade_samples;
 
+    /*
+     * RIX_Play() keeps an already-running fade-out authoritative.  A later
+     * request changes only the destination and its fade-in duration, even
+     * when that request asks for a zero-duration fade.  Battle startup relies
+     * on this: stop(1s), wait 200ms, then play(battle, 0s).
+     */
+    if (state.fade == FadeState::Out)
+    {
+        return;
+    }
     if (!state.playing || command.half_fade_samples == 0)
     {
         (void)music_start_pending();
         return;
     }
     music_begin_fade_out(command.half_fade_samples);
+}
+
+static void
+music_apply_snapshot(const MusicCommand &command)
+{
+    MusicRuntime &state = pal_music_runtime;
+
+    state.volume_q15 = command.volume_q15;
+    state.enabled = command.enabled != 0;
+    if (command.play_generation == state.applied_play_generation)
+    {
+        return;
+    }
+
+    /*
+     * Enable and volume snapshots must not replay a naturally completed or
+     * failed source.  A Play call alone advances this generation.  Apply its
+     * control transition even while muted, as desktop RIX does; rendering
+     * below remains frozen until music is enabled with nonzero volume.
+     */
+    state.applied_play_generation = command.play_generation;
+    music_apply_play_control(command);
 }
 
 static void
@@ -537,14 +616,7 @@ music_drain_commands()
              0) == pdTRUE;
          count++)
     {
-        if (command.type == CommandType::Volume)
-        {
-            pal_music_runtime.volume_q15 = command.volume_q15;
-        }
-        else
-        {
-            music_apply_play(command);
-        }
+        music_apply_snapshot(command);
     }
 }
 
@@ -626,6 +698,17 @@ music_render(
     }
 
     music_drain_commands();
+    /*
+     * The desktop mixer does not call the RIX player while music is disabled
+     * or its volume is zero.  Preserve that pause/resume behavior here: a
+     * zero-volume interval must not advance the sequencer, OPL state, or an
+     * in-progress fade behind the user's back.
+     */
+    if (!state.enabled || state.volume_q15 == 0)
+    {
+        memset(samples, 0, sample_count * sizeof(*samples));
+        return;
+    }
     if (state.fade == FadeState::Out && state.fade_remaining == 0)
     {
         (void)music_start_pending();
@@ -681,12 +764,19 @@ AUDIO_OpenDevice(VOID)
 
     memset(&gAudioDevice, 0, sizeof(gAudioDevice));
     memset(&pal_music_runtime, 0, sizeof(pal_music_runtime));
+    memset(&pal_music_desired, 0, sizeof(pal_music_desired));
     pal_music_command_queue = nullptr;
     pal_music_command_drops = 0;
     pal_music_runtime.current_track = -1;
     pal_music_runtime.pending_track = -1;
+    pal_music_runtime.enabled = true;
     gConfig.iMusicVolume = music_clamped_config_volume();
     pal_music_runtime.volume_q15 = music_volume_q15();
+    pal_music_desired.type = CommandType::Play;
+    pal_music_desired.track = 0;
+    pal_music_desired.enabled = 1u;
+    pal_music_desired.volume_q15 = pal_music_runtime.volume_q15;
+    pal_music_desired.play_generation = 0;
 
     gAudioDevice.spec.freq = static_cast<int>(kSampleRate);
     gAudioDevice.spec.format = AUDIO_S16SYS;
@@ -705,6 +795,12 @@ AUDIO_OpenDevice(VOID)
         return -1;
     }
 
+    PalMameOpl2_Init();
+    if (!music_validate_nor_profile())
+    {
+        return -4;
+    }
+
     pal_music_command_queue = xQueueCreateStatic(
         kCommandCount,
         sizeof(MusicCommand),
@@ -716,7 +812,6 @@ AUDIO_OpenDevice(VOID)
         return -2;
     }
 
-    PalMameOpl2_Init();
     if (!CardputerExtremeAudio_Begin(music_render, nullptr))
     {
         ESP_LOGE(kTag, "Cardputer audio backend failed");
@@ -780,7 +875,7 @@ AUDIO_GetDeviceSpec(VOID)
 VOID
 AUDIO_IncreaseVolume(VOID)
 {
-    MusicCommand command = {};
+    MusicCommand command = pal_music_desired;
     int volume = music_clamped_config_volume();
 
     if (PAL_MAX_VOLUME - volume < 3)
@@ -795,16 +890,17 @@ AUDIO_IncreaseVolume(VOID)
     gAudioDevice.iMusicVolume = music_sdl_volume();
     command.type = CommandType::Volume;
     command.volume_q15 = music_volume_q15();
+    pal_music_desired.volume_q15 = command.volume_q15;
     if (gAudioDevice.fOpened)
     {
-        (void)music_send_command(command, false);
+        (void)music_send_command(command);
     }
 }
 
 VOID
 AUDIO_DecreaseVolume(VOID)
 {
-    MusicCommand command = {};
+    MusicCommand command = pal_music_desired;
     int volume = music_clamped_config_volume();
 
     if (volume < 3)
@@ -819,9 +915,10 @@ AUDIO_DecreaseVolume(VOID)
     gAudioDevice.iMusicVolume = music_sdl_volume();
     command.type = CommandType::Volume;
     command.volume_q15 = music_volume_q15();
+    pal_music_desired.volume_q15 = command.volume_q15;
     if (gAudioDevice.fOpened)
     {
-        (void)music_send_command(command, false);
+        (void)music_send_command(command);
     }
 }
 
@@ -831,10 +928,9 @@ AUDIO_PlayMusic(
     BOOL loop,
     FLOAT fade_time)
 {
-    MusicCommand command = {};
+    MusicCommand command = pal_music_desired;
 
-    if (!gAudioDevice.fOpened ||
-        (track > 0 && !gAudioDevice.fMusicEnabled))
+    if (!gAudioDevice.fOpened)
     {
         return;
     }
@@ -844,12 +940,22 @@ AUDIO_PlayMusic(
         return;
     }
     command.type = CommandType::Play;
+    command.enabled =
+        gAudioDevice.fMusicEnabled ? 1u : 0u;
     command.track =
-        track > 0 ? static_cast<int16_t>(track) : 0;
+        track > 0 && track != kEmptyMusTrackB
+            ? static_cast<int16_t>(track)
+            : 0;
     command.loop = loop ? 1u : 0u;
     command.volume_q15 = music_volume_q15();
     command.half_fade_samples = music_half_fade_samples(fade_time);
-    (void)music_send_command(command, true);
+    command.play_generation++;
+    if (command.play_generation == 0)
+    {
+        command.play_generation = 1;
+    }
+    pal_music_desired = command;
+    (void)music_send_command(command);
 }
 
 BOOL
@@ -868,10 +974,17 @@ AUDIO_PlaySound(INT sound)
 VOID
 AUDIO_EnableMusic(BOOL enable)
 {
+    MusicCommand command = pal_music_desired;
+
     gAudioDevice.fMusicEnabled = enable ? TRUE : FALSE;
-    if (!enable)
+    pal_music_desired.enabled = enable ? 1u : 0u;
+    if (gAudioDevice.fOpened)
     {
-        AUDIO_PlayMusic(0, FALSE, 0.0f);
+        command.type = CommandType::Enable;
+        command.enabled = pal_music_desired.enabled;
+        command.volume_q15 = music_volume_q15();
+        pal_music_desired.volume_q15 = command.volume_q15;
+        (void)music_send_command(command);
     }
 }
 

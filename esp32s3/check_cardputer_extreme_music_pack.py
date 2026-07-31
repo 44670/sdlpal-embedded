@@ -18,36 +18,12 @@ import pal_pack_build as builder  # noqa: E402
 
 
 PROFILE = "rix-music"
-TRACK_IDS = {
-    1,
-    2,
-    3,
-    4,
-    8,
-    11,
-    12,
-    24,
-    30,
-    31,
-    33,
-    34,
-    36,
-    37,
-    38,
-    49,
-    61,
-    65,
-    70,
-    71,
-    75,
-    76,
-    77,
-    86,
-    87,
-}
+TRACK_IDS = set(range(1, 88)) - {29}
+SOURCE_SLOT_IDS = set(range(88))
+EMPTY_TRACK_IDS = {0, 29}
 MUS_CHUNK_COUNT = 88
-MUS_PAYLOAD_BYTES = 75636
-MUS_MAX_TRACK_BYTES = 8998
+MUS_PAYLOAD_BYTES = 330928
+MUS_MAX_TRACK_BYTES = 10108
 
 
 def archive_payloads(path: Path, archive_id: int) -> list[tuple[bytes, int]]:
@@ -105,6 +81,11 @@ def check_profile(
     if nor_path.stat().st_size > common.NOR_BYTES:
         errors.append(
             f"NOR pack {nor_path.stat().st_size} exceeds {common.NOR_BYTES}"
+        )
+    if nor_path.stat().st_size > common.MUSIC_MAX_NOR_BYTES:
+        errors.append(
+            f"NOR pack {nor_path.stat().st_size} leaves less than "
+            f"{common.MUSIC_MIN_NOR_RESERVE} bytes reserved"
         )
     if tf_path.stat().st_size == 0:
         errors.append("TF pack is empty")
@@ -177,10 +158,10 @@ def check_profile(
     mus = nor.get(mus_id, {})
     if len(mus) != MUS_CHUNK_COUNT:
         errors.append(
-            f"MUS sparse archive has {len(mus)} chunks, expected {MUS_CHUNK_COUNT}"
+            f"MUS archive has {len(mus)} chunks, expected {MUS_CHUNK_COUNT}"
         )
     if common.nonempty(nor, mus_id) != TRACK_IDS:
-        errors.append("unexpected MUS chapter track selection")
+        errors.append("MUS does not contain every non-empty source track")
     if mus_id in tf:
         errors.append("MUS must be NOR-mapped, not TF-backed")
     mus_payloads = archive_payloads(nor_path, mus_id)
@@ -197,6 +178,8 @@ def check_profile(
     audit = profile_json.get("music_audit", {})
     if set(audit.get("selected_track_ids", [])) != TRACK_IDS:
         errors.append("layout music audit track closure mismatch")
+    if set(audit.get("empty_track_ids", [])) != EMPTY_TRACK_IDS:
+        errors.append("layout music audit empty-slot mismatch")
     if audit.get("source_chunk_count") != MUS_CHUNK_COUNT:
         errors.append("layout music audit source chunk count mismatch")
     if audit.get("selected_payload_bytes") != MUS_PAYLOAD_BYTES:
@@ -247,8 +230,10 @@ def check_profile(
     if mus_summary.get("max_payload_bytes") != MUS_MAX_TRACK_BYTES:
         errors.append("manifest MUS maximum track size mismatch")
     selection = nor_manifest.get("chunk_selection", {}).get("MUS", {})
-    if set(selection.get("present_chunk_ids", [])) != TRACK_IDS:
-        errors.append("manifest MUS sparse selection mismatch")
+    if set(selection.get("present_chunk_ids", [])) != SOURCE_SLOT_IDS:
+        errors.append("manifest MUS full-slot selection mismatch")
+    if selection.get("absent_chunk_count") != 0:
+        errors.append("manifest MUS archive is not complete")
     if selection.get("source_chunk_count") != MUS_CHUNK_COUNT:
         errors.append("manifest MUS source chunk count mismatch")
     if selection.get("absent_payload_bytes_are_zero") is not True:
@@ -302,7 +287,7 @@ def main() -> int:
             f"{common.TF_TOC_BYTES}, pack_set_id=0x{metrics['pack_set_id']:08x}"
         )
         print(
-            f"  MUS={MUS_CHUNK_COUNT} sparse chunks, tracks={len(TRACK_IDS)}, "
+            f"  MUS={MUS_CHUNK_COUNT} original slots, tracks={len(TRACK_IDS)}, "
             f"payload={metrics['mus_payload_bytes']}, "
             f"max_track={metrics['mus_max_track_bytes']}"
         )

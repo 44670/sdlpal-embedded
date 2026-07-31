@@ -19,6 +19,8 @@ bool PalEngineBridge_SetOverlayPackConst(const uint8_t *image, uint32_t image_si
 void PalEngineBridge_ClearOverlay(void);
 void PalEngineBridge_ClearOverlayPack(void);
 bool PalEngineBridge_SetTfPackReadAt(uint32_t pack_size, PalEngineBridgeReadAt read_at, void *user);
+bool PalEngineBridge_GetActivePackSetId(uint32_t *pack_set_id);
+bool PalEngineBridge_HasNativeChunk(uint16_t archive_id, uint16_t chunk_id);
 void PalEngineBridge_ClearPacks(void);
 bool PalEngineBridge_TargetInitPacks(void);
 bool PalContract_TargetOpenNorPack(PalPack *pack);

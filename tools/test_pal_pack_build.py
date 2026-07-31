@@ -19,32 +19,10 @@ BUILDER_PATH = TOOLS_DIR / "pal_pack_build.py"
 DEFAULT_LAYOUT_PATH = TOOLS_DIR / "pal_pack_layout_default.json"
 EXTREME_LAYOUT_PATH = TOOLS_DIR / "pal_pack_layout_cardputer_extreme.json"
 EXTREME_MUSIC_PROFILE = "rix-music"
-EXTREME_MUSIC_TRACKS = {
-    1,
-    2,
-    3,
-    4,
-    8,
-    11,
-    12,
-    24,
-    30,
-    31,
-    33,
-    34,
-    36,
-    37,
-    38,
-    49,
-    61,
-    65,
-    70,
-    71,
-    75,
-    76,
-    77,
-    86,
-    87,
+EXTREME_MUSIC_TRACKS = set(range(1, 88)) - {29}
+EXTREME_EARLY_MUSIC_TRACKS = {
+    1, 2, 3, 4, 8, 11, 12, 24, 30, 31, 33, 34, 36,
+    37, 38, 49, 61, 65, 70, 71, 75, 76, 77, 86, 87,
 }
 PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PAL")
 
@@ -662,7 +640,7 @@ class CardputerExtremeClosureTests(unittest.TestCase):
             set(self.layout.pack_names["tf"]) <= set(mirror.archives)
         )
 
-    def test_rix_music_profile_is_sparse_and_keeps_the_noaudio_base(self) -> None:
+    def test_rix_music_profile_is_complete_and_keeps_the_noaudio_base(self) -> None:
         music = builder.load_pack_layout(
             EXTREME_LAYOUT_PATH, EXTREME_MUSIC_PROFILE
         )
@@ -671,7 +649,7 @@ class CardputerExtremeClosureTests(unittest.TestCase):
         self.assertNotIn("MUS", music.pack_names["tf"])
         self.assertEqual(
             selected_ids(music.chunk_rules["nor"]["MUS"], 88),
-            EXTREME_MUSIC_TRACKS,
+            set(range(88)),
         )
         packed = set(music.pack_names["nor"]) | set(music.pack_names["tf"])
         self.assertTrue({"MIDI", "VOC", "SFX"}.isdisjoint(packed))
@@ -683,6 +661,7 @@ class CardputerExtremeClosureTests(unittest.TestCase):
             set(audit["selected_track_ids"]),
             EXTREME_MUSIC_TRACKS,
         )
+        self.assertEqual(set(audit["empty_track_ids"]), {0, 29})
 
         scripted_tracks = {
             self.entries[index][1]
@@ -718,15 +697,20 @@ class CardputerExtremeClosureTests(unittest.TestCase):
         # Opening menu 4 and battle victory 2/3 are direct engine call sites.
         self.assertEqual(
             scripted_tracks | item_tracks | {2, 3, 4},
-            EXTREME_MUSIC_TRACKS,
+            EXTREME_EARLY_MUSIC_TRACKS,
         )
+        self.assertTrue(EXTREME_EARLY_MUSIC_TRACKS < EXTREME_MUSIC_TRACKS)
 
         mus = source_chunks("MUS")
         self.assertEqual(len(mus), 88)
+        self.assertEqual(
+            {track_id for track_id, payload in enumerate(mus) if payload},
+            EXTREME_MUSIC_TRACKS,
+        )
         selected_payloads = [mus[track_id] for track_id in EXTREME_MUSIC_TRACKS]
         self.assertTrue(all(payload[:2] == b"\xaa\x55" for payload in selected_payloads))
-        self.assertEqual(sum(map(len, selected_payloads)), 75636)
-        self.assertEqual(max(map(len, selected_payloads)), 8998)
+        self.assertEqual(sum(map(len, selected_payloads)), 330928)
+        self.assertEqual(max(map(len, selected_payloads)), 10108)
 
 
 if __name__ == "__main__":

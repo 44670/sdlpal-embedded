@@ -14,7 +14,12 @@
 #include <string.h>
 
 #define PAL_ENGINE_FATFS_STDIO_MAGIC 0x50465346u
-#define PAL_ENGINE_FATFS_STDIO_SLOTS 2
+/*
+ * EVENT.STA stays open for the lifetime of the engine.  A third slot is only
+ * needed while an old SZC2 save and EVENT.DEF are read together for one
+ * atomic migration.
+ */
+#define PAL_ENGINE_FATFS_STDIO_SLOTS 3
 
 typedef struct PalEngineFatfsFile {
    uint32_t magic;

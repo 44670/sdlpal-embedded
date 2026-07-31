@@ -22,6 +22,10 @@
 #include "main.h"
 #include <setjmp.h>
 
+#if defined(PAL_EXTREME_RIX_MUSIC)
+#include "pal_target_board.h"
+#endif
+
 #if SDL_VERSION_ATLEAST(3,0,0)
 #if __EMSCRIPTEN__
 #define SDL_MAIN_HANDLED
@@ -124,7 +128,16 @@ PAL_Init(
 
    PAL_InitInput();
    PAL_InitResources();
+#if defined(PAL_EXTREME_RIX_MUSIC)
+   e = AUDIO_OpenDevice();
+   if (e != 0)
+   {
+      PalTarget_ShowError("MUSIC FAIL", "CHECK USB LOG");
+      TerminateOnError("Could not initialize Cardputer music: %d.\n", e);
+   }
+#else
    AUDIO_OpenDevice();
+#endif
    PAL_AVIInit();
 
    VIDEO_SetWindowTitle(UTIL_va(UTIL_GlobalBuffer(0), PAL_GLOBAL_BUFFER_SIZE,
