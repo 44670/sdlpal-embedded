@@ -28,6 +28,33 @@
 
 BATTLE          g_Battle;
 
+#if defined(PAL_CARDPUTER_EXTREME)
+static VOID
+PAL_BattleNativeFocusResult(
+   VOID
+)
+{
+   PalNativeUi_FocusLogical(
+      PAL_NATIVE_UI_GENERATED_BATTLE_RESULT_FOCUS_X,
+      PAL_NATIVE_UI_GENERATED_BATTLE_RESULT_FOCUS_Y,
+      PAL_NATIVE_UI_VIEW_UI);
+}
+
+static VOID
+PAL_BattleNativeFocusLevelUp(
+   VOID
+)
+{
+   PalNativeUi_FocusLogical(
+      PAL_NATIVE_UI_GENERATED_BATTLE_LEVEL_UP_FOCUS_X,
+      PAL_NATIVE_UI_GENERATED_BATTLE_LEVEL_UP_FOCUS_Y,
+      PAL_NATIVE_UI_VIEW_UI);
+}
+#else
+#define PAL_BattleNativeFocusResult() ((void)0)
+#define PAL_BattleNativeFocusLevelUp() ((void)0)
+#endif
+
 #if (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)) && \
     !defined(PAL_EXTREME_TWO_SCREENS)
 #if defined(__GNUC__)
@@ -1159,6 +1186,7 @@ PAL_BattleWon(
       PAL_DrawNumber(g_Battle.iExpGained, 5, PAL_XY(182 + ww1, 74), kNumColorYellow, kNumAlignRight);
       PAL_DrawNumber(g_Battle.iCashGained, 5, PAL_XY(162, 119), kNumColorYellow, kNumAlignMid);
 
+      PAL_BattleNativeFocusResult();
       VIDEO_UpdateScreen(&rect);
       PAL_WaitForAnyKey(g_Battle.fIsBoss ? 5500 : 3000);
    }
@@ -1329,6 +1357,7 @@ PAL_BattleWon(
          //
          // Update the screen and wait for key
          //
+         PAL_BattleNativeFocusLevelUp();
          VIDEO_UpdateScreen(&rect1);
          PAL_WaitForAnyKey(3000);
 
@@ -1383,6 +1412,7 @@ PAL_BattleWon(
       PAL_CreateSingleLineBox(PAL_XY(offsetX+78, 60), maxNameWidth+maxPropertyWidth+PAL_TextWidth(PAL_GetWord(BATTLEWIN_LEVELUP_LABEL))/32+4, FALSE);    \
       PAL_DrawText(buffer, PAL_XY(offsetX+90, 70),  0, FALSE, FALSE, FALSE); \
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.statname[w] - OrigPlayerRoles.statname[w], 5, PAL_XY(183+(maxNameWidth+maxPropertyWidth-3)*8, 74), kNumColorYellow, kNumAlignRight); \
+      PAL_BattleNativeFocusResult();                       \
       VIDEO_UpdateScreen(&rect);                            \
       PAL_WaitForAnyKey(3000);                              \
    }                                                        \
@@ -1435,6 +1465,7 @@ PAL_BattleWon(
             PAL_DrawText(PAL_GetWord(BATTLEWIN_ADDMAGIC_LABEL), PAL_XY(75 + 16 * w1 - ww, 115), 0, FALSE, FALSE, FALSE);
             PAL_DrawText(PAL_GetWord(gpGlobals->g.lprgLevelUpMagic[j].m[w].wMagic), PAL_XY(75 + 16 * (w1 + w2) - ww, 115), 0x1B, FALSE, FALSE, FALSE);
 
+            PAL_BattleNativeFocusResult();
             VIDEO_UpdateScreen(&rect);
             PAL_WaitForAnyKey(3000);
          }

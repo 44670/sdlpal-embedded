@@ -50,9 +50,12 @@ original action group plus one context-player info frame into the live crop,
 shows the selected ally's HP/MP during single-ally targeting, and starts
 target views at the actor/subject midpoint before shifting only as needed to
 retain the active player's actual unscaled sprite.
-List selection may pan to its cursor. Unchanged menus pan the viewport to the
-current selection, including custom player selectors, while status opens on
-its identity/primary-value region.  Dialogue uses the corpus-subsetted 10px
+List selection may pan to its cursor. Victory/result notices pan to their
+original text region, while the original full-height level-up page uses a
+stable top crop that retains its title and primary level/HP/MP rows. Unchanged
+menus pan the viewport to the current selection, including custom player
+selectors, while status opens on its identity/primary-value region. Dialogue
+uses the corpus-subsetted 10px
 FONT10 glyphs with word-aware wrapping and glyph-boundary fallback inside
 generated page geometry; portrait-free upper/lower speaker titles retain
 PAL's x=12 inset rather than inheriting the portrait column. An overlong center popup

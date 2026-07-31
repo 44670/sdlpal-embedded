@@ -122,6 +122,20 @@ class NativeUiLayoutTests(unittest.TestCase):
             self.assertEqual(battle.info_local_x, info_x)
             self.assertEqual(battle.info_y, battle_y[4])
 
+            result_left = max(0, battle.result_focus.x - width // 2)
+            result_top = max(0, battle.result_focus.y - height // 2)
+            self.assertLessEqual(result_left, 77)
+            self.assertGreaterEqual(result_left + width, 230)
+            self.assertLessEqual(result_top, 60)
+            self.assertGreaterEqual(result_top + height, 140)
+            self.assertEqual(
+                (battle.result_focus.x, battle.result_focus.y), (153, 110)
+            )
+            self.assertEqual(battle.level_up_focus.x, 170)
+            self.assertEqual(
+                max(0, battle.level_up_focus.y - height // 2), 0
+            )
+
             header = layout.emit_header(profile)
             self.assertIn("BATTLE_ATTACK_LOCAL_X 27", header)
             self.assertIn(
@@ -129,6 +143,12 @@ class NativeUiLayoutTests(unittest.TestCase):
             )
             self.assertIn(
                 f"BATTLE_ATTACK_LOCAL_Y {battle_y[0]}", header
+            )
+            self.assertIn("BATTLE_RESULT_FOCUS_X 153", header)
+            self.assertIn("BATTLE_RESULT_FOCUS_Y 110", header)
+            self.assertIn("BATTLE_LEVEL_UP_FOCUS_X 170", header)
+            self.assertIn(
+                f"BATTLE_LEVEL_UP_FOCUS_Y {height // 2}", header
             )
             self.assertNotIn("BATTLE_INFO_STRIDE", header)
 

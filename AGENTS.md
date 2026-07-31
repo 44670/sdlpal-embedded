@@ -217,7 +217,10 @@ Presentation rules:
   pixels). The context is normally the active player, but single-ally target
   selection shows the selected ally's HP/MP. Target selection starts at the
   actor/subject midpoint, then shifts only enough to retain the active
-  player's actual unscaled sprite; list selection may pan to its cursor;
+  player's actual unscaled sprite; list selection may pan to its cursor.
+  Victory/result notices pan to the original result-text region; the original
+  full-height level-up page uses a stable top crop that retains its title and
+  primary level/HP/MP rows on the two certified small profiles;
 - original menus remain on the 320x200 canvas and the native viewport pans to
   keep the active selection visible, including item, magic-target, and
   equipment player selectors; the status screen uses a stable upper-left crop

@@ -40,6 +40,8 @@ BATTLE_MAGIC_POS = (0, 155)
 BATTLE_COOP_MAGIC_POS = (54, 155)
 BATTLE_MISC_POS = (27, 170)
 BATTLE_INFO_Y = 165
+BATTLE_RESULT_FOCUS = (153, 110)
+BATTLE_LEVEL_UP_FOCUS_X = 170
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,8 @@ class BattleLayout:
     misc: Point
     info_local_x: int
     info_y: int
+    result_focus: Point
+    level_up_focus: Point
 
 
 @dataclass(frozen=True)
@@ -246,6 +250,15 @@ def build_profile(
             # decorative frame-edge pixel is clipped.
             info_local_x=_battle_info_local_x(width),
             info_y=BATTLE_INFO_Y - battle_origin_y,
+            # Victory/result chrome remains at PAL's original 320x200
+            # coordinates.  Pan the 1:1 viewport to the readable result
+            # region instead of leaving it on the acting fighter.
+            result_focus=Point(*BATTLE_RESULT_FOCUS),
+            # The original level-up page is taller than either certified
+            # display.  Keep its title and primary level/HP/MP rows visible
+            # with a stable top crop; later rows remain reachable only on a
+            # taller generated profile.
+            level_up_focus=Point(BATTLE_LEVEL_UP_FOCUS_X, height // 2),
         ),
         font=font,
     )
@@ -328,6 +341,10 @@ def emit_header(profile: Profile) -> str:
         f"#define {p}_BATTLE_MISC_LOCAL_Y {profile.battle.misc.y}",
         f"#define {p}_BATTLE_INFO_LOCAL_X {profile.battle.info_local_x}",
         f"#define {p}_BATTLE_INFO_LOCAL_Y {profile.battle.info_y}",
+        f"#define {p}_BATTLE_RESULT_FOCUS_X {profile.battle.result_focus.x}",
+        f"#define {p}_BATTLE_RESULT_FOCUS_Y {profile.battle.result_focus.y}",
+        f"#define {p}_BATTLE_LEVEL_UP_FOCUS_X {profile.battle.level_up_focus.x}",
+        f"#define {p}_BATTLE_LEVEL_UP_FOCUS_Y {profile.battle.level_up_focus.y}",
         "",
         "/* Chapter-cache loading screen geometry; not gameplay UI. */",
         f"#define {p}_LOADING_GLYPH_WIDTH {loading_glyph_width}u",
