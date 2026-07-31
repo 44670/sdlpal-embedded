@@ -8,6 +8,7 @@ import hashlib
 import json
 import struct
 import sys
+import zipfile
 from pathlib import Path
 
 
@@ -196,6 +197,39 @@ def check_complete_mirror(
     if not data_dir.is_dir():
         errors.append(f"manifest PAL data directory is unavailable: {data_dir}")
         return errors, {}
+    font10_chunk = None
+    raw_font10 = manifest.get("font10")
+    if raw_font10 is not None:
+        if not isinstance(raw_font10, dict):
+            errors.append("manifest FONT10 metadata is not an object")
+        else:
+            archive = raw_font10.get("archive")
+            archive_path = (
+                Path(archive["path"])
+                if isinstance(archive, dict)
+                and isinstance(archive.get("path"), str)
+                else None
+            )
+            if archive_path is None:
+                errors.append("manifest FONT10 release archive path is missing")
+            else:
+                try:
+                    font10_chunk, rebuilt_font10 = (
+                        builder.build_font10_archive_chunk(
+                            data_dir,
+                            archive_path,
+                        )
+                    )
+                except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                    errors.append(
+                        f"cannot rebuild manifest FONT10 chunk: {exc}"
+                    )
+                else:
+                    if rebuilt_font10 != raw_font10:
+                        errors.append(
+                            "manifest FONT10 metadata differs from "
+                            "deterministic rebuild"
+                        )
     expected_sources = builder.source_file_manifest(
         data_dir,
         list(mirror.archives),
@@ -207,7 +241,11 @@ def check_complete_mirror(
     total_chunks = 0
     total_payload = 0
     for name in expected_order:
-        expected_chunks = builder.load_archive(data_dir, name)
+        expected_chunks = builder.load_archive(
+            data_dir,
+            name,
+            font10_chunk if name == "FONT" else None,
+        )
         actual_chunks = packed.get(name, [])
         total_chunks += len(expected_chunks)
         total_payload += sum(len(chunk.payload) for chunk in expected_chunks)

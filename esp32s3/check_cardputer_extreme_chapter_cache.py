@@ -25,6 +25,7 @@ import shlex
 import struct
 import subprocess
 import sys
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -50,6 +51,9 @@ CACHE_PAYLOAD_HARD_BYTES = 0x2CF000
 CACHE_PACK_SOFT_BYTES = 0x2BF000
 ACTIVE_TF_TOC_BYTES = 2048
 BUNDLE_COUNT = 15
+GENERATED_UI_HEADER = (
+    ESP32S3_DIR / "main" / "generated" / "pal_ui_layout_240x135.h"
+)
 MAX_DRAM_BSS = 212 * 1024
 MAX_DRAM_DATA = 16 * 1024
 MAX_DIRAM_STATIC = 264 * 1024
@@ -85,6 +89,8 @@ REQUIRED_CACHE_SYMBOLS = {
     "PalEngineChapterCache_PrepareScene",
     "PalEngineChapterCache_SceneNeedsBundle",
     "PalEngineChapterCache_TargetInit",
+    "PalFont10_Open",
+    "PalUiLayout_Font10IdentityMatches",
     "sha256_finish",
     "sha256_transform",
     "sha256_update",
@@ -554,10 +560,16 @@ def check_cmake_sources(errors: list[str]) -> None:
     cache_path = (
         ESP32S3_DIR / "engine_bridge" / "pal_engine_chapter_cache.c"
     )
+    target_packs_path = (
+        ESP32S3_DIR / "engine_bridge" / "pal_engine_target_packs.c"
+    )
     try:
         top = top_path.read_text(encoding="utf-8", errors="replace")
         main = main_path.read_text(encoding="utf-8", errors="replace")
         cache = cache_path.read_text(encoding="utf-8", errors="replace")
+        target_packs = target_packs_path.read_text(
+            encoding="utf-8", errors="replace"
+        )
     except OSError as exc:
         errors.append(f"cannot read CMake source: {exc}")
         return
@@ -577,6 +589,15 @@ def check_cmake_sources(errors: list[str]) -> None:
     for token in main_tokens:
         if token not in main:
             errors.append(f"{main_path}: missing chapter-cache gate {token!r}")
+
+    for token in (
+        "PalFont10_Open(&core_pack, &font10)",
+        "PalUiLayout_Font10IdentityMatches(",
+    ):
+        if token not in target_packs:
+            errors.append(
+                f"{target_packs_path}: missing chapter FONT10 gate {token!r}"
+            )
 
     for token in (
         "static FIL pal_chapter_bundle_file;",
@@ -860,6 +881,100 @@ def pack_chunk(
         offset, size, fmt, _flags = chunks[chunk_id]
         return data[offset : offset + size], fmt
     return None
+
+
+def parse_generated_font10_identity(
+    path: Path,
+    errors: list[str],
+) -> tuple[int, int, int] | None:
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        errors.append(f"{path}: generated UI header cannot be read: {exc}")
+        return None
+
+    values: list[int] = []
+    for name in (
+        "PAL_UI_GENERATED_FONT_GLYPH_COUNT",
+        "PAL_UI_GENERATED_FONT_IMAGE_BYTES",
+        "PAL_UI_GENERATED_FONT_PAYLOAD_CRC32",
+    ):
+        match = re.search(
+            rf"^#define\s+{name}\s+(0[xX][0-9a-fA-F]+|[0-9]+)u$",
+            source,
+            re.MULTILINE,
+        )
+        if match is None:
+            errors.append(f"{path}: missing generated define {name}")
+            return None
+        values.append(int(match.group(1), 0))
+    return values[0], values[1], values[2]
+
+
+def check_font10_contract(
+    manifest: dict[str, object],
+    core_data: bytes,
+    full_path: Path,
+    errors: list[str],
+) -> None:
+    identity = parse_generated_font10_identity(GENERATED_UI_HEADER, errors)
+    raw_font10 = manifest.get("font10")
+    if not isinstance(raw_font10, dict):
+        errors.append("chapter manifest is missing mandatory FONT10 metadata")
+        return
+
+    summary = raw_font10.get("font10")
+    if not isinstance(summary, dict):
+        errors.append("chapter manifest FONT10 summary is not an object")
+    elif identity is not None and (
+        summary.get("glyph_count"),
+        summary.get("bytes"),
+        summary.get("payload_crc32"),
+    ) != identity:
+        errors.append("chapter FONT10 identity differs from generated UI header")
+
+    archive = raw_font10.get("archive")
+    archive_path = (
+        Path(archive["path"])
+        if isinstance(archive, dict) and isinstance(archive.get("path"), str)
+        else None
+    )
+    data_dir_value = manifest.get("data_dir")
+    data_dir = Path(data_dir_value) if isinstance(data_dir_value, str) else None
+    if archive_path is None or data_dir is None:
+        errors.append("chapter FONT10 provenance paths are missing")
+        return
+    try:
+        expected_chunk, expected_summary = pack.build_font10_archive_chunk(
+            data_dir,
+            archive_path,
+        )
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        errors.append(f"cannot deterministically rebuild chapter FONT10: {exc}")
+        return
+    if raw_font10 != expected_summary:
+        errors.append("chapter FONT10 metadata differs from deterministic rebuild")
+
+    try:
+        full_data = full_path.read_bytes()
+    except OSError as exc:
+        errors.append(f"{full_path}: cannot read complete pack for FONT10: {exc}")
+        return
+    for label, image in (
+        ("pal_core.pak", core_data),
+        ("pal_full.pak", full_data),
+    ):
+        actual = pack_chunk(image, pack.ARCHIVE_IDS["FONT"], 1)
+        if actual is None:
+            errors.append(f"{label} has no mandatory FONT chunk 1")
+            continue
+        payload, fmt = actual
+        if fmt != pack.FORMAT_FONT10:
+            errors.append(f"{label} FONT#1 is not FONT10 format")
+        if payload != expected_chunk.payload:
+            errors.append(
+                f"{label} FONT#1 differs from the standard host-generated FONT10"
+            )
 
 
 def inspect_pack(
@@ -1307,6 +1422,12 @@ def check_packs(
         errors.append("cannot inspect CACHE catalog in pal_core.pak")
         catalog = b""
     else:
+        check_font10_contract(
+            manifest,
+            core_data,
+            paths["full"],
+            errors,
+        )
         catalog_chunk = pack_chunk(
             core_data,
             pack.ARCHIVE_IDS["CACHE"],

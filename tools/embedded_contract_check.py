@@ -25,6 +25,7 @@ import json
 import re
 import subprocess
 import sys
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,7 +65,18 @@ PACK_FORMAT_NAMES = {
     3: "TEXT_UTF16",
     4: "FONT_GLYPHS",
     5: "SFX_PCM16",
+    6: "FONT10",
 }
+PACK_FORMAT_FONT10 = 6
+PACK_ARCHIVE_FONT = 18
+PACK_FONT10_CHUNK_ID = 1
+PACK_FONT10_MAX_BYTES = 65536
+FONT10_MAGIC = b"FONT10\0\0"
+FONT10_VERSION = 1
+FONT10_HEADER_BYTES = 32
+FONT10_RECORD_BYTES = 16
+FONT10_CELL_WIDTH = 10
+FONT10_CELL_HEIGHT = 10
 
 
 DEFAULT_SOURCE_GLOBS = ("*.c", "*.cpp", "*.h")
@@ -781,6 +793,150 @@ def parse_pack_chunks(path: Path) -> tuple[bytes, list[PackChunk]]:
     return data, chunks
 
 
+def validate_font10_chunk(
+    data: bytes,
+    chunk: PackChunk,
+) -> tuple[list[str], dict[str, object] | None]:
+    """Validate the bounded FONT archive chunk-1 ABI used by the target."""
+    errors: list[str] = []
+    label = (
+        f"archive={chunk.archive_id} chunk={chunk.chunk_id} "
+        f"format={chunk.fmt}"
+    )
+    if (
+        chunk.archive_id != PACK_ARCHIVE_FONT
+        or chunk.chunk_id != PACK_FONT10_CHUNK_ID
+    ):
+        errors.append(f"FONT10 has invalid placement: {label}")
+    if chunk.size == 0:
+        # Sparse layout-v2 packs retain the source chunk number and format for
+        # absent payloads.  A manifest that declares FONT10 still has to point
+        # at a non-empty NOR instance.
+        return errors, None
+    if chunk.size > PACK_FONT10_MAX_BYTES:
+        errors.append(
+            f"FONT10 payload {chunk.size} bytes exceeds "
+            f"{PACK_FONT10_MAX_BYTES}: {label}"
+        )
+    if chunk.size < FONT10_HEADER_BYTES:
+        errors.append(f"FONT10 header is short: {label}")
+        return errors, None
+
+    image = data[chunk.offset : chunk.offset + chunk.size]
+    version = u16(image, 8)
+    header_bytes = u16(image, 10)
+    glyph_count = u32(image, 12)
+    record_bytes = u16(image, 16)
+    cell_width = image[18]
+    cell_height = image[19]
+    ascent = image[20]
+    descent = image[21]
+    reserved = u16(image, 22)
+    declared_crc32 = u32(image, 24)
+    declared_bytes = u32(image, 28)
+
+    if image[:8] != FONT10_MAGIC:
+        errors.append(f"FONT10 magic is invalid: {label}")
+    if version != FONT10_VERSION:
+        errors.append(f"FONT10 version is {version}: {label}")
+    if header_bytes != FONT10_HEADER_BYTES:
+        errors.append(f"FONT10 header size is {header_bytes}: {label}")
+    if record_bytes != FONT10_RECORD_BYTES:
+        errors.append(f"FONT10 record size is {record_bytes}: {label}")
+    if (
+        cell_width != FONT10_CELL_WIDTH
+        or cell_height != FONT10_CELL_HEIGHT
+    ):
+        errors.append(
+            f"FONT10 cell is {cell_width}x{cell_height}: {label}"
+        )
+    if ascent + descent != cell_height:
+        errors.append(
+            f"FONT10 ascent/descent {ascent}+{descent} do not match "
+            f"cell height {cell_height}: {label}"
+        )
+    if reserved != 0:
+        errors.append(f"FONT10 reserved field is nonzero: {label}")
+    if glyph_count == 0:
+        errors.append(f"FONT10 has no glyphs: {label}")
+
+    expected_bytes = FONT10_HEADER_BYTES + glyph_count * FONT10_RECORD_BYTES
+    if (
+        declared_bytes != chunk.size
+        or chunk.size != expected_bytes
+    ):
+        errors.append(
+            f"FONT10 size is {chunk.size}, header says {declared_bytes}, "
+            f"records require {expected_bytes}: {label}"
+        )
+        return errors, None
+
+    records = image[FONT10_HEADER_BYTES:]
+    actual_crc32 = zlib.crc32(records) & 0xFFFFFFFF
+    if actual_crc32 != declared_crc32:
+        errors.append(
+            f"FONT10 CRC32 is 0x{actual_crc32:08x}, "
+            f"header says 0x{declared_crc32:08x}: {label}"
+        )
+
+    previous = -1
+    advances: list[int] = []
+    codepoints: list[int] = []
+    for index in range(glyph_count):
+        offset = index * FONT10_RECORD_BYTES
+        codepoint = u16(records, offset)
+        advance = records[offset + 2]
+        if codepoint <= previous:
+            errors.append(
+                f"FONT10 codepoints are not strictly sorted at "
+                f"record {index}: {label}"
+            )
+            break
+        if 0xD800 <= codepoint <= 0xDFFF:
+            errors.append(
+                f"FONT10 record {index} is a surrogate: {label}"
+            )
+            break
+        if advance == 0 or advance > FONT10_CELL_WIDTH:
+            errors.append(
+                f"FONT10 record {index} advance is {advance}: {label}"
+            )
+            break
+        if records[offset + FONT10_RECORD_BYTES - 1] & 0x0F:
+            errors.append(
+                f"FONT10 record {index} bitmap padding is nonzero: "
+                f"{label}"
+            )
+            break
+        previous = codepoint
+        advances.append(advance)
+        codepoints.append(codepoint)
+
+    if errors:
+        return errors, None
+    return (
+        [],
+        {
+            "bytes": chunk.size,
+            "sha256": hashlib.sha256(image).hexdigest(),
+            "glyph_count": glyph_count,
+            "payload_crc32": declared_crc32,
+            "metrics": {
+                "cell_width": cell_width,
+                "cell_height": cell_height,
+                "ascent": ascent,
+                "descent": descent,
+                "line_height": ascent + descent,
+                "record_bytes": record_bytes,
+                "bitmap_bytes": FONT10_RECORD_BYTES - 3,
+                "advance_min": min(advances),
+                "advance_max": max(advances),
+            },
+            "_codepoints": tuple(codepoints),
+        },
+    )
+
+
 def hash_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as fp:
@@ -846,6 +1002,152 @@ def compare_manifest_pack(label: str, expected: dict[str, object], actual: dict[
     actual_archives = actual.get("archive_summaries")
     if expected_archives != actual_archives:
         errors.append(f"{label}: archive decoded-size summary does not match pack")
+    return errors
+
+
+def check_font10_manifest(
+    manifest_path: Path,
+    raw_font10: object,
+    payloads: list[tuple[str, dict[str, object]]],
+) -> list[str]:
+    """Cross-check optional FONT10 provenance, corpus, and packed bytes."""
+    errors: list[str] = []
+    prefix = f"{manifest_path}: FONT10"
+    if raw_font10 is None:
+        if payloads:
+            errors.append(f"{prefix} payload exists without font10 manifest")
+        return errors
+    if not isinstance(raw_font10, dict):
+        return [f"{prefix} manifest is not an object"]
+    if (
+        raw_font10.get("schema") != "sdlpal-embedded-font10"
+        or raw_font10.get("version") != 1
+    ):
+        errors.append(f"{prefix} manifest schema/version is invalid")
+
+    lock_path = (
+        Path(__file__).resolve().parent
+        / "pal_ui_layout"
+        / "fusion_pixel_font.lock.json"
+    )
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"{prefix} cannot read release lock {lock_path}: {exc}")
+        lock = {}
+
+    if raw_font10.get("upstream") != lock.get("upstream"):
+        errors.append(f"{prefix} upstream does not match release lock")
+    if raw_font10.get("release") != lock.get("release"):
+        errors.append(f"{prefix} release does not match release lock")
+    if raw_font10.get("license") != lock.get("license"):
+        errors.append(f"{prefix} license does not match release lock")
+
+    archive = raw_font10.get("archive")
+    locked_archive = lock.get("asset")
+    if not isinstance(archive, dict) or not isinstance(locked_archive, dict):
+        errors.append(f"{prefix} archive metadata is invalid")
+    else:
+        for key in ("filename", "bytes", "sha256"):
+            if archive.get(key) != locked_archive.get(key):
+                errors.append(
+                    f"{prefix} archive {key} does not match release lock"
+                )
+        archive_path_raw = archive.get("path")
+        if not isinstance(archive_path_raw, str):
+            errors.append(f"{prefix} archive path is missing")
+        else:
+            archive_path = Path(archive_path_raw)
+            try:
+                archive_bytes = archive_path.stat().st_size
+                archive_sha256 = hash_file(archive_path)
+            except OSError as exc:
+                errors.append(
+                    f"{prefix} cannot read release archive "
+                    f"{archive_path}: {exc}"
+                )
+            else:
+                if archive.get("bytes") != archive_bytes:
+                    errors.append(f"{prefix} release archive size changed")
+                if archive.get("sha256") != archive_sha256:
+                    errors.append(f"{prefix} release archive SHA256 changed")
+
+    bdf = raw_font10.get("bdf")
+    locked_bdf = lock.get("bdf")
+    if not isinstance(bdf, dict) or not isinstance(locked_bdf, dict):
+        errors.append(f"{prefix} BDF metadata is invalid")
+    else:
+        for key in ("member", "bytes", "sha256"):
+            if bdf.get(key) != locked_bdf.get(key):
+                errors.append(
+                    f"{prefix} BDF {key} does not match release lock"
+                )
+
+    expected_chunk = {
+        "archive": "FONT",
+        "chunk_id": PACK_FONT10_CHUNK_ID,
+        "format": "FONT10",
+        "format_id": PACK_FORMAT_FONT10,
+    }
+    if raw_font10.get("pack_chunk") != expected_chunk:
+        errors.append(f"{prefix} pack_chunk metadata is invalid")
+
+    if len(payloads) != 1 or payloads[0][0] != "nor":
+        errors.append(
+            f"{prefix} requires exactly one non-empty NOR FONT chunk 1"
+        )
+        return errors
+    actual_info = payloads[0][1]
+    packed_summary = {
+        key: value
+        for key, value in actual_info.items()
+        if not key.startswith("_")
+    }
+    if raw_font10.get("font10") != packed_summary:
+        errors.append(f"{prefix} packed summary does not match FONT chunk 1")
+
+    corpus = raw_font10.get("corpus")
+    if not isinstance(corpus, dict):
+        errors.append(f"{prefix} corpus metadata is invalid")
+        return errors
+    codepoints = tuple(actual_info.get("_codepoints", ()))
+    codepoint_set = set(codepoints)
+    codepoint_bytes = b"".join(
+        int(codepoint).to_bytes(2, "little") for codepoint in codepoints
+    )
+    if corpus.get("codepoint_count") != len(codepoints):
+        errors.append(f"{prefix} corpus codepoint_count is invalid")
+    if corpus.get("codepoints_sha256") != hashlib.sha256(
+        codepoint_bytes
+    ).hexdigest():
+        errors.append(f"{prefix} corpus codepoint SHA256 is invalid")
+    pal_count = corpus.get("pal_codepoint_count")
+    ui_added = corpus.get("ui_added_codepoint_count")
+    if (
+        not isinstance(pal_count, int)
+        or not isinstance(ui_added, int)
+        or pal_count < 0
+        or ui_added < 0
+        or pal_count + ui_added != len(codepoints)
+    ):
+        errors.append(f"{prefix} corpus PAL/UI counts are invalid")
+    labels = corpus.get("ui_labels")
+    if not isinstance(labels, dict) or not labels:
+        errors.append(f"{prefix} UI labels are missing")
+    else:
+        for name, text in labels.items():
+            if not isinstance(name, str) or not isinstance(text, str):
+                errors.append(f"{prefix} UI label metadata is invalid")
+                break
+            missing = sorted(set(map(ord, text)) - codepoint_set)
+            if missing:
+                errors.append(
+                    f"{prefix} UI label {name!r} has unpacked glyphs: "
+                    + ",".join(f"U+{codepoint:04X}" for codepoint in missing)
+                )
+                break
+        if not any("/" in text for text in labels.values() if isinstance(text, str)):
+            errors.append(f"{prefix} UI labels omit the page separator")
     return errors
 
 
@@ -971,6 +1273,7 @@ def check_manifest(path: Path) -> tuple[list[str], str]:
         packs = {}
 
     checked_packs = 0
+    font10_payloads: list[tuple[str, dict[str, object]]] = []
     for label in ("nor", "tf"):
         item = packs.get(label)
         if not isinstance(item, dict):
@@ -989,6 +1292,18 @@ def check_manifest(path: Path) -> tuple[list[str], str]:
         except ValueError as exc:
             errors.append(f"{path}: bad pack {pack_path}: {exc}")
             continue
+        pack_data, pack_chunks = parse_pack_chunks(pack_path)
+        for chunk in pack_chunks:
+            if chunk.fmt != PACK_FORMAT_FONT10:
+                continue
+            font10_errors, font10_info = validate_font10_chunk(
+                pack_data, chunk
+            )
+            errors.extend(
+                f"{path}:{label}: {error}" for error in font10_errors
+            )
+            if font10_info is not None:
+                font10_payloads.append((label, font10_info))
         checked_packs += 1
         errors.extend(compare_manifest_pack(f"{path}:{label}", item, actual))
         if item.get("archives") != layout_packs.get(label):
@@ -996,6 +1311,9 @@ def check_manifest(path: Path) -> tuple[list[str], str]:
         if not layout_overrides.get(label) and layout_file_packs and item.get("archives") != layout_file_packs.get(label):
             errors.append(f"{path}: pack manifest archives for {label} do not match pack layout file")
 
+    errors.extend(
+        check_font10_manifest(path, manifest.get("font10"), font10_payloads)
+    )
     report.append(f"source_files={checked_sources} packs={checked_packs} pack_layouts={checked_layout}")
     return errors, "\n".join(report)
 
@@ -1021,6 +1339,7 @@ def check_pack(path: Path, max_size: int | None, forbidden_archives: set[int]) -
     bad_magic: list[PackChunk] = []
     bad_formats: list[PackChunk] = []
     forbidden_present: set[int] = set()
+    font10_infos: list[dict[str, object]] = []
 
     for chunk in chunks:
         archive_payloads[chunk.archive_id] = archive_payloads.get(chunk.archive_id, 0) + chunk.size
@@ -1035,6 +1354,11 @@ def check_pack(path: Path, max_size: int | None, forbidden_archives: set[int]) -
         payload = data[chunk.offset : chunk.offset + min(chunk.size, 4)]
         if payload == b"YJ_1":
             bad_magic.append(chunk)
+        if chunk.fmt == PACK_FORMAT_FONT10:
+            font10_errors, font10_info = validate_font10_chunk(data, chunk)
+            errors.extend(f"{path}: {error}" for error in font10_errors)
+            if font10_info is not None:
+                font10_infos.append(font10_info)
 
     if bad_flags:
         errors.append(f"{path}: chunks with runtime flags: {len(bad_flags)}")
@@ -1057,6 +1381,12 @@ def check_pack(path: Path, max_size: int | None, forbidden_archives: set[int]) -
     ))
     if max_size is not None:
         report.append(f"max-size={max_size}")
+    for info in font10_infos:
+        report.append(
+            "font10 "
+            f"bytes={info['bytes']} glyphs={info['glyph_count']} "
+            f"sha256={info['sha256']}"
+        )
     if forbidden_present:
         report.append("forbidden-archives " + " ".join(
             PACK_ARCHIVE_NAMES.get(archive_id, str(archive_id)) for archive_id in sorted(forbidden_present)

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import os
 import struct
 import sys
 import unittest
@@ -13,9 +14,15 @@ from pathlib import Path
 
 TOOLS_DIR = Path(__file__).resolve().parent
 PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PAL")
-EXPECTED_CORE_BYTES = 4_334_276
+FONT10_ARCHIVE = Path(
+    os.environ.get(
+        "FONT10_ARCHIVE",
+        "/tmp/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip",
+    )
+)
+EXPECTED_CORE_BYTES = 4_376_532
 EXPECTED_TF_BYTES = 11_917_143
-EXPECTED_FULL_BYTES = 57_755_986
+EXPECTED_FULL_BYTES = 57_798_242
 EXPECTED_BUNDLE_BYTES = (
     2_648_252,
     2_463_512,
@@ -46,7 +53,37 @@ sys.modules[spec.name] = chapter
 spec.loader.exec_module(chapter)
 
 
+def packed_chunk(
+    image: bytes,
+    archive_name: str,
+    chunk_id: int,
+) -> chapter.pack.Chunk:
+    archive_count = chapter.pack.u16(image, 8)
+    archive_table = chapter.pack.u32(image, 12)
+    wanted_id = chapter.pack.ARCHIVE_IDS[archive_name]
+    for archive_index in range(archive_count):
+        entry = archive_table + archive_index * chapter.pack.ARCHIVE_ENTRY_SIZE
+        archive_id, chunk_count = struct.unpack_from("<HH", image, entry)
+        if archive_id != wanted_id:
+            continue
+        if not 0 <= chunk_id < chunk_count:
+            raise AssertionError(f"missing {archive_name}#{chunk_id}")
+        chunk_table = chapter.pack.u32(image, entry + 4)
+        chunk_entry = chunk_table + chunk_id * chapter.pack.CHUNK_ENTRY_SIZE
+        offset, size, fmt, flags = struct.unpack_from(
+            "<IIHH", image, chunk_entry
+        )
+        if flags != 0:
+            raise AssertionError(f"{archive_name}#{chunk_id} is absent")
+        return chapter.pack.Chunk(image[offset : offset + size], fmt)
+    raise AssertionError(f"missing archive {archive_name}")
+
+
 class ChapterPackUnitTests(unittest.TestCase):
+    def test_chapter_build_requires_pinned_font10_archive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "FONT10"):
+            chapter.build_chapter_packs(Path("/unused"))
+
     def test_scene_table_covers_exactly_scenes_1_through_299(self) -> None:
         table = chapter.make_scene_table()
         self.assertEqual(len(table), 300)
@@ -209,13 +246,16 @@ class ChapterPackUnitTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    PAL_DATA_DIR.is_dir(),
-    f"real PAL data is unavailable at {PAL_DATA_DIR}",
+    PAL_DATA_DIR.is_dir() and FONT10_ARCHIVE.is_file(),
+    "real PAL data or pinned Fusion Pixel FONT10 archive is unavailable",
 )
 class ChapterPackRealDataTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.build = chapter.build_chapter_packs(PAL_DATA_DIR)
+        cls.build = chapter.build_chapter_packs(
+            PAL_DATA_DIR,
+            font10_archive=FONT10_ARCHIVE,
+        )
 
     def test_real_build_has_complete_fixed_partition(self) -> None:
         self.assertEqual(len(self.build.bundle_packs), 15)
@@ -277,6 +317,21 @@ class ChapterPackRealDataTests(unittest.TestCase):
         self.assertLessEqual(len(self.build.core_pack), chapter.CORE_SLOT_CAP)
         self.assertEqual(len(chapter.CORE_GLOBAL_MGO), 35)
         self.assertEqual(len(chapter.CORE_STARTUP_MGO), 2)
+
+    def test_core_font10_is_the_standard_host_generated_chunk(self) -> None:
+        expected, summary = chapter.pack.build_font10_archive_chunk(
+            PAL_DATA_DIR,
+            FONT10_ARCHIVE,
+        )
+        self.assertEqual(
+            packed_chunk(self.build.core_pack, "FONT", 1),
+            expected,
+        )
+        self.assertEqual(
+            packed_chunk(self.build.full_pack, "FONT", 1),
+            expected,
+        )
+        self.assertEqual(self.build.manifest["font10"], summary)
 
     def test_real_closure_records_required_dynamic_edges(self) -> None:
         bundles = self.build.manifest["packs"]["bundles"]

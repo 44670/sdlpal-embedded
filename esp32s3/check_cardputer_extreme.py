@@ -381,6 +381,34 @@ def parse_cmake_cache(path: Path) -> dict[str, str]:
     return result
 
 
+def parse_generated_font10_identity(
+    path: Path,
+    errors: list[str],
+) -> tuple[int, int, int] | None:
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        errors.append(f"{path}: generated UI header cannot be read: {exc}")
+        return None
+
+    values: list[int] = []
+    for name in (
+        "PAL_UI_GENERATED_FONT_GLYPH_COUNT",
+        "PAL_UI_GENERATED_FONT_IMAGE_BYTES",
+        "PAL_UI_GENERATED_FONT_PAYLOAD_CRC32",
+    ):
+        match = re.search(
+            rf"^#define\s+{name}\s+(0[xX][0-9a-fA-F]+|[0-9]+)u$",
+            source,
+            re.MULTILINE,
+        )
+        if match is None:
+            errors.append(f"{path}: missing generated define {name}")
+            return None
+        values.append(int(match.group(1), 0))
+    return values[0], values[1], values[2]
+
+
 def parse_pack(path: Path, errors: list[str]) -> tuple[int, dict[int, dict[int, tuple[int, int]]]]:
     data = path.read_bytes()
     archives: dict[int, dict[int, tuple[int, int]]] = {}
@@ -486,6 +514,12 @@ def main() -> int:
     compile_commands_path = build / "compile_commands.json"
     flasher_args_path = build / "flasher_args.json"
     partition_bin = build / "partition_table/partition-table.bin"
+    ui_layout_header = (
+        root / "esp32s3/main/generated/pal_ui_layout_240x135.h"
+    )
+    target_pack_source = (
+        root / "esp32s3/engine_bridge/pal_engine_target_packs.c"
+    )
     main_archive = build / "esp-idf/main/libmain.a"
     ninja_path = build / "build.ninja"
     cache_path = build / "CMakeCache.txt"
@@ -508,6 +542,8 @@ def main() -> int:
         compile_commands_path,
         flasher_args_path,
         partition_bin,
+        ui_layout_header,
+        target_pack_source,
         main_archive,
         ninja_path,
         cache_path,
@@ -522,6 +558,29 @@ def main() -> int:
     if errors:
         print("\n".join(f"ERROR: {item}" for item in errors))
         return 1
+
+    target_pack_text = target_pack_source.read_text(encoding="utf-8")
+    for token in (
+        "nor_pack_size = read_le32(",
+        "0, nor_pack_size, ESP_PARTITION_MMAP_DATA",
+        "&nor_pack, (const uint8_t *)nor_image, nor_pack_size",
+        "(const uint8_t *)nor_image, nor_pack_size)",
+    ):
+        if token not in target_pack_text:
+            errors.append(
+                "target NOR pack mapping does not use the bounded "
+                f"declared pack size: missing {token!r}"
+            )
+    if re.search(
+        r"PalPack_OpenConst\s*\(\s*&nor_pack,"
+        r".{0,160}partition->size",
+        target_pack_text,
+        re.DOTALL,
+    ):
+        errors.append(
+            "target FONT10 validation passes padded partition size "
+            "to PalPack_OpenConst"
+        )
 
     try:
         project_description = json.loads(
@@ -789,6 +848,10 @@ def main() -> int:
         "CardputerExtreme_PollKey",
         "CardputerExtreme_FlushIndexedFramebuffer",
         "CardputerExtreme_ScaleIndexedStrip",
+        "CardputerExtreme_ScalerSourceX",
+        "CardputerExtreme_ScalerSourceY",
+        "CardputerExtreme_ScalerValidateGeneratedMap",
+        "PalFont10_Open",
         "PalEngineBridge_LogRuntimeMemory",
         "PalEngineBridge_ReadNativeRngFrame",
         "PalEngineEventState_Init",
@@ -796,6 +859,10 @@ def main() -> int:
         "PalEngineEventState_WriteEvent",
         "PAL_EventObjectRead",
         "PAL_EventObjectWrite",
+        "PalUiLayout_Font10IdentityMatches",
+        "PalUiLayout_ValidateGenerated",
+        "pal_ui_generated_stage_sample_x",
+        "pal_ui_generated_stage_sample_y",
     ]
     if music_profile:
         required_symbols.extend(
@@ -911,6 +978,10 @@ def main() -> int:
     if flash_files.get("0x10000") != "sdlpal_cardputer_extreme.bin":
         errors.append("generated flash args do not flash the app at 0x10000")
 
+    font10_identity = parse_generated_font10_identity(
+        ui_layout_header,
+        errors,
+    )
     nor_toc, nor = parse_pack(nor_path, errors)
     tf_toc, tf = parse_pack(tf_path, errors)
     nor_header = nor_path.read_bytes()[:PACK_HEADER_BYTES]
@@ -923,12 +994,22 @@ def main() -> int:
         )
     if tf_toc > TF_TOC_BYTES:
         errors.append(f"TF TOC {tf_toc} exceeds SRAM capacity {TF_TOC_BYTES}")
-    if nonempty(nor, ARCHIVE["FBP"]) != {0, 1, 60}:
+    if nonempty(nor, ARCHIVE["FBP"]) != {0, 60}:
         errors.append("unexpected NOR FBP chapter selection")
-    if nonempty(tf, ARCHIVE["FBP"]) != {3, 6, 8, 21}:
+    if nonempty(tf, ARCHIVE["FBP"]) != {1, 3, 6, 8, 21}:
         errors.append("unexpected TF FBP chapter selection")
     if nonempty(tf, ARCHIVE["RNG"]) != {1}:
         errors.append("unexpected TF RNG chapter selection")
+    font_chunks = nor.get(ARCHIVE["FONT"], {})
+    if (
+        font10_identity is None
+        or font_chunks.get(1) != (font10_identity[1], 6)
+    ):
+        errors.append(
+            "NOR FONT chunk 1 does not match the generated FONT10 size/format"
+        )
+    if ARCHIVE["FONT"] in tf:
+        errors.append("FONT10 must be mapped from NOR, not TF")
     if nonempty(nor, ARCHIVE["MAP"]) != nonempty(nor, ARCHIVE["GOP"]):
         errors.append("MAP/GOP chapter selections differ")
     if nor.get(ARCHIVE["SSS"], {}).get(0, (0, 0))[0] != 423 * 32:
@@ -988,6 +1069,32 @@ def main() -> int:
         "runtime_decompression_required": False,
     }:
         errors.append(f"manifest runtime contract mismatch: {runtime!r}")
+    manifest_font10 = manifest.get("font10")
+    if not isinstance(manifest_font10, dict):
+        errors.append("manifest is missing mandatory FONT10 metadata")
+    else:
+        font10_summary = manifest_font10.get("font10")
+        chunk_summary = manifest_font10.get("pack_chunk")
+        if (
+            font10_identity is None
+            or not isinstance(font10_summary, dict)
+            or (
+                font10_summary.get("glyph_count"),
+                font10_summary.get("bytes"),
+                font10_summary.get("payload_crc32"),
+            )
+            != font10_identity
+        ):
+            errors.append(
+                "manifest FONT10 identity differs from generated UI header"
+            )
+        if chunk_summary != {
+            "archive": "FONT",
+            "chunk_id": 1,
+            "format": "FONT10",
+            "format_id": 6,
+        }:
+            errors.append("manifest FONT10 chunk placement/format mismatch")
     for key, path in (("nor", nor_path), ("tf", tf_path)):
         pack_manifest = manifest.get("packs", {}).get(key, {})
         recorded = pack_manifest.get("size")

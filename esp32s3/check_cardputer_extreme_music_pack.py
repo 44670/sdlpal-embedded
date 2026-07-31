@@ -64,7 +64,17 @@ def check_profile(
     layout_path: Path,
 ) -> tuple[list[str], dict[str, int]]:
     errors: list[str] = []
-    for path in (nor_path, tf_path, manifest_path, layout_path):
+    ui_layout_header = (
+        Path(__file__).resolve().parent
+        / "main/generated/pal_ui_layout_240x135.h"
+    )
+    for path in (
+        nor_path,
+        tf_path,
+        manifest_path,
+        layout_path,
+        ui_layout_header,
+    ):
         if not path.is_file():
             errors.append(f"missing required artifact: {path}")
     if errors:
@@ -92,6 +102,10 @@ def check_profile(
 
     nor_toc, nor = common.parse_pack(nor_path, errors)
     tf_toc, tf = common.parse_pack(tf_path, errors)
+    font10_identity = common.parse_generated_font10_identity(
+        ui_layout_header,
+        errors,
+    )
     if tf_toc > common.TF_TOC_BYTES:
         errors.append(
             f"TF TOC {tf_toc} exceeds SRAM capacity {common.TF_TOC_BYTES}"
@@ -117,12 +131,22 @@ def check_profile(
     if set(tf) != expected_tf_ids:
         errors.append("TF archives do not match the rix-music profile")
 
-    if common.nonempty(nor, common.ARCHIVE["FBP"]) != {0, 1, 60}:
+    if common.nonempty(nor, common.ARCHIVE["FBP"]) != {0, 60}:
         errors.append("unexpected NOR FBP chapter selection")
-    if common.nonempty(tf, common.ARCHIVE["FBP"]) != {3, 6, 8, 21}:
+    if common.nonempty(tf, common.ARCHIVE["FBP"]) != {1, 3, 6, 8, 21}:
         errors.append("unexpected TF FBP chapter selection")
     if common.nonempty(tf, common.ARCHIVE["RNG"]) != {1}:
         errors.append("unexpected TF RNG chapter selection")
+    font_chunks = nor.get(common.ARCHIVE["FONT"], {})
+    if (
+        font10_identity is None
+        or font_chunks.get(1) != (font10_identity[1], builder.FORMAT_FONT10)
+    ):
+        errors.append(
+            "NOR FONT chunk 1 does not match the generated FONT10 size/format"
+        )
+    if common.ARCHIVE["FONT"] in tf:
+        errors.append("FONT10 must be mapped from NOR, not TF")
     if common.nonempty(nor, common.ARCHIVE["MAP"]) != common.nonempty(
         nor, common.ARCHIVE["GOP"]
     ):
@@ -206,6 +230,32 @@ def check_profile(
         "runtime_decompression_required": False,
     }:
         errors.append(f"manifest runtime contract mismatch: {runtime!r}")
+    manifest_font10 = manifest.get("font10")
+    if not isinstance(manifest_font10, dict):
+        errors.append("manifest is missing mandatory FONT10 metadata")
+    else:
+        font10_summary = manifest_font10.get("font10")
+        chunk_summary = manifest_font10.get("pack_chunk")
+        if (
+            font10_identity is None
+            or not isinstance(font10_summary, dict)
+            or (
+                font10_summary.get("glyph_count"),
+                font10_summary.get("bytes"),
+                font10_summary.get("payload_crc32"),
+            )
+            != font10_identity
+        ):
+            errors.append(
+                "manifest FONT10 identity differs from generated UI header"
+            )
+        if chunk_summary != {
+            "archive": "FONT",
+            "chunk_id": 1,
+            "format": "FONT10",
+            "format_id": builder.FORMAT_FONT10,
+        }:
+            errors.append("manifest FONT10 chunk placement/format mismatch")
 
     for key, path in (("nor", nor_path), ("tf", tf_path)):
         pack_manifest = manifest.get("packs", {}).get(key, {})

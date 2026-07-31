@@ -16,19 +16,38 @@ the default CoreS3 SE build.  The profile has:
 - exactly two named 320x200x8-bit logical screens plus one 4KB LCD DMA strip;
 - no audio in the default build; the explicit music build adds RIX/OPL2 only,
   while desktop codecs and SFX remain excluded;
-- no runtime decompressor, splash sequence, or custom screen layouts;
+- no runtime decompressor or splash sequence; native menu/layout migration is
+  not live yet;
 - the Cardputer ADV vendor timing profile (240MHz CPU and a 1ms FreeRTOS tick);
 - ST7789 240x135 indexed presentation through SPI3 and TCA8418 keyboard input;
 - TF on independent SPI2 at 20MHz, with only a 2KB pack TOC resident in SRAM.
 - USB Serial/JTAG as the console, leaving the ES8311 word-select GPIO43 free
   from UART0 output.
 
-Build the firmware and the chapter resource packs:
+Build the firmware and the normal sparse resource packs:
 
 ```sh
 make -C esp32s3 cardputer-extreme-build
-make -C esp32s3 cardputer-extreme-pack-build
+make -C esp32s3 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-pack-build
 ```
+
+The normal and music pack targets now require the pinned Fusion Pixel Font
+archive.  Firmware startup opens NOR `FONT` chunk 1 and compares its glyph
+count, byte length, and payload CRC with the Python-generated 240x135 header;
+a legacy pack without the matching FONT10 chunk fails closed.  Full
+`cardputer-extreme-check` / `cardputer-extreme-music-check` runs therefore
+also require `FONT10_ARCHIVE`.
+
+Python generates both certified 240x135 and 160x128 semantic layouts.  The
+Cardputer presentation path currently consumes the generated 240x135 stage
+geometry and exact destination-to-source axis maps, so its pixel loop performs
+no scale division.  Semantic menu/battle tables, the FONT10 glyph view, and
+the streaming RLE downsampler are compiled and checked as a foundation, but
+the original game menu/battle draw call sites are not migrated to native
+small-screen rendering yet; gameplay still renders the canonical 320x200
+frame before presentation scaling.
 
 ### TF-backed chapter cache experiment
 
@@ -39,14 +58,29 @@ conservative scene bundles (`b00.pak` through `b14.pak`) plus the active
 `pal_tf.pak` and complete decoded/native `pal_full.pak` TF mirror:
 
 ```sh
-make -C esp32s3 cardputer-extreme-chapter-cache-check
-make -C esp32s3 TF_MOUNT=/media/$USER/PALTF \
+make -C esp32s3 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-chapter-cache-check
+make -C esp32s3 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  TF_MOUNT=/media/$USER/PALTF \
   cardputer-extreme-chapter-prepare-tf
-make -C esp32s3 PORT=/dev/ttyACM0 \
+make -C esp32s3 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  PORT=/dev/ttyACM0 \
   cardputer-extreme-chapter-cache-flash-core
-make -C esp32s3 PORT=/dev/ttyACM0 \
+make -C esp32s3 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  PORT=/dev/ttyACM0 \
   cardputer-extreme-chapter-cache-flash
 ```
+
+The chapter build requires the same pinned `FONT10_ARCHIVE` as the normal
+extreme profile.  Its host builder puts the identical corpus-subsetted
+`FONT` chunk 1 in `pal_core.pak` (and in the complete TF mirror), while target
+startup validates that chunk against the generated 240x135 header before it
+opens the chapter catalog.  Missing or stale FONT10 data therefore fails
+closed in the chapter-cache profile too.
 
 After a save is loaded, and whenever a scene crosses a bundle boundary, the
 engine compares the exact cached SPI-NOR payload SHA-256 with the descriptor
@@ -73,7 +107,9 @@ and the other 86 tracks are playable.  MIDI, VOC, and SFX remain excluded:
 
 ```sh
 make -C esp32s3 cardputer-extreme-music-build
-make -C esp32s3 cardputer-extreme-music-check
+make -C esp32s3 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-music-check
 ```
 
 The music firmware uses its own `build-cardputer-extreme-music` directory and
@@ -87,7 +123,7 @@ active-TF TOC budget, and the shared three-image pack-set ID.  Firmware startup
 also maps and asks the bounded RIX decoder to validate all 86 non-empty tracks
 before starting the real-time audio task, so a wrong or damaged NOR music
 profile fails visibly instead of becoming a later silent track.  On the linked
-firmware the gate additionally checks the exact 51-source inventory,
+firmware the gate additionally checks the exact 54-source inventory,
 music/no-SFX compile defines and symbols, OPL table placement in flash,
 OPL/audio state in SRAM, stack reports, fixed music state-machine semantics,
 and separate music SRAM/flash budgets.  It also renders every track through the
@@ -108,29 +144,25 @@ defaults.  This compatibility rule is intended for these checked same-dataset
 profiles, not as a promise that arbitrary packs with unrelated scripts or
 object tables are save-compatible.
 
-The current measured result is a 436,768-byte app in the 1,048,576-byte
-partition (611,808 bytes physically free, or 87,520 bytes below the stricter
-524,288-byte music gate).  `.dram0.bss` is 221,056/225,280 bytes (4,224 bytes
-of gate headroom), combined DIRAM static use is 267,128/270,336 bytes (3,208
-bytes of gate headroom), and IRAM static use is 52,480/65,536 bytes.  The
-linker leaves 74,624 bytes of DRAM before the 16KB main-task stack and 58,240
-bytes after it.  These are link-time reserve figures, not a substitute for the
-runtime low-water logs.  The music-owned named BSS is 8,406/12,288 bytes; the
-24,832-byte fixed OPL tables reside in `.flash.rodata`.  The matching NOR pack
-is 7,117,120/7,274,496 bytes, leaving 157,376 physical bytes.  Its stricter
-7,143,424-byte music gate reserves 128KB and has only 26,304 bytes of growth
-headroom.  TF is 1,233,092 bytes, with a 1,400/2,048-byte resident TOC.
-The separate complete mirror is 57,755,986 bytes: 18 runtime-native archives,
-2,213 original-numbered chunks, 57,718,385 payload bytes, and a 35,656-byte
-TOC.  It contains every host-decoded/preconverted resource, including all
-MIDI/MUS tracks and host-converted PCM SFX, while deliberately omitting raw
-`VOC.MKF` in favor of the generated `SFX` archive.
+Run `cardputer-extreme-music-check` for current application, section, stack,
+NOR/TF, TOC, and reserve measurements. The limits are enforced by
+`check_cardputer_extreme.py` and `check_cardputer_extreme_music_pack.py`;
+copied measurements in prose become stale. The pinned FONT10 chunk is
+mandatory and is already included in every supported music pack—there is no
+supported “legacy-font” pack. The separate complete mirror contains every
+host-decoded/preconverted resource, including MIDI/MUS tracks and
+host-converted PCM SFX, while deliberately omitting raw `VOC.MKF` in favor of
+the generated `SFX` archive.
 
 Install the matching firmware and pack bundle with:
 
 ```sh
-make -C esp32s3 TF_MOUNT=/media/$USER/PALTF cardputer-extreme-music-prepare-tf
-make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-music-flash-all
+make -C esp32s3 TF_MOUNT=/media/$USER/PALTF \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-music-prepare-tf
+make -C esp32s3 PORT=/dev/ttyACM0 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-music-flash-all
 ```
 
 The TF preparation target syncs and byte-compares all three installed files.
@@ -159,7 +191,9 @@ target installs both `pal_tf.pak` and `pal_full.pak`.
 The stronger repeatable gate is:
 
 ```sh
-make -C esp32s3 cardputer-extreme-check
+make -C esp32s3 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-check
 ```
 
 It builds the Xtensa firmware, validates the ELF/partition/sdkconfig/pack
@@ -199,7 +233,7 @@ counterexamples; 512 is the SRAM-budgeted engineering setting, not a formal
 route bound.  The profile reduces the five formatting/path scratch strings
 from 1024 to 256 bytes each; target runtime paths are deliberately short.
 
-Const/random-access assets remain in NOR.  Four decoded FBP screens and
+Const/random-access assets remain in NOR.  Five decoded FBP screens and
 decoded RNG movie 1 live on TF; the runtime reads FBP sequentially into screen
 B and reads only one RNG frame at a time.  NOR and TF may therefore contain
 disjoint chunks of the same archive, and the provider resolves ownership per
@@ -209,21 +243,25 @@ image before exposing resources to the engine.
 
 The same TF card also receives `pal_full.pak`, an independent complete mirror
 that may overlap every active NOR/TF chunk.  The current no-PSRAM firmware does
-not open or index this file: its 35,656-byte TOC cannot fit the 2KB active
-index budget.  Keeping the verified sparse `pal_tf.pak` as the runtime image
-avoids changing chunk precedence or the current read path.  The mirror is a
-future-expansion source for generating a larger sparse active pack or for a
-later bounded streaming-index implementation.  The build manifest records
-the mirror's whole-pack SHA-256/CRC32 plus every archive/chunk format, size,
-and SHA-256.  The checker rebuilds all host conversions from the source files,
-compares every chunk, rejects residual YJ1 payloads, and verifies all three
-pack-set IDs.
+not open or index this file: its TOC exceeds the 2KB active index budget.
+Keeping the verified sparse `pal_tf.pak` as the runtime image avoids changing
+chunk precedence or the current read path.  The mirror is a future-expansion
+source for generating a larger sparse active pack or for a later bounded
+streaming-index implementation.  The build manifest records the mirror's
+whole-pack SHA-256/CRC32 plus every archive/chunk format, size, and SHA-256.
+The checker rebuilds all host conversions from the source files, compares
+every chunk, rejects residual YJ1 payloads, and verifies all three pack-set
+IDs.
 
 Prepare and flash:
 
 ```sh
-make -C esp32s3 TF_MOUNT=/media/$USER/PALTF cardputer-extreme-prepare-tf
-make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-flash-nor
+make -C esp32s3 TF_MOUNT=/media/$USER/PALTF \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-prepare-tf
+make -C esp32s3 PORT=/dev/ttyACM0 \
+  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
+  cardputer-extreme-flash-nor
 make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-flash
 ```
 

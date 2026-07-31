@@ -1,5 +1,7 @@
 #include "pal_engine_pack_provider.h"
+#include "pal_font10_cache.h"
 #include "pal_pack.h"
+#include "pal_ui_layout_runtime.h"
 
 #include <fcntl.h>
 #include <stdbool.h>
@@ -77,6 +79,8 @@ main(
 {
    const uint8_t *nor_image;
    const uint8_t *mapped = NULL;
+   PalFont10Cache font10;
+   PalPack nor_pack;
    unsigned int mapped_size = 0;
    ReadAtContext tf = {0};
    struct stat st;
@@ -114,7 +118,17 @@ main(
    }
 
    PalEngineBridge_ClearPacks();
-   if (!PalEngineBridge_SetNorPackConst(nor_image, (uint32_t)st.st_size) ||
+   if (!PalPack_OpenConst(&nor_pack, nor_image, (uint32_t)st.st_size) ||
+      !PalFont10_Open(&nor_pack, &font10) ||
+      !PalUiLayout_Font10IdentityMatches(
+         font10.glyph_count,
+         font10.size,
+         font10.payload_crc32,
+         font10.cell_width,
+         font10.cell_height,
+         (int8_t)font10.ascent,
+         (int8_t)font10.descent) ||
+      !PalEngineBridge_SetNorPackConst(nor_image, (uint32_t)st.st_size) ||
       !PalEngineBridge_SetTfPackReadAt(tf_size, read_at, &tf))
    {
       fprintf(stderr, "cannot initialize split packs\n");
@@ -137,12 +151,16 @@ main(
       return 2;
    }
 
-   /* FBP #3 is owned by TF: map is forbidden, bounded read-at must work. */
+   /*
+    * Equipment background FBP #1 is intentionally owned by TF to preserve
+    * the music profile's NOR reserve.  Mapping is forbidden, while the same
+    * bounded read-at path used by PAL_ReadNativeFbpToBuffer must work.
+    */
    mapped = NULL;
    mapped_size = 0;
-   if (__wrap_PAL_MKFGetChunkSize(3, fbp) != 320 * 200 ||
-      __wrap_PAL_MKFMapChunk(fbp, 3, &mapped, &mapped_size) ||
-      __wrap_PAL_MKFReadChunk(tf_chunk, sizeof(tf_chunk), 3, fbp) !=
+   if (__wrap_PAL_MKFGetChunkSize(1, fbp) != 320 * 200 ||
+      __wrap_PAL_MKFMapChunk(fbp, 1, &mapped, &mapped_size) ||
+      __wrap_PAL_MKFReadChunk(tf_chunk, sizeof(tf_chunk), 1, fbp) !=
          (int)sizeof(tf_chunk) ||
       tf.calls <= toc_calls)
    {

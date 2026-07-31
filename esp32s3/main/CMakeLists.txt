@@ -58,6 +58,9 @@ if(CARDPUTER_EXTREME_NO_PSRAM)
         "cardputer_extreme_board.c"
         "cardputer_extreme_memory.c"
         "cardputer_extreme_scaler.c"
+        "../../embedded/pal_font10_cache.c"
+        "../../embedded/pal_ui_layout_runtime.c"
+        "../../embedded/pal_ui_rle_downsample.c"
     )
     if(CARDPUTER_EXTREME_MUSIC)
         list(APPEND PAL_TARGET_BOARD_SOURCES
@@ -202,6 +205,7 @@ if(CARDPUTER_EXTREME_NO_PSRAM)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
         PAL_CARDPUTER_EXTREME=1
         PAL_TARGET_CARDPUTER_ADV=1
+        PAL_UI_LAYOUT_GENERATED_HEADER=\"generated/pal_ui_layout_240x135.h\"
         PAL_EXTREME_TWO_SCREENS=1
         PAL_EXTREME_CHAPTER_EVENT_OBJECTS=423
         PAL_EXTREME_SPRITES_TO_DRAW=512

@@ -1,143 +1,381 @@
 # AGENTS.md
 
-# DO NOT send optional commentary!
+## Communication
 
-Never send optional commentary.
+Do not send optional commentary.
 
 ```python
 disable_send_optional_commentary = True
 ```
 
-## Current Target: M5Stack CoreS3 SE port
+## Active development lines
 
-- CoreS3 SE (not CoreS3)
+This repository has two distinct ESP32-S3 ports. Do not mix their hardware,
+memory, storage, or bus assumptions.
 
-- 16MB Flash(custom partition table needed)
-- 8MB PSRAM
-- No audio, for now. The CoreS3 SE target app should not link `pal_audio_static.c` / `pal_sfx_cache.c` or reserve the SFX bank until audio hardware playback is in scope; native/embedded contract harnesses may still exercise those slices.
+### Primary: Cardputer ADV extreme
 
-References:
-~/work/CardPuterADV/esp-walkie-talkie (CoreS3 SE port, copy/adapt its lcd/touch init code when useful)
-/home/john/work/CoreS3SE (more refs.)
-/home/john/esp-idf/examples/storage/sd_card/sdspi (ESP-IDF SDSPI/FatFS reference; follow its `esp_vfs_fat_sdspi_mount`/`sdspi_device_config_t` shape and SDSPI frequency guidance)
+- Board: M5Stack Cardputer ADV K132-Adv, not the original Cardputer.
+- Development line: the `extreme` branch. Always check the current branch and
+  dirty worktree before editing; do not overwrite unrelated user changes.
+- Flash: 8MB.
+- PSRAM: none.
+- LCD: ST7789, physical/native resolution 240x135.
+- TF: independent SPI2 bus at 20MHz; LCD uses SPI3. There is no CoreS3-style
+  LCD-D/C versus TF-MISO pin handoff on this board.
+- Runtime owns exactly two named 320x200x8-bit logical screens and one 4KB
+  RGB565 DMA strip. Their declarations are in
+  `esp32s3/main/cardputer_extreme_memory.h`.
+- Default profile has no audio. `CARDPUTER_EXTREME_MUSIC=ON` is a separate,
+  fixed-storage RIX/OPL2 music-only profile; MIDI, VOC, and SFX remain out.
+- `CARDPUTER_EXTREME_CHAPTER_CACHE=ON` is a separate TF-backed chapter-cache
+  experiment, not an unconditional full-game proof.
 
-## Current Porting Goal
+The architecture overview, build/flash commands, and acceptance caveats are
+in `esp32s3/README.md`. Treat checker output and the ELF/map from the current
+build as authoritative for measured bytes; prose measurements can age. The
+enforced limits live in `esp32s3/check_cardputer_extreme.py`.
 
-This repository is being evaluated for an embedded/resource-limited SDLPAL port. When making code, tooling, or documentation changes, keep memory placement and asset loading in scope.
+### Secondary: CoreS3 SE
 
-The target is the full SDLPAL game/script loop on M5Stack CoreS3 SE, not CoreS3 and not a long-term fixed scene demo. Scene-only CoreS3 SE code is acceptable only as an intermediate bring-up step. TF resource-pack and save I/O should use ESP-IDF/FatFS paths on the target. The current NOR/TF pack split is acceptable, and runtime storage should remain normal named static buffers, not a pool.
+- Board: M5Stack CoreS3 SE, not CoreS3.
+- Flash: 16MB.
+- PSRAM: 8MB.
+- The established contract treats roughly 300KB of fast SRAM as scarce and
+  uses named PSRAM buffers for larger mutable working sets.
+- CoreS3 SE LCD and TF share SPI signals; GPIO35 is both TF MISO and LCD D/C.
+  Follow the pin-direction handoff in the existing board code. Do not apply
+  that rule to Cardputer ADV.
+- Audio/SFX are still excluded from the CoreS3 SE target app.
 
-Primary consultation notes are in:
+Useful hardware references:
 
-- `Consult/Q1.md`
-- `Consult/Q2.md`
-- `Consult/RealData.md`
-- `Consult/ContractAudit.md`
-- `Consult/mkf_audit.py`
-- `Consult/pal_data_audit.py`
-- `tools/pal_pack_build.py`
-- `tools/pal_pack_check.c`
-- `tools/embedded_contract_check.py`
+- `/home/john/work/CardPuterADV/esp-walkie-talkie`
+- `/home/john/work/CoreS3SE`
+- `/home/john/esp-idf/examples/storage/sd_card/sdspi`
 
-## Target Memory and Storage Constraints
+## Non-negotiable embedded contract
 
-- Fast SRAM: 300KB total. Treat this as scarce low-latency memory.
-- PSRAM: 8MB total. Usable for larger mutable working sets, but much slower than SRAM.
-- NOR flash: 16MB total. Read-only at runtime, random accessible.
-- TF card: effectively unlimited capacity, but slow.
+- No project calls to `malloc`, `calloc`, `realloc`, `free`, C++ new/delete,
+  or hidden allocator-backed containers on target paths.
+- No runtime YJ1/YJ2/LZ4 or other asset decompression. Decode and convert on
+  the host when building packs.
+- Use normal, named, fixed-lifetime `uint8_t` SRAM/PSRAM buffers and typed
+  `const` views for mapped read-only data. Do not add a memory pool, tier
+  allocator, or generic cache framework.
+- Keep FatFS LFN heap support and dynamic FatFS buffers disabled. Runtime
+  filenames must stay short (`0:/pal_tf.pak`, `0:/EVENT.STA`, `0:/b00.pak`,
+  and similar).
+- The PAL world, collision, scripts, saves, and battle animation retain
+  canonical 320x200 semantics. Display layout and cameras are presentation
+  transforms and must never be written back into gameplay state.
+- Verify placement from ELF/map artifacts with `size`, `objdump`, `nm`, and
+  linker maps. Source inspection alone is not a memory proof.
+- Preserve existing dirty worktree changes unless they are clearly part of
+  the requested task. Stage explicit paths rather than `git add -A`.
 
-Prefer designs that explicitly choose where data lives: SRAM, PSRAM, NOR, or TF. Avoid adding hidden always-resident RAM use.
+## Local data and pinned font
 
-## PAL Data Path
-
-The current local PAL data set is:
+Use the audited PAL data set unless the user specifies another:
 
 ```text
 /mnt/hgfs/deb13/PAL
 ```
 
-Use this path for dataset audits and memory estimates unless the user gives a different path.
+The small-screen UI uses the 10px monospaced Traditional Chinese Fusion Pixel
+Font release locked in `tools/pal_ui_layout/font.py`:
 
-## Asset Strategy Notes
+```text
+fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip
+SHA-256 2e695c27627bf09683df2afe69b086fa3cd3e52795bce39fded9cc509188b5fe
+size 18,220,904 bytes
+```
 
-- Pre-decompression/offline asset conversion is mandatory for target runtime resources.
-- Do not add runtime decompression to the embedded path. YJ1/YJ2/LZ4/etc. decode belongs in host-side pack-building tools only.
-- Full pre-decompression of all assets into 16MB NOR is not feasible for the current data set, so large decoded/native resources should live in TF-backed resource packs.
-- TF card can hold the original files and generated cache files, but runtime TF random access should be minimized. Prefer sequential reads of already-decoded/native chunks.
-- CoreS3 SE TF is the default shared-SPI mode. The TF card and LCD share SCLK/MOSI, and `GPIO35` is both TF MISO and LCD D/C. Keep the shared D/C-MISO pin in TF input mode by default; switch it to LCD D/C output only around LCD command/color transfers, wait for LCD idle, then return it to TF input mode. Do not hand-toggle TF CS for normal reads; ESP-IDF SDSPI owns TF CS through `sdspi_device_config_t.gpio_cs`, and the LCD panel driver owns LCD CS. Target SDSPI speed should stay within ESP-IDF SDSPI guidance, currently 20MHz max, unless real-board testing proves a different value.
-- Favor reproducible tools for dataset inspection and conversion.
-- `tools/pal_pack_build.py` builds decoded/native `pal_nor.pak` and `pal_tf.pak` images plus a JSON manifest with source file SHA-256 hashes and decoded chunk sizes. YJ1 decode and VOC-to-PCM conversion are allowed there because they are host-side pack generation, not runtime. The default runtime packs contain the generated PCM SFX archive, not raw `VOC.MKF` chunks. `make -C embedded pack-build` regenerates the default packs from `PAL_DATA_DIR`.
-- `tools/pal_pack_check.c` is a host-side mmap checker for generated packs using the same `embedded/pal_pack.c` reader.
-- The audited data path has no loose `.ogg`, `.opus`, `.mp3`, `.wav`, `.mid`, or `.avi` files. Audio is in `MIDI.MKF`, `MUS.MKF`, and `VOC.MKF`.
-- Scene/event sprite deduplication is high value: worst measured scene resources drop from about 909KB to about 143KB when repeated event-object sprite numbers share one decoded sprite.
-- Text/font conversion should use the actual corpus. `WORD.DAT` + `M.MSG` decode cleanly as `cp950` and use 2,631 unique characters. The current `WOR16.ASC`/`WOR16.FON` data yields 2,600 unique 32-byte CJK glyphs in an 88,432-byte generated FONT chunk; ASCII remains a separate font path.
+The archive is supplied out of band through `FONT10_ARCHIVE`; do not vendor
+the release zip. The OFL-1.1 license is kept at
+`third_party/fusion-pixel-font/OFL.txt`. Host tooling subsets the actual
+`WORD.DAT`, `M.MSG`, and native-label corpus. Missing glyphs or a wrong archive
+must fail the build.
 
-## Runtime Allocation Rules
+## Resource and state architecture
 
-- Target runtime code should not use `malloc`, `calloc`, `realloc`, or `free`.
-- Use explicit static storage: `uint8_t` buffers for SRAM/PSRAM and `const uint8_t` or typed `const` views for read-only NOR/pack data.
-- Do not add a memory pool or tier allocator. Prefer normal file-scope/static `uint8_t` arrays with clear names, fixed sizes, owners, and lifetimes.
-- CoreS3 SE FatFS use is limited to short runtime filenames such as `0:/pal_tf.pak` and `0:/1.rpg`; keep FatFS LFN heap support and dynamic FatFS buffers disabled in `esp32s3/sdkconfig.defaults`.
-- The native SDL build should remain a verification harness using the same fixed-memory API. SDL itself may allocate internally, but project engine/resource code should be checked for forbidden C/C++ heap calls.
-- Verify resource usage from build artifacts with `size`, `objdump -h`, `objdump -t`, `objdump -d`, `nm -S --size-sort`, and linker map files. Checks should cover `.text`, `.rodata`, `.data`, `.bss`, named SRAM/PSRAM buffer symbols, absence of runtime decoder symbols, absence of `PAL_LARGE` scratch buffers in active contract sources, `uint8_t` declarations for named SRAM/PSRAM buffers, no active loose original PAL data filename references, and absence of call sites to heap/decompress trap targets.
-- Use `python3 -B tools/embedded_contract_check.py --root .` as the repeatable source/binary/pack contract audit. Add `--binary unix/sdlpal` after producing a native SDL build. Use `--max-symbol-prefix pal_sram_=307200 --max-symbol-prefix pal_psram_=8388608` to budget normal static buffers by scanning ELF symbols, and `--pack`/`--max-pack-size` to reject flagged/YJ1 payloads and NOR overflow.
-- `embedded/pal_pack.c` is the first native runtime slice following the contract: no heap, no decompressor, `const uint8_t` pack reads, TF-pack TOC copy into fixed PSRAM through image or read-at APIs, fixed `uint8_t` copy destination, and objdump/nm/size verification through `embedded/Makefile`.
-- `embedded/pal_noheap.c` provides link-time `--wrap` traps for `malloc`, `calloc`, `realloc`, and `free` in embedded smoke artifacts. SDL shared-library internals may allocate, but project object calls are redirected to the trap.
-- `embedded/pal_memory.c` intentionally declares normal named static-storage buffers such as `pal_sram_framebuffer` and `pal_psram_map_tiles`; there is no memory pool API.
-- `embedded/pal_native_sdl_smoke.c` is the native SDL fixed-memory smoke test. It wraps `pal_sram_framebuffer` with an SDL surface and reads from a `const uint8_t` pack; run it through `make -C embedded check` with `SDL_VIDEODRIVER=dummy`.
-- `embedded/pal_realdata_sdl_smoke.c` is the native SDL real-data smoke test. It maps generated NOR/TF packs read-only, copies the TF pack TOC into `pal_psram_tf_toc`, also verifies file-backed read-at TF payload reads, copies TF chunks into named SRAM/PSRAM arrays, reads real save files into static PSRAM storage, and is run with `make -C embedded realdata-check`, which rebuilds the packs first.
-- `make -C embedded sanitize-check` rebuilds the real-data SDL smoke path in a separate sanitizer build directory with AddressSanitizer/UndefinedBehaviorSanitizer enabled, then runs the same generated-pack and real-data checks.
-- `make -C embedded contract-check` runs the embedded source/binary/pack budget gate with heap/decoder/`PAL_LARGE` scratch/typed SRAM-PSRAM storage/loose-resource scans, generated-pack checks, manifest source-hash/decoded-size checks, 16MB NOR pack budget, `.rodata`/`.bss` section budgets, and named `pal_sram_`, `pal_psram_`, `pal_scene_`, `pal_battle_`, `pal_sfx_`, `pal_audio_`, `pal_global_`, `pal_save_`, `pal_video_`, `pal_ui_`, `pal_music_`, `pal_menu_`, `pal_ending_`, `pal_palette_`, and `pal_dialog_` symbol totals.
-- `make -C unix EMBEDDED_CONTRACT=1 contract-check` builds and objdump/nm-checks the reduced native SDL2 full-engine profile named `unix/sdlpal-embedded-contract`. It excludes MP3/OGG/OPUS/AVI/Timidity/TSF/GLSL/native-MIDI launcher paths plus desktop sound/RIX/resampler/font/text/codepage paths and also excludes `yj1.c`, so runtime decompressor code is not compiled into the contract profile. It links the same `--wrap=malloc/calloc/realloc/free` traps used by embedded smoke artifacts, and defines `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS` so linked heap/decompress symbols are replaced by unavailable traps. The Unix contract replacements for desktop text/font/music/SFX map generated NOR/TF packs read-only, use `const uint8_t` TEXT/FONT/MUS views, synthesize MUS/RIX through fixed-storage OPL2 without the desktop resampler, convert returned UTF-16LE strings through an eight-slot `pal_sram_contract_text_slots` ring, copy each requested SFX PCM chunk into the 212KB `pal_psram_contract_sfx` buffer, and mix from that PSRAM buffer without heap allocation. The contract checker also disassembles the ELF and fails if a project object still calls heap/decompress trap targets or C++ `operator new`/`operator delete`, rebuilds/verifies the generated NOR/TF packs, checks the manifest/source hashes, and compares the linked contract source inventory against `unix/embedded_contract_sources.json`. The Unix contract source scan runs with `--fail-on-source` over the exact `$(CFILES) $(CPPFILES)` linked by the contract profile, strips simple inactive preprocessor blocks for contract-only defines, and excludes nonlinked native-MIDI sources, so active reduced-profile source heap/new/delete/decompress/`PAL_LARGE` scratch/typed SRAM-PSRAM storage/loose-resource hits must stay at zero.
-- Under the Unix contract replacement music path, `unix/contract_music.cpp` maps MUS tracks as `const uint8_t *` NOR views, feeds them to a heap-disabled `CrixPlayer::load_buffer()` path, and uses a small named SRAM tick buffer (`pal_sram_contract_rix_tick`) with a direct-rate DOSBox OPL2 core from `unix/contract_opl2.cpp`. The target profile does not link the desktop RIX file loader, surround/OPL3 wrappers, high-quality resampler, or C++ allocation operators.
-- Under the same contract defines, SDL2 native verification still uses SDL surface wrappers, but their pixels are normal named static buffers: `pal_sram_video_screen` for the 320x200 indexed framebuffer, `pal_psram_video_screen_bak` for the backup screen, and `pal_psram_video_screen_real` for the SDL2 32-bit presentation surface. SDL may allocate small wrapper objects internally; project pixel storage is statically declared and visible to `nm`.
-- Under the same contract defines, `palcommon.c` exposes generated-pack archive handles through `PAL_MKFOpenPackArchive()`, `PAL_MKFReadChunk()`, `PAL_MKFGetChunkSize()`, `PAL_MKFGetChunkCount()`, and `PAL_MKFMapChunk()`. Native contract verification maps the generated NOR/TF packs read-only, and existing full-engine call sites now read native FBP/MGO/BALL/DATA/F/FIRE/RGM/SSS/MAP/GOP/ABC/RNG chunks from those packs instead of opening the original MKF files.
-- Under the same contract defines, `audio.c` uses a named 4KB SRAM mix buffer (`pal_sram_audio_mix_static`) instead of allocating `gAudioDevice.pSoundBuffer`; larger SDL callback requests are mixed in fixed-size chunks.
-- Under the Unix contract replacement sound path, SFX chunks are validated as host-converted PCM16 and copied from the generated TF pack into `pal_psram_contract_sfx` before mixing. The current real data's largest SFX payload is 211,152 bytes, so the 212KB static PSRAM buffer covers single-effect playback without reading directly from TF during the audio callback.
-- Under the same contract defines, `global.c` uses named `uint8_t` PSRAM buffers for mutable event objects, mutable magic data, and save/load structs. Read-only script entries, stores, enemies, enemy teams, battlefields, and level-up magic tables are mapped from the native NOR pack. It assumes the DOS/YJ1 data set and avoids heap codepage/version probes.
-- Under the same contract defines, `audio.c`, `global.c`, and `util.c` no longer keep active loose original data filename references such as `mus.mkf`, `word.dat`, or the legacy resource-file checklist. Runtime resource access goes through generated packs, except save files.
-- Under the same contract defines, `palcfg.c` uses default/static config strings without parsing config files into heap strings, and `util.c` uses case-sensitive no-heap path lookup instead of `strdup()`/`scandir()`.
-- Under the same contract defines, `PAL_SetConfigItem()` copies string config values into fixed static `uint8_t` config buffers instead of using `free()`/`strdup()`. The audited data set has no `DESC.DAT`, so `ui.c` object-description load/free intentionally stays a no-heap `NULL` path; future description-bearing data should use generated read-only text/object data.
-- `embedded/pal_scene_cache.c` is the static scene-loading slice. It copies decoded MAP/GOP chunks into named PSRAM arrays from mapped-pack or file-backed TF read-at access, deduplicates event-object MGO sprites as `const uint8_t *` references into the NOR pack, and can pin one scene's unique MGO sprites into `pal_psram_sprite_pin` for TF-backed sprite placement.
-- The CoreS3 SE bring-up enables current-scene MGO pinning: unique event sprites are copied from the read-only NOR pack into the normal 1MB static `pal_psram_sprite_pin` buffer when a scene loads, reducing per-frame NOR traffic while keeping the no-heap/no-runtime-decompress contract.
-- Under `PAL_NO_RUNTIME_HEAP` / `PAL_NO_RUNTIME_DECOMPRESS`, the full-engine `map.c` loader uses file-scope static `uint8_t` PSRAM buffers (`pal_psram_map_instance`, `pal_psram_map_gop_static`) and only accepts already-native 64KB map chunks. It does not allocate a `PALMAP`, allocate GOP storage, or call the runtime decoder.
-- Under the same contract defines, `main.c` splash loading uses `pal_psram_splash_fbp` for FBP staging and maps both title/crane sprites as read-only `const uint8_t` NOR views. Title reveal uses a clipped RLE blit instead of mutating the sprite header. It only accepts already-native splash FBP/MGO chunks.
-- Under the same contract defines, `uigame.c` FBP menu backgrounds and menu box scratch use shared static `uint8_t` PSRAM buffers (`pal_psram_uigame_background`, `pal_psram_uigame_box`). Its saved menu boxes use named per-call-site PSRAM buffers for cash/system/selection boxes. RGM/BALL menu images are mapped as read-only `const uint8_t` NOR views, and FBP/RGM/BALL chunks must already be native.
-- Under the same contract defines, `battle.c` maps F/ABC battle sprites and `DATA.MKF #10` effect sprites as `const uint8_t` views into the native NOR pack. Battle backgrounds still use the fixed PSRAM buffer `pal_psram_battle_background_static`, with F/ABC/DATA/FBP chunks required to already be native.
-- Under the same contract defines, `fight.c` maps temporary FIRE effect sprites and F.MKF summon sprites as `const uint8_t` views into the native NOR pack and requires native F/FIRE chunks.
-- Under the same contract defines, `ending.c` uses `pal_psram_ending_fbp_static` for FBP screen staging and maps MGO ending/effect sprites as read-only `const uint8_t` NOR views. FBP/MGO chunks must already be native.
-- Under the same contract defines, `video.c` omits the YJ1-compressed touch-overlay BMP path; target overlay artwork must be preconverted rather than decoded during `VIDEO_Startup()`.
-- Under the same contract defines, `global.c` skips heap-loaded object descriptions. This matches `/mnt/hgfs/deb13/PAL`, which has no `DESC.DAT`; descriptions in future packs need to come from generated read-only text/object data.
-- Under the same contract defines, `res.c` uses static `uint8_t` PSRAM buffers for the resource manager and event-sprite pointer table. Event and player MGO sprites are `const uint8_t` views into the native NOR pack, and duplicate event sprite references share the same view. It requires native MGO chunks.
-- Under the same contract defines, `rngplay.c` reads host-predecoded native RNG frame records into `pal_psram_rng_frame_static` and blits them directly without heap or `Decompress()`.
-- Under the same contract defines, `ui.c` maps `DATA.MKF #9` UI sprite data as a read-only `const uint8_t` NOR pack view. Saved UI boxes use caller-owned named `uint8_t` PSRAM buffers declared at the specific menu call sites in `uigame.c` rather than a box pool or duplicate-surface allocation. `PAL_InitUI()` and `PAL_CreateBoxInternal()` do not allocate project heap.
-- Under the same contract defines, `palette.c` maps `PAT.MKF` palette chunks from the generated NOR pack and uses three named SRAM `uint8_t` buffers for loaded/current/work palettes instead of opening the original `pat.mkf` or using `PAL_LARGE` palette arrays on the stack.
-- `embedded/pal_battle_cache.c` is the static battle-loading slice. It copies decoded FBP backgrounds into PSRAM from mapped-pack or file-backed TF read-at access, keeps F/ABC/FIRE sprites plus `DATA.MKF #10` battle effects as `const uint8_t *` views into the NOR pack, can stage one FIRE effect in `pal_psram_effect`, and deduplicates enemy sprite references.
-- `embedded/pal_rng_cache.c` is the static RNG-frame slice. It reads predecoded RNG frame records from the TF pack, supports both mapped-pack and file-backed read-at access, stages TF movie frame tables in `pal_psram_tf_readahead`, and copies selected frames into `pal_psram_rng_frame_a` / `pal_psram_rng_frame_b`.
-- `embedded/pal_sfx_cache.c` is the static sound-effect bank slice. It copies selected preconverted SFX PCM16 chunks from mapped-pack or file-backed TF read-at access into `pal_psram_sfx_bank` and tracks spans with a small fixed `pal_sfx_` metadata table.
-- `embedded/pal_audio_static.c` is the static audio mix slice. It validates host-converted 22050Hz mono PCM16 SFX payloads and mixes them into `pal_sram_audio` without runtime resampling or heap allocation.
-- `embedded/pal_global_cache.c` is the static global-data slice. It copies mutable default event/scene/object/player-role data into the 256KB `pal_psram_save_state` buffer and maps read-only scripts/DATA tables as `const uint8_t *` pack views.
-- `embedded/pal_script_static.c` is the static script-view slice. It maps script entries through `PalGlobalCache` as read-only `const uint8_t *` data and provides bounded entry reads/traces only; it does not execute scripts yet.
-- `embedded/pal_text_cache.c` is the static text slice. The pack builder converts `WORD.DAT` and `M.MSG` to UTF-16LE in the NOR pack; runtime maps it read-only with no text heap or codepage conversion.
-- `embedded/pal_font_cache.c` is the static font slice. The pack builder converts `WOR16.ASC`/`WOR16.FON` into a read-only NOR glyph table with sorted UTF-16 codepoints and 32-byte glyph payloads; runtime maps it as `const uint8_t *` data with no `unicode_font` allocation.
-- `embedded/pal_save_cache.c` is the static save-file slice. It reads real `.rpg` files into the 256KB `pal_psram_save_state` buffer and exposes fixed header fields without allocating a `SAVEDGAME_DOS`/`SAVEDGAME_WIN` object; `/mnt/hgfs/deb13/PAL` save files are currently under 189KB.
-- `embedded/pal_video_static.c` is the static indexed-video slice. It uses `pal_sram_framebuffer`, `pal_sram_big_buffer`, `pal_psram_screen_bak`, and `pal_sram_display_dma` for clear/full-screen save/battle-scene save/rectangular save/restore/scanline RGB565 conversion without `gpScreenReal`, `VIDEO_DuplicateSurface`, or texture-sized project buffers.
-- `embedded/pal_ui_cache.c` is the static UI asset slice. It maps DATA UI sprites/effects, BALL item bitmaps, and RGM face bitmaps as read-only `const uint8_t *` pack views, and copies PAT palettes into `pal_sram_misc`.
-- `embedded/pal_music_cache.c` is the static music-data slice. It maps MIDI and MUS/RIX tracks from the NOR pack as read-only `const uint8_t *` views and does not allocate player state.
-- `embedded/pal_menu_static.c` is the static menu/status scratch slice. It copies decoded FBP menu backgrounds from mapped-pack or file-backed TF read-at access into `pal_psram_menu_background`, copies legacy mutable image scratch into `pal_psram_menu_image`, uses `pal_psram_menu_box` for fixed menu boxes, and maps item images as `const uint8_t *` when copying is unnecessary.
-- `embedded/pal_ending_static.c` is the static ending/splash slice. It copies FBP screens from mapped-pack or file-backed TF read-at access into `pal_psram_ending_fbp_a` / `pal_psram_ending_fbp_b` and maps MGO ending/effect sprites as `const uint8_t *` NOR views.
-- `embedded/pal_palette_static.c` is the static palette/fade slice. It uses `pal_sram_palette_current` and `pal_sram_palette_work` for RGB palette copies and fade steps instead of local `SDL_Color[256]` scratch arrays.
-- `embedded/pal_dialog_static.c` is the static dialog-asset slice. It maps `DATA.MKF #12` dialog icons and `RGM.MKF` faces as `const uint8_t *` NOR views, replacing the embedded shape of `TEXTLIB.bufDialogIcons[282]` and `PAL_RLEBUFSIZE` face scratch reads.
+### Normal Cardputer extreme packs
 
-## Known Memory Pressure Points
+- `tools/pal_pack_build.py` is the host conversion/pack builder.
+- `tools/pal_pack_layout_cardputer_extreme.json` is the active sparse
+  chapter-candidate policy.
+- `/tmp/pal_cardputer_extreme_nor.pak` is the active NOR image.
+- `/tmp/pal_cardputer_extreme_tf.pak` is the small runtime-active TF image.
+- `/tmp/pal_cardputer_extreme_full.pak` is a complete decoded/native TF mirror.
+  It intentionally overlaps NOR and active TF resources, but current firmware
+  does not index it because its TOC exceeds the 2KB active-index budget.
+- Pack-set ID, whole-image CRC, manifest hashes, archive/chunk format, and
+  source hashes are part of the fail-closed contract.
 
-- The full desktop path still has `fontglyph.h` with mutable `unicode_font[65536][32]`, about 2MB. The embedded font slice proves the replacement shape, but the full engine has not yet been wired to it.
-- `resampler.c` has mutable float LUTs totaling about 147KB.
-- Global game data currently allocates about 532KB from this data set.
-- Desktop save/load currently allocates about 184-189KB per save operation for this data set; the embedded save slice uses the existing PSRAM save-state buffer instead.
-- Worst measured normal scene resource residency is about 909KB before framebuffers, text/font, audio, and allocator overhead, but about 143KB for the same subset after event-sprite deduplication.
-- Several `PAL_LARGE` local buffers are 64KB stack allocations on Unix-style builds.
-- `PAL_MKFDecompressChunk()` allocates a compressed scratch buffer per decompression.
-- The full desktop SDL video path still creates 32-bit surfaces/textures. The embedded video slice proves the replacement shape, but the full engine has not yet been wired to it.
+Do not describe `pal_full.pak` as swap or as a runtime fallback. It is an
+offline-complete source for future pack generation until a bounded streaming
+index is deliberately implemented.
 
-These should not be assumed to fit in fast SRAM, and the target runtime should remove the heap/decompression paths rather than merely moving them to PSRAM.
+### Chapter cache
+
+`tools/pal_chapter_pack_build.py` produces:
+
+- immutable `pal_core.pak`;
+- active `pal_tf.pak`;
+- complete `pal_full.pak`;
+- 15 conservative bundles `b00.pak` through `b14.pak`;
+- `chapter_manifest.json`;
+- `EVENT.DEF`.
+
+The target compares the required bundle SHA-256 with the replaceable NOR cache
+at save load and bundle transitions. A mismatch enters a native 240x135
+`LOADING` screen, copies sequentially from TF, verifies TF and NOR readback,
+then writes the commit record last. The implementation is in:
+
+- `esp32s3/engine_bridge/pal_engine_chapter_cache.[ch]`
+- `esp32s3/check_cardputer_extreme_chapter_cache.py`
+- `esp32s3/partitions_cardputer_extreme_cache.csv`
+
+The catalog currently covers generated scene resources broadly, but this is
+still labelled a candidate. Do not claim a complete story route without
+deterministic route evidence. The established finite pre-Suzhou profile
+selects scenes 1..20 plus 22 and replaces the unresolved scene-22 to scene-21
+transition with a visible chapter-complete endpoint; see
+`esp32s3/README.md` and the closure fields in
+`tools/pal_pack_layout_cardputer_extreme.json`.
+
+### TF-backed event/scene state
+
+Event state is not fully resident in SRAM and is not a block-device swap:
+
+- all 5,369 32-byte event records occupy 42 logical 4KB pages;
+- exactly three 4KB event pages are resident;
+- current-scene pages are pinned and other pages use bounded recency-based
+  replacement;
+- all 300 scene records share the same durable journal transaction model;
+- `EVENT.DEF` is the immutable template;
+- `EVENT.STA` is the live journal, with `EVENT.TMP`/`EVENT.BAD` used for
+  atomic replacement and recovery.
+
+Source of truth:
+
+- `embedded/pal_event_pager.[ch]`
+- `embedded/pal_event_journal.[ch]`
+- `esp32s3/engine_bridge/pal_engine_event_state.[ch]`
+- `esp32s3/engine_bridge/pal_engine_extreme_save.inc`
+
+Writes emit structured `PAL_TFIO v=1` records containing reason, dirty bytes,
+storage/API bytes, calls, syncs, elapsed time, hit/miss counts, and software
+write amplification. These counters do not expose the card controller's
+internal NAND writes or wear. Keep the instrumentation when changing
+persistence behavior.
+
+## Small-screen UI layout compiler
+
+The build-time UI compiler is the source of truth for native display geometry:
+
+- entry point: `tools/pal_layout_check.py`
+- package and design notes: `tools/pal_ui_layout/README.md`
+- geometry: `tools/pal_ui_layout/geometry.py`
+- semantic screens: `tools/pal_ui_layout/screens.py`
+- deterministic candidate solver: `tools/pal_ui_layout/solver.py`
+- font/corpus packing: `tools/pal_ui_layout/font.py`
+- map/battle presentation cameras: `tools/pal_ui_layout/camera.py`
+- C header emitter: `tools/pal_ui_layout/emit_c.py`
+- real-asset previews: `tools/pal_ui_layout/preview.py`
+- full compiler/check: `tools/pal_ui_layout/check.py`
+- generated target headers: `esp32s3/main/generated/`
+- target table consumer: `embedded/pal_ui_layout_runtime.[ch]`
+- target FONT10 view: `embedded/pal_font10_cache.[ch]`
+- fixed-storage RLE strip compositor: `embedded/pal_ui_rle_downsample.[ch]`
+- Cardputer whole-stage scaler:
+  `esp32s3/main/cardputer_extreme_scaler.[ch]`
+
+Certified profiles are 240x135 and 160x128. Other positive resolutions and
+safe insets may be explored but are unsupported until every check and visual
+review passes.
+
+The solver enumerates a small fixed set of semantic layouts (`full`,
+`compact`, `single_column`, `paged`, `text_only`). It may remove decoration,
+reduce columns, split status/equipment into pages, or move details, but it
+must not delete a functional action or change its semantic return value.
+Keep the 10px font; do not solve tight space by silently shrinking text.
+
+Generated output owns:
+
+- all rectangles, offsets, grids, rows/columns, page capacities, and focus
+  order;
+- copies of the stable public screen/element/camera IDs defined in
+  `embedded/pal_ui_layout_runtime.h`, with compile-time equality checks;
+- loading-screen coordinates;
+- exact rational scales, Q16 coefficients, and nearest-centre axis maps;
+- map player anchors and battle HUD-free camera policy;
+- real RLE extent catalogs for RGM, BALL, F, ABC, FIRE, DATA #9 UI sprites,
+  and DATA #10 battle effects;
+- FONT10 identity.
+
+The target may perform fixed O(3) live battle subject union/clamp against the
+generated policy, but it must not enumerate layouts or derive replacement
+coefficients. Item/magic layouts are live slot templates: bind current object
+IDs, enabled/count state, and cursor at runtime; do not treat preview words or
+fixture return values as production content.
+
+Map/battle presentation should remain player-focused. Battle must reserve the
+generated HUD exclusion. For the first production integration, render the
+complete canonical 320x200 battle frame, apply one camera crop/uniform scale
+into the HUD-free content rectangle, then draw the native HUD. This preserves
+one global sampling phase for backgrounds, sprites, color shifts, mono/shadow
+effects, and full-screen effects. Independently scaling each RLE sprite is a
+different visual semantic unless camera origin/global phase is carried into
+the compositor.
+
+### Current integration boundary
+
+Do not infer production integration merely because generators and smokes pass.
+At the time of this update:
+
+- Cardputer production presentation consumes the generated 240x135 stage
+  rectangle and exact axis maps.
+- Semantic menu/battle tables, FONT10, live battle camera evaluation, and the
+  RLE compositor are compiled and contract-tested.
+- Generated map player anchors/camera vectors have no production consumer yet;
+  the current Cardputer path uniformly scales the full canonical framebuffer.
+- Legacy game menu/dialog/status/equipment/battle draw call sites still render
+  into the canonical 320x200 framebuffer; native small-screen draw migration
+  remains work.
+
+Before claiming this has changed, search for real non-test callers of
+`PalUiLayout_GetScreen`, `PalUiLayout_GetFocusElement`,
+`PalUiLayout_GetListTemplate`, `PalUiLayout_GetListSlot`,
+`PalUiLayout_GetListPageCount`, `PalUiLayout_ResolveBattleCamera`,
+`PalFont10_FindGlyph`, and `PalUiRle_ComposeRgb565Strip`, then prove them with
+target-shaped screenshots and deterministic gameplay traces. Startup
+validation or FONT10 identity checks alone are not live drawing integration.
+
+### Required host visual review
+
+UI work is not complete after unit tests. Generate the actual-corpus,
+actual-asset previews locally, create contact sheets if needed, and inspect
+every screen/page and both camera modes at original pixel detail. Check text
+legibility, focus visibility, bounds, page indicators, portrait/item/battle
+scales, HUD occlusion, and black side gutters.
+
+```sh
+python3 -B tools/pal_layout_check.py \
+  --data-dir /mnt/hgfs/deb13/PAL \
+  --font10-archive "$FONT10_ARCHIVE" \
+  --output-dir /tmp/pal-ui-review-new
+```
+
+Use a new output directory for every review; this command must not rewrite
+production headers. PPM files are the compiler's deterministic preview output.
+Any PNG/contact sheets are reviewer-created derivatives. These are host
+mockups using real data, not live game screenshots, and must be described as
+such. After any semantic/camera/font/scaler change, regenerate rather than
+reusing an older review directory.
+
+## Input mapping
+
+The Cardputer mapping is defined in
+`esp32s3/engine_bridge/pal_engine_target_input.c` and the keyboard matrix in
+`esp32s3/main/cardputer_extreme_board.c`:
+
+- backtick maps to Escape;
+- semicolon maps to Up;
+- comma maps to Left;
+- period maps to Down;
+- slash maps to Right;
+- Enter/Space map to Search/confirm;
+- the printed Fn arrow layer remains an alias.
+
+Keep press/release pairing stable when Fn or Shift changes between edges.
+
+## Verification commands
+
+Use the narrowest relevant checks while iterating, then the profile gate.
+
+### UI/layout/font
+
+```sh
+PYTHONPATH=tools python3 -B -m unittest discover \
+  -s tools -p 'test_pal_ui_layout_*.py'
+
+make -C embedded ui-layout-runtime-check
+make -C embedded ui-layout-production-check ui-rle-downsample-check
+
+make -C esp32s3 \
+  FONT10_ARCHIVE="$FONT10_ARCHIVE" \
+  cardputer-extreme-ui-layout-check
+
+make -C esp32s3 cardputer-extreme-scaler-check
+```
+
+Generation is an explicit mutation:
+
+```sh
+make -C esp32s3 \
+  FONT10_ARCHIVE="$FONT10_ARCHIVE" \
+  cardputer-extreme-ui-layout-generate
+```
+
+The check target must compare against committed generated headers and must not
+silently rewrite them.
+
+### Cardputer extreme
+
+```sh
+make -C esp32s3 \
+  FONT10_ARCHIVE="$FONT10_ARCHIVE" \
+  cardputer-extreme-check
+
+make -C esp32s3 \
+  FONT10_ARCHIVE="$FONT10_ARCHIVE" \
+  cardputer-extreme-music-check
+
+make -C esp32s3 \
+  FONT10_ARCHIVE="$FONT10_ARCHIVE" \
+  cardputer-extreme-chapter-cache-check
+```
+
+Useful narrow checks:
+
+```sh
+make -C esp32s3 cardputer-extreme-chapter-cache-logic-check
+make -C esp32s3 cardputer-extreme-event-pager-check
+make -C esp32s3 cardputer-extreme-event-journal-check
+make -C esp32s3 FONT10_ARCHIVE="$FONT10_ARCHIVE" \
+  cardputer-extreme-native-smoke
+make -C esp32s3 FONT10_ARCHIVE="$FONT10_ARCHIVE" \
+  cardputer-extreme-save-check
+```
+
+TF preparation and flashing are external mutations. Use the exact targets in
+`esp32s3/README.md`, keep firmware/NOR/TF from one manifest together, and
+require an explicit user request before flashing or replacing card contents.
+Default hardware port is normally `/dev/ttyACM0`, but discover it rather than
+assuming.
+
+### CoreS3 SE and general contract
+
+```sh
+make -C esp32s3 check
+make -C esp32s3 native-smoke
+make -C embedded contract-check
+make -C unix EMBEDDED_CONTRACT=1 contract-check
+python3 -B tools/embedded_contract_check.py --root .
+```
+
+The native harness may use SDL internally; project engine/resource paths must
+still pass no-heap/no-runtime-decompression checks.
+
+## Source-of-truth rule
+
+Keep this file compact and navigational. Detailed measured results belong in
+the checker output or focused README, not in an ever-growing historical list
+of every embedded slice. When behavior changes:
+
+1. update the implementation and repeatable checker;
+2. update the focused README that owns the feature;
+3. update this file only if the target, invariant, canonical path, integration
+   boundary, or primary command changed;
+4. remove superseded claims instead of appending contradictory history.

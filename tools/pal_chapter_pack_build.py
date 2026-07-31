@@ -4,9 +4,10 @@
 The output separates immutable, always-mapped resources from one replaceable
 chapter overlay:
 
-* ``pal_core.pak`` contains complete small/global archives, the complete RIX
-  music archive, complete F/FIRE battle assets, 35 audited global MGO chunks,
-  two startup MGO chunks, and a compact binary CACHE catalog.
+* ``pal_core.pak`` contains complete small/global archives, the pinned
+  host-generated FONT10 chunk, the complete RIX music archive, complete
+  F/FIRE battle assets, 35 audited global MGO chunks, two startup MGO chunks,
+  and a compact binary CACHE catalog.
 * ``pal_tf.pak`` contains every host-decoded FBP and RNG chunk.
 * ``b00.pak`` through ``b14.pak`` contain sparse ABC/GOP/MAP/MGO archives.
 * ``pal_full.pak`` is a complete decoded/native TF mirror for recovery and
@@ -879,16 +880,35 @@ def bundle_audit(
 def build_chapter_packs(
     data_dir: Path,
     soft_cap: int = SOFT_OVERLAY_CAP,
+    font10_archive: Path | None = None,
 ) -> ChapterBuild:
     if soft_cap <= 0:
         raise ValueError("soft overlay cap must be positive")
+    if font10_archive is None:
+        raise ValueError("pinned FONT10 release archive is required")
+    font10_chunk, font10_summary = pack.build_font10_archive_chunk(
+        data_dir,
+        font10_archive,
+    )
     source_names = (
         *FULL_MIRROR_ARCHIVES,
     )
     source: dict[str, list[pack.Chunk]] = {}
     for name in source_names:
         if name not in source:
-            source[name] = pack.load_archive(data_dir, name)
+            source[name] = pack.load_archive(
+                data_dir,
+                name,
+                font10_chunk if name == "FONT" else None,
+            )
+
+    font_chunks = source.get("FONT")
+    if (
+        font_chunks is None
+        or len(font_chunks) != 2
+        or font_chunks[1] != font10_chunk
+    ):
+        raise AssertionError("FONT10 must be FONT chunk 1")
 
     tables = parse_game_tables(source)
     if tables.scene_count != CATALOG_SCENE_COUNT:
@@ -1125,6 +1145,7 @@ def build_chapter_packs(
             "remaining_bytes": CORE_SLOT_CAP - len(core_image),
         },
     }
+    manifest["font10"] = font10_summary
     return ChapterBuild(
         core_image,
         tf_image,
@@ -1192,6 +1213,15 @@ def main() -> int:
         help="manifest path (default: OUT_DIR/chapter_manifest.json)",
     )
     parser.add_argument(
+        "--font10-archive",
+        type=Path,
+        required=True,
+        help=(
+            "verified Fusion Pixel Font 10px monospaced BDF release zip; "
+            "adds corpus-subsetted FONT chunk 1 to pal_core.pak"
+        ),
+    )
+    parser.add_argument(
         "--soft-cap",
         type=int_auto,
         default=SOFT_OVERLAY_CAP,
@@ -1204,7 +1234,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    build = build_chapter_packs(args.data_dir, args.soft_cap)
+    build = build_chapter_packs(
+        args.data_dir,
+        args.soft_cap,
+        args.font10_archive,
+    )
     print_audit(build)
     if not args.audit_only:
         manifest_path = write_chapter_build(build, args.out_dir, args.manifest)

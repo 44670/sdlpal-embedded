@@ -1,6 +1,10 @@
 #include "pal_engine_pack_provider.h"
 
 #include "pal_target_board.h"
+#if defined(PAL_CARDPUTER_EXTREME) || defined(PAL_EXTREME_CHAPTER_CACHE)
+#include "../../embedded/pal_font10_cache.h"
+#include "../../embedded/pal_ui_layout_runtime.h"
+#endif
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
 #include "pal_engine_chapter_cache.h"
 #endif
@@ -14,11 +18,12 @@
 #include <stdint.h>
 
 #define PAL_ENGINE_NOR_PARTITION_SUBTYPE 0x40
+#define PAL_ENGINE_PACK_HEADER_BYTES 32u
+#define PAL_ENGINE_PACK_SIZE_OFFSET 24u
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
 #define PAL_ENGINE_NOR_PARTITION_LABEL "pal_core"
 #define PAL_ENGINE_CACHE_CATALOG_ARCHIVE 20u
 #define PAL_ENGINE_PACK_SET_ID_OFFSET 20u
-#define PAL_ENGINE_PACK_SIZE_OFFSET 24u
 #else
 #define PAL_ENGINE_NOR_PARTITION_LABEL "pal_nor"
 #endif
@@ -28,9 +33,7 @@ static const char *TAG = "pal_engine_packs";
 static FIL pal_engine_tf_file;
 static bool pal_engine_tf_open;
 static esp_partition_mmap_handle_t pal_engine_nor_mmap_handle;
-
-#if defined(PAL_EXTREME_CHAPTER_CACHE)
-static uint8_t pal_sram_core_pack_header[32];
+static uint8_t pal_sram_engine_pack_header[PAL_ENGINE_PACK_HEADER_BYTES];
 
 static uint32_t
 read_le32(
@@ -43,6 +46,7 @@ read_le32(
       ((uint32_t)p[3] << 24);
 }
 
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
 static bool
 chapter_overlay_changed(
    void *user,
@@ -91,11 +95,15 @@ PalEngineBridge_TargetInitPacks(
    const esp_partition_t *partition;
    const void *nor_image = NULL;
    esp_err_t err;
+   uint32_t nor_pack_size;
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
    PalPack core_pack;
    PalPackSpan catalog_span;
-   uint32_t core_pack_size;
+   PalFont10Cache font10;
    uint32_t core_set_id;
+#elif defined(PAL_CARDPUTER_EXTREME)
+   PalPack nor_pack;
+   PalFont10Cache font10;
 #endif
 
    PalEngineBridge_ClearPacks();
@@ -108,32 +116,33 @@ PalEngineBridge_TargetInitPacks(
       return false;
    }
 
-#if defined(PAL_EXTREME_CHAPTER_CACHE)
-   if (partition->size < sizeof(pal_sram_core_pack_header) ||
-      esp_partition_read(partition, 0u, pal_sram_core_pack_header,
-         sizeof(pal_sram_core_pack_header)) != ESP_OK)
+   if (partition->size < sizeof(pal_sram_engine_pack_header) ||
+      esp_partition_read(partition, 0u, pal_sram_engine_pack_header,
+         sizeof(pal_sram_engine_pack_header)) != ESP_OK)
    {
-      ESP_LOGE(TAG, "core pack header read failed");
+      ESP_LOGE(TAG, "NOR pack header read failed");
       return false;
    }
-   core_pack_size = read_le32(
-      pal_sram_core_pack_header + PAL_ENGINE_PACK_SIZE_OFFSET);
+   nor_pack_size = read_le32(
+      pal_sram_engine_pack_header + PAL_ENGINE_PACK_SIZE_OFFSET);
+   if (nor_pack_size < sizeof(pal_sram_engine_pack_header) ||
+      nor_pack_size > partition->size)
+   {
+      ESP_LOGE(TAG, "invalid NOR pack size");
+      return false;
+   }
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
    core_set_id = read_le32(
-      pal_sram_core_pack_header + PAL_ENGINE_PACK_SET_ID_OFFSET);
-   if (core_pack_size < sizeof(pal_sram_core_pack_header) ||
-      core_pack_size > partition->size || core_set_id == 0u)
+      pal_sram_engine_pack_header + PAL_ENGINE_PACK_SET_ID_OFFSET);
+   if (core_set_id == 0u)
    {
       ESP_LOGE(TAG, "invalid core pack header");
       return false;
    }
-   err = esp_partition_mmap(partition,
-      0, core_pack_size, ESP_PARTITION_MMAP_DATA,
-      &nor_image, &pal_engine_nor_mmap_handle);
-#else
-   err = esp_partition_mmap(partition,
-      0, partition->size, ESP_PARTITION_MMAP_DATA,
-      &nor_image, &pal_engine_nor_mmap_handle);
 #endif
+   err = esp_partition_mmap(partition,
+      0, nor_pack_size, ESP_PARTITION_MMAP_DATA,
+      &nor_image, &pal_engine_nor_mmap_handle);
    if (err != ESP_OK)
    {
       ESP_LOGE(TAG, "NOR pack open failed: %s", esp_err_to_name(err));
@@ -141,22 +150,48 @@ PalEngineBridge_TargetInitPacks(
    }
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
    if (!PalPack_OpenConst(&core_pack,
-         (const uint8_t *)nor_image, core_pack_size) ||
+         (const uint8_t *)nor_image, nor_pack_size) ||
+      !PalFont10_Open(&core_pack, &font10) ||
+      !PalUiLayout_Font10IdentityMatches(
+         font10.glyph_count,
+         font10.size,
+         font10.payload_crc32,
+         font10.cell_width,
+         font10.cell_height,
+         (int8_t)font10.ascent,
+         (int8_t)font10.descent) ||
       !PalPack_MapConst(&core_pack,
          PAL_ENGINE_CACHE_CATALOG_ARCHIVE, 0u, &catalog_span) ||
       !PalEngineBridge_SetCorePackConst(
-         (const uint8_t *)nor_image, core_pack_size))
+         (const uint8_t *)nor_image, nor_pack_size))
    {
       esp_partition_munmap(pal_engine_nor_mmap_handle);
       pal_engine_nor_mmap_handle = 0;
-      ESP_LOGE(TAG, "core pack or chapter catalog open failed");
+      ESP_LOGE(TAG,
+         "core pack, generated FONT10, or chapter catalog validation failed");
       return false;
    }
 #else
-   if (!PalEngineBridge_SetNorPackConst(
-         (const uint8_t *)nor_image, partition->size))
+   if (
+#if defined(PAL_CARDPUTER_EXTREME)
+      !PalPack_OpenConst(
+         &nor_pack, (const uint8_t *)nor_image, nor_pack_size) ||
+      !PalFont10_Open(&nor_pack, &font10) ||
+      !PalUiLayout_Font10IdentityMatches(
+         font10.glyph_count,
+         font10.size,
+         font10.payload_crc32,
+         font10.cell_width,
+         font10.cell_height,
+         (int8_t)font10.ascent,
+         (int8_t)font10.descent) ||
+#endif
+      !PalEngineBridge_SetNorPackConst(
+         (const uint8_t *)nor_image, nor_pack_size))
    {
-      ESP_LOGE(TAG, "NOR pack validation failed");
+      esp_partition_munmap(pal_engine_nor_mmap_handle);
+      pal_engine_nor_mmap_handle = 0;
+      ESP_LOGE(TAG, "NOR pack or generated FONT10 validation failed");
       return false;
    }
 #endif
@@ -197,11 +232,11 @@ PalEngineBridge_TargetInitPacks(
    ESP_LOGI(TAG,
       "engine packs ready: core=%" PRIu32 " tf=%" PRIu32
       " cache=deferred",
-      core_pack_size,
+      nor_pack_size,
       (uint32_t)f_size(&pal_engine_tf_file));
 #else
    ESP_LOGI(TAG, "engine packs ready: nor=%" PRIu32 " tf=%" PRIu32,
-      partition->size,
+      nor_pack_size,
       (uint32_t)f_size(&pal_engine_tf_file));
 #endif
    return true;

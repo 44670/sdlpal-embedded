@@ -1,0 +1,22 @@
+{
+  "asset": {
+    "bytes": 18220904,
+    "filename": "fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip",
+    "sha256": "2e695c27627bf09683df2afe69b086fa3cd3e52795bce39fded9cc509188b5fe",
+    "url": "https://github.com/TakWolf/fusion-pixel-font/releases/download/2026.07.20/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip"
+  },
+  "bdf": {
+    "bytes": 3643786,
+    "locale": "zh_hant",
+    "member": "fusion-pixel-10px-monospaced-zh_hant.bdf",
+    "sha256": "39ac134948ca94cf5f429a543914fe6a5e85a1c0bc0bde3c304f2d53f35bfc62"
+  },
+  "license": {
+    "name": "SIL Open Font License 1.1",
+    "upstream_file": "OFL.txt"
+  },
+  "release": "2026.07.20",
+  "schema": "sdlpal-fusion-pixel-font-lock",
+  "upstream": "https://github.com/TakWolf/fusion-pixel-font",
+  "version": 1
+}

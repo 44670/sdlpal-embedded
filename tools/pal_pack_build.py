@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import struct
+import sys
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,7 @@ FORMAT_RNG_FRAMES = 2
 FORMAT_TEXT_UTF16 = 3
 FORMAT_FONT_GLYPHS = 4
 FORMAT_SFX_PCM16 = 5
+FORMAT_FONT10 = 6
 FORMAT_NAMES = {
     FORMAT_RAW: "RAW",
     FORMAT_NATIVE: "NATIVE",
@@ -37,6 +39,7 @@ FORMAT_NAMES = {
     FORMAT_TEXT_UTF16: "TEXT_UTF16",
     FORMAT_FONT_GLYPHS: "FONT_GLYPHS",
     FORMAT_SFX_PCM16: "SFX_PCM16",
+    FORMAT_FONT10: "FONT10",
 }
 
 TEXT_MAGIC = 0x54585450
@@ -79,6 +82,54 @@ ARCHIVE_IDS = {
 }
 
 DEFAULT_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_default.json")
+
+# These labels are part of the native small-screen UI contract rather than
+# incidental strings found in the Python implementation.  Keep them in
+# Traditional Chinese to match the audited CP950 PAL data.  The page separator
+# plus six ASCII letters used by ScreenSpec's default titles are absent from
+# WORD.DAT/M.MSG, so the audited subset is 2,638 glyphs
+# (32 + 2,638 * 16 = 42,240 bytes).
+FONT10_UI_LABELS = {
+    # ScreenSpec's public defaults and its generated page counter are part of
+    # the compiler input contract too.  Keeping them here makes a FONT10 pack
+    # directly usable by every default screen constructor, not only by the
+    # translated target labels below.
+    "menu_title": "MENU",
+    "item_title": "ITEM",
+    "magic_title": "MAGIC",
+    "status_title": "STATUS",
+    "equipment_title": "EQUIP",
+    "page_counter": "0123456789/",
+    "back": "返回",
+    "confirm": "確定",
+    "cancel": "取消",
+    "status": "狀態",
+    "equipment": "裝備",
+    "items": "物品",
+    "magic": "法術",
+    "system": "系統",
+    "battle": "戰鬥",
+    "current": "當前",
+    "target": "目標",
+    "life": "生命",
+    "mana": "真氣",
+    "cash": "金錢",
+    "exit": "退出",
+    "save": "保存",
+    "load": "載入",
+    "attack": "攻擊",
+    "coop_magic": "合體",
+    "misc": "其他",
+    "defend": "防禦",
+    "flee": "逃跑",
+    "cast": "施法",
+    "use": "使用",
+    "all": "全體",
+    "role": "角色",
+    "time_meter": "蓄力",
+    "more": "更多",
+    "page_separator": "/",
+}
 
 
 @dataclass(frozen=True)
@@ -399,6 +450,95 @@ def encode_font_pack(data_dir: Path) -> bytes:
     return bytes(out)
 
 
+def build_font10_archive_chunk(
+    data_dir: Path,
+    release_archive: Path,
+) -> tuple[Chunk, dict[str, object]]:
+    """Build optional FONT chunk 1 from the pinned Fusion Pixel release.
+
+    This path is deliberately opt-in.  The release archive is verified by
+    exact size and SHA-256, the selected BDF is verified independently, and
+    every PAL/UI corpus codepoint must be present before a payload is emitted.
+    """
+    tools_dir = str(Path(__file__).resolve().parent)
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    from pal_ui_layout import font as font10_tool
+
+    release_archive = release_archive.resolve()
+    release_lock = font10_tool.load_release_lock()
+    font = font10_tool.extract_locked_bdf(release_archive)
+    pal_codepoints = font10_tool.collect_pal_corpus_characters(data_dir)
+    codepoints = font10_tool.collect_pal_corpus_characters(
+        data_dir,
+        extra_texts=FONT10_UI_LABELS.values(),
+    )
+    payload = font10_tool.build_font10(font, codepoints)
+    parsed = font10_tool.parse_font10(payload)
+    if len(parsed.glyphs) != len(codepoints):
+        raise AssertionError("FONT10 glyph count changed during encoding")
+
+    codepoint_bytes = b"".join(
+        struct.pack("<H", codepoint) for codepoint in codepoints
+    )
+    advances = [glyph.advance for glyph in parsed.glyphs]
+    if (
+        not advances
+        or min(advances) == 0
+        or max(advances) > font10_tool.FONT10_CELL_WIDTH
+    ):
+        raise ValueError("FONT10 glyph advance is outside its fixed cell")
+    summary: dict[str, object] = {
+        "schema": "sdlpal-embedded-font10",
+        "version": 1,
+        "upstream": release_lock["upstream"],
+        "release": font10_tool.RELEASE_VERSION,
+        "license": release_lock["license"],
+        "archive": {
+            "path": str(release_archive),
+            "filename": font10_tool.RELEASE_ASSET,
+            "bytes": release_archive.stat().st_size,
+            "sha256": hash_file(release_archive),
+        },
+        "bdf": {
+            "member": font10_tool.BDF_MEMBER,
+            "bytes": font10_tool.BDF_MEMBER_BYTES,
+            "sha256": font10_tool.BDF_MEMBER_SHA256,
+        },
+        "corpus": {
+            "pal_codepoint_count": len(pal_codepoints),
+            "ui_added_codepoint_count": len(set(codepoints) - set(pal_codepoints)),
+            "codepoint_count": len(codepoints),
+            "codepoints_sha256": hashlib.sha256(codepoint_bytes).hexdigest(),
+            "ui_labels": dict(sorted(FONT10_UI_LABELS.items())),
+        },
+        "pack_chunk": {
+            "archive": "FONT",
+            "chunk_id": 1,
+            "format": "FONT10",
+            "format_id": FORMAT_FONT10,
+        },
+        "font10": {
+            "bytes": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "glyph_count": len(parsed.glyphs),
+            "payload_crc32": parsed.payload_crc32,
+            "metrics": {
+                "cell_width": font10_tool.FONT10_CELL_WIDTH,
+                "cell_height": font10_tool.FONT10_CELL_HEIGHT,
+                "ascent": parsed.ascent,
+                "descent": parsed.descent,
+                "line_height": parsed.ascent + parsed.descent,
+                "record_bytes": font10_tool.FONT10_RECORD_BYTES,
+                "bitmap_bytes": font10_tool.FONT10_BITMAP_BYTES,
+                "advance_min": min(advances, default=0),
+                "advance_max": max(advances, default=0),
+            },
+        },
+    }
+    return Chunk(payload, FORMAT_FONT10), summary
+
+
 def encode_sfx_payload(pcm: bytes, source_rate: int) -> bytes:
     if source_rate <= 0:
         raise ValueError(f"bad VOC source rate: {source_rate}")
@@ -472,11 +612,20 @@ def encode_sfx_pack(data_dir: Path) -> list[Chunk]:
     return [Chunk(encode_voc_sfx_chunk(raw), FORMAT_SFX_PCM16) for raw in read_mkf(voc_path)]
 
 
-def load_archive(data_dir: Path, name: str) -> list[Chunk]:
+def load_archive(
+    data_dir: Path,
+    name: str,
+    font10_chunk: Chunk | None = None,
+) -> list[Chunk]:
     if name == "TEXT":
         return [Chunk(encode_text_pack(data_dir), FORMAT_TEXT_UTF16)]
     if name == "FONT":
-        return [Chunk(encode_font_pack(data_dir), FORMAT_FONT_GLYPHS)]
+        chunks = [Chunk(encode_font_pack(data_dir), FORMAT_FONT_GLYPHS)]
+        if font10_chunk is not None:
+            if font10_chunk.fmt != FORMAT_FONT10 or not font10_chunk.present:
+                raise ValueError("invalid optional FONT10 chunk")
+            chunks.append(font10_chunk)
+        return chunks
     if name == "SFX":
         return encode_sfx_pack(data_dir)
 
@@ -651,6 +800,7 @@ def write_manifest(
     tf_names: list[str],
     tf_complete_summary: dict[str, object] | None,
     tf_complete_layout: CompleteMirrorLayout | None,
+    font10_summary: dict[str, object] | None = None,
 ) -> None:
     source_names = [*nor_names, *tf_names]
     if tf_complete_layout is not None:
@@ -682,6 +832,8 @@ def write_manifest(
     }
     if layout_profile is not None:
         manifest["pack_layout"]["profile"] = layout_profile
+    if font10_summary is not None:
+        manifest["font10"] = font10_summary
     if tf_complete_layout is not None and tf_complete_summary is not None:
         manifest["pack_layout"]["tf_complete_mirror"] = {
             "archives": list(tf_complete_layout.archives),
@@ -1171,13 +1323,14 @@ def load_selected_archives(
     names: list[str],
     rules: dict[str, ChunkRule] | None,
     cache: dict[str, list[Chunk]] | None = None,
+    font10_chunk: Chunk | None = None,
 ) -> dict[str, list[Chunk]]:
     archives: dict[str, list[Chunk]] = {}
     for name in names:
         if cache is not None and name in cache:
             chunks = cache[name]
         else:
-            chunks = load_archive(data_dir, name)
+            chunks = load_archive(data_dir, name, font10_chunk)
             if cache is not None:
                 cache[name] = chunks
         if rules is not None:
@@ -1283,10 +1436,25 @@ def main() -> int:
         "--profile",
         help="explicit additive profile declared by a version-2 pack layout",
     )
+    parser.add_argument(
+        "--font10-archive",
+        type=Path,
+        help=(
+            "verified Fusion Pixel Font 10px monospaced BDF release zip; "
+            "adds corpus-subsetted FONT chunk 1"
+        ),
+    )
     parser.add_argument("--manifest", type=Path, help="write a source-hash and decoded-size manifest")
     args = parser.parse_args()
 
     data_dir = args.data_dir
+    font10_chunk = None
+    font10_summary = None
+    if args.font10_archive is not None:
+        font10_chunk, font10_summary = build_font10_archive_chunk(
+            data_dir,
+            args.font10_archive,
+        )
     layout = load_pack_layout(args.layout, args.profile)
     nor_names = parse_names(args.nor, layout.pack_names["nor"])
     tf_names = parse_names(args.tf, layout.pack_names["tf"])
@@ -1315,12 +1483,14 @@ def main() -> int:
         nor_names,
         nor_rules,
         archive_cache,
+        font10_chunk,
     )
     tf_archives = load_selected_archives(
         data_dir,
         tf_names,
         tf_rules,
         archive_cache,
+        font10_chunk,
     )
     tf_complete_archives = None
     if layout.tf_complete_mirror is not None:
@@ -1329,7 +1499,18 @@ def main() -> int:
             list(layout.tf_complete_mirror.archives),
             None,
             archive_cache,
+            font10_chunk,
         )
+    if font10_chunk is not None:
+        nor_font = nor_archives.get("FONT")
+        if (
+            nor_font is None
+            or len(nor_font) <= 1
+            or not nor_font[1].present
+        ):
+            raise SystemExit(
+                "--font10-archive requires FONT chunk 1 in the NOR pack"
+            )
     validate_disjoint_pack_chunks(nor_archives, tf_archives)
     pack_set_id = compute_pack_set_id(
         nor_archives,
@@ -1381,6 +1562,7 @@ def main() -> int:
             tf_names,
             tf_complete_summary,
             layout.tf_complete_mirror,
+            font10_summary,
         )
     return 0
 

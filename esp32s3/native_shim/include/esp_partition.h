@@ -27,4 +27,13 @@ esp_err_t esp_partition_mmap(
     const void **out_ptr,
     esp_partition_mmap_handle_t *out_handle);
 
+/*
+ * Native contract processes keep their read-only test mapping for their
+ * short lifetime.  The target uses ESP-IDF's real esp_partition_munmap().
+ */
+static inline void esp_partition_munmap(esp_partition_mmap_handle_t handle)
+{
+    (void)handle;
+}
+
 #endif

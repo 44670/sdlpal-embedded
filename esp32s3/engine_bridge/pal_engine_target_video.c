@@ -77,7 +77,9 @@ PalEngineBridge_RenderPresentIndexed(
    int64_t start_us;
    int64_t flush_us;
 
-   if (pixels == NULL || palette_rgba == NULL || pitch < w || w != 320 || h != 200)
+   if (pixels == NULL || palette_rgba == NULL || pitch < w ||
+       w != PAL_UI_GENERATED_STAGE_SOURCE_WIDTH ||
+       h != PAL_UI_GENERATED_STAGE_SOURCE_HEIGHT)
    {
       return;
    }
@@ -98,7 +100,12 @@ PalEngineBridge_RenderPresentIndexed(
    }
    if (!pal_engine_logged_first_present)
    {
-      ESP_LOGI(TAG, "Cardputer first indexed present: 320x200 -> 216x135, flush_us=%lld",
+      ESP_LOGI(TAG,
+         "Cardputer first indexed present: %ux%u -> %ux%u, flush_us=%lld",
+         (unsigned)PAL_UI_GENERATED_STAGE_SOURCE_WIDTH,
+         (unsigned)PAL_UI_GENERATED_STAGE_SOURCE_HEIGHT,
+         (unsigned)PAL_UI_GENERATED_STAGE_DESTINATION_WIDTH,
+         (unsigned)PAL_UI_GENERATED_STAGE_DESTINATION_HEIGHT,
          (long long)flush_us);
       pal_engine_logged_first_present = true;
    }
