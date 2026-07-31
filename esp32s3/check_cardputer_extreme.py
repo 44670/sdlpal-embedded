@@ -393,9 +393,9 @@ def parse_generated_font10_identity(
 
     values: list[int] = []
     for name in (
-        "PAL_UI_GENERATED_FONT_GLYPH_COUNT",
-        "PAL_UI_GENERATED_FONT_IMAGE_BYTES",
-        "PAL_UI_GENERATED_FONT_PAYLOAD_CRC32",
+        "PAL_NATIVE_UI_GENERATED_FONT_GLYPH_COUNT",
+        "PAL_NATIVE_UI_GENERATED_FONT_IMAGE_BYTES",
+        "PAL_NATIVE_UI_GENERATED_FONT_PAYLOAD_CRC32",
     ):
         match = re.search(
             rf"^#define\s+{name}\s+(0[xX][0-9a-fA-F]+|[0-9]+)u$",
@@ -515,7 +515,7 @@ def main() -> int:
     flasher_args_path = build / "flasher_args.json"
     partition_bin = build / "partition_table/partition-table.bin"
     ui_layout_header = (
-        root / "esp32s3/main/generated/pal_ui_layout_240x135.h"
+        root / "esp32s3/main/generated/pal_native_ui_240x135.h"
     )
     target_pack_source = (
         root / "esp32s3/engine_bridge/pal_engine_target_packs.c"
@@ -847,10 +847,10 @@ def main() -> int:
         "CardputerExtreme_MountTf",
         "CardputerExtreme_PollKey",
         "CardputerExtreme_FlushIndexedFramebuffer",
-        "CardputerExtreme_ScaleIndexedStrip",
-        "CardputerExtreme_ScalerSourceX",
-        "CardputerExtreme_ScalerSourceY",
-        "CardputerExtreme_ScalerValidateGeneratedMap",
+        "CardputerExtreme_CopyIndexedNativeStrip",
+        "CardputerExtreme_NativeViewSourceX",
+        "CardputerExtreme_NativeViewSourceY",
+        "CardputerExtreme_NativeViewValidate",
         "PalFont10_Open",
         "PalEngineBridge_LogRuntimeMemory",
         "PalEngineBridge_ReadNativeRngFrame",
@@ -859,10 +859,8 @@ def main() -> int:
         "PalEngineEventState_WriteEvent",
         "PAL_EventObjectRead",
         "PAL_EventObjectWrite",
-        "PalUiLayout_Font10IdentityMatches",
-        "PalUiLayout_ValidateGenerated",
-        "pal_ui_generated_stage_sample_x",
-        "pal_ui_generated_stage_sample_y",
+        "PalNativeUi_Font10IdentityMatches",
+        "PalNativeUi_GetViewport",
     ]
     if music_profile:
         required_symbols.extend(
@@ -1237,7 +1235,8 @@ def main() -> int:
         "PAL_EXTREME_TWO_SCREENS=1",
         "cardputer_extreme_board.c",
         "cardputer_extreme_memory.c",
-        "cardputer_extreme_scaler.c",
+        "cardputer_extreme_native_view.c",
+        "pal_native_ui.c",
     ):
         if token not in ninja:
             errors.append(f"build graph is missing {token}")

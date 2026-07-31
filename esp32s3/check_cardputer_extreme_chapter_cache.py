@@ -52,7 +52,7 @@ CACHE_PACK_SOFT_BYTES = 0x2BF000
 ACTIVE_TF_TOC_BYTES = 2048
 BUNDLE_COUNT = 15
 GENERATED_UI_HEADER = (
-    ESP32S3_DIR / "main" / "generated" / "pal_ui_layout_240x135.h"
+    ESP32S3_DIR / "main" / "generated" / "pal_native_ui_240x135.h"
 )
 MAX_DRAM_BSS = 212 * 1024
 MAX_DRAM_DATA = 16 * 1024
@@ -90,7 +90,7 @@ REQUIRED_CACHE_SYMBOLS = {
     "PalEngineChapterCache_SceneNeedsBundle",
     "PalEngineChapterCache_TargetInit",
     "PalFont10_Open",
-    "PalUiLayout_Font10IdentityMatches",
+    "PalNativeUi_Font10IdentityMatches",
     "sha256_finish",
     "sha256_transform",
     "sha256_update",
@@ -592,7 +592,7 @@ def check_cmake_sources(errors: list[str]) -> None:
 
     for token in (
         "PalFont10_Open(&core_pack, &font10)",
-        "PalUiLayout_Font10IdentityMatches(",
+        "PalNativeUi_Font10IdentityMatches(",
     ):
         if token not in target_packs:
             errors.append(
@@ -895,9 +895,9 @@ def parse_generated_font10_identity(
 
     values: list[int] = []
     for name in (
-        "PAL_UI_GENERATED_FONT_GLYPH_COUNT",
-        "PAL_UI_GENERATED_FONT_IMAGE_BYTES",
-        "PAL_UI_GENERATED_FONT_PAYLOAD_CRC32",
+        "PAL_NATIVE_UI_GENERATED_FONT_GLYPH_COUNT",
+        "PAL_NATIVE_UI_GENERATED_FONT_IMAGE_BYTES",
+        "PAL_NATIVE_UI_GENERATED_FONT_PAYLOAD_CRC32",
     ):
         match = re.search(
             rf"^#define\s+{name}\s+(0[xX][0-9a-fA-F]+|[0-9]+)u$",

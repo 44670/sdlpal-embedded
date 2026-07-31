@@ -3,7 +3,7 @@
 #include "pal_target_board.h"
 #if defined(PAL_CARDPUTER_EXTREME) || defined(PAL_EXTREME_CHAPTER_CACHE)
 #include "../../embedded/pal_font10_cache.h"
-#include "../../embedded/pal_ui_layout_runtime.h"
+#include "../../embedded/pal_native_ui.h"
 #endif
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
 #include "pal_engine_chapter_cache.h"
@@ -152,7 +152,7 @@ PalEngineBridge_TargetInitPacks(
    if (!PalPack_OpenConst(&core_pack,
          (const uint8_t *)nor_image, nor_pack_size) ||
       !PalFont10_Open(&core_pack, &font10) ||
-      !PalUiLayout_Font10IdentityMatches(
+      !PalNativeUi_Font10IdentityMatches(
          font10.glyph_count,
          font10.size,
          font10.payload_crc32,
@@ -177,7 +177,7 @@ PalEngineBridge_TargetInitPacks(
       !PalPack_OpenConst(
          &nor_pack, (const uint8_t *)nor_image, nor_pack_size) ||
       !PalFont10_Open(&nor_pack, &font10) ||
-      !PalUiLayout_Font10IdentityMatches(
+      !PalNativeUi_Font10IdentityMatches(
          font10.glyph_count,
          font10.size,
          font10.payload_crc32,

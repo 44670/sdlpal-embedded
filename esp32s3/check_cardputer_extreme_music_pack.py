@@ -66,7 +66,7 @@ def check_profile(
     errors: list[str] = []
     ui_layout_header = (
         Path(__file__).resolve().parent
-        / "main/generated/pal_ui_layout_240x135.h"
+        / "main/generated/pal_native_ui_240x135.h"
     )
     for path in (
         nor_path,

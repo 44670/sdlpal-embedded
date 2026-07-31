@@ -25,6 +25,10 @@
 #include "main.h"
 
 #if defined(PAL_CARDPUTER_EXTREME)
+#include "embedded/pal_native_ui.h"
+#endif
+
+#if defined(PAL_CARDPUTER_EXTREME)
 static VOID
 PAL_SceneReadEventObject(
    WORD             wEventObjectID,
@@ -535,6 +539,15 @@ PAL_MakeScene(
 --*/
 {
    static SDL_Rect         rect = {0, 0, 320, 200};
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   /* The world itself remains the original 320x200 scene.  Presentation is a
+    * 1:1 crop centred on the canonical party screen position. */
+   PalNativeUi_FocusLogical(
+      (int16_t)PAL_X(gpGlobals->partyoffset),
+      (int16_t)PAL_Y(gpGlobals->partyoffset),
+      PAL_NATIVE_UI_VIEW_WORLD);
+#endif
 
    //
    // Step 1: Draw the complete map, for both of the layers.

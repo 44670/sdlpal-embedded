@@ -15,10 +15,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+PINNED_TRACE_HASH_FIELDS = (
+    "golden_trace_sha256",
+    "golden_script_trace_sha256",
+    "golden_event_trace_sha256",
+)
+SHA256_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,20 @@ def load_metadata(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"{path}: metadata must be a JSON object")
     return data
+
+
+def check_required_pinned_trace_hashes(metadata: dict[str, Any]) -> list[str]:
+    """Require complete, syntactically valid immutable trace pins."""
+
+    errors: list[str] = []
+    for field in PINNED_TRACE_HASH_FIELDS:
+        if field not in metadata:
+            errors.append(f"metadata is missing required trace hash {field!r}")
+            continue
+        value = metadata[field]
+        if not isinstance(value, str) or SHA256_PATTERN.fullmatch(value) is None:
+            errors.append(f"metadata trace hash {field!r} must be exactly 64 hexadecimal digits")
+    return errors
 
 
 def choose_fields(
@@ -310,6 +333,14 @@ def main() -> int:
     parser.add_argument("candidate", type=Path)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--metadata", type=Path, help="JSON metadata that pins manifest/golden hashes")
+    parser.add_argument(
+        "--require-pinned-traces",
+        action="store_true",
+        help=(
+            "require metadata to pin valid SHA-256 hashes for the main, script, "
+            "and event golden traces"
+        ),
+    )
     parser.add_argument("--write-metadata", type=Path, help="write JSON metadata for this golden trace")
     parser.add_argument("--golden-script-trace", type=Path)
     parser.add_argument("--candidate-script-trace", type=Path)
@@ -364,6 +395,11 @@ def main() -> int:
         return 2
 
     errors: list[str] = []
+    if args.require_pinned_traces:
+        if args.metadata is None:
+            errors.append("--require-pinned-traces requires --metadata")
+        else:
+            errors.extend(check_required_pinned_trace_hashes(metadata))
     expected_manifest = args.expect_manifest_sha256 or metadata.get("manifest_sha256")
     if expected_manifest is not None:
         if manifest_sha256 is None:

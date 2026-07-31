@@ -13,8 +13,8 @@
  * Host-only board adapter for running the exact Cardputer extreme engine
  * profile through the deterministic harness.  Storage/time/FatFS emulation
  * remains in cores3se_native_shim.c; this file only supplies the different
- * board API.  The real indexed scaling/DMA implementation is compiled and
- * linked by the ESP-IDF target build.
+ * board API.  The real indexed 1:1 viewport/DMA implementation is compiled
+ * and linked by the ESP-IDF target build.
  */
 bool
 CardputerExtreme_Begin(

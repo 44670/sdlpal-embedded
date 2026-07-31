@@ -8,6 +8,12 @@ Do not send optional commentary.
 disable_send_optional_commentary = True
 ```
 
+For small-screen UI work, keep generated review artifacts under `./tmp_ui/`.
+Do not run `rm -rf` to clean them; leave cleanup to the user after the goal is
+complete.  Acceptance images must be screenshots produced by the real gameplay
+loop with real PAL data.  Sketches, synthetic screen mockups, and compiler-only
+previews are not evidence of gameplay integration.
+
 ## Active development lines
 
 This repository has two distinct ESP32-S3 ports. Do not mix their hardware,
@@ -82,8 +88,8 @@ Use the audited PAL data set unless the user specifies another:
 /mnt/hgfs/deb13/PAL
 ```
 
-The small-screen UI uses the 10px monospaced Traditional Chinese Fusion Pixel
-Font release locked in `tools/pal_ui_layout/font.py`:
+Small-screen dialogue uses the 10px monospaced Traditional Chinese Fusion
+Pixel Font release locked in `tools/pal_ui_layout/font.py`:
 
 ```text
 fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip
@@ -94,8 +100,8 @@ size 18,220,904 bytes
 The archive is supplied out of band through `FONT10_ARCHIVE`; do not vendor
 the release zip. The OFL-1.1 license is kept at
 `third_party/fusion-pixel-font/OFL.txt`. Host tooling subsets the actual
-`WORD.DAT`, `M.MSG`, and native-label corpus. Missing glyphs or a wrong archive
-must fail the build.
+`WORD.DAT` and `M.MSG` corpus only; it must not add invented replacement-menu
+labels. Missing glyphs or a wrong archive must fail the build.
 
 ## Resource and state architecture
 
@@ -170,109 +176,60 @@ write amplification. These counters do not expose the card controller's
 internal NAND writes or wear. Keep the instrumentation when changing
 persistence behavior.
 
-## Small-screen UI layout compiler
+## Faithful native small-screen presentation
 
-The build-time UI compiler is the source of truth for native display geometry:
+The small-screen path is deliberately not a replacement UI.  PAL still draws
+its canonical 320x200 indexed gameplay frame with the original palette,
+DATA.MKF borders/cursors/icons, menu hierarchy, input order, and return values.
+The physical display exposes a generated 1:1 viewport of that frame; there is
+no whole-frame scaler and no alternative flat/modern chrome.
 
-- entry point: `tools/pal_layout_check.py`
-- package and design notes: `tools/pal_ui_layout/README.md`
-- geometry: `tools/pal_ui_layout/geometry.py`
-- semantic screens: `tools/pal_ui_layout/screens.py`
-- deterministic candidate solver: `tools/pal_ui_layout/solver.py`
-- font/corpus packing: `tools/pal_ui_layout/font.py`
-- map/battle presentation cameras: `tools/pal_ui_layout/camera.py`
-- C header emitter: `tools/pal_ui_layout/emit_c.py`
-- real-asset previews: `tools/pal_ui_layout/preview.py`
-- full compiler/check: `tools/pal_ui_layout/check.py`
-- generated target headers: `esp32s3/main/generated/`
-- target table consumer: `embedded/pal_ui_layout_runtime.[ch]`
-- target FONT10 view: `embedded/pal_font10_cache.[ch]`
-- fixed-storage RLE strip compositor: `embedded/pal_ui_rle_downsample.[ch]`
-- Cardputer whole-stage scaler:
-  `esp32s3/main/cardputer_extreme_scaler.[ch]`
+The source of truth is intentionally small:
 
-Certified profiles are 240x135 and 160x128. Other positive resolutions and
-safe insets may be explored but are unsupported until every check and visual
-review passes.
+- geometry/header generator: `tools/pal_native_ui_layout.py`;
+- generated 240x135 and 160x128 profiles:
+  `esp32s3/main/generated/pal_native_ui_*.h`;
+- fixed native viewport, FONT10 drawing, and bounded portrait RLE fitting:
+  `embedded/pal_native_ui.[ch]`;
+- read-only FONT10 pack view: `embedded/pal_font10_cache.[ch]`;
+- Cardputer indexed 1:1 strip copy:
+  `esp32s3/main/cardputer_extreme_native_view.[ch]`.
 
-The solver enumerates a small fixed set of semantic layouts (`full`,
-`compact`, `single_column`, `paged`, `text_only`). It may remove decoration,
-reduce columns, split status/equipment into pages, or move details, but it
-must not delete a functional action or change its semantic return value.
-Keep the 10px font; do not solve tight space by silently shrinking text.
+Generated values cover viewport origins, dialogue rectangles, page/line
+limits, loading-screen coordinates, original DATA #9 frame IDs/colors, and
+the exact FONT10 identity.  They do not describe replacement menu screens or
+invent content.
 
-Generated output owns:
+Presentation rules:
 
-- all rectangles, offsets, grids, rows/columns, page capacities, and focus
-  order;
-- copies of the stable public screen/element/camera IDs defined in
-  `embedded/pal_ui_layout_runtime.h`, with compile-time equality checks;
-- loading-screen coordinates;
-- exact rational scales, Q16 coefficients, and nearest-centre axis maps;
-- map player anchors and battle HUD-free camera policy;
-- real RLE extent catalogs for RGM, BALL, F, ABC, FIRE, DATA #9 UI sprites,
-  and DATA #10 battle effects;
-- FONT10 identity.
+- map view centres the canonical party anchor;
+- battle view follows the active player during animation/wait states and pans
+  to the original action/menu/target cursor while the player is choosing;
+- original menus remain on the 320x200 canvas and the native viewport pans to
+  keep the active selection visible;
+- dialogue uses the generated viewport, reflows actual message text at glyph
+  boundaries with the 10px font, and keeps the original control-code timing,
+  color, pagination, and interaction behavior;
+- only bounded assets that genuinely do not fit, currently dialogue portraits,
+  may be downsampled on-device with deterministic nearest-centre sampling,
+  preserved aspect ratio, and preserved RLE transparency.
 
-The target may perform fixed O(3) live battle subject union/clamp against the
-generated policy, but it must not enumerate layouts or derive replacement
-coefficients. Item/magic layouts are live slot templates: bind current object
-IDs, enabled/count state, and cursor at runtime; do not treat preview words or
-fixture return values as production content.
+Do not reintroduce a whole-frame axis map, semantic screen solver, mock menu
+model, or independently redesigned battle HUD.  Gameplay state remains
+canonical 320x200 and must never receive presentation coordinates.
 
-Map/battle presentation should remain player-focused. Battle must reserve the
-generated HUD exclusion. For the first production integration, render the
-complete canonical 320x200 battle frame, apply one camera crop/uniform scale
-into the HUD-free content rectangle, then draw the native HUD. This preserves
-one global sampling phase for backgrounds, sprites, color shifts, mono/shadow
-effects, and full-screen effects. Independently scaling each RLE sprite is a
-different visual semantic unless camera origin/global phase is carried into
-the compositor.
+### Required gameplay review
 
-### Current integration boundary
+Tests are necessary but not visual acceptance.  Capture dialogue, map, battle,
+and menu frames from the deterministic full gameplay executable for both
+profiles, write them under `./tmp_ui/`, and inspect every final PNG with the
+image viewer.  A crop of an old screenshot can help diagnose geometry but is
+not a final acceptance capture.  Never substitute a Python-drawn preview,
+wireframe, or synthetic fixture for a real gameplay frame.
 
-Do not infer production integration merely because generators and smokes pass.
-At the time of this update:
-
-- Cardputer production presentation consumes the generated 240x135 stage
-  rectangle and exact axis maps.
-- Semantic menu/battle tables, FONT10, live battle camera evaluation, and the
-  RLE compositor are compiled and contract-tested.
-- Generated map player anchors/camera vectors have no production consumer yet;
-  the current Cardputer path uniformly scales the full canonical framebuffer.
-- Legacy game menu/dialog/status/equipment/battle draw call sites still render
-  into the canonical 320x200 framebuffer; native small-screen draw migration
-  remains work.
-
-Before claiming this has changed, search for real non-test callers of
-`PalUiLayout_GetScreen`, `PalUiLayout_GetFocusElement`,
-`PalUiLayout_GetListTemplate`, `PalUiLayout_GetListSlot`,
-`PalUiLayout_GetListPageCount`, `PalUiLayout_ResolveBattleCamera`,
-`PalFont10_FindGlyph`, and `PalUiRle_ComposeRgb565Strip`, then prove them with
-target-shaped screenshots and deterministic gameplay traces. Startup
-validation or FONT10 identity checks alone are not live drawing integration.
-
-### Required host visual review
-
-UI work is not complete after unit tests. Generate the actual-corpus,
-actual-asset previews locally, create contact sheets if needed, and inspect
-every screen/page and both camera modes at original pixel detail. Check text
-legibility, focus visibility, bounds, page indicators, portrait/item/battle
-scales, HUD occlusion, and black side gutters.
-
-```sh
-python3 -B tools/pal_layout_check.py \
-  --data-dir /mnt/hgfs/deb13/PAL \
-  --font10-archive "$FONT10_ARCHIVE" \
-  --output-dir /tmp/pal-ui-review-new
-```
-
-Use a new output directory for every review; this command must not rewrite
-production headers. PPM files are the compiler's deterministic preview output.
-Any PNG/contact sheets are reviewer-created derivatives. These are host
-mockups using real data, not live game screenshots, and must be described as
-such. After any semantic/camera/font/scaler change, regenerate rather than
-reusing an older review directory.
+The host-only forced-battle probe remains automatic by default.  Set
+`PAL_DETERMINISTIC_FORCE_BATTLE_AUTO=0` when a review capture must hold on the
+real interactive action selector; this does not change target gameplay.
 
 ## Input mapping
 
@@ -294,20 +251,17 @@ Keep press/release pairing stable when Fn or Shift changes between edges.
 
 Use the narrowest relevant checks while iterating, then the profile gate.
 
-### UI/layout/font
+### Native UI/font
 
 ```sh
-PYTHONPATH=tools python3 -B -m unittest discover \
-  -s tools -p 'test_pal_ui_layout_*.py'
-
-make -C embedded ui-layout-runtime-check
-make -C embedded ui-layout-production-check ui-rle-downsample-check
+PYTHONPATH=tools python3 -B tools/test_pal_native_ui_layout.py
+make -C embedded native-ui-check
 
 make -C esp32s3 \
   FONT10_ARCHIVE="$FONT10_ARCHIVE" \
   cardputer-extreme-ui-layout-check
 
-make -C esp32s3 cardputer-extreme-scaler-check
+make -C esp32s3 cardputer-extreme-native-view-check
 ```
 
 Generation is an explicit mutation:

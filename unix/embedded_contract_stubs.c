@@ -12,6 +12,10 @@
 #include "video.h"
 #include "audio.h"
 #include "../embedded/pal_font_cache.h"
+#ifdef PAL_CARDPUTER_EXTREME
+#include "../embedded/pal_font10_cache.h"
+#include "../embedded/pal_native_ui.h"
+#endif
 #include "../embedded/pal_music_cache.h"
 #include "../embedded/pal_pack.h"
 #include "../embedded/pal_text_cache.h"
@@ -64,6 +68,11 @@ static PalPack pal_contract_nor_pack;
 static PalPack pal_contract_tf_pack;
 static PalTextCache pal_contract_text;
 static PalFontCache pal_contract_font;
+#ifdef PAL_CARDPUTER_EXTREME
+static PalFont10Cache pal_contract_font10;
+static PalNativeUiDialogLayout pal_contract_dialog_layout;
+static bool pal_contract_dialog_font10;
+#endif
 static bool pal_contract_pack_ready;
 static bool pal_contract_pack_tried;
 static bool pal_contract_tf_pack_ready;
@@ -474,6 +483,18 @@ int PAL_InitFont(const CONFIGURATION *cfg)
 {
     (void)cfg;
     pal_contract_font_ready = PalContract_OpenNorPack() && PalFont_Open(&pal_contract_nor_pack, &pal_contract_font);
+#ifdef PAL_CARDPUTER_EXTREME
+    pal_contract_font_ready = pal_contract_font_ready &&
+        PalFont10_Open(&pal_contract_nor_pack, &pal_contract_font10) &&
+        PalNativeUi_Font10IdentityMatches(
+            pal_contract_font10.glyph_count,
+            pal_contract_font10.size,
+            pal_contract_font10.payload_crc32,
+            pal_contract_font10.cell_width,
+            pal_contract_font10.cell_height,
+            pal_contract_font10.ascent,
+            pal_contract_font10.descent);
+#endif
     return pal_contract_font_ready ? 0 : -1;
 }
 
@@ -486,6 +507,25 @@ void PAL_DrawCharOnSurface(uint16_t wChar, SDL_Surface *lpSurface, PAL_POS pos, 
     const uint8_t *glyph;
     uint16_t glyph_bytes;
 
+#ifdef PAL_CARDPUTER_EXTREME
+    if (pal_contract_dialog_font10 && !fUse8x8Font) {
+        PalFont10Glyph glyph10;
+        if (pal_contract_font_ready &&
+            lpSurface != NULL && lpSurface->pixels != NULL &&
+            PalFont10_FindGlyph(&pal_contract_font10, wChar, &glyph10)) {
+            (void)PalNativeUi_DrawFont10Glyph(
+                glyph10.bitmap,
+                (uint8_t *)lpSurface->pixels,
+                (uint16_t)lpSurface->pitch,
+                (uint16_t)lpSurface->w,
+                (uint16_t)lpSurface->h,
+                (int16_t)PAL_X(pos),
+                (int16_t)PAL_Y(pos),
+                bColor);
+        }
+        return;
+    }
+#endif
     (void)fUse8x8Font;
     if (!pal_contract_font_ready ||
         !PalFont_FindGlyph(&pal_contract_font, wChar, &glyph, &glyph_bytes) ||
@@ -497,11 +537,26 @@ void PAL_DrawCharOnSurface(uint16_t wChar, SDL_Surface *lpSurface, PAL_POS pos, 
 
 int PAL_CharWidth(uint16_t wChar)
 {
+#ifdef PAL_CARDPUTER_EXTREME
+    if (pal_contract_dialog_font10) {
+        PalFont10Glyph glyph10;
+        if (pal_contract_font_ready &&
+            PalFont10_FindGlyph(&pal_contract_font10, wChar, &glyph10)) {
+            return glyph10.advance;
+        }
+        return PAL_NATIVE_UI_GENERATED_FONT_CELL_WIDTH;
+    }
+#endif
     return (wChar < 0x80) ? 8 : 16;
 }
 
 int PAL_FontHeight(void)
 {
+#ifdef PAL_CARDPUTER_EXTREME
+    if (pal_contract_dialog_font10) {
+        return PAL_NATIVE_UI_GENERATED_FONT_CELL_HEIGHT;
+    }
+#endif
     return 16;
 }
 
@@ -647,6 +702,70 @@ VOID PAL_StartDialogWithOffset(BYTE bDialogLocation, BYTE bFontColor, INT iNumCh
         g_TextLib.fPlayingRNG = TRUE;
     }
 
+#ifdef PAL_CARDPUTER_EXTREME
+    PalNativeUi_SetDialogView();
+    if (bDialogLocation == kDialogCenter ||
+        bDialogLocation == kDialogCenterWindow) {
+        if (!PalNativeUi_GetCenterDialogLayout(
+                &pal_contract_dialog_layout)) {
+            return;
+        }
+    } else if (!PalNativeUi_GetDialogLayout(
+            bDialogLocation == kDialogLower,
+            iNumCharFace > 0,
+            &pal_contract_dialog_layout)) {
+        return;
+    }
+
+    pal_contract_dialog_layout.text.x = (int16_t)(
+        pal_contract_dialog_layout.text.x + xOff);
+    pal_contract_dialog_layout.text.y = (int16_t)(
+        pal_contract_dialog_layout.text.y + yOff);
+    pal_contract_dialog_layout.title_x = (int16_t)(
+        pal_contract_dialog_layout.title_x + xOff);
+    pal_contract_dialog_layout.title_y = (int16_t)(
+        pal_contract_dialog_layout.title_y + yOff);
+    g_TextLib.posDialogTitle = PAL_XY(
+        pal_contract_dialog_layout.title_x,
+        pal_contract_dialog_layout.title_y);
+    g_TextLib.posDialogText = PAL_XY(
+        pal_contract_dialog_layout.text.x,
+        pal_contract_dialog_layout.text.y);
+
+    if (iNumCharFace > 0 &&
+        (bDialogLocation == kDialogUpper ||
+         bDialogLocation == kDialogLower) &&
+        PalContract_OpenNorPack() &&
+        PalPack_MapConst(
+            &pal_contract_nor_pack,
+            PAL_PACK_ARCHIVE_RGM,
+            (uint16_t)iNumCharFace,
+            &face_span) &&
+        face_span.data != NULL) {
+        PalNativeUiRect face_box = pal_contract_dialog_layout.portrait;
+        PalNativeUiRect drawn;
+        face_box.x = (int16_t)(face_box.x + xOff);
+        face_box.y = (int16_t)(face_box.y + yOff);
+        if (PalNativeUi_BlitRleFitIndexed(
+                face_span.data,
+                face_span.size,
+                (uint8_t *)gpScreen->pixels,
+                (uint16_t)gpScreen->pitch,
+                (uint16_t)gpScreen->w,
+                (uint16_t)gpScreen->h,
+                face_box,
+                &drawn)) {
+            rect.x = drawn.x;
+            rect.y = drawn.y;
+            rect.w = drawn.width;
+            rect.h = drawn.height;
+            VIDEO_UpdateScreen(&rect);
+        }
+    }
+    g_TextLib.bDialogPosition = bDialogLocation;
+    return;
+#endif
+
     switch (bDialogLocation) {
     case kDialogCenter:
         g_TextLib.posDialogText = PAL_XY(80, 40);
@@ -757,6 +876,164 @@ static void PalContract_DialogWaitForKey(FLOAT max_seconds)
     g_TextLib.fUserSkip = FALSE;
 }
 
+#ifdef PAL_CARDPUTER_EXTREME
+static bool
+PalContract_NativeDialogControl(
+    WCHAR value
+)
+{
+    return value == '-' || value == '\'' || value == '@' ||
+        value == '"' || value == ')' || value == '(';
+}
+
+static size_t
+PalContract_NativeDialogToken(
+    LPCWSTR text,
+    int *visible_width
+)
+{
+    if (visible_width == NULL || text == NULL || text[0] == 0) {
+        return 0u;
+    }
+    *visible_width = 0;
+    if (text[0] == '$' || text[0] == '~') {
+        size_t count = 1u;
+        while (count < 3u && text[count] != 0) {
+            count++;
+        }
+        return count;
+    }
+    if (PalContract_NativeDialogControl(text[0])) {
+        return 1u;
+    }
+    if (text[0] == '\\' && text[1] != 0) {
+        *visible_width = PAL_CharWidth((uint16_t)text[1]);
+        return 2u;
+    }
+    *visible_width = PAL_CharWidth((uint16_t)text[0]);
+    return 1u;
+}
+
+static int
+PalContract_NativeDialogMeasure(
+    LPCWSTR text
+)
+{
+    int width = 0;
+
+    while (text != NULL && *text != 0) {
+        int token_width;
+        size_t token = PalContract_NativeDialogToken(text, &token_width);
+        if (token == 0u) {
+            break;
+        }
+        width += token_width;
+        text += token;
+    }
+    return width;
+}
+
+static LPCWSTR
+PalContract_NativeDialogLine(
+    LPCWSTR source,
+    int max_width,
+    WCHAR *line,
+    size_t line_capacity
+)
+{
+    int width = 0;
+    size_t used = 0u;
+
+    if (source == NULL || line == NULL || line_capacity < 2u) {
+        return NULL;
+    }
+    while (*source != 0) {
+        int token_width;
+        bool terminates = source[0] == '~';
+        size_t token = PalContract_NativeDialogToken(
+            source, &token_width);
+        size_t i;
+
+        if (token == 0u || token >= line_capacity - used) {
+            break;
+        }
+        if (token_width > 0 && width > 0 &&
+            width + token_width > max_width) {
+            break;
+        }
+        for (i = 0u; i < token; i++) {
+            line[used++] = source[i];
+        }
+        source += token;
+        width += token_width;
+        if (terminates) {
+            break;
+        }
+    }
+    line[used] = 0;
+    return source;
+}
+
+static void
+PalContract_NativeDialogNextPage(
+    void
+)
+{
+    PalContract_DialogWaitForKey(0.0f);
+    g_TextLib.nCurrentDialogLine = 0;
+    VIDEO_RestoreScreen(gpScreen);
+    VIDEO_UpdateScreen(NULL);
+}
+
+static void
+PalContract_NativeShowWrappedDialogText(
+    LPCWSTR text
+)
+{
+    WCHAR line[PAL_CONTRACT_TEXT_CHARS];
+    LPCWSTR cursor = text != NULL ? text : pal_empty_text;
+    bool first = true;
+
+    if (!g_TextLib.fPlayingRNG &&
+        g_TextLib.nCurrentDialogLine == 0) {
+        VIDEO_BackupScreen(gpScreen);
+    }
+
+    do {
+        LPCWSTR next;
+        int x;
+        int y;
+
+        if (g_TextLib.nCurrentDialogLine >=
+            pal_contract_dialog_layout.page_lines) {
+            PalContract_NativeDialogNextPage();
+        }
+        next = PalContract_NativeDialogLine(
+            cursor,
+            pal_contract_dialog_layout.text.width,
+            line,
+            sizeof(line) / sizeof(line[0]));
+        if (next == NULL || (next == cursor && *cursor != 0)) {
+            return;
+        }
+        x = pal_contract_dialog_layout.text.x;
+        y = pal_contract_dialog_layout.text.y +
+            g_TextLib.nCurrentDialogLine *
+            pal_contract_dialog_layout.line_height;
+        pal_contract_dialog_font10 = true;
+        x = TEXT_DisplayText(line, x, y, FALSE);
+        pal_contract_dialog_font10 = false;
+        if (g_TextLib.fUserSkip) {
+            VIDEO_UpdateScreen(NULL);
+        }
+        g_TextLib.posIcon = PAL_XY(x, y);
+        g_TextLib.nCurrentDialogLine++;
+        cursor = next;
+        first = false;
+    } while (*cursor != 0 || first);
+}
+#endif
+
 int TEXT_DisplayText(LPCWSTR lpszText, int x, int y, BOOL isDialog)
 {
     WCHAR text[2];
@@ -854,6 +1131,75 @@ VOID PAL_ShowDialogText(LPCWSTR lpszText)
         VIDEO_UpdateScreen(NULL);
         g_fUpdatedInBattle = TRUE;
     }
+
+#ifdef PAL_CARDPUTER_EXTREME
+    len = lpszText != NULL ? wcslen(lpszText) : 0;
+    if (g_TextLib.bDialogPosition == kDialogCenterWindow) {
+        PalNativeUiViewport viewport;
+        int text_width;
+        int box_units;
+        int box_width;
+        PAL_POS pos;
+
+        pal_contract_dialog_font10 = true;
+        text_width = PalContract_NativeDialogMeasure(lpszText);
+        box_units = (text_width + 15) / 16;
+        if (box_units < 1) {
+            box_units = 1;
+        }
+        if (box_units >
+            ((int)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 16) / 16) {
+            box_units =
+                ((int)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 16) / 16;
+        }
+        box_width = box_units * 16 + 16;
+        if (!PalNativeUi_GetViewport(&viewport)) {
+            pal_contract_dialog_font10 = false;
+            return;
+        }
+        pos = PAL_XY(
+            viewport.source_x +
+                ((int)viewport.width - box_width) / 2,
+            viewport.source_y +
+                PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_Y - 10);
+        VIDEO_BackupScreen(gpScreen);
+        (void)PAL_CreateSingleLineBoxWithShadow(
+            pos, box_units, FALSE, g_TextLib.iDialogShadow);
+        TEXT_DisplayText(
+            lpszText,
+            PAL_X(pos) + 8,
+            PAL_Y(pos) + 10,
+            TRUE);
+        pal_contract_dialog_font10 = false;
+        VIDEO_UpdateScreen(NULL);
+        PalContract_DialogWaitForKey(1.4f);
+        VIDEO_RestoreScreen(gpScreen);
+        VIDEO_UpdateScreen(NULL);
+        PAL_EndDialog();
+        return;
+    }
+
+    if (g_TextLib.nCurrentDialogLine == 0 &&
+        g_TextLib.bDialogPosition != kDialogCenter &&
+        len > 0 &&
+        (lpszText[len - 1] == 0xff1a ||
+         lpszText[len - 1] == 0x2236 ||
+         lpszText[len - 1] == ':')) {
+        pal_contract_dialog_font10 = true;
+        PAL_DrawText(
+            lpszText,
+            g_TextLib.posDialogTitle,
+            FONT_COLOR_CYAN_ALT,
+            TRUE,
+            TRUE,
+            FALSE);
+        pal_contract_dialog_font10 = false;
+        return;
+    }
+
+    PalContract_NativeShowWrappedDialogText(lpszText);
+    return;
+#endif
 
     if (g_TextLib.nCurrentDialogLine > 3) {
         PalContract_DialogWaitForKey(0.0f);

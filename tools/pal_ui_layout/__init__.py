@@ -1,14 +1,8 @@
-"""Deterministic build-time layout compiler for small SDLPAL displays.
+"""Host-only Fusion Pixel FONT10 parsing and corpus subsetting support.
 
-The package deliberately contains no target runtime code.  It turns display,
-font, asset, and semantic screen descriptions into integer layout decisions
-that can be emitted as ``static const`` C data and verified on the host.
+The former replacement-screen layout compiler was removed.  Native viewport
+geometry now lives in :mod:`pal_native_ui_layout`; this package name remains
+only to keep the audited font builder import stable.
 """
 
-from .profiles import DisplayProfile, certified_profiles, parse_resolution
-
-__all__ = [
-    "DisplayProfile",
-    "certified_profiles",
-    "parse_resolution",
-]
+__all__: list[str] = []

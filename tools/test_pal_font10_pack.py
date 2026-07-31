@@ -411,49 +411,11 @@ class Font10PackBuilderTests(unittest.TestCase):
             {"FONT10": 1, "FONT_GLYPHS": 1},
         )
 
-    def test_generated_font_metrics_accept_default_screen_titles_and_pages(
-        self,
-    ) -> None:
-        from pal_ui_layout.screens import (
-            equip_screen,
-            item,
-            item_screen,
-            magic_screen,
-            menu_screen,
-            status_screen,
-        )
-        from pal_ui_layout.solver import FontMetrics
-
-        codepoints = set(
-            map(ord, "".join(builder.FONT10_UI_LABELS.values()))
-        )
-        parsed = font_tool.parse_font10(
-            font_tool.build_font10(
-                synthetic_font(codepoints),
-                codepoints,
-            )
-        )
-        metrics = FontMetrics.from_font10(parsed)
-        entry = item("back", builder.FONT10_UI_LABELS["back"], 0)
-        specs = (
-            menu_screen(160, 128, (entry,), font_metrics=metrics),
-            item_screen(160, 128, (entry,), font_metrics=metrics),
-            magic_screen(160, 128, (entry,), font_metrics=metrics),
-            status_screen(160, 128, (entry,), font_metrics=metrics),
-            equip_screen(160, 128, (entry,), font_metrics=metrics),
-        )
-
-        self.assertEqual(
-            [spec.title for spec in specs],
-            ["MENU", "ITEM", "MAGIC", "STATUS", "EQUIP"],
-        )
-        self.assertIn(ord("/"), parsed.by_codepoint())
-
     @unittest.skipUnless(
         PAL_DATA_DIR.is_dir(),
         f"real PAL data is unavailable at {PAL_DATA_DIR}",
     )
-    def test_real_pal_and_declared_ui_corpus_covers_compiler_defaults(
+    def test_real_pal_corpus_has_no_invented_ui_labels(
         self,
     ) -> None:
         pal = set(font_tool.collect_pal_corpus_characters(PAL_DATA_DIR))
@@ -464,14 +426,12 @@ class Font10PackBuilderTests(unittest.TestCase):
             )
         )
         self.assertEqual(len(pal), 2631)
-        self.assertEqual(
-            with_ui - pal,
-            set(map(ord, "/MPQSTU")),
-        )
+        self.assertEqual(builder.FONT10_UI_LABELS, {})
+        self.assertEqual(with_ui, pal)
         self.assertEqual(
             font_tool.FONT10_HEADER_BYTES
             + len(with_ui) * font_tool.FONT10_RECORD_BYTES,
-            42240,
+            42128,
         )
 
     @unittest.skipUnless(
@@ -481,8 +441,8 @@ class Font10PackBuilderTests(unittest.TestCase):
         ).is_file(),
         "real PAL data or pinned Fusion Pixel archive unavailable",
     )
-    def test_pack_and_layout_compiler_emit_identical_font10(self) -> None:
-        from pal_ui_layout.check import compile_bundle
+    def test_pack_and_native_layout_use_identical_font10_identity(self) -> None:
+        import pal_native_ui_layout
 
         release = Path(
             "/tmp/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip"
@@ -491,17 +451,20 @@ class Font10PackBuilderTests(unittest.TestCase):
             PAL_DATA_DIR,
             release,
         )
-        bundle = compile_bundle(
-            data_dir=PAL_DATA_DIR,
-            font10_archive=release,
+        profile = pal_native_ui_layout.build_profile(
+            240,
+            135,
+            pack_summary["font10"],
         )
-        compiler_font10 = bundle.artifacts["font/font10.bin"]
-
-        self.assertEqual(pack_chunk.payload, compiler_font10)
-        self.assertEqual(len(compiler_font10), 42240)
+        self.assertEqual(len(pack_chunk.payload), 42128)
+        self.assertEqual(profile.font["image_bytes"], len(pack_chunk.payload))
+        self.assertEqual(
+            profile.font["payload_crc32"],
+            pack_summary["font10"]["payload_crc32"],
+        )
         self.assertEqual(
             pack_summary["font10"]["sha256"],
-            hashlib.sha256(compiler_font10).hexdigest(),
+            hashlib.sha256(pack_chunk.payload).hexdigest(),
         )
 
 

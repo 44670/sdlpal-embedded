@@ -21,11 +21,28 @@
 
 #include "main.h"
 #include "fight.h"
+#ifdef PAL_CARDPUTER_EXTREME
+#include "embedded/pal_native_ui.h"
+#endif
 
 extern WORD g_rgPlayerPos[3][3][2];
 
 static int g_iCurMiscMenuItem = 0;
 static int g_iCurSubMenuItem = 0;
+
+#ifdef PAL_CARDPUTER_EXTREME
+static VOID
+PAL_BattleNativeFocusPoint(
+   INT x,
+   INT y
+)
+{
+   PalNativeUi_FocusLogical(
+      (int16_t)x,
+      (int16_t)y,
+      PAL_NATIVE_UI_VIEW_UI);
+}
+#endif
 
 VOID
 PAL_PlayerInfoBox(
@@ -411,6 +428,13 @@ PAL_BattleUIDrawMiscMenu(
 
       PAL_DrawText(PAL_GetWord(rgMenuItem[i].wNumWord), rgMenuItem[i].pos, bColor, TRUE, FALSE, FALSE);
    }
+
+#ifdef PAL_CARDPUTER_EXTREME
+   PAL_BattleNativeFocusPoint(
+      PAL_X(rgMenuItem[wCurrentItem].pos) +
+         PAL_TextWidth(PAL_GetWord(rgMenuItem[wCurrentItem].wNumWord)) / 2,
+      PAL_Y(rgMenuItem[wCurrentItem].pos) + PAL_FontHeight() / 2);
+#endif
 }
 
 static WORD
@@ -520,6 +544,14 @@ PAL_BattleUIMiscItemSubMenuUpdate(
 
       PAL_DrawText(PAL_GetWord(rgMenuItem[i].wNumWord), rgMenuItem[i].pos, bColor, TRUE, FALSE, FALSE);
    }
+
+#ifdef PAL_CARDPUTER_EXTREME
+   PAL_BattleNativeFocusPoint(
+      PAL_X(rgMenuItem[g_iCurSubMenuItem].pos) +
+         PAL_TextWidth(PAL_GetWord(
+            rgMenuItem[g_iCurSubMenuItem].wNumWord)) / 2,
+      PAL_Y(rgMenuItem[g_iCurSubMenuItem].pos) + PAL_FontHeight() / 2);
+#endif
 
    //
    // Process inputs
@@ -1079,6 +1111,20 @@ PAL_BattleUIUpdate(
             }
          }
 
+#ifdef PAL_CARDPUTER_EXTREME
+         if (g_Battle.UI.MenuState == kBattleMenuMain)
+         {
+            LPCBITMAPRLE focus_icon = PAL_SpriteGetFrame(
+               gpSpriteUI,
+               rgItems[g_Battle.UI.wSelectedAction].iSpriteNum);
+            PAL_BattleNativeFocusPoint(
+               PAL_X(rgItems[g_Battle.UI.wSelectedAction].pos) +
+                  PAL_RLEGetWidth(focus_icon) / 2,
+               PAL_Y(rgItems[g_Battle.UI.wSelectedAction].pos) +
+                  PAL_RLEGetHeight(focus_icon) / 2);
+         }
+#endif
+
          switch (g_Battle.UI.MenuState)
          {
          case kBattleMenuMain:
@@ -1540,6 +1586,16 @@ PAL_BattleUIUpdate(
             if( g_Battle.UI.iSelectedIndex >= MAX_ENEMIES_IN_TEAM ) g_Battle.UI.iSelectedIndex = 0;
          }
       }
+#ifdef PAL_CARDPUTER_EXTREME
+      if (g_Battle.UI.state == kBattleUISelectTargetEnemy &&
+         g_Battle.UI.iSelectedIndex >= 0 &&
+         g_Battle.UI.iSelectedIndex <= g_Battle.wMaxEnemyIndex)
+      {
+         PAL_BattleNativeFocusPoint(
+            PAL_X(g_Battle.rgEnemy[g_Battle.UI.iSelectedIndex].pos),
+            PAL_Y(g_Battle.rgEnemy[g_Battle.UI.iSelectedIndex].pos));
+      }
+#endif
       break;
 
    case kBattleUISelectTargetPlayer:
@@ -1606,6 +1662,17 @@ PAL_BattleUIUpdate(
          }
       }
 
+#ifdef PAL_CARDPUTER_EXTREME
+      if (g_Battle.UI.state == kBattleUISelectTargetPlayer &&
+         g_Battle.UI.iSelectedIndex >= 0 &&
+         g_Battle.UI.iSelectedIndex <= gpGlobals->wMaxPartyMemberIndex)
+      {
+         PAL_BattleNativeFocusPoint(
+            PAL_X(g_Battle.rgPlayer[g_Battle.UI.iSelectedIndex].pos),
+            PAL_Y(g_Battle.rgPlayer[g_Battle.UI.iSelectedIndex].pos));
+      }
+#endif
+
       break;
 
    case kBattleUISelectTargetEnemyAll:
@@ -1656,6 +1723,30 @@ PAL_BattleUIUpdate(
          g_Battle.UI.iSelectedIndex = -1;
          PAL_BattleCommitAction(FALSE);
       }
+#ifdef PAL_CARDPUTER_EXTREME
+      if (g_Battle.UI.state == kBattleUISelectTargetEnemyAll)
+      {
+         INT focus_x = 0;
+         INT focus_y = 0;
+         INT focus_count = 0;
+
+         for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
+         {
+            if (g_Battle.rgEnemy[i].wObjectID != 0)
+            {
+               focus_x += PAL_X(g_Battle.rgEnemy[i].pos);
+               focus_y += PAL_Y(g_Battle.rgEnemy[i].pos);
+               focus_count++;
+            }
+         }
+         if (focus_count > 0)
+         {
+            PAL_BattleNativeFocusPoint(
+               focus_x / focus_count,
+               focus_y / focus_count);
+         }
+      }
+#endif
 #endif
       break;
 
@@ -1703,6 +1794,15 @@ PAL_BattleUIUpdate(
          g_Battle.UI.iSelectedIndex = -1;
          PAL_BattleCommitAction(FALSE);
       }
+#ifdef PAL_CARDPUTER_EXTREME
+      if (g_Battle.UI.state == kBattleUISelectTargetPlayerAll &&
+         g_Battle.UI.wCurPlayerIndex <= gpGlobals->wMaxPartyMemberIndex)
+      {
+         PAL_BattleNativeFocusPoint(
+            PAL_X(g_Battle.rgPlayer[g_Battle.UI.wCurPlayerIndex].pos),
+            PAL_Y(g_Battle.rgPlayer[g_Battle.UI.wCurPlayerIndex].pos));
+      }
+#endif
 #endif
       break;
    }

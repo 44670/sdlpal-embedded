@@ -20,6 +20,9 @@
 //
 
 #include "main.h"
+#ifdef PAL_CARDPUTER_EXTREME
+#include "embedded/pal_native_ui.h"
+#endif
 
 static struct MAGICITEM
 {
@@ -60,6 +63,9 @@ PAL_MagicSelectionMenuUpdate(
    const int   iBoxYOffset = gConfig.ScreenLayout.ExtraMagicDescLines * 16;
    const int   iCursorXOffset = gConfig.dwWordLength * 5 / 2;
    const int   iPageLineOffset = iLinesPerPage / 2;
+#ifdef PAL_CARDPUTER_EXTREME
+   PAL_POS     cursorPos = PAL_XY(35 + iCursorXOffset, 64 + iBoxYOffset);
+#endif
 
    //
    // Check for inputs
@@ -266,6 +272,11 @@ PAL_MagicSelectionMenuUpdate(
          //
          if (i == g_iCurrentItem)
          {
+#ifdef PAL_CARDPUTER_EXTREME
+            cursorPos = PAL_XY(
+               35 + iCursorXOffset + k * iItemTextWidth,
+               64 + j * 18 + iBoxYOffset);
+#endif
             PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR),
                gpScreen, PAL_XY(35 + iCursorXOffset + k * iItemTextWidth, 64 + j * 18 + iBoxYOffset));
          }
@@ -273,6 +284,13 @@ PAL_MagicSelectionMenuUpdate(
          i++;
       }
    }
+
+#ifdef PAL_CARDPUTER_EXTREME
+   PalNativeUi_FocusLogical(
+      (int16_t)PAL_X(cursorPos),
+      (int16_t)PAL_Y(cursorPos),
+      PAL_NATIVE_UI_VIEW_UI);
+#endif
 
    if (g_InputState.dwKeyPress & kKeySearch)
    {

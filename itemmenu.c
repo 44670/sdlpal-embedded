@@ -20,6 +20,9 @@
 //
 
 #include "main.h"
+#ifdef PAL_CARDPUTER_EXTREME
+#include "embedded/pal_native_ui.h"
+#endif
 
 static int     g_iNumInventory = 0;
 static WORD    g_wItemFlags = 0;
@@ -238,6 +241,12 @@ PAL_ItemSelectMenuUpdate(
    // Draw the cursor on the current selected item
    //
    PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR), gpScreen, cursorPos);
+#ifdef PAL_CARDPUTER_EXTREME
+   PalNativeUi_FocusLogical(
+      (int16_t)PAL_X(cursorPos),
+      (int16_t)PAL_Y(cursorPos),
+      PAL_NATIVE_UI_VIEW_UI);
+#endif
 
    wObject = gpGlobals->rgInventory[gpGlobals->iCurInvMenuItem].wItem;
 

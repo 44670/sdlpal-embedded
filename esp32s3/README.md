@@ -16,8 +16,7 @@ the default CoreS3 SE build.  The profile has:
 - exactly two named 320x200x8-bit logical screens plus one 4KB LCD DMA strip;
 - no audio in the default build; the explicit music build adds RIX/OPL2 only,
   while desktop codecs and SFX remain excluded;
-- no runtime decompressor or splash sequence; native menu/layout migration is
-  not live yet;
+- no runtime decompressor or splash sequence;
 - the Cardputer ADV vendor timing profile (240MHz CPU and a 1ms FreeRTOS tick);
 - ST7789 240x135 indexed presentation through SPI3 and TCA8418 keyboard input;
 - TF on independent SPI2 at 20MHz, with only a 2KB pack TOC resident in SRAM.
@@ -40,14 +39,21 @@ a legacy pack without the matching FONT10 chunk fails closed.  Full
 `cardputer-extreme-check` / `cardputer-extreme-music-check` runs therefore
 also require `FONT10_ARCHIVE`.
 
-Python generates both certified 240x135 and 160x128 semantic layouts.  The
-Cardputer presentation path currently consumes the generated 240x135 stage
-geometry and exact destination-to-source axis maps, so its pixel loop performs
-no scale division.  Semantic menu/battle tables, the FONT10 glyph view, and
-the streaming RLE downsampler are compiled and checked as a foundation, but
-the original game menu/battle draw call sites are not migrated to native
-small-screen rendering yet; gameplay still renders the canonical 320x200
-frame before presentation scaling.
+`tools/pal_native_ui_layout.py` generates the certified 240x135 and 160x128
+native-view contracts.  Gameplay retains its canonical 320x200 indexed frame,
+original palette and original DATA.MKF UI assets, while the LCD copies a 1:1
+player-focused viewport with no whole-frame scaling.  Map view follows the
+party; battle view follows the active player and temporarily follows the
+original action/menu/target cursor during selection; unchanged menus pan the
+viewport to the current selection.  Dialogue uses the corpus-subsetted 10px
+FONT10 glyphs with generated wrapping/page geometry; only an overlarge portrait
+is fitted with deterministic aspect-preserving RLE sampling.  The relevant
+runtime files are `embedded/pal_native_ui.[ch]` and
+`main/cardputer_extreme_native_view.[ch]`.
+
+Visual acceptance must use real deterministic gameplay captures for dialogue,
+map, battle, and menus at both resolutions.  Store review artifacts under
+`./tmp_ui/`; Python-drawn mockups are not gameplay evidence.
 
 ### TF-backed chapter cache experiment
 

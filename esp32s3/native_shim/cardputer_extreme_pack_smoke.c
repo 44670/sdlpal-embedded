@@ -1,7 +1,7 @@
 #include "pal_engine_pack_provider.h"
 #include "pal_font10_cache.h"
+#include "pal_native_ui.h"
 #include "pal_pack.h"
-#include "pal_ui_layout_runtime.h"
 
 #include <fcntl.h>
 #include <stdbool.h>
@@ -120,7 +120,7 @@ main(
    PalEngineBridge_ClearPacks();
    if (!PalPack_OpenConst(&nor_pack, nor_image, (uint32_t)st.st_size) ||
       !PalFont10_Open(&nor_pack, &font10) ||
-      !PalUiLayout_Font10IdentityMatches(
+      !PalNativeUi_Font10IdentityMatches(
          font10.glyph_count,
          font10.size,
          font10.payload_crc32,

@@ -83,53 +83,10 @@ ARCHIVE_IDS = {
 
 DEFAULT_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_default.json")
 
-# These labels are part of the native small-screen UI contract rather than
-# incidental strings found in the Python implementation.  Keep them in
-# Traditional Chinese to match the audited CP950 PAL data.  The page separator
-# plus six ASCII letters used by ScreenSpec's default titles are absent from
-# WORD.DAT/M.MSG, so the audited subset is 2,638 glyphs
-# (32 + 2,638 * 16 = 42,240 bytes).
-FONT10_UI_LABELS = {
-    # ScreenSpec's public defaults and its generated page counter are part of
-    # the compiler input contract too.  Keeping them here makes a FONT10 pack
-    # directly usable by every default screen constructor, not only by the
-    # translated target labels below.
-    "menu_title": "MENU",
-    "item_title": "ITEM",
-    "magic_title": "MAGIC",
-    "status_title": "STATUS",
-    "equipment_title": "EQUIP",
-    "page_counter": "0123456789/",
-    "back": "返回",
-    "confirm": "確定",
-    "cancel": "取消",
-    "status": "狀態",
-    "equipment": "裝備",
-    "items": "物品",
-    "magic": "法術",
-    "system": "系統",
-    "battle": "戰鬥",
-    "current": "當前",
-    "target": "目標",
-    "life": "生命",
-    "mana": "真氣",
-    "cash": "金錢",
-    "exit": "退出",
-    "save": "保存",
-    "load": "載入",
-    "attack": "攻擊",
-    "coop_magic": "合體",
-    "misc": "其他",
-    "defend": "防禦",
-    "flee": "逃跑",
-    "cast": "施法",
-    "use": "使用",
-    "all": "全體",
-    "role": "角色",
-    "time_meter": "蓄力",
-    "more": "更多",
-    "page_separator": "/",
-}
+# The native small-screen path reuses the original WORD.DAT/M.MSG labels.
+# Keep an explicit empty mapping in the manifest so any future non-game text
+# changes the FONT10 identity visibly instead of arriving as hidden chrome.
+FONT10_UI_LABELS: dict[str, str] = {}
 
 
 @dataclass(frozen=True)

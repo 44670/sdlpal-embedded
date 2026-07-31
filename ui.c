@@ -21,6 +21,10 @@
 
 #include "main.h"
 
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "embedded/pal_native_ui.h"
+#endif
+
 LPCSPRITE     gpSpriteUI = NULL;
 
 #ifdef PAL_NO_RUNTIME_HEAP
@@ -631,6 +635,26 @@ PAL_DeleteBox(
 #endif
 }
 
+#if defined(PAL_CARDPUTER_EXTREME)
+static VOID
+PAL_NativeUiFocusMenuItem(
+   LPCMENUITEM item
+)
+{
+   int width;
+
+   if (item == NULL)
+   {
+      return;
+   }
+   width = PAL_TextWidth(PAL_GetWord(item->wNumWord));
+   PalNativeUi_FocusLogical(
+      (int16_t)(PAL_X(item->pos) + width / 2),
+      (int16_t)(PAL_Y(item->pos) + PAL_FontHeight() / 2),
+      PAL_NATIVE_UI_VIEW_UI);
+}
+#endif
+
 WORD
 PAL_ReadMenu(
    LPITEMCHANGED_CALLBACK    lpfnMenuItemChanged,
@@ -665,6 +689,10 @@ PAL_ReadMenu(
 {
    int               i;
    WORD              wCurrentItem    = (wDefaultItem < nMenuItem) ? wDefaultItem : 0;
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   PAL_NativeUiFocusMenuItem(&rgMenuItem[wCurrentItem]);
+#endif
 
    //
    // Fix issue #166
@@ -761,6 +789,9 @@ PAL_ReadMenu(
             PAL_DrawText(PAL_GetWord(rgMenuItem[wCurrentItem].wNumWord),
                rgMenuItem[wCurrentItem].pos, MENUITEM_COLOR_SELECTED_INACTIVE, FALSE, TRUE, FALSE);
          }
+#if defined(PAL_CARDPUTER_EXTREME)
+         PAL_NativeUiFocusMenuItem(&rgMenuItem[wCurrentItem]);
+#endif
          //
          // Fix issue #166
          //
@@ -818,6 +849,9 @@ PAL_ReadMenu(
             PAL_DrawText(PAL_GetWord(rgMenuItem[wCurrentItem].wNumWord),
                rgMenuItem[wCurrentItem].pos, MENUITEM_COLOR_SELECTED_INACTIVE, FALSE, TRUE, FALSE);
          }
+#if defined(PAL_CARDPUTER_EXTREME)
+         PAL_NativeUiFocusMenuItem(&rgMenuItem[wCurrentItem]);
+#endif
          //
          // Fix issue #166
          //

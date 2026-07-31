@@ -23,6 +23,7 @@
 
 #if defined(PAL_CARDPUTER_EXTREME)
 #include "pal_engine_runtime_metrics.h"
+#include "embedded/pal_native_ui.h"
 #endif
 
 BATTLE          g_Battle;
@@ -617,6 +618,24 @@ PAL_BattleMakeScene(
    // Draw all sprite
    //
    PAL_BattleDrawAllSprites();
+
+#if defined(PAL_CARDPUTER_EXTREME)
+   {
+      WORD focus_player = g_Battle.UI.wCurPlayerIndex;
+      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
+      {
+         focus_player = g_Battle.wMovingPlayerIndex;
+      }
+      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
+      {
+         focus_player = 0;
+      }
+      PalNativeUi_FocusLogical(
+         (int16_t)PAL_X(g_Battle.rgPlayer[focus_player].pos),
+         (int16_t)PAL_Y(g_Battle.rgPlayer[focus_player].pos),
+         PAL_NATIVE_UI_VIEW_BATTLE);
+   }
+#endif
 }
 
 VOID

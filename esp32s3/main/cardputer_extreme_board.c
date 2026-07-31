@@ -2,8 +2,8 @@
 
 #include "cardputer_extreme_board_internal.h"
 #include "cardputer_extreme_memory.h"
-#include "cardputer_extreme_scaler.h"
-#include "pal_ui_layout_runtime.h"
+#include "cardputer_extreme_native_view.h"
+#include "pal_native_ui.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -123,8 +123,8 @@ typedef char cardputer_extreme_view_height_matches[
         : -1];
 typedef char cardputer_extreme_logical_screen_matches[
     (PAL_EXTREME_SCREEN_BYTES ==
-     PAL_UI_GENERATED_STAGE_SOURCE_WIDTH *
-         PAL_UI_GENERATED_STAGE_SOURCE_HEIGHT) ? 1 : -1];
+     PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH *
+         PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT) ? 1 : -1];
 
 typedef struct CardputerExtremeKeyEvent {
     uint8_t ascii;
@@ -786,9 +786,9 @@ CardputerExtreme_Begin(void)
 {
     gpio_config_t button_cfg = {0};
 
-    if (!PalUiLayout_ValidateGenerated() ||
-        !CardputerExtreme_ScalerValidateGeneratedMap()) {
-        ESP_LOGE(TAG, "generated UI layout validation failed");
+    PalNativeUi_SetWorldView();
+    if (!CardputerExtreme_NativeViewValidate()) {
+        ESP_LOGE(TAG, "generated native PAL viewport validation failed");
         return false;
     }
     button_cfg.pin_bit_mask = 1ULL << PIN_BUTTON_A;
@@ -1040,7 +1040,6 @@ CardputerExtreme_PhysicalKeyMask(void)
     return physical_key_mask;
 }
 
-/* PAL_UI_LAYOUT_MIGRATED_BEGIN presentation */
 bool
 CardputerExtreme_FlushIndexedFramebuffer(
     const uint8_t *pixels,
@@ -1052,42 +1051,35 @@ CardputerExtreme_FlushIndexedFramebuffer(
                    (CARDPUTER_EXTREME_LCD_WIDTH * 2u));
     const size_t lcd_pitch =
         (size_t)CARDPUTER_EXTREME_LCD_WIDTH * 2u;
-    const size_t view_offset =
-        (size_t)CARDPUTER_EXTREME_PAL_VIEW_X * 2u;
     uint16_t y;
 
     if (lcd_io == NULL || pixels == NULL || palette_rgba == NULL ||
-        CardputerExtreme_ScalerSourcePixels() != PAL_EXTREME_SCREEN_BYTES ||
-        pitch < CardputerExtreme_ScalerSourceWidth() || max_rows == 0) {
+        PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH *
+            PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT !=
+            PAL_EXTREME_SCREEN_BYTES ||
+        pitch < PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH || max_rows == 0) {
         return false;
     }
 
-    for (y = 0; y < CARDPUTER_EXTREME_PAL_VIEW_HEIGHT;) {
-        uint16_t rows =
-            (uint16_t)(CARDPUTER_EXTREME_PAL_VIEW_HEIGHT - y);
+    for (y = 0; y < CARDPUTER_EXTREME_LCD_HEIGHT;) {
+        uint16_t rows = (uint16_t)(CARDPUTER_EXTREME_LCD_HEIGHT - y);
 
         if (rows > max_rows) {
             rows = max_rows;
         }
-        memset(
-            pal_sram_display_dma,
-            0,
-            (size_t)rows * lcd_pitch);
-        if (!CardputerExtreme_ScaleIndexedStrip(
+        if (!CardputerExtreme_CopyIndexedNativeStrip(
                 pixels,
                 pitch,
                 palette_rgba,
                 y,
                 rows,
-                pal_sram_display_dma + view_offset,
+                pal_sram_display_dma,
                 lcd_pitch,
-                PAL_EXTREME_DISPLAY_DMA_BYTES - view_offset)) {
+                PAL_EXTREME_DISPLAY_DMA_BYTES)) {
             return false;
         }
 
-        if (!lcd_send_strip(
-                (uint16_t)(CARDPUTER_EXTREME_PAL_VIEW_Y + y),
-                rows)) {
+        if (!lcd_send_strip(y, rows)) {
             return false;
         }
         y = (uint16_t)(y + rows);
@@ -1107,13 +1099,14 @@ CardputerExtreme_FlushArgb8888Texture(
         (uint16_t)(PAL_EXTREME_DISPLAY_DMA_BYTES /
                    (CARDPUTER_EXTREME_LCD_WIDTH * 2u));
     const uint8_t *source_pixels = (const uint8_t *)pixels;
+    PalNativeUiViewport viewport;
     uint16_t y;
 
     if (lcd_io == NULL || source_pixels == NULL ||
-        width != PAL_UI_GENERATED_STAGE_SOURCE_WIDTH ||
-        height != PAL_UI_GENERATED_STAGE_SOURCE_HEIGHT ||
+        width != PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH ||
+        height != PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT ||
         (uint32_t)pitch < (uint32_t)width * 4u ||
-        max_rows == 0) {
+        max_rows == 0 || !PalNativeUi_GetViewport(&viewport)) {
         return false;
     }
 
@@ -1125,59 +1118,22 @@ CardputerExtreme_FlushArgb8888Texture(
             rows = max_rows;
         }
         for (row = 0; row < rows; row++) {
-            uint16_t display_y = (uint16_t)(y + row);
-            uint32_t view_y =
-                (uint32_t)display_y - CARDPUTER_EXTREME_PAL_VIEW_Y;
+            uint16_t source_y = (uint16_t)(viewport.source_y + y + row);
             uint16_t *destination =
                 (uint16_t *)pal_sram_display_dma +
                 (uint32_t)row * CARDPUTER_EXTREME_LCD_WIDTH;
+            const uint8_t *source = source_pixels +
+                (uint32_t)source_y * pitch +
+                (uint32_t)viewport.source_x * 4u;
             uint16_t display_x;
 
-            if (view_y < CARDPUTER_EXTREME_PAL_VIEW_HEIGHT) {
-                uint16_t source_y;
-                const uint8_t *source =
-                    source_pixels;
-
-                if (!CardputerExtreme_ScalerSourceY(
-                        (uint16_t)view_y,
-                        &source_y)) {
-                    return false;
-                }
-                source += (uint32_t)source_y * pitch;
-                for (display_x = 0;
-                     display_x < CARDPUTER_EXTREME_LCD_WIDTH;
-                     display_x++) {
-                    if (display_x < CARDPUTER_EXTREME_PAL_VIEW_X ||
-                        display_x >=
-                            CARDPUTER_EXTREME_PAL_VIEW_X +
-                                CARDPUTER_EXTREME_PAL_VIEW_WIDTH) {
-                        destination[display_x] = 0;
-                    } else {
-                        uint16_t view_x =
-                            (uint16_t)(display_x - CARDPUTER_EXTREME_PAL_VIEW_X);
-                        uint16_t source_x;
-                        const uint8_t *pixel;
-
-                        if (!CardputerExtreme_ScalerSourceX(
-                                view_x,
-                                &source_x)) {
-                            return false;
-                        }
-                        pixel = source + (uint32_t)source_x * 4u;
-                        /*
-                         * SDL's ARGB8888 texture is B,G,R,A in little-endian
-                         * memory.  Alpha is intentionally ignored.
-                         */
-                        destination[display_x] =
-                            lcd_wire_rgb565(pixel[2], pixel[1], pixel[0]);
-                    }
-                }
-            } else {
-                for (display_x = 0;
-                     display_x < CARDPUTER_EXTREME_LCD_WIDTH;
-                     display_x++) {
-                    destination[display_x] = 0;
-                }
+            for (display_x = 0;
+                 display_x < CARDPUTER_EXTREME_LCD_WIDTH;
+                 display_x++) {
+                const uint8_t *pixel = source + (uint32_t)display_x * 4u;
+                /* SDL ARGB8888 is B,G,R,A in little-endian memory. */
+                destination[display_x] =
+                    lcd_wire_rgb565(pixel[2], pixel[1], pixel[0]);
             }
         }
 
@@ -1189,18 +1145,16 @@ CardputerExtreme_FlushArgb8888Texture(
 
     return true;
 }
-/* PAL_UI_LAYOUT_MIGRATED_END presentation */
 
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
-/* PAL_UI_LAYOUT_MIGRATED_BEGIN loading */
 void
 CardputerExtreme_ShowLoading(
     uint8_t percent)
 {
     static uint8_t last_percent = UINT8_MAX;
     static const uint8_t loading_glyphs
-        [PAL_UI_GENERATED_LOADING_GLYPH_COUNT]
-        [PAL_UI_GENERATED_LOADING_GLYPH_HEIGHT] = {
+        [PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_COUNT]
+        [PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_HEIGHT] = {
         {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1f}, /* L */
         {0x0e, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0e}, /* O */
         {0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11}, /* A */
@@ -1218,8 +1172,8 @@ CardputerExtreme_ShowLoading(
     const uint16_t bar_full = lcd_wire_rgb565(0, 184, 248);
     uint16_t y;
 
-    if (percent > PAL_UI_GENERATED_LOADING_PROGRESS_MAX) {
-        percent = PAL_UI_GENERATED_LOADING_PROGRESS_MAX;
+    if (percent > PAL_NATIVE_UI_GENERATED_LOADING_PROGRESS_MAX) {
+        percent = PAL_NATIVE_UI_GENERATED_LOADING_PROGRESS_MAX;
     }
     if (percent == last_percent) {
         return;
@@ -1246,71 +1200,71 @@ CardputerExtreme_ShowLoading(
             for (x = 0; x < CARDPUTER_EXTREME_LCD_WIDTH; x++) {
                 uint16_t color = background;
 
-                if (display_y >= PAL_UI_GENERATED_LOADING_LABEL_Y &&
-                    display_y < PAL_UI_GENERATED_LOADING_LABEL_Y +
-                        PAL_UI_GENERATED_LOADING_LABEL_HEIGHT &&
-                    x >= PAL_UI_GENERATED_LOADING_LABEL_X &&
-                    x < PAL_UI_GENERATED_LOADING_LABEL_X +
-                        PAL_UI_GENERATED_LOADING_LABEL_WIDTH) {
+                if (display_y >= PAL_NATIVE_UI_GENERATED_LOADING_LABEL_Y &&
+                    display_y < PAL_NATIVE_UI_GENERATED_LOADING_LABEL_Y +
+                        PAL_NATIVE_UI_GENERATED_LOADING_LABEL_HEIGHT &&
+                    x >= PAL_NATIVE_UI_GENERATED_LOADING_LABEL_X &&
+                    x < PAL_NATIVE_UI_GENERATED_LOADING_LABEL_X +
+                        PAL_NATIVE_UI_GENERATED_LOADING_LABEL_WIDTH) {
                     uint16_t local_x = (uint16_t)(
-                        x - PAL_UI_GENERATED_LOADING_LABEL_X);
+                        x - PAL_NATIVE_UI_GENERATED_LOADING_LABEL_X);
                     uint16_t character =
                         (uint16_t)(local_x /
-                            (PAL_UI_GENERATED_LOADING_GLYPH_ADVANCE *
-                             PAL_UI_GENERATED_LOADING_GLYPH_SCALE));
+                            (PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_ADVANCE *
+                             PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_SCALE));
                     uint16_t column =
                         (uint16_t)(
                             (local_x /
-                             PAL_UI_GENERATED_LOADING_GLYPH_SCALE) %
-                            PAL_UI_GENERATED_LOADING_GLYPH_ADVANCE);
+                             PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_SCALE) %
+                            PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_ADVANCE);
                     uint16_t glyph_row =
                         (uint16_t)(
                             (display_y -
-                             PAL_UI_GENERATED_LOADING_LABEL_Y) /
-                            PAL_UI_GENERATED_LOADING_GLYPH_SCALE);
+                             PAL_NATIVE_UI_GENERATED_LOADING_LABEL_Y) /
+                            PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_SCALE);
 
                     if (character <
-                            PAL_UI_GENERATED_LOADING_GLYPH_COUNT &&
-                        column < PAL_UI_GENERATED_LOADING_GLYPH_WIDTH &&
+                            PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_COUNT &&
+                        column < PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_WIDTH &&
                         (loading_glyphs[character][glyph_row] &
                          (uint8_t)(
                              (1u <<
-                              (PAL_UI_GENERATED_LOADING_GLYPH_WIDTH - 1u)) >>
+                              (PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_WIDTH - 1u)) >>
                              column)) != 0u) {
                         color = foreground;
                     }
                 }
 
-                if (display_y >= PAL_UI_GENERATED_LOADING_BAR_Y &&
-                    display_y < PAL_UI_GENERATED_LOADING_BAR_Y +
-                        PAL_UI_GENERATED_LOADING_BAR_HEIGHT &&
-                    x >= PAL_UI_GENERATED_LOADING_BAR_X &&
-                    x < PAL_UI_GENERATED_LOADING_BAR_X +
-                        PAL_UI_GENERATED_LOADING_BAR_WIDTH) {
+                if (display_y >= PAL_NATIVE_UI_GENERATED_LOADING_BAR_Y &&
+                    display_y < PAL_NATIVE_UI_GENERATED_LOADING_BAR_Y +
+                        PAL_NATIVE_UI_GENERATED_LOADING_BAR_HEIGHT &&
+                    x >= PAL_NATIVE_UI_GENERATED_LOADING_BAR_X &&
+                    x < PAL_NATIVE_UI_GENERATED_LOADING_BAR_X +
+                        PAL_NATIVE_UI_GENERATED_LOADING_BAR_WIDTH) {
                     uint16_t bar_local_x = (uint16_t)(
-                        x - PAL_UI_GENERATED_LOADING_BAR_X);
+                        x - PAL_NATIVE_UI_GENERATED_LOADING_BAR_X);
                     uint16_t bar_local_y = (uint16_t)(
-                        display_y - PAL_UI_GENERATED_LOADING_BAR_Y);
+                        display_y - PAL_NATIVE_UI_GENERATED_LOADING_BAR_Y);
 
                     if (bar_local_x <
-                            PAL_UI_GENERATED_LOADING_BAR_BORDER ||
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_BORDER ||
                         bar_local_x >=
-                            PAL_UI_GENERATED_LOADING_BAR_WIDTH -
-                            PAL_UI_GENERATED_LOADING_BAR_BORDER ||
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_WIDTH -
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_BORDER ||
                         bar_local_y <
-                            PAL_UI_GENERATED_LOADING_BAR_BORDER ||
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_BORDER ||
                         bar_local_y >=
-                            PAL_UI_GENERATED_LOADING_BAR_HEIGHT -
-                            PAL_UI_GENERATED_LOADING_BAR_BORDER) {
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_HEIGHT -
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_BORDER) {
                         color = foreground;
                     } else if (
                         (uint32_t)(
                             bar_local_x -
-                            PAL_UI_GENERATED_LOADING_BAR_BORDER) *
-                            PAL_UI_GENERATED_LOADING_PROGRESS_MAX <
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_BORDER) *
+                            PAL_NATIVE_UI_GENERATED_LOADING_PROGRESS_MAX <
                         (uint32_t)(
-                            PAL_UI_GENERATED_LOADING_BAR_WIDTH -
-                            2u * PAL_UI_GENERATED_LOADING_BAR_BORDER) *
+                            PAL_NATIVE_UI_GENERATED_LOADING_BAR_WIDTH -
+                            2u * PAL_NATIVE_UI_GENERATED_LOADING_BAR_BORDER) *
                             percent) {
                         color = bar_full;
                     } else {
@@ -1326,7 +1280,6 @@ CardputerExtreme_ShowLoading(
         y = (uint16_t)(y + rows);
     }
 }
-/* PAL_UI_LAYOUT_MIGRATED_END loading */
 #endif
 
 void

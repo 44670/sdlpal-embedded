@@ -78,8 +78,8 @@ PalEngineBridge_RenderPresentIndexed(
    int64_t flush_us;
 
    if (pixels == NULL || palette_rgba == NULL || pitch < w ||
-       w != PAL_UI_GENERATED_STAGE_SOURCE_WIDTH ||
-       h != PAL_UI_GENERATED_STAGE_SOURCE_HEIGHT)
+       w != PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH ||
+       h != PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT)
    {
       return;
    }
@@ -101,11 +101,11 @@ PalEngineBridge_RenderPresentIndexed(
    if (!pal_engine_logged_first_present)
    {
       ESP_LOGI(TAG,
-         "Cardputer first indexed present: %ux%u -> %ux%u, flush_us=%lld",
-         (unsigned)PAL_UI_GENERATED_STAGE_SOURCE_WIDTH,
-         (unsigned)PAL_UI_GENERATED_STAGE_SOURCE_HEIGHT,
-         (unsigned)PAL_UI_GENERATED_STAGE_DESTINATION_WIDTH,
-         (unsigned)PAL_UI_GENERATED_STAGE_DESTINATION_HEIGHT,
+         "Cardputer first native indexed view: %ux%u crop %ux%u, flush_us=%lld",
+         (unsigned)PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH,
+         (unsigned)PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT,
+         (unsigned)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+         (unsigned)PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
          (long long)flush_us);
       pal_engine_logged_first_present = true;
    }

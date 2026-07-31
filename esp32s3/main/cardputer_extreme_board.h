@@ -11,23 +11,30 @@ extern "C" {
 /*
  * M5Stack Cardputer ADV (K132-Adv), not the original Cardputer.
  *
- * The generated 240x135 profile owns the LCD and stage geometry.  The board
- * presents its indexed source through that stage without an RGB565
- * framebuffer.
+ * The generated 240x135 profile owns the LCD and native PAL viewport.  The
+ * board copies a 1:1 crop of the indexed 320x200 source without a whole-frame
+ * scaler or an RGB565 framebuffer.
  */
-#include "generated/pal_ui_layout_240x135.h"
+#ifndef PAL_NATIVE_UI_GENERATED_HEADER
+#define PAL_NATIVE_UI_GENERATED_HEADER "generated/pal_native_ui_240x135.h"
+#endif
+#include PAL_NATIVE_UI_GENERATED_HEADER
 
-#if !defined(PAL_UI_GENERATED_COEFFICIENTS_ONLY) || \
-    PAL_UI_GENERATED_COEFFICIENTS_ONLY != 1u
-#error "Cardputer extreme requires Python-generated UI coefficients"
+#if !defined(PAL_NATIVE_UI_SCHEMA_VERSION) || \
+    PAL_NATIVE_UI_SCHEMA_VERSION != 1u
+#error "Cardputer extreme requires the generated native PAL UI contract"
 #endif
 
-#define CARDPUTER_EXTREME_LCD_WIDTH PAL_UI_GENERATED_DISPLAY_WIDTH
-#define CARDPUTER_EXTREME_LCD_HEIGHT PAL_UI_GENERATED_DISPLAY_HEIGHT
-#define CARDPUTER_EXTREME_PAL_VIEW_WIDTH PAL_UI_GENERATED_STAGE_WIDTH
-#define CARDPUTER_EXTREME_PAL_VIEW_HEIGHT PAL_UI_GENERATED_STAGE_HEIGHT
-#define CARDPUTER_EXTREME_PAL_VIEW_X PAL_UI_GENERATED_STAGE_X
-#define CARDPUTER_EXTREME_PAL_VIEW_Y PAL_UI_GENERATED_STAGE_Y
+#define CARDPUTER_EXTREME_LCD_WIDTH \
+    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
+#define CARDPUTER_EXTREME_LCD_HEIGHT \
+    PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
+#define CARDPUTER_EXTREME_PAL_VIEW_WIDTH \
+    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
+#define CARDPUTER_EXTREME_PAL_VIEW_HEIGHT \
+    PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
+#define CARDPUTER_EXTREME_PAL_VIEW_X 0u
+#define CARDPUTER_EXTREME_PAL_VIEW_Y 0u
 #define CARDPUTER_EXTREME_TF_MOUNT_POINT "/sdcard"
 
 /*
@@ -102,8 +109,8 @@ uint64_t CardputerExtreme_PhysicalKeyMask(void);
 
 /*
  * palette_rgba is the SDL_Color byte layout used by the fixed SDL shim:
- * 256 consecutive { r, g, b, a } entries.  Conversion and generated-stage
- * scaling are done a strip at a time in the 4KB DMA buffer.
+ * 256 consecutive { r, g, b, a } entries.  A 1:1 native crop is converted a
+ * strip at a time in the 4KB DMA buffer.
  */
 bool CardputerExtreme_FlushIndexedFramebuffer(
     const uint8_t *pixels,

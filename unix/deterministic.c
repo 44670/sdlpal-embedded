@@ -8,6 +8,9 @@
 #include "script.h"
 #include "util.h"
 #include "video.h"
+#ifdef PAL_CARDPUTER_EXTREME
+#include "embedded/pal_native_ui.h"
+#endif
 
 #include <errno.h>
 #include <png.h>
@@ -19,9 +22,14 @@
 #define PAL_DETERMINISTIC_EVENT_CODE 0x50445250u
 #define PAL_DETERMINISTIC_LINE_BYTES 128u
 #define PAL_DETERMINISTIC_PNG_MAX_WIDTH 1024u
+#ifdef PAL_CARDPUTER_EXTREME
+#define PAL_DETERMINISTIC_LCD_WIDTH PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
+#define PAL_DETERMINISTIC_LCD_HEIGHT PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
+#else
 #define PAL_DETERMINISTIC_LCD_WIDTH 320u
 #define PAL_DETERMINISTIC_LCD_HEIGHT 240u
 #define PAL_DETERMINISTIC_LCD_Y_OFFSET 20u
+#endif
 #define PAL_DETERMINISTIC_EVENT_OBJECT_COUNT 5369u
 
 static Uint32 pal_deterministic_ticks;
@@ -60,6 +68,7 @@ static bool pal_deterministic_reload_requested;
 static bool pal_deterministic_force_battle_enabled;
 static bool pal_deterministic_force_battle_active;
 static bool pal_deterministic_force_battle_done;
+static bool pal_deterministic_force_battle_auto = true;
 static Uint32 pal_deterministic_force_battle_frame;
 static WORD pal_deterministic_force_battle_team;
 static bool pal_deterministic_force_chapter_enabled;
@@ -170,6 +179,8 @@ pal_deterministic_init(
             (WORD)read_env_ulong("PAL_DETERMINISTIC_FORCE_BATTLE_TEAM", 0);
          pal_deterministic_force_battle_frame =
             (Uint32)read_env_ulong("PAL_DETERMINISTIC_FORCE_BATTLE_FRAME", 0);
+         pal_deterministic_force_battle_auto =
+            read_env_ulong("PAL_DETERMINISTIC_FORCE_BATTLE_AUTO", 1) != 0;
       }
    }
    {
@@ -324,6 +335,9 @@ pal_deterministic_write_png(
    bool locked = false;
    int png_width;
    int png_height;
+#ifdef PAL_CARDPUTER_EXTREME
+   PalNativeUiViewport native_viewport;
+#endif
 
    if (path == NULL || path[0] == '\0' || gpScreen == NULL || gpScreen->pixels == NULL ||
        gpScreen->w <= 0 || gpScreen->h <= 0 ||
@@ -335,6 +349,11 @@ pal_deterministic_write_png(
    if (png_width > (int)PAL_DETERMINISTIC_PNG_MAX_WIDTH) {
       return false;
    }
+#ifdef PAL_CARDPUTER_EXTREME
+   if (lcd_frame && !PalNativeUi_GetViewport(&native_viewport)) {
+      return false;
+   }
+#endif
 
    if (SDL_MUSTLOCK(gpScreen) && SDL_LockSurface(gpScreen) != 0) {
       return false;
@@ -373,11 +392,22 @@ pal_deterministic_write_png(
    png_write_info(png, info);
    for (y = 0; y < png_height; y++) {
       int x;
+#ifdef PAL_CARDPUTER_EXTREME
+      int source_y = lcd_frame ? native_viewport.source_y + y : y;
+#else
       int source_y = lcd_frame ? y - (int)PAL_DETERMINISTIC_LCD_Y_OFFSET : y;
+#endif
       for (x = 0; x < png_width; x++) {
-         if (source_y < 0 || source_y >= gpScreen->h || x >= gpScreen->w) {
+         int source_x = x;
+#ifdef PAL_CARDPUTER_EXTREME
+         if (lcd_frame) {
+            source_x += native_viewport.source_x;
+         }
+#endif
+         if (source_y < 0 || source_y >= gpScreen->h ||
+             source_x < 0 || source_x >= gpScreen->w) {
             memset(pal_deterministic_png_row + (size_t)x * 3u, 0, 3);
-         } else if (!pal_deterministic_surface_rgb(gpScreen, x, source_y, pal_deterministic_png_row + (size_t)x * 3u)) {
+         } else if (!pal_deterministic_surface_rgb(gpScreen, source_x, source_y, pal_deterministic_png_row + (size_t)x * 3u)) {
             memset(pal_deterministic_png_row + (size_t)x * 3u, 0, 3);
          }
       }
@@ -1262,7 +1292,7 @@ __wrap_SDL_RenderPresent(
       pal_deterministic_force_battle_active = true;
       pal_deterministic_force_battle_done = true;
       old_auto_battle = gpGlobals->fAutoBattle;
-      gpGlobals->fAutoBattle = TRUE;
+      gpGlobals->fAutoBattle = pal_deterministic_force_battle_auto;
       (void)PAL_StartBattle(pal_deterministic_force_battle_team, FALSE);
       gpGlobals->fAutoBattle = old_auto_battle;
       pal_deterministic_force_battle_active = false;

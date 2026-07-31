@@ -41,31 +41,21 @@ RIX_MAME_OPL2_PACK_OBJ := $(BUILD_DIR)/pal_rix_pack.o
 RIX_MAME_OPL2_CACHE_OBJ := $(BUILD_DIR)/pal_rix_music_cache.o
 RIX_MAME_OPL2_NOHEAP_OBJ := $(BUILD_DIR)/pal_rix_noheap.o
 RIX_EXPECTED_TRACKS ?= 86
-UI_RLE_DOWNSAMPLE_SMOKE := $(BUILD_DIR)/pal_ui_rle_downsample_smoke
 FONT10_SMOKE := $(BUILD_DIR)/pal_font10_cache_smoke
-UI_LAYOUT_PY := $(wildcard ../tools/pal_ui_layout/*.py)
-UI_LAYOUT_HEADER_240 := $(BUILD_DIR)/pal_ui_layout_240x135_generated.h
-UI_LAYOUT_HEADER_160 := $(BUILD_DIR)/pal_ui_layout_160x128_generated.h
-UI_LAYOUT_RUNTIME_240_SMOKE := $(BUILD_DIR)/pal_ui_layout_runtime_240x135_smoke
-UI_LAYOUT_RUNTIME_160_SMOKE := $(BUILD_DIR)/pal_ui_layout_runtime_160x128_smoke
-UI_LAYOUT_RUNTIME_SMOKES := $(UI_LAYOUT_RUNTIME_240_SMOKE) $(UI_LAYOUT_RUNTIME_160_SMOKE)
-UI_LAYOUT_PRODUCTION_HEADER_240 := ../esp32s3/main/generated/pal_ui_layout_240x135.h
-UI_LAYOUT_PRODUCTION_HEADER_160 := ../esp32s3/main/generated/pal_ui_layout_160x128.h
-UI_LAYOUT_PRODUCTION_240_SMOKE := $(BUILD_DIR)/pal_ui_layout_production_240x135_smoke
-UI_LAYOUT_PRODUCTION_160_SMOKE := $(BUILD_DIR)/pal_ui_layout_production_160x128_smoke
-UI_LAYOUT_PRODUCTION_SMOKES := $(UI_LAYOUT_PRODUCTION_240_SMOKE) $(UI_LAYOUT_PRODUCTION_160_SMOKE)
-UI_LAYOUT_PRODUCTION_240_OBJECT := $(BUILD_DIR)/pal_ui_layout_production_240x135.o
-UI_LAYOUT_PRODUCTION_160_OBJECT := $(BUILD_DIR)/pal_ui_layout_production_160x128.o
-UI_LAYOUT_PRODUCTION_OBJECTS := $(UI_LAYOUT_PRODUCTION_240_OBJECT) $(UI_LAYOUT_PRODUCTION_160_OBJECT)
-# Includes exact stage/battle axis maps and the real DATA #9/#10 extent
-# catalog.  These are Flash-only; writable storage remains forbidden below.
-UI_LAYOUT_GENERATED_FLASH_MAX ?= 26624
-UI_LAYOUT_RUNTIME_FLASH_MAX ?= 35840
-UI_LAYOUT_GENERATED_SRAM_MAX ?= 0
+NATIVE_UI_HEADER_240 := ../esp32s3/main/generated/pal_native_ui_240x135.h
+NATIVE_UI_HEADER_160 := ../esp32s3/main/generated/pal_native_ui_160x128.h
+NATIVE_UI_240_SMOKE := $(BUILD_DIR)/pal_native_ui_240x135_smoke
+NATIVE_UI_160_SMOKE := $(BUILD_DIR)/pal_native_ui_160x128_smoke
+NATIVE_UI_SMOKES := $(NATIVE_UI_240_SMOKE) $(NATIVE_UI_160_SMOKE)
+NATIVE_UI_240_OBJECT := $(BUILD_DIR)/pal_native_ui_240x135.o
+NATIVE_UI_160_OBJECT := $(BUILD_DIR)/pal_native_ui_160x128.o
+NATIVE_UI_OBJECTS := $(NATIVE_UI_240_OBJECT) $(NATIVE_UI_160_OBJECT)
+NATIVE_UI_FLASH_MAX ?= 8192
+NATIVE_UI_SRAM_MAX ?= 16
 
-.PHONY: all clean check pack-build font10-pack-build font10-check realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check ui-rle-downsample-check ui-layout-runtime-check ui-layout-production-check ui-layout-coefficient-contract-check
+.PHONY: all clean check pack-build font10-pack-build font10-check realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check native-ui-check
 
-all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK) $(UI_RLE_DOWNSAMPLE_SMOKE) $(UI_LAYOUT_RUNTIME_SMOKES) $(UI_LAYOUT_PRODUCTION_SMOKES)
+all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK) $(NATIVE_UI_SMOKES)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -88,51 +78,24 @@ $(PACK_CHECK): pal_noheap.c pal_pack.c pal_pack.h ../tools/pal_pack_check.c | $(
 $(FONT10_SMOKE): pal_noheap.c pal_pack.c pal_pack.h pal_font10_cache.c pal_font10_cache.h pal_font10_cache_smoke.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) pal_noheap.c pal_pack.c pal_font10_cache.c pal_font10_cache_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
-$(UI_RLE_DOWNSAMPLE_SMOKE): pal_noheap.c pal_ui_layout_runtime.h pal_ui_rle_downsample.c pal_ui_rle_downsample.h pal_ui_rle_downsample_smoke.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) pal_noheap.c pal_ui_rle_downsample.c pal_ui_rle_downsample_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
+$(NATIVE_UI_240_SMOKE): pal_noheap.c pal_native_ui.c pal_native_ui.h pal_native_ui_smoke.c $(NATIVE_UI_HEADER_240) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' pal_noheap.c pal_native_ui.c pal_native_ui_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
-ui-rle-downsample-check: $(UI_RLE_DOWNSAMPLE_SMOKE)
-	$(UI_RLE_DOWNSAMPLE_SMOKE)
-	! $(NM) -u $(UI_RLE_DOWNSAMPLE_SMOKE) | grep -E 'malloc|calloc|realloc|free'
+$(NATIVE_UI_160_SMOKE): pal_noheap.c pal_native_ui.c pal_native_ui.h pal_native_ui_smoke.c $(NATIVE_UI_HEADER_160) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' pal_noheap.c pal_native_ui.c pal_native_ui_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
-$(UI_LAYOUT_HEADER_240): $(UI_LAYOUT_PY) | $(BUILD_DIR)
-	PYTHONPATH=../tools $(PYTHON) -B -m pal_ui_layout.parity --profile 240x135 --output $@
+$(NATIVE_UI_240_OBJECT): pal_native_ui.c pal_native_ui.h $(NATIVE_UI_HEADER_240) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' -c pal_native_ui.c -o $@
 
-$(UI_LAYOUT_HEADER_160): $(UI_LAYOUT_PY) | $(BUILD_DIR)
-	PYTHONPATH=../tools $(PYTHON) -B -m pal_ui_layout.parity --profile 160x128 --output $@
+$(NATIVE_UI_160_OBJECT): pal_native_ui.c pal_native_ui.h $(NATIVE_UI_HEADER_160) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' -c pal_native_ui.c -o $@
 
-$(UI_LAYOUT_RUNTIME_240_SMOKE): pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime.h pal_ui_layout_runtime_smoke.c $(UI_LAYOUT_HEADER_240) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(BUILD_DIR) -DPAL_UI_LAYOUT_GENERATED_HEADER='"$(notdir $(UI_LAYOUT_HEADER_240))"' pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
-
-$(UI_LAYOUT_RUNTIME_160_SMOKE): pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime.h pal_ui_layout_runtime_smoke.c $(UI_LAYOUT_HEADER_160) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(BUILD_DIR) -DPAL_UI_LAYOUT_GENERATED_HEADER='"$(notdir $(UI_LAYOUT_HEADER_160))"' pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
-
-ui-layout-runtime-check: $(UI_LAYOUT_RUNTIME_SMOKES)
-	$(UI_LAYOUT_RUNTIME_240_SMOKE)
-	$(UI_LAYOUT_RUNTIME_160_SMOKE)
-	! $(NM) -u $(UI_LAYOUT_RUNTIME_SMOKES) | grep -E 'malloc|calloc|realloc|free'
-
-$(UI_LAYOUT_PRODUCTION_240_SMOKE): pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime.h pal_ui_layout_runtime_smoke.c $(UI_LAYOUT_PRODUCTION_HEADER_240) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_UI_LAYOUT_GENERATED_HEADER='"generated/pal_ui_layout_240x135.h"' pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
-
-$(UI_LAYOUT_PRODUCTION_160_SMOKE): pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime.h pal_ui_layout_runtime_smoke.c $(UI_LAYOUT_PRODUCTION_HEADER_160) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_UI_LAYOUT_GENERATED_HEADER='"generated/pal_ui_layout_160x128.h"' pal_noheap.c pal_ui_layout_runtime.c pal_ui_layout_runtime_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
-
-$(UI_LAYOUT_PRODUCTION_240_OBJECT): pal_ui_layout_runtime.c pal_ui_layout_runtime.h $(UI_LAYOUT_PRODUCTION_HEADER_240) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_UI_LAYOUT_GENERATED_HEADER='"generated/pal_ui_layout_240x135.h"' -c pal_ui_layout_runtime.c -o $@
-
-$(UI_LAYOUT_PRODUCTION_160_OBJECT): pal_ui_layout_runtime.c pal_ui_layout_runtime.h $(UI_LAYOUT_PRODUCTION_HEADER_160) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_UI_LAYOUT_GENERATED_HEADER='"generated/pal_ui_layout_160x128.h"' -c pal_ui_layout_runtime.c -o $@
-
-ui-layout-coefficient-contract-check: $(UI_LAYOUT_PRODUCTION_OBJECTS)
-	PYTHONPATH=../tools $(PYTHON) -B -m pal_ui_layout.contract --root ..
-	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_ui_layout_runtime.c --source-file pal_ui_layout_runtime.h --binary $(UI_LAYOUT_PRODUCTION_240_OBJECT) --max text=$(UI_LAYOUT_RUNTIME_FLASH_MAX) --max .data=$(UI_LAYOUT_GENERATED_SRAM_MAX) --max .bss=$(UI_LAYOUT_GENERATED_SRAM_MAX) --max-symbol-prefix pal_ui_generated_=$(UI_LAYOUT_GENERATED_FLASH_MAX)
-	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_ui_layout_runtime.c --source-file pal_ui_layout_runtime.h --binary $(UI_LAYOUT_PRODUCTION_160_OBJECT) --max text=$(UI_LAYOUT_RUNTIME_FLASH_MAX) --max .data=$(UI_LAYOUT_GENERATED_SRAM_MAX) --max .bss=$(UI_LAYOUT_GENERATED_SRAM_MAX) --max-symbol-prefix pal_ui_generated_=$(UI_LAYOUT_GENERATED_FLASH_MAX)
-
-ui-layout-production-check: $(UI_LAYOUT_PRODUCTION_SMOKES) ui-layout-coefficient-contract-check
-	$(UI_LAYOUT_PRODUCTION_240_SMOKE)
-	$(UI_LAYOUT_PRODUCTION_160_SMOKE)
-	! $(NM) -u $(UI_LAYOUT_PRODUCTION_SMOKES) | grep -E 'malloc|calloc|realloc|free'
+native-ui-check: $(NATIVE_UI_SMOKES) $(NATIVE_UI_OBJECTS)
+	$(NATIVE_UI_240_SMOKE)
+	$(NATIVE_UI_160_SMOKE)
+	! $(NM) -u $(NATIVE_UI_SMOKES) | grep -E 'malloc|calloc|realloc|free'
+	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_native_ui.c --source-file pal_native_ui.h --binary $(NATIVE_UI_240_OBJECT) --max text=$(NATIVE_UI_FLASH_MAX) --max .data=$(NATIVE_UI_SRAM_MAX) --max .bss=$(NATIVE_UI_SRAM_MAX)
+	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_native_ui.c --source-file pal_native_ui.h --binary $(NATIVE_UI_160_OBJECT) --max text=$(NATIVE_UI_FLASH_MAX) --max .data=$(NATIVE_UI_SRAM_MAX) --max .bss=$(NATIVE_UI_SRAM_MAX)
 
 $(MAME_OPL2_STATIC_OBJ): pal_mame_opl2_static.cpp pal_mame_opl2_static.h pal_mame_opl2_fixed_tables.inc ../adplug/mame/fmopl.cpp.h ../adplug/mame/fmopl.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I.. -c pal_mame_opl2_static.cpp -o $@
@@ -167,15 +130,12 @@ rix-mame-opl2-check: $(RIX_MAME_OPL2_SMOKE)
 	$(RIX_MAME_OPL2_SMOKE) $(PACK_NOR) $(RIX_EXPECTED_TRACKS)
 	! $(NM) -u -C $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(MAME_OPL2_STATIC_OBJ) | grep -E ' U (malloc|calloc|realloc|free|pow|sin|log)(@[^ ]*)?$$| U operator (new|delete)'
 
-check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(UI_RLE_DOWNSAMPLE_SMOKE) $(UI_LAYOUT_RUNTIME_SMOKES) $(UI_LAYOUT_PRODUCTION_SMOKES) ui-layout-coefficient-contract-check
+check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(NATIVE_UI_SMOKES) native-ui-check
 	$(SMOKE)
 	$(MEMORY_SMOKE)
 	SDL_VIDEODRIVER=dummy $(NATIVE_SDL_SMOKE)
-	$(UI_RLE_DOWNSAMPLE_SMOKE)
-	$(UI_LAYOUT_RUNTIME_240_SMOKE)
-	$(UI_LAYOUT_RUNTIME_160_SMOKE)
-	$(UI_LAYOUT_PRODUCTION_240_SMOKE)
-	$(UI_LAYOUT_PRODUCTION_160_SMOKE)
+	$(NATIVE_UI_240_SMOKE)
+	$(NATIVE_UI_160_SMOKE)
 
 pack-build:
 	$(PYTHON) -B ../tools/pal_pack_build.py $(PAL_DATA_DIR) --out-nor $(PACK_NOR) --out-tf $(PACK_TF) --manifest $(PACK_MANIFEST)
