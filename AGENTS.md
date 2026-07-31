@@ -227,9 +227,11 @@ Presentation rules:
   font, and keeps the original control-code timing,
   color, pagination, and interaction behavior; in particular, `~nn` ends the
   current message exactly as `TEXT_DisplayText()` does, so suffix controls are
-  not reinterpreted as another wrapped line. A center-window line that cannot
-  fit uses the original style-1 DATA #9 border as a multi-line popup rather
-  than clipping or introducing new chrome;
+  not reinterpreted as another wrapped line. Speaker-title placement also
+  retains PAL's face-dependent rule: portrait-free upper/lower dialogue uses
+  the original x=12 inset instead of reserving a nonexistent portrait column.
+  A center-window line that cannot fit uses the original style-1 DATA #9
+  border as a multi-line popup rather than clipping or introducing new chrome;
 - only bounded assets that genuinely do not fit, currently dialogue portraits,
   may be downsampled on-device with deterministic nearest-centre sampling,
   preserved aspect ratio, and preserved RLE transparency.

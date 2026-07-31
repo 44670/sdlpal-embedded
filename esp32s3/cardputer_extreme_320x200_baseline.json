@@ -1,6 +1,6 @@
 {
-  "baseline_id": "cardputer-extreme-faithful-native-ui-v1",
-  "description": "Canonical gameplay, script, and event trace baseline for the faithful 1:1 native-view path with FONT10 dialogue reflow.",
+  "baseline_id": "cardputer-extreme-faithful-native-ui-v2",
+  "description": "Canonical gameplay, script, and event trace baseline for the faithful 1:1 native-view path with FONT10 dialogue reflow and face-dependent speaker-title placement.",
   "forced_events": {
     "battle_frame": 1300,
     "battle_team": 0,
@@ -9,8 +9,8 @@
   "frames": 3000,
   "golden_event_trace_sha256": "1be3c0e9b5d313e233475cf2d71b4c48959f7824a31753c6f5a35ddddfa422c9",
   "golden_script_trace_sha256": "791ac9b3f1fbb52929d2580c4d4350b5ea2ae840ee78e2e9cfc4fb5258855a3e",
-  "golden_trace_sha256": "c180b83fa1d36ec005ba6ce8a844186bd7890269d345cc939ef38c6dd2beaf46",
+  "golden_trace_sha256": "b8eb04e0c750fc7e5e06f2f33b7134a74e7cfb73796632375b04a9a2eb60a257",
   "route": "tools/deterministic_routes/newgame_walk.route",
   "schema_version": 1,
-  "source_base_commit": "eea6894"
+  "source_base_commit": "2c75498"
 }

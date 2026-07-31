@@ -60,12 +60,21 @@ int main(void)
     }
     if (!PalNativeUi_GetDialogLayout(true, true, &dialog) ||
         dialog.text.x >= dialog.portrait.x ||
-        dialog.page_lines != 4u) {
+        dialog.page_lines != 4u ||
+        dialog.title_x != (int16_t)(viewport.source_x +
+            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X)) {
         return fail("lower dialogue layout is invalid");
     }
     if (!PalNativeUi_GetDialogLayout(false, false, &dialog) ||
-        dialog.text.width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 8u) {
+        dialog.text.width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 8u ||
+        dialog.title_x != (int16_t)(viewport.source_x +
+            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X)) {
         return fail("portrait-free dialogue layout is invalid");
+    }
+    if (!PalNativeUi_GetDialogLayout(true, false, &dialog) ||
+        dialog.title_x != (int16_t)(viewport.source_x +
+            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X)) {
+        return fail("portrait-free lower dialogue title is invalid");
     }
     if (!PalNativeUi_GetCenterDialogLayout(&dialog) ||
         dialog.text.height !=

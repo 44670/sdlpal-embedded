@@ -54,6 +54,7 @@ class Rect:
 class DialogLayout:
     portrait: Rect
     title_x: int
+    title_without_portrait_x: int
     title_y: int
     text: Rect
     text_without_portrait: Rect
@@ -165,6 +166,9 @@ def build_profile(
         upper=DialogLayout(
             portrait=Rect(margin, margin, portrait_size, portrait_size),
             title_x=margin + portrait_size + gap,
+            # Keep PAL's portrait-free speaker-title inset.  It must not
+            # inherit the upper portrait column when opcode 003c uses face 0.
+            title_without_portrait_x=12,
             title_y=margin,
             text=Rect(
                 margin + portrait_size + gap,
@@ -189,6 +193,8 @@ def build_profile(
                 portrait_size,
             ),
             title_x=margin,
+            # PAL uses x=4 beside a lower portrait and x=12 without one.
+            title_without_portrait_x=12,
             title_y=lower_title_y,
             text=Rect(
                 margin,
@@ -344,6 +350,7 @@ def emit_header(profile: Profile) -> str:
     lines.extend(_macro_rect(f"{p}_DIALOG_UPPER_PORTRAIT", profile.upper.portrait))
     lines.extend([
         f"#define {p}_DIALOG_UPPER_TITLE_X {profile.upper.title_x}",
+        f"#define {p}_DIALOG_UPPER_TITLE_NO_PORTRAIT_X {profile.upper.title_without_portrait_x}",
         f"#define {p}_DIALOG_UPPER_TITLE_Y {profile.upper.title_y}",
     ])
     lines.extend(_macro_rect(f"{p}_DIALOG_UPPER_TEXT", profile.upper.text))
@@ -355,6 +362,7 @@ def emit_header(profile: Profile) -> str:
     lines.extend(_macro_rect(f"{p}_DIALOG_LOWER_PORTRAIT", profile.lower.portrait))
     lines.extend([
         f"#define {p}_DIALOG_LOWER_TITLE_X {profile.lower.title_x}",
+        f"#define {p}_DIALOG_LOWER_TITLE_NO_PORTRAIT_X {profile.lower.title_without_portrait_x}",
         f"#define {p}_DIALOG_LOWER_TITLE_Y {profile.lower.title_y}",
     ])
     lines.extend(_macro_rect(f"{p}_DIALOG_LOWER_TEXT", profile.lower.text))

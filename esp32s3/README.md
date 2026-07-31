@@ -54,7 +54,8 @@ List selection may pan to its cursor. Unchanged menus pan the viewport to the
 current selection, including custom player selectors, while status opens on
 its identity/primary-value region.  Dialogue uses the corpus-subsetted 10px
 FONT10 glyphs with word-aware wrapping and glyph-boundary fallback inside
-generated page geometry; an overlong center popup
+generated page geometry; portrait-free upper/lower speaker titles retain
+PAL's x=12 inset rather than inheriting the portrait column. An overlong center popup
 reuses the original style-1 DATA.MKF border for multiple lines. Only an
 overlarge portrait is fitted with deterministic aspect-preserving RLE
 sampling. The

@@ -149,7 +149,9 @@ bool PalNativeUi_GetDialogLayout(
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_HEIGHT);
         }
         out->title_x = (int16_t)(viewport.source_x +
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X);
+            (has_portrait ?
+                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X :
+                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X));
         out->title_y = (int16_t)(viewport.source_y +
             PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_Y);
     } else {
@@ -175,7 +177,9 @@ bool PalNativeUi_GetDialogLayout(
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_HEIGHT);
         }
         out->title_x = (int16_t)(viewport.source_x +
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_X);
+            (has_portrait ?
+                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_X :
+                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X));
         out->title_y = (int16_t)(viewport.source_y +
             PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_Y);
     }

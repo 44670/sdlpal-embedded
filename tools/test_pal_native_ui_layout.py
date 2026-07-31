@@ -76,6 +76,7 @@ class NativeUiLayoutTests(unittest.TestCase):
                 self.assertEqual(
                     dialog.text_without_portrait.width, width - 8
                 )
+                self.assertEqual(dialog.title_without_portrait_x, 12)
             self.assertLess(
                 profile.upper.portrait.x, profile.upper.text.x
             )
@@ -93,6 +94,8 @@ class NativeUiLayoutTests(unittest.TestCase):
         self.assertNotIn("SAMPLE_", header)
         self.assertIn("DIALOG_POPUP_SINGLE_TEXT_INSET_Y 10u", header)
         self.assertIn("DIALOG_POPUP_MULTI_TEXT_INSET_Y 12u", header)
+        self.assertIn("DIALOG_UPPER_TITLE_NO_PORTRAIT_X 12", header)
+        self.assertIn("DIALOG_LOWER_TITLE_NO_PORTRAIT_X 12", header)
 
     def test_battle_keeps_original_hud_shape_inside_player_view(self) -> None:
         for width, height, info_x, battle_y in (
