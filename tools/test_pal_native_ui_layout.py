@@ -158,6 +158,27 @@ class NativeUiLayoutTests(unittest.TestCase):
         self.assertEqual(layout._battle_info_local_x(165), 90)
         self.assertEqual(layout._battle_info_local_x(166), 91)
 
+    def test_item_target_focus_keeps_name_picture_and_primary_values(self) -> None:
+        for width, height in ((240, 135), (160, 128)):
+            profile = layout.build_profile(width, height, FONT)
+            focus = profile.item_use_focus
+            left = max(0, focus.x - width // 2)
+            top = max(0, focus.y - height // 2)
+
+            # Original coordinates, not a replacement layout: player names
+            # and the item picture start at x=120/125, while HP/MP values and
+            # slash chrome end around x=276.
+            self.assertLessEqual(left, 120)
+            self.assertGreaterEqual(left + width, 276)
+            self.assertEqual(top, 0)
+            self.assertEqual((focus.x, focus.y), (200, height // 2))
+
+            header = layout.emit_header(profile)
+            self.assertIn("ITEM_USE_FOCUS_X 200", header)
+            self.assertIn(
+                f"ITEM_USE_FOCUS_Y {height // 2}", header
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

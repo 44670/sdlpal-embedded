@@ -1774,11 +1774,8 @@ PAL_ItemUseMenu(
       //
 #if defined(PAL_CARDPUTER_EXTREME)
       PalNativeUi_FocusLogical(
-         (int16_t)(125 +
-            PAL_TextWidth(PAL_GetWord(
-               gpGlobals->g.PlayerRoles.rgwName[
-                  gpGlobals->rgParty[sSelectedPlayer].wPlayerRole])) / 2),
-         (int16_t)(16 + 20 * sSelectedPlayer + PAL_FontHeight() / 2),
+         PAL_NATIVE_UI_GENERATED_ITEM_USE_FOCUS_X,
+         PAL_NATIVE_UI_GENERATED_ITEM_USE_FOCUS_Y,
          PAL_NATIVE_UI_VIEW_UI);
 #endif
       VIDEO_UpdateScreen(&rect);

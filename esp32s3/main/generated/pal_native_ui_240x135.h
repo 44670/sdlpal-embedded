@@ -56,6 +56,10 @@
 #define PAL_NATIVE_UI_GENERATED_BATTLE_LEVEL_UP_FOCUS_X 170
 #define PAL_NATIVE_UI_GENERATED_BATTLE_LEVEL_UP_FOCUS_Y 67
 
+/* Original modal pixels stay put; these anchors only pan the 1:1 view. */
+#define PAL_NATIVE_UI_GENERATED_ITEM_USE_FOCUS_X 200
+#define PAL_NATIVE_UI_GENERATED_ITEM_USE_FOCUS_Y 67
+
 /* Chapter-cache loading screen geometry; not gameplay UI. */
 #define PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_WIDTH 5u
 #define PAL_NATIVE_UI_GENERATED_LOADING_GLYPH_HEIGHT 7u

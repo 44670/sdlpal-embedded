@@ -42,6 +42,7 @@ BATTLE_MISC_POS = (27, 170)
 BATTLE_INFO_Y = 165
 BATTLE_RESULT_FOCUS = (153, 110)
 BATTLE_LEVEL_UP_FOCUS_X = 170
+ITEM_USE_FOCUS_X = 200
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,7 @@ class Profile:
     lower: DialogLayout
     center_text: Rect
     battle: BattleLayout
+    item_use_focus: Point
     font: dict[str, int]
 
 
@@ -260,6 +262,13 @@ def build_profile(
             # taller generated profile.
             level_up_focus=Point(BATTLE_LEVEL_UP_FOCUS_X, height // 2),
         ),
+        # The original item-target modal puts the selected name at x=125,
+        # the item picture at x=120, and primary values through about x=276.
+        # A focus at x=200 retains that useful 156px span even at 160px,
+        # instead of centring only the name and clipping every numeric value.
+        # Keep y at the top crop so level/HP/MP and all party names remain
+        # visible; no menu pixels or gameplay coordinates are moved.
+        item_use_focus=Point(ITEM_USE_FOCUS_X, height // 2),
         font=font,
     )
 
@@ -345,6 +354,10 @@ def emit_header(profile: Profile) -> str:
         f"#define {p}_BATTLE_RESULT_FOCUS_Y {profile.battle.result_focus.y}",
         f"#define {p}_BATTLE_LEVEL_UP_FOCUS_X {profile.battle.level_up_focus.x}",
         f"#define {p}_BATTLE_LEVEL_UP_FOCUS_Y {profile.battle.level_up_focus.y}",
+        "",
+        "/* Original modal pixels stay put; these anchors only pan the 1:1 view. */",
+        f"#define {p}_ITEM_USE_FOCUS_X {profile.item_use_focus.x}",
+        f"#define {p}_ITEM_USE_FOCUS_Y {profile.item_use_focus.y}",
         "",
         "/* Chapter-cache loading screen geometry; not gameplay UI. */",
         f"#define {p}_LOADING_GLYPH_WIDTH {loading_glyph_width}u",

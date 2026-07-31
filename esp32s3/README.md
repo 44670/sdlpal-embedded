@@ -54,7 +54,9 @@ List selection may pan to its cursor. Victory/result notices pan to their
 original text region, while the original full-height level-up page uses a
 stable top crop that retains its title and primary level/HP/MP rows. Unchanged
 menus pan the viewport to the current selection, including custom player
-selectors, while status opens on its identity/primary-value region. Dialogue
+selectors. The original item-use target modal pans to keep its selected name,
+item picture, and primary HP/MP values together even at 160x128, while status
+opens on its identity/primary-value region. Dialogue
 uses the corpus-subsetted 10px
 FONT10 glyphs with word-aware wrapping and glyph-boundary fallback inside
 generated page geometry; portrait-free upper/lower speaker titles retain

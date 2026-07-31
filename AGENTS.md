@@ -223,8 +223,10 @@ Presentation rules:
   primary level/HP/MP rows on the two certified small profiles;
 - original menus remain on the 320x200 canvas and the native viewport pans to
   keep the active selection visible, including item, magic-target, and
-  equipment player selectors; the status screen uses a stable upper-left crop
-  containing role identity and primary values;
+  equipment player selectors. The item-use target modal pans to its original
+  name/item/primary-value span rather than clipping all HP/MP numbers at
+  160x128; the status screen uses a stable upper-left crop containing role
+  identity and primary values;
 - dialogue uses the generated viewport, reflows actual message text at word
   boundaries when available and at glyph boundaries otherwise with the 10px
   font, and keeps the original control-code timing,
