@@ -1043,10 +1043,20 @@ PAL_BattleUIUpdate(
 
    if (native_viewport_ready)
    {
-      WORD focus_player = PAL_BattleUIGetFocusPlayerIndex();
+      WORD info_player = PAL_BattleUIGetFocusPlayerIndex();
 
-      first_info_player = focus_player;
-      last_info_player = focus_player;
+      /* The desktop layout shows every party member's box.  The native
+       * viewport has room for one, so an ally-targeting action must show the
+       * selected ally's HP/MP instead of leaving the actor's box on screen. */
+      if (g_Battle.UI.state == kBattleUISelectTargetPlayer &&
+         g_Battle.UI.iSelectedIndex >= 0 &&
+         g_Battle.UI.iSelectedIndex <= gpGlobals->wMaxPartyMemberIndex)
+      {
+         info_player = (WORD)g_Battle.UI.iSelectedIndex;
+      }
+
+      first_info_player = info_player;
+      last_info_player = info_player;
       rgItems[0].pos = PAL_XY(
          native_viewport.source_x +
             PAL_NATIVE_UI_GENERATED_BATTLE_ATTACK_LOCAL_X,
