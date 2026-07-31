@@ -188,9 +188,14 @@ no whole-frame scaler and no alternative flat/modern chrome.
 
 The source of truth is intentionally small:
 
-- geometry/header generator: `tools/pal_native_ui_layout.py`;
+- geometry/header generator: `tools/pal_native_ui_layout.py`; it defaults to
+  the two certified profiles but accepts repeated `--profile WIDTHxHEIGHT`
+  values from 160x128 through the canonical 320x200 bounds;
 - generated 240x135 and 160x128 profiles:
   `esp32s3/main/generated/pal_native_ui_*.h`;
+- only 240x135 is the Cardputer ADV panel contract; 160x128 and any additional
+  generated sizes are engine/host contracts until a matching board presenter
+  is provided;
 - fixed native viewport, FONT10 drawing, and bounded portrait RLE fitting:
   `embedded/pal_native_ui.[ch]`;
 - read-only FONT10 pack view: `embedded/pal_font10_cache.[ch]`;

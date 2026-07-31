@@ -21,6 +21,9 @@ import pal_pack_build
 
 LOGICAL_WIDTH = 320
 LOGICAL_HEIGHT = 200
+MIN_DISPLAY_WIDTH = 160
+MIN_DISPLAY_HEIGHT = 128
+DEFAULT_PROFILES = ((240, 135), (160, 128))
 WORLD_FOCUS_X = 160
 WORLD_FOCUS_Y = 112
 FONT_LINE_HEIGHT = 10
@@ -106,13 +109,25 @@ def _battle_info_local_x(width: int) -> int:
     )
 
 
+def _validate_profile_size(width: int, height: int) -> None:
+    if not MIN_DISPLAY_WIDTH <= width <= LOGICAL_WIDTH:
+        raise ValueError(
+            "native PAL display width must be between "
+            f"{MIN_DISPLAY_WIDTH} and {LOGICAL_WIDTH}: {width}"
+        )
+    if not MIN_DISPLAY_HEIGHT <= height <= LOGICAL_HEIGHT:
+        raise ValueError(
+            "native PAL display height must be between "
+            f"{MIN_DISPLAY_HEIGHT} and {LOGICAL_HEIGHT}: {height}"
+        )
+
+
 def build_profile(
     width: int,
     height: int,
     font_summary: dict[str, object],
 ) -> Profile:
-    if (width, height) not in ((240, 135), (160, 128)):
-        raise ValueError(f"unsupported native PAL profile: {width}x{height}")
+    _validate_profile_size(width, height)
 
     margin = 4
     gap = 4
@@ -369,6 +384,7 @@ def generate(
     output_dir: Path,
     header_dir: Path,
     check: bool,
+    profile_sizes: Iterable[tuple[int, int]] = DEFAULT_PROFILES,
 ) -> None:
     _chunk, summary = pal_pack_build.build_font10_archive_chunk(
         data_dir, font_archive
@@ -376,7 +392,7 @@ def generate(
     font_summary = summary["font10"]
     assert isinstance(font_summary, dict)
     profiles: list[Profile] = []
-    for width, height in ((240, 135), (160, 128)):
+    for width, height in profile_sizes:
         profile = build_profile(width, height, font_summary)
         profiles.append(profile)
         header = emit_header(profile).encode("utf-8")
@@ -415,18 +431,47 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         "--header-dir", type=Path,
         default=Path("esp32s3/main/generated"),
     )
+    parser.add_argument(
+        "--profile",
+        action="append",
+        metavar="WIDTHxHEIGHT",
+        help=(
+            "native viewport to generate; repeat for multiple profiles "
+            "(default: 240x135 and 160x128)"
+        ),
+    )
     parser.add_argument("--check", action="store_true")
     return parser.parse_args(argv)
 
 
+def parse_profile_size(value: str) -> tuple[int, int]:
+    parts = value.lower().split("x")
+    if len(parts) != 2 or not all(part.isdecimal() for part in parts):
+        raise ValueError(f"invalid native PAL profile: {value!r}")
+    width, height = (int(part) for part in parts)
+    _validate_profile_size(width, height)
+    return width, height
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     args = parse_args(argv)
+    try:
+        profile_sizes = (
+            tuple(parse_profile_size(value) for value in args.profile)
+            if args.profile
+            else DEFAULT_PROFILES
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    if len(set(profile_sizes)) != len(profile_sizes):
+        raise SystemExit("duplicate native PAL profile")
     generate(
         args.data_dir,
         args.font10_archive,
         args.output_dir,
         args.header_dir,
         args.check,
+        profile_sizes,
     )
     return 0
 

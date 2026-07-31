@@ -39,8 +39,10 @@ a legacy pack without the matching FONT10 chunk fails closed.  Full
 `cardputer-extreme-check` / `cardputer-extreme-music-check` runs therefore
 also require `FONT10_ARCHIVE`.
 
-`tools/pal_native_ui_layout.py` generates the certified 240x135 and 160x128
-native-view contracts.  Gameplay retains its canonical 320x200 indexed frame,
+`tools/pal_native_ui_layout.py` defaults to the certified 240x135 and 160x128
+native-view contracts. Repeated `--profile WIDTHxHEIGHT` arguments can generate
+additional native 1:1 profiles from 160x128 through 320x200. Gameplay retains
+its canonical 320x200 indexed frame,
 original palette and original DATA.MKF UI assets, while the LCD copies a 1:1
 player-focused viewport with no whole-frame scaling.  Map view follows the
 party; battle view follows the moving/current player, relocates the intact
@@ -58,6 +60,10 @@ overlarge portrait is fitted with deterministic aspect-preserving RLE
 sampling. The
 relevant runtime files are `embedded/pal_native_ui.[ch]` and
 `main/cardputer_extreme_native_view.[ch]`.
+
+Only 240x135 is the physical Cardputer ADV panel contract. The 160x128 and
+custom profiles are engine/host contracts until a matching board presenter is
+provided; selecting one does not change the ST7789 panel geometry.
 
 Visual acceptance must use real deterministic gameplay captures for dialogue,
 map, battle, and menus at both resolutions.  Store review artifacts under

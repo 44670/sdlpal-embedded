@@ -19,6 +19,37 @@ FONT = {
 
 
 class NativeUiLayoutTests(unittest.TestCase):
+    def test_profile_solver_accepts_reusable_intermediate_sizes(self) -> None:
+        profile = layout.build_profile(200, 150, FONT)
+        self.assertEqual(profile.name, "200x150")
+        self.assertEqual(
+            (profile.world_origin_x, profile.world_origin_y), (60, 37)
+        )
+        for dialog in (profile.upper, profile.lower):
+            self.assertGreater(dialog.text.width, 0)
+            self.assertLessEqual(
+                dialog.text.x + dialog.text.width, profile.display_width
+            )
+            self.assertLessEqual(
+                dialog.text.y + dialog.text.height, profile.display_height
+            )
+        self.assertEqual(layout.parse_profile_size("200X150"), (200, 150))
+
+    def test_profile_solver_rejects_sizes_outside_native_contract(self) -> None:
+        for width, height in (
+            (159, 128),
+            (160, 127),
+            (321, 128),
+            (160, 201),
+        ):
+            with self.subTest(width=width, height=height):
+                with self.assertRaises(ValueError):
+                    layout.build_profile(width, height, FONT)
+        for value in ("200", "200*150", "axb", "200x"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    layout.parse_profile_size(value)
+
     def test_world_view_is_one_to_one_and_player_centered(self) -> None:
         p240 = layout.build_profile(240, 135, FONT)
         p160 = layout.build_profile(160, 128, FONT)
