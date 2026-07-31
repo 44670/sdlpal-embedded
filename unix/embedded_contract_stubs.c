@@ -923,12 +923,16 @@ PalContract_NativeDialogMeasure(
 
     while (text != NULL && *text != 0) {
         int token_width;
+        bool terminates = text[0] == '~';
         size_t token = PalContract_NativeDialogToken(text, &token_width);
         if (token == 0u) {
             break;
         }
         width += token_width;
         text += token;
+        if (terminates) {
+            break;
+        }
     }
     return width;
 }
@@ -938,15 +942,18 @@ PalContract_NativeDialogLine(
     LPCWSTR source,
     int max_width,
     WCHAR *line,
-    size_t line_capacity
+    size_t line_capacity,
+    bool *terminated
 )
 {
     int width = 0;
     size_t used = 0u;
 
-    if (source == NULL || line == NULL || line_capacity < 2u) {
+    if (source == NULL || line == NULL || line_capacity < 2u ||
+        terminated == NULL) {
         return NULL;
     }
+    *terminated = false;
     while (*source != 0) {
         int token_width;
         bool terminates = source[0] == '~';
@@ -967,6 +974,7 @@ PalContract_NativeDialogLine(
         source += token;
         width += token_width;
         if (terminates) {
+            *terminated = true;
             break;
         }
     }
@@ -1001,6 +1009,7 @@ PalContract_NativeShowWrappedDialogText(
 
     do {
         LPCWSTR next;
+        bool terminated;
         int x;
         int y;
 
@@ -1012,7 +1021,8 @@ PalContract_NativeShowWrappedDialogText(
             cursor,
             pal_contract_dialog_layout.text.width,
             line,
-            sizeof(line) / sizeof(line[0]));
+            sizeof(line) / sizeof(line[0]),
+            &terminated);
         if (next == NULL || (next == cursor && *cursor != 0)) {
             return;
         }
@@ -1030,6 +1040,11 @@ PalContract_NativeShowWrappedDialogText(
         g_TextLib.nCurrentDialogLine++;
         cursor = next;
         first = false;
+        if (terminated) {
+            /* TEXT_DisplayText() treats ~nn as an end-of-message command;
+             * bytes after it are deliberately not another wrapped line. */
+            return;
+        }
     } while (*cursor != 0 || first);
 }
 #endif

@@ -25,6 +25,10 @@ WORLD_FOCUS_X = 160
 WORLD_FOCUS_Y = 112
 FONT_LINE_HEIGHT = 10
 DIALOG_PAGE_LINES = 4
+BATTLE_ACTION_GROUP_RIGHT = 84
+BATTLE_INFO_ORIGINAL_X = 91
+BATTLE_INFO_FRAME_WIDTH = 75
+BATTLE_INFO_FACE_LEFT_INSET = 2
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,23 @@ class DialogLayout:
 
 
 @dataclass(frozen=True)
+class Point:
+    x: int
+    y: int
+
+
+@dataclass(frozen=True)
+class BattleLayout:
+    attack: Point
+    magic: Point
+    coop_magic: Point
+    misc: Point
+    info_local_x: int
+    info_stride: int
+    info_y: int
+
+
+@dataclass(frozen=True)
 class Profile:
     name: str
     display_width: int
@@ -56,6 +77,7 @@ class Profile:
     upper: DialogLayout
     lower: DialogLayout
     center_text: Rect
+    battle: BattleLayout
     font: dict[str, int]
 
 
@@ -65,6 +87,16 @@ def _clamp(value: int, low: int, high: int) -> int:
 
 def _origin(focus: int, extent: int, logical_extent: int) -> int:
     return _clamp(focus - extent // 2, 0, logical_extent - extent)
+
+
+def _battle_info_local_x(width: int) -> int:
+    return min(
+        BATTLE_INFO_ORIGINAL_X,
+        max(
+            BATTLE_ACTION_GROUP_RIGHT + BATTLE_INFO_FACE_LEFT_INSET,
+            width - BATTLE_INFO_FRAME_WIDTH,
+        ),
+    )
 
 
 def build_profile(
@@ -153,6 +185,25 @@ def build_profile(
             width - margin * 2,
             FONT_LINE_HEIGHT * DIALOG_PAGE_LINES,
         ),
+        battle=BattleLayout(
+            # Preserve the original four-icon diamond and its vertical
+            # placement.  X is local to the live player-focused viewport so
+            # the original assets remain reachable without panning away from
+            # the acting player.
+            attack=Point(27, 140),
+            magic=Point(0, 155),
+            coop_magic=Point(54, 155),
+            misc=Point(27, 170),
+            # The original face extends two pixels left of the 75px info
+            # frame.  Solve for the closest placement to PAL's x=91 that
+            # keeps the face clear of the 84px-wide action group and, when
+            # possible, keeps the frame inside the physical viewport.  At
+            # 160px those constraints meet at x=86, so only the last
+            # decorative frame-edge pixel is clipped.
+            info_local_x=_battle_info_local_x(width),
+            info_stride=77,
+            info_y=165,
+        ),
         font=font,
     )
 
@@ -220,6 +271,19 @@ def emit_header(profile: Profile) -> str:
         f"#define {p}_MENU_INACTIVE_COLOR 0x18u",
         f"#define {p}_MENU_CONFIRMED_COLOR 0x2cu",
         f"#define {p}_MENU_SELECTED_FIRST_COLOR 0xf9u",
+        "",
+        "/* Original battle HUD assets, placed inside the player viewport. */",
+        f"#define {p}_BATTLE_ATTACK_LOCAL_X {profile.battle.attack.x}",
+        f"#define {p}_BATTLE_ATTACK_Y {profile.battle.attack.y}",
+        f"#define {p}_BATTLE_MAGIC_LOCAL_X {profile.battle.magic.x}",
+        f"#define {p}_BATTLE_MAGIC_Y {profile.battle.magic.y}",
+        f"#define {p}_BATTLE_COOP_MAGIC_LOCAL_X {profile.battle.coop_magic.x}",
+        f"#define {p}_BATTLE_COOP_MAGIC_Y {profile.battle.coop_magic.y}",
+        f"#define {p}_BATTLE_MISC_LOCAL_X {profile.battle.misc.x}",
+        f"#define {p}_BATTLE_MISC_Y {profile.battle.misc.y}",
+        f"#define {p}_BATTLE_INFO_LOCAL_X {profile.battle.info_local_x}",
+        f"#define {p}_BATTLE_INFO_STRIDE {profile.battle.info_stride}u",
+        f"#define {p}_BATTLE_INFO_Y {profile.battle.info_y}",
         "",
         "/* Chapter-cache loading screen geometry; not gameplay UI. */",
         f"#define {p}_LOADING_GLYPH_WIDTH {loading_glyph_width}u",

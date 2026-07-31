@@ -203,13 +203,19 @@ invent content.
 Presentation rules:
 
 - map view centres the canonical party anchor;
-- battle view follows the active player during animation/wait states and pans
-  to the original action/menu/target cursor while the player is choosing;
+- battle view follows the active player during animation and main-action
+  selection; the original four-icon diamond and player-info sprites are moved
+  as intact groups into that viewport, while target/list selection may pan to
+  the selected target or list cursor;
 - original menus remain on the 320x200 canvas and the native viewport pans to
-  keep the active selection visible;
+  keep the active selection visible, including item, magic-target, and
+  equipment player selectors; the status screen uses a stable upper-left crop
+  containing role identity and primary values;
 - dialogue uses the generated viewport, reflows actual message text at glyph
   boundaries with the 10px font, and keeps the original control-code timing,
-  color, pagination, and interaction behavior;
+  color, pagination, and interaction behavior; in particular, `~nn` ends the
+  current message exactly as `TEXT_DisplayText()` does, so suffix controls are
+  not reinterpreted as another wrapped line;
 - only bounded assets that genuinely do not fit, currently dialogue portraits,
   may be downsampled on-device with deterministic nearest-centre sampling,
   preserved aspect ratio, and preserved RLE transparency.

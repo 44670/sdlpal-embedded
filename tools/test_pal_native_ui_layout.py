@@ -61,6 +61,40 @@ class NativeUiLayoutTests(unittest.TestCase):
         self.assertNotIn("SCALE_", header)
         self.assertNotIn("SAMPLE_", header)
 
+    def test_battle_keeps_original_hud_shape_inside_player_view(self) -> None:
+        for width, height, info_x in (
+            (240, 135, 91),
+            (160, 128, 86),
+        ):
+            profile = layout.build_profile(width, height, FONT)
+            battle = profile.battle
+            self.assertEqual(
+                (
+                    (battle.attack.x, battle.attack.y),
+                    (battle.magic.x, battle.magic.y),
+                    (battle.coop_magic.x, battle.coop_magic.y),
+                    (battle.misc.x, battle.misc.y),
+                ),
+                ((27, 140), (0, 155), (54, 155), (27, 170)),
+            )
+            self.assertLess(battle.coop_magic.x, width)
+            self.assertEqual(battle.info_local_x, info_x)
+            self.assertEqual(battle.info_stride, 77)
+            self.assertEqual(battle.info_y, 165)
+
+            header = layout.emit_header(profile)
+            self.assertIn("BATTLE_ATTACK_LOCAL_X 27", header)
+            self.assertIn(
+                f"BATTLE_INFO_LOCAL_X {info_x}", header
+            )
+            self.assertIn("BATTLE_INFO_STRIDE 77u", header)
+
+        # The solver returns to PAL's original x=91 as soon as the 75px
+        # frame fits without touching the 84px action group.
+        self.assertEqual(layout._battle_info_local_x(161), 86)
+        self.assertEqual(layout._battle_info_local_x(165), 90)
+        self.assertEqual(layout._battle_info_local_x(166), 91)
+
 
 if __name__ == "__main__":
     unittest.main()

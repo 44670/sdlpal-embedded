@@ -20,6 +20,9 @@
 //
 
 #include "main.h"
+#if defined(PAL_CARDPUTER_EXTREME)
+#include "embedded/pal_native_ui.h"
+#endif
 
 static BOOL __buymenu_firsttime_render;
 
@@ -991,6 +994,12 @@ start_magicmenu:
 
          while (wPlayer != MENUITEM_VALUE_CANCELLED)
          {
+#if defined(PAL_CARDPUTER_EXTREME)
+            PalNativeUi_FocusLogical(
+               (int16_t)(81 + 78 * wPlayer),
+               161,
+               PAL_NATIVE_UI_VIEW_UI);
+#endif
             //
             // Redraw the player info boxes first
             //
@@ -1555,6 +1564,15 @@ PAL_PlayerStatus(
       //
       // Update the screen
       //
+#if defined(PAL_CARDPUTER_EXTREME)
+      /* The upper-left status page contains the role identity and primary
+       * values.  Make that stable even when status was opened from a panned
+       * battle or inventory view. */
+      PalNativeUi_FocusLogical(
+         (int16_t)(PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH / 2u),
+         (int16_t)(PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT / 2u),
+         PAL_NATIVE_UI_VIEW_UI);
+#endif
       VIDEO_UpdateScreen(NULL);
 
       //
@@ -1587,12 +1605,26 @@ PAL_PlayerStatus(
 #if defined(PAL_CARDPUTER_EXTREME)
    if (gpGlobals->fInBattle)
    {
+      WORD focus_player = g_Battle.UI.wCurPlayerIndex;
+
       /*
        * PAL_BattleStartFrame() presents gpScreen after this modal returns.
        * Reconstruct it now while the untouched auxiliary battle background
        * is still available, so that presentation cannot flash the status FBP.
        */
       VIDEO_RestoreScreen(gpScreen);
+      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
+      {
+         focus_player = g_Battle.wMovingPlayerIndex;
+      }
+      if (focus_player > gpGlobals->wMaxPartyMemberIndex)
+      {
+         focus_player = 0;
+      }
+      PalNativeUi_FocusLogical(
+         (int16_t)PAL_X(g_Battle.rgPlayer[focus_player].pos),
+         (int16_t)PAL_Y(g_Battle.rgPlayer[focus_player].pos),
+         PAL_NATIVE_UI_VIEW_BATTLE);
    }
 #endif
 }
@@ -1748,6 +1780,15 @@ PAL_ItemUseMenu(
       //
       // Update the screen area
       //
+#if defined(PAL_CARDPUTER_EXTREME)
+      PalNativeUi_FocusLogical(
+         (int16_t)(125 +
+            PAL_TextWidth(PAL_GetWord(
+               gpGlobals->g.PlayerRoles.rgwName[
+                  gpGlobals->rgParty[sSelectedPlayer].wPlayerRole])) / 2),
+         (int16_t)(16 + 20 * sSelectedPlayer + PAL_FontHeight() / 2),
+         PAL_NATIVE_UI_VIEW_UI);
+#endif
       VIDEO_UpdateScreen(&rect);
 
       //
@@ -2339,6 +2380,22 @@ PAL_EquipItemMenu(
       //
       // Update the screen
       //
+#if defined(PAL_CARDPUTER_EXTREME)
+      {
+         PAL_POS selected_pos = PAL_XY_OFFSET(
+            gConfig.ScreenLayout.EquipRoleListBox,
+            13,
+            13 + 18 * iCurrentPlayer);
+         WORD selected_role =
+            gpGlobals->rgParty[iCurrentPlayer].wPlayerRole;
+         PalNativeUi_FocusLogical(
+            (int16_t)(PAL_X(selected_pos) +
+               PAL_TextWidth(PAL_GetWord(
+                  gpGlobals->g.PlayerRoles.rgwName[selected_role])) / 2),
+            (int16_t)(PAL_Y(selected_pos) + PAL_FontHeight() / 2),
+            PAL_NATIVE_UI_VIEW_UI);
+      }
+#endif
       VIDEO_UpdateScreen(NULL);
 
       //

@@ -847,6 +847,30 @@ PAL_BattleUIUpdate(
       {SPRITENUM_BATTLEICON_COOPMAGIC, PAL_XY(54, 155), kBattleUIActionCoopMagic},
       {SPRITENUM_BATTLEICON_MISCMENU,  PAL_XY(27, 170), kBattleUIActionMisc}
    };
+#ifdef PAL_CARDPUTER_EXTREME
+   PalNativeUiViewport native_viewport;
+   BOOL native_viewport_ready = PalNativeUi_GetViewport(&native_viewport);
+
+   if (native_viewport_ready)
+   {
+      rgItems[0].pos = PAL_XY(
+         native_viewport.source_x +
+            PAL_NATIVE_UI_GENERATED_BATTLE_ATTACK_LOCAL_X,
+         PAL_NATIVE_UI_GENERATED_BATTLE_ATTACK_Y);
+      rgItems[1].pos = PAL_XY(
+         native_viewport.source_x +
+            PAL_NATIVE_UI_GENERATED_BATTLE_MAGIC_LOCAL_X,
+         PAL_NATIVE_UI_GENERATED_BATTLE_MAGIC_Y);
+      rgItems[2].pos = PAL_XY(
+         native_viewport.source_x +
+            PAL_NATIVE_UI_GENERATED_BATTLE_COOP_MAGIC_LOCAL_X,
+         PAL_NATIVE_UI_GENERATED_BATTLE_COOP_MAGIC_Y);
+      rgItems[3].pos = PAL_XY(
+         native_viewport.source_x +
+            PAL_NATIVE_UI_GENERATED_BATTLE_MISC_LOCAL_X,
+         PAL_NATIVE_UI_GENERATED_BATTLE_MISC_Y);
+   }
+#endif
 
 
    s_iFrame++;
@@ -931,6 +955,7 @@ PAL_BattleUIUpdate(
       //
       for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
       {
+         PAL_POS info_pos = PAL_XY(91 + 77 * i, 165);
          wPlayerRole = gpGlobals->rgParty[i].wPlayerRole;
          w = (WORD)(g_Battle.rgPlayer[i].flTimeMeter);
 
@@ -954,7 +979,18 @@ PAL_BattleUIUpdate(
             w = 0;
          }
 
-         PAL_PlayerInfoBox(PAL_XY(91 + 77 * i, 165), wPlayerRole,
+#ifdef PAL_CARDPUTER_EXTREME
+         if (native_viewport_ready)
+         {
+            INT local_x = PAL_NATIVE_UI_GENERATED_BATTLE_INFO_LOCAL_X +
+               (i - (INT)g_Battle.UI.wCurPlayerIndex) *
+                  PAL_NATIVE_UI_GENERATED_BATTLE_INFO_STRIDE;
+            info_pos = PAL_XY(
+               native_viewport.source_x + local_x,
+               PAL_NATIVE_UI_GENERATED_BATTLE_INFO_Y);
+         }
+#endif
+         PAL_PlayerInfoBox(info_pos, wPlayerRole,
             w, j, FALSE);
       }
    }
@@ -1110,20 +1146,6 @@ PAL_BattleUIUpdate(
                   gpScreen, rgItems[i].pos, 0x10, -4);
             }
          }
-
-#ifdef PAL_CARDPUTER_EXTREME
-         if (g_Battle.UI.MenuState == kBattleMenuMain)
-         {
-            LPCBITMAPRLE focus_icon = PAL_SpriteGetFrame(
-               gpSpriteUI,
-               rgItems[g_Battle.UI.wSelectedAction].iSpriteNum);
-            PAL_BattleNativeFocusPoint(
-               PAL_X(rgItems[g_Battle.UI.wSelectedAction].pos) +
-                  PAL_RLEGetWidth(focus_icon) / 2,
-               PAL_Y(rgItems[g_Battle.UI.wSelectedAction].pos) +
-                  PAL_RLEGetHeight(focus_icon) / 2);
-         }
-#endif
 
          switch (g_Battle.UI.MenuState)
          {
