@@ -1,6 +1,6 @@
 PYTHON ?= python3
 PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
-FONT10_ARCHIVE ?=
+FONT10_ARCHIVE ?= $(abspath ../third_party/fusion-pixel-font/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip)
 PACK_NOR ?= /tmp/pal_nor_default.pak
 PACK_TF ?= /tmp/pal_tf_default.pak
 PACK_MANIFEST ?= /tmp/pal_pack_default_manifest.json

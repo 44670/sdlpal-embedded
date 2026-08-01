@@ -97,9 +97,11 @@ SHA-256 2e695c27627bf09683df2afe69b086fa3cd3e52795bce39fded9cc509188b5fe
 size 18,220,904 bytes
 ```
 
-The archive is supplied out of band through `FONT10_ARCHIVE`; do not vendor
-the release zip. The OFL-1.1 license is kept at
-`third_party/fusion-pixel-font/OFL.txt`. Host tooling subsets the actual
+The pinned release archive is vendored at
+`third_party/fusion-pixel-font/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip`;
+`FONT10_ARCHIVE` may override that default. The OFL-1.1 license is kept at
+`third_party/fusion-pixel-font/OFL.txt`. Host tooling must still verify the
+locked size and SHA-256 before it subsets the actual
 `WORD.DAT`/`M.MSG` corpus plus the target-authored strings explicitly listed
 in `tools/pal_pack_build.py`; it must not add invented replacement-menu
 labels. The finite-profile chapter-complete endpoint is one such real runtime

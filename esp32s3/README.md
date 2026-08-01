@@ -33,11 +33,13 @@ make -C esp32s3 \
 ```
 
 The normal and music pack targets now require the pinned Fusion Pixel Font
-archive.  Firmware startup opens NOR `FONT` chunk 1 and compares its glyph
+archive. It is vendored under `third_party/fusion-pixel-font/` and is the
+Makefile default; `FONT10_ARCHIVE` remains an optional override. Firmware
+startup opens NOR `FONT` chunk 1 and compares its glyph
 count, byte length, and payload CRC with the Python-generated 240x135 header;
 a legacy pack without the matching FONT10 chunk fails closed.  Full
-`cardputer-extreme-check` / `cardputer-extreme-music-check` runs therefore
-also require `FONT10_ARCHIVE`.
+`cardputer-extreme-check` / `cardputer-extreme-music-check` runs therefore use
+the vendored pinned archive unless `FONT10_ARCHIVE` explicitly overrides it.
 
 `tools/pal_native_ui_layout.py` defaults to the certified 240x135 and 160x128
 native-view contracts. Repeated `--profile WIDTHxHEIGHT` arguments can generate
