@@ -1,5 +1,10 @@
 # 240x135 gameplay UI review SOP
 
+Apply the rules in [`RESPONSIVE_RENDERING.md`](RESPONSIVE_RENDERING.md).
+Only the allowlisted FBP/RNG materials use the transform in
+[`FULLSCREEN_ASSET_RENDERING.md`](FULLSCREEN_ASSET_RENDERING.md); maps and UI
+elements retain their responsive or per-material paths.
+
 The reviewer is the human currently operating the SDL game. For each major
 screen, use the host WebSocket harness only to start the game and position it
 at a real, interactive gameplay state. Then stop sending simulated input,
@@ -33,3 +38,6 @@ moving on:
 3. Normal input, cancellation, confirmation, and return to gameplay work.
 
 Store real gameplay screenshots and session-specific notes under `./tmp_ui/`.
+Use the repeatable controls in
+[`../unix/WEBSOCKET_HARNESS.md`](../unix/WEBSOCKET_HARNESS.md) to reach the
+review state, then stop automation while the human operates it.

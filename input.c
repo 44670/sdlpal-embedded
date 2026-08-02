@@ -26,7 +26,7 @@
 #include "unix/pal_ws_server.h"
 #endif
 
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_EXTREME_RIX_MUSIC)
+#if defined(PAL_EXTREME_RIX_MUSIC)
 #include "cardputer_extreme_audio.h"
 #endif
 
@@ -1350,7 +1350,7 @@ PAL_ProcessEvent(
       g_dwWsTapRelease = 0;
    }
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    /*
     * PAL_ProcessEvent is the cooperative yield point shared by the normal
     * game, battle, scripted delays and menus, so it also enforces the dirty
@@ -1360,9 +1360,9 @@ PAL_ProcessEvent(
    {
       TerminateOnError("TF event-state checkpoint failed");
    }
+#endif
 #if defined(PAL_EXTREME_RIX_MUSIC)
    CardputerExtremeAudio_PollTelemetry();
-#endif
 #endif
 #if PAL_HAS_JOYSTICKS
    g_InputState.joystickNeedUpdate = FALSE;

@@ -673,7 +673,7 @@ PalEngineChapterCache_Decide(
    return PAL_ENGINE_CHAPTER_CACHE_VERIFY_PAYLOAD;
 }
 
-#if defined(PAL_CARDPUTER_EXTREME) && \
+#if defined(PAL_TARGET_CARDPUTER_ADV) && \
    defined(PAL_EXTREME_CHAPTER_CACHE) && defined(ESP_PLATFORM)
 
 #include "../main/cardputer_extreme_audio.h"

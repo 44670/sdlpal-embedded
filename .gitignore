@@ -293,5 +293,6 @@ __pycache__
 
 tmp_ui
 TF_datapak
+esp32s3/TF_xiaomiao/
 esp32s3/native_build_ui_followup/
 unix/sdlpal-ws-test

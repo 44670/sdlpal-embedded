@@ -54,7 +54,7 @@ PAL_MagicSelectionMenuUpdate(
    int         i, j, k, line, item_delta, item_x, item_y;
    BYTE        bColor;
    WORD        wScript;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    const int   iItemsPerLine = 2;
    const int   iItemTextWidth = 112;
    const int   iLinesPerPage = 4;
@@ -125,7 +125,7 @@ PAL_MagicSelectionMenuUpdate(
    //
    // Create the box.
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_CreateBoxWithShadow(PAL_XY(2, 41), iLinesPerPage - 1, 12, 1,
       FALSE, 0);
 #else
@@ -147,7 +147,7 @@ PAL_MagicSelectionMenuUpdate(
          //
          // Draw the MP of the selected magic.
          //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          PAL_CreateSingleLineBox(PAL_XY(138, 0), 5, FALSE);
          PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
             gpScreen, PAL_XY(183, 14));
@@ -186,7 +186,7 @@ PAL_MagicSelectionMenuUpdate(
                   *next++ = '\0';
                }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
                PAL_DrawText(d, PAL_XY(102, k), DESCTEXT_COLOR,
                   TRUE, FALSE, FALSE);
                k += 11;
@@ -289,7 +289,7 @@ PAL_MagicSelectionMenuUpdate(
          //
          // Draw the text
          //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          item_x = 8 + k * iItemTextWidth;
          item_y = 53 + j * 18;
 #else
@@ -319,7 +319,7 @@ PAL_MagicSelectionMenuUpdate(
          j = g_iCurrentItem % iItemsPerLine;
          k = (g_iCurrentItem < iItemsPerLine * iPageLineOffset) ? (g_iCurrentItem / iItemsPerLine) : iPageLineOffset;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          j = 8 + j * iItemTextWidth;
          k = 53 + k * 18;
 #else

@@ -20,8 +20,9 @@
 //
 
 #include "main.h"
+#include "embedded/pal_memory_profile.h"
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #include "pal_engine_runtime_metrics.h"
 #include "embedded/pal_native_ui.h"
 #endif
@@ -33,7 +34,7 @@ PAL_BattleRenderPosition(
    PAL_POS pos
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    int x = PAL_X(pos);
    int y = PAL_Y(pos);
 
@@ -931,6 +932,9 @@ PAL_FreeBattleSprites(
    }
 #endif
    g_Battle.lpSummonSprite = NULL;
+#if defined(MEM_LEVEL2)
+   PAL_MemoryBattleReset();
+#endif
 }
 
 VOID
@@ -987,6 +991,23 @@ PAL_LoadBattleSprites(
 
 #ifdef PAL_NO_RUNTIME_HEAP
       {
+#if defined(MEM_LEVEL2)
+         LPBYTE sprite_data =
+            (LPBYTE)PAL_MemoryBattleAlloc((size_t)l);
+         g_Battle.rgPlayer[i].lpSprite =
+            (sprite_data != NULL &&
+               PAL_MKFReadChunk(sprite_data, (UINT)l,
+                  (UINT)s, gpGlobals->f.fpF) == l) ?
+               (LPCSPRITE)sprite_data : NULL;
+         if (g_Battle.rgPlayer[i].lpSprite == NULL)
+         {
+            TerminateOnError(
+               "MEM_LEVEL2 battle player arena/read failed: chunk=%d size=%d used=%u/%u",
+               s, l, (unsigned)PAL_MemoryBattleUsed(),
+               (unsigned)PAL_MEM_LEVEL2_BATTLE_ARENA_BYTES);
+            continue;
+         }
+#else
          LPCBYTE lpSpriteData;
          UINT uiSpriteSize;
          if (!PAL_MKFMapChunk(gpGlobals->f.fpF, s, &lpSpriteData, &uiSpriteSize) ||
@@ -996,6 +1017,7 @@ PAL_LoadBattleSprites(
             continue;
          }
          g_Battle.rgPlayer[i].lpSprite = lpSpriteData;
+#endif
       }
 #else
       g_Battle.rgPlayer[i].lpSprite = UTIL_calloc(l, 1);
@@ -1047,6 +1069,23 @@ PAL_LoadBattleSprites(
 
 #ifdef PAL_NO_RUNTIME_HEAP
       {
+#if defined(MEM_LEVEL2)
+         LPBYTE sprite_data =
+            (LPBYTE)PAL_MemoryBattleAlloc((size_t)l);
+         g_Battle.rgEnemy[i].lpSprite =
+            (sprite_data != NULL &&
+               PAL_MKFReadChunk(sprite_data, (UINT)l,
+                  (UINT)s, fp) == l) ?
+               (LPCSPRITE)sprite_data : NULL;
+         if (g_Battle.rgEnemy[i].lpSprite == NULL)
+         {
+            TerminateOnError(
+               "MEM_LEVEL2 battle enemy arena/read failed: chunk=%d size=%d used=%u/%u",
+               s, l, (unsigned)PAL_MemoryBattleUsed(),
+               (unsigned)PAL_MEM_LEVEL2_BATTLE_ARENA_BYTES);
+            continue;
+         }
+#else
          LPCBYTE lpSpriteData;
          UINT uiSpriteSize;
          if (!PAL_MKFMapChunk(fp, s, &lpSpriteData, &uiSpriteSize) ||
@@ -1056,6 +1095,7 @@ PAL_LoadBattleSprites(
             continue;
          }
          g_Battle.rgEnemy[i].lpSprite = lpSpriteData;
+#endif
       }
 #else
       g_Battle.rgEnemy[i].lpSprite = UTIL_calloc(l, 1);
@@ -1106,10 +1146,10 @@ PAL_LoadBattleBackground(
 
 --*/
 {
-#if !defined(PAL_CARDPUTER_EXTREME) && \
+#if !defined(PAL_EXTREME_TWO_SCREENS) && \
     (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS))
    BYTE                    *buf = pal_psram_battle_background_static;
-#elif !defined(PAL_CARDPUTER_EXTREME)
+#elif !defined(PAL_EXTREME_TWO_SCREENS)
    PAL_LARGE BYTE           buf[320 * 200];
 #endif
 
@@ -1130,7 +1170,7 @@ PAL_LoadBattleBackground(
    //
    // Load the picture
    //
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
    if (PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
       gpGlobals->wNumBattleField, g_Battle.lpBackground) != 0)
    {
@@ -1149,12 +1189,12 @@ PAL_LoadBattleBackground(
    //
    // Draw the picture to the surface.
    //
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    PAL_FBPBlitToSurface(buf, g_Battle.lpBackground);
 #endif
 }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 static VOID
 PAL_BattleNativeDrawResult(
    VOID
@@ -1298,7 +1338,7 @@ PAL_BattleWon(
 
 --*/
 {
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    const SDL_Rect   rect = {0, 60, 320, 100};
    SDL_Rect   rect1 = {80, 0, 180, 200};
 #endif
@@ -1318,7 +1358,7 @@ PAL_BattleWon(
 
    if (g_Battle.iExpGained > 0)
    {
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
       int w1 = PAL_WordWidth(BATTLEWIN_GETEXP_LABEL) + 3;
 	  int ww1 = (w1 - 8) << 3;
 #endif
@@ -1330,7 +1370,7 @@ PAL_BattleWon(
       //
       // Show the message about the total number of exp. and cash gained
       //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       PAL_BattleNativeDrawResult();
       VIDEO_UpdateScreen(NULL);
 #else
@@ -1355,7 +1395,7 @@ PAL_BattleWon(
    gpGlobals->dwCash += g_Battle.iCashGained;
 
     
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
     const MENUITEM      rgFakeMenuItem[] =
     {
         // value  label                        enabled   pos
@@ -1425,7 +1465,7 @@ PAL_BattleWon(
       if (fLevelUp)
       {
          VIDEO_RestoreScreen(gpScreen);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          PAL_BattleNativeDrawLevelUp(w, &OrigPlayerRoles);
 #else
          //
@@ -1521,7 +1561,7 @@ PAL_BattleWon(
          //
          // Update the screen and wait for key
          //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          VIDEO_UpdateScreen(NULL);
 #else
          VIDEO_UpdateScreen(&rect1);
@@ -1546,7 +1586,7 @@ PAL_BattleWon(
 
       if (iTotalCount > 0)
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #define SHOW_HIDDEN_GAIN(statname, label)                  \
 {                                                           \
    WCHAR buffer[256] = L"";                                \
@@ -1651,7 +1691,7 @@ PAL_BattleWon(
 
          if (PAL_AddMagic(w, gpGlobals->g.lprgLevelUpMagic[j].m[w].wMagic))
          {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
             VIDEO_RestoreScreen(gpScreen);
             PAL_BattleNativeDrawLearnMagic(w,
                gpGlobals->g.lprgLevelUpMagic[j].m[w].wMagic);
@@ -2166,7 +2206,7 @@ PAL_StartBattle(
    g_Battle.fThisTurnCoop = FALSE;
 #endif
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PalEngineBridge_LogRuntimeMemory("battle-ready");
 #endif
 
@@ -2222,7 +2262,7 @@ PAL_StartBattle(
 
    gpGlobals->fInBattle = FALSE;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PalEngineBridge_LogRuntimeMemory("battle-finished");
 #endif
 

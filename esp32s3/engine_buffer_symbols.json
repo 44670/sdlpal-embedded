@@ -45,16 +45,34 @@
       "owner": "mutable magic records"
     },
     {
-      "name": "pal_psram_map_gop_static",
-      "size": 65536,
+      "name": "pal_mem_level2_scene_arena",
+      "size": 262144,
       "region": "PSRAM",
-      "owner": "current GOP tile chunk"
+      "owner": "MEM_LEVEL2 scene MAP, GOP, and event sprites"
     },
     {
-      "name": "pal_psram_map_instance",
-      "size": 65544,
+      "name": "pal_mem_level2_player_arena",
+      "size": 131072,
       "region": "PSRAM",
-      "owner": "current map instance"
+      "owner": "MEM_LEVEL2 party and follower sprites"
+    },
+    {
+      "name": "pal_mem_level2_battle_arena",
+      "size": 524288,
+      "region": "PSRAM",
+      "owner": "MEM_LEVEL2 player and enemy battle sprites"
+    },
+    {
+      "name": "pal_mem_level2_fight_effect",
+      "size": 65536,
+      "region": "PSRAM",
+      "owner": "MEM_LEVEL2 fight effect sprite"
+    },
+    {
+      "name": "pal_mem_level2_fight_summon",
+      "size": 65536,
+      "region": "PSRAM",
+      "owner": "MEM_LEVEL2 summon sprite"
     },
     {
       "name": "pal_psram_res_event_sprite_ptrs",
@@ -193,6 +211,12 @@
       "size": 4096,
       "region": "SRAM",
       "owner": "LCD RGB565 scanout scratch"
+    },
+    {
+      "name": "pal_sram_engine_pack_header",
+      "size": 32,
+      "region": "SRAM",
+      "owner": "NOR pack header validation scratch"
     },
     {
       "name": "pal_sram_framebuffer",

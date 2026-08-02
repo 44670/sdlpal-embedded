@@ -21,7 +21,7 @@
 
 #include "main.h"
 #include "fight.h"
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #include "embedded/pal_native_ui.h"
 #endif
 
@@ -374,7 +374,7 @@ PAL_BattleUIDrawMiscMenu(
 #ifdef PAL_CLASSIC
    MENUITEM rgMenuItem[] = {
       // value   label                     enabled   position
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       {  0,      BATTLEUI_LABEL_AUTO,      TRUE,     PAL_XY(12, 8)  },
       {  1,      BATTLEUI_LABEL_INVENTORY, TRUE,     PAL_XY(12, 20) },
       {  2,      BATTLEUI_LABEL_DEFEND,    TRUE,     PAL_XY(12, 32) },
@@ -391,7 +391,7 @@ PAL_BattleUIDrawMiscMenu(
 #else
    MENUITEM rgMenuItem[] = {
       // value   label                   enabled   position
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       {  0,      BATTLEUI_LABEL_ITEM,    TRUE,     PAL_XY(12, 8)  },
       {  1,      BATTLEUI_LABEL_DEFEND,  TRUE,     PAL_XY(12, 20) },
       {  2,      BATTLEUI_LABEL_AUTO,    TRUE,     PAL_XY(12, 32) },
@@ -410,7 +410,7 @@ PAL_BattleUIDrawMiscMenu(
    //
    // Draw the box
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_CreateBoxWithShadow(PAL_XY(2, 0), 2,
       PAL_MenuTextMaxWidth(rgMenuItem,
          sizeof(rgMenuItem) / sizeof(MENUITEM)) - 1,
@@ -521,7 +521,7 @@ PAL_BattleUIMiscItemSubMenuUpdate(
 
    MENUITEM rgMenuItem[] = {
       // value   label                      enabled   position
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       {  0,      BATTLEUI_LABEL_USEITEM,    TRUE,     PAL_XY(84, 8)  },
       {  1,      BATTLEUI_LABEL_THROWITEM,  TRUE,     PAL_XY(84, 20) },
 #else
@@ -538,7 +538,7 @@ PAL_BattleUIMiscItemSubMenuUpdate(
 #else
    PAL_BattleUIDrawMiscMenu(0, TRUE);
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_CreateBoxWithShadow(PAL_XY(72, 0), 0,
       PAL_MenuTextMaxWidth(rgMenuItem, 2) - 1, 0, FALSE, 0);
 #else
@@ -843,7 +843,7 @@ PAL_BattleUIUpdate(
    WORD             wPlayerRole, w;
    PAL_POS          pos;
    static int       s_iFrame = 0;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    const int        iPartyCount = gpGlobals->wMaxPartyMemberIndex + 1;
    const int        iActionTop = gpScreen->h -
       (iPartyCount >= 3 ? 95 : 60);
@@ -857,7 +857,7 @@ PAL_BattleUIUpdate(
       BATTLEUIACTION    action;
    } rgItems[] =
    {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       {SPRITENUM_BATTLEICON_ATTACK,
          PAL_XY(27, iActionTop),
          kBattleUIActionAttack},
@@ -984,7 +984,7 @@ PAL_BattleUIUpdate(
             w = 0;
          }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          PAL_PlayerInfoBox(PAL_XY(iPlayerInfoLeft + 77 * i,
             gpScreen->h - 35), wPlayerRole,
             w, j, FALSE);
@@ -1805,7 +1805,7 @@ end:
       //
       // Create the window box
       //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       pos = PAL_XY(gpScreen->w / 2 - len * 4, 8);
 #else
       pos = PAL_XY(160 - len * 4, 40);

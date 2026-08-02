@@ -24,10 +24,7 @@
 static WORD g_wCurEffectSprite = 0;
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
-#if defined(PAL_CARDPUTER_EXTREME)
-#include "esp32s3/main/cardputer_extreme_memory.h"
-#define pal_psram_ending_fbp_static pal_sram_aux_framebuffer
-
+#if defined(PAL_EXTREME_TWO_SCREENS)
 static VOID
 PAL_ExtremeRequireEndingScratch(
    const char *operation
@@ -55,6 +52,7 @@ static uint8_t pal_psram_ending_girl_static[6000] PAL_ENDING_PSRAM;
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
+#if !defined(PAL_EXTREME_TWO_SCREENS)
 static BOOL
 PAL_EndingReadNativeFbp(
    LPBYTE         buf,
@@ -63,6 +61,7 @@ PAL_EndingReadNativeFbp(
 {
    return PAL_MKFReadChunk(buf, 320 * 200, wChunkNum, gpGlobals->f.fpFBP) == 320 * 200;
 }
+#endif
 
 static BOOL
 PAL_EndingMapNativeMgo(
@@ -120,17 +119,16 @@ PAL_ShowFBP(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME)
-   BYTE *buf = pal_psram_ending_fbp_static;
+#if defined(PAL_EXTREME_TWO_SCREENS)
    LPCSPRITE effect = NULL;
 
    PAL_ExtremeRequireEndingScratch("FBP");
    (void)wFade;
-   if (!PAL_EndingReadNativeFbp(buf, wChunkNum))
+   if (PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
+      wChunkNum, gpScreen) != 0)
    {
-      memset(buf, 0, PAL_EXTREME_SCREEN_BYTES);
+      SDL_FillRect(gpScreen, NULL, 0);
    }
-   PAL_FBPBlitToSurface(buf, gpScreen);
    if (g_wCurEffectSprite != 0 &&
       PAL_EndingMapNativeMgo(&effect, g_wCurEffectSprite) &&
       effect != NULL)
@@ -272,16 +270,15 @@ PAL_ScrollFBP(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_ExtremeRequireEndingScratch("scroll FBP");
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
-   BYTE *buf = pal_psram_ending_fbp_static;
+#if defined(PAL_EXTREME_TWO_SCREENS)
    (void)wScrollSpeed;
    (void)fScrollDown;
-   if (PAL_EndingReadNativeFbp(buf, wChunkNum))
+   if (PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
+      wChunkNum, gpScreen) == 0)
    {
-      PAL_FBPBlitToSurface(buf, gpScreen);
       VIDEO_UpdateScreen(NULL);
    }
 #else
@@ -434,10 +431,10 @@ PAL_EndingAnimation(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_ExtremeRequireEndingScratch("ending animation");
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    return;
 #else
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)

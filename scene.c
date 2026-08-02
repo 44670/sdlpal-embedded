@@ -24,11 +24,11 @@
 
 #include "main.h"
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #include "embedded/pal_native_ui.h"
 #endif
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 static VOID
 PAL_SceneReadEventObject(
    WORD             wEventObjectID,
@@ -75,7 +75,7 @@ static int               g_nSpriteToDraw;
  * from legacy camera state and never written back into gameplay state. */
 static int               g_iSceneDrawOriginX;
 static int               g_iSceneDrawOriginY;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_SPRITES_TO_DRAW)
 static int               g_nSpriteToDrawHighWater;
 #endif
 
@@ -291,7 +291,7 @@ PAL_SceneDrawSprites(
       LPCBITMAPRLE     lpFrame;
       LPCSPRITE        lpSprite;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       EVENTOBJECT      eventObject;
       LPEVENTOBJECT    lpEvtObj = &eventObject;
 
@@ -379,7 +379,7 @@ PAL_SceneDrawSprites(
       PAL_CalcCoverTiles(&g_rgSpriteToDraw[g_nSpriteToDraw - 1]);
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_SPRITES_TO_DRAW)
    if (g_nSpriteToDraw > g_nSpriteToDrawHighWater)
    {
       g_nSpriteToDrawHighWater = g_nSpriteToDraw;
@@ -560,7 +560,7 @@ PAL_MakeScene(
    //
    g_iSceneDrawOriginX = PAL_X(gpGlobals->viewport);
    g_iSceneDrawOriginY = PAL_Y(gpGlobals->viewport);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    g_iSceneDrawOriginX += PAL_NATIVE_UI_GENERATED_MAP_VIEW_OFFSET_X;
    g_iSceneDrawOriginY += PAL_NATIVE_UI_GENERATED_MAP_VIEW_OFFSET_Y;
 #endif
@@ -696,7 +696,7 @@ PAL_CheckObstacleWithRange(
       for (i = gpGlobals->g.rgScene[gpGlobals->wNumScene - 1].wEventObjectIndex;
          i < gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex; i++)
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          EVENTOBJECT eventObject;
          LPEVENTOBJECT p = &eventObject;
 
@@ -969,7 +969,7 @@ PAL_NPCWalkOneStep(
 --*/
 {
    LPEVENTOBJECT        p;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    EVENTOBJECT          eventObject;
 #endif
 
@@ -981,7 +981,7 @@ PAL_NPCWalkOneStep(
       return;
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    PAL_SceneReadEventObject(wEventObjectID, &eventObject);
    p = &eventObject;
 #else
@@ -1008,7 +1008,7 @@ PAL_NPCWalkOneStep(
       p->wCurrentFrameNum %= p->nSpriteFramesAuto;
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    PAL_SceneWriteEventObject(wEventObjectID, p);
 #endif
 }

@@ -50,7 +50,7 @@ char gExecutablePath[PAL_MAX_PATH];
 #define NUM_RIX_TITLE               0x05
 
 #if (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)) && \
-    !defined(PAL_CARDPUTER_EXTREME)
+    !defined(PAL_EXTREME_TWO_SCREENS)
 #define PAL_STATIC_SPLASH_BUFFERS 1
 #if defined(__GNUC__)
 #define PAL_SPLASH_SRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
@@ -224,7 +224,7 @@ PAL_TrademarkScreen(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    /*
     * The chapter pack intentionally omits RNG 6.  Skip the DOS trademark
     * movie explicitly instead of relying on a missing TF chunk to produce an
@@ -260,7 +260,7 @@ PAL_SplashScreen(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    /*
     * The chapter pack intentionally omits the DOS title/splash assets. The
     * first playable frame is the normal opening menu/game loop.

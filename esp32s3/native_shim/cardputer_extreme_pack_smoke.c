@@ -1,4 +1,5 @@
 #include "pal_engine_pack_provider.h"
+#include "cardputer_extreme_memory.h"
 #include "pal_font10_cache.h"
 #include "pal_native_ui.h"
 #include "pal_pack.h"
@@ -80,6 +81,7 @@ main(
    const uint8_t *nor_image;
    const uint8_t *mapped = NULL;
    PalFont10Cache font10;
+   PalEngineBridgeNativeRngFrame rng_view;
    PalPack nor_pack;
    unsigned int mapped_size = 0;
    ReadAtContext tf = {0};
@@ -172,21 +174,60 @@ main(
       return 2;
    }
 
-   /* RNG #1 is a large TF record, but one decoded frame fits screen B. */
+   /* RNG #1 has a frame larger than screen B; range reads stay bounded. */
    got = PalEngineBridge_ReadNativeRngFrame(
       1, 0, rng_frame, (uint32_t)sizeof(rng_frame));
-   if (got <= 0 || got > (int)sizeof(rng_frame))
+   if (got <= 0 || got > (int)sizeof(rng_frame) ||
+      !PalEngineBridge_OpenNativeRngFrame(1, 0, &rng_view) ||
+      rng_view.size != (uint32_t)got ||
+      rng_view.size <= PAL_EXTREME_SCREEN_BYTES)
    {
       fprintf(stderr, "TF RNG frame streaming failed: %d\n", got);
       return 2;
    }
+   {
+      uint32_t offset = 0u;
+
+      while (offset < rng_view.size)
+      {
+         uint32_t amount = rng_view.size - offset;
+
+         if (amount > PAL_EXTREME_SCREEN_BYTES)
+         {
+            amount = PAL_EXTREME_SCREEN_BYTES;
+         }
+         if (!PalEngineBridge_ReadNativeRngFrameRange(&rng_view,
+               offset, tf_chunk + offset, amount))
+         {
+            fprintf(stderr, "TF RNG bounded range read failed\n");
+            return 2;
+         }
+         offset += amount;
+      }
+      if (memcmp(tf_chunk, rng_frame, rng_view.size) != 0)
+      {
+         fprintf(stderr, "TF RNG range/whole mismatch\n");
+         return 2;
+      }
+      if (!PalEngineBridge_ReadNativeRngFrameRange(&rng_view,
+            rng_view.size, NULL, 0u) ||
+         PalEngineBridge_ReadNativeRngFrameRange(&rng_view,
+            rng_view.size, rng_frame, 1u) ||
+         PalEngineBridge_ReadNativeRngFrameRange(&rng_view,
+            rng_view.size + 1u, rng_frame, 0u))
+      {
+         fprintf(stderr, "TF RNG range bounds failed\n");
+         return 2;
+      }
+   }
 
    printf("cardputer_extreme_pack_smoke: toc_calls=%lu total_calls=%lu "
-          "bytes=%llu rng_frame=%d\n",
+          "bytes=%llu rng_frame=%d window=%u\n",
       (unsigned long)toc_calls,
       (unsigned long)tf.calls,
       (unsigned long long)tf.bytes,
-      got);
+      got,
+      (unsigned)PAL_EXTREME_SCREEN_BYTES);
    fclose(tf.fp);
    munmap((void *)nor_image, (size_t)st.st_size);
    return 0;

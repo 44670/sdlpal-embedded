@@ -20,6 +20,7 @@
 //
 
 #include "main.h"
+#include "embedded/pal_memory_profile.h"
 #include <math.h>
 
 //#define INVINCIBLE 1
@@ -39,10 +40,17 @@ PAL_BattleBlitEffectAtAnchor(
          PAL_Y(pos) - PAL_RLEGetHeight(bitmap)));
 }
 
+#if defined(MEM_LEVEL2)
+#define PAL_FIGHT_EFFECT_BUFFER pal_mem_level2_fight_effect
+#define PAL_FIGHT_SUMMON_BUFFER pal_mem_level2_fight_summon
+#define PAL_FIGHT_EFFECT_BUFFER_BYTES PAL_MEM_LEVEL2_FIGHT_EFFECT_BYTES
+#define PAL_FIGHT_SUMMON_BUFFER_BYTES PAL_MEM_LEVEL2_FIGHT_SUMMON_BYTES
+#else
 #define PAL_FIGHT_EFFECT_BUFFER NULL
 #define PAL_FIGHT_SUMMON_BUFFER NULL
 #define PAL_FIGHT_EFFECT_BUFFER_BYTES 0
 #define PAL_FIGHT_SUMMON_BUFFER_BYTES 0
+#endif
 
 static VOID
 PAL_FreeFightTempSprite(
@@ -80,6 +88,13 @@ PAL_LoadFightTempSprite(
 
 #ifdef PAL_NO_RUNTIME_HEAP
    {
+#if defined(MEM_LEVEL2)
+      if (staticBuffer != NULL && (size_t)l <= staticBufferSize)
+      {
+         return PAL_MKFReadChunk(staticBuffer, (UINT)staticBufferSize,
+            iChunkNum, fp) == l ? (LPCSPRITE)staticBuffer : NULL;
+      }
+#endif
       LPCBYTE lpSpriteData;
       UINT uiSpriteSize;
       (void)staticBuffer;

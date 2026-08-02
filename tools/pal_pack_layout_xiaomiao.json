@@ -1,0 +1,56 @@
+{
+  "schema": "sdlpal-embedded-pack-layout",
+  "version": 2,
+  "description": "Xueersi Xiaomiao ESP32-WROVER-B SD-only layout. pal_core.pak is read once from SD into mapped PSRAM and owns only long-lived pointer views; pal_sd.pak remains on SD and supplies complete decoded gameplay assets through bounded named staging buffers. No game resource is stored in internal SPI flash.",
+  "packs": {
+    "nor": [
+      "DATA",
+      "PAT",
+      "RGM",
+      "SSS",
+      "TEXT",
+      "FONT"
+    ],
+    "tf": [
+      "ABC",
+      "BALL",
+      "F",
+      "FBP",
+      "FIRE",
+      "GOP",
+      "MAP",
+      "MGO",
+      "MIDI",
+      "MUS",
+      "RNG",
+      "SFX"
+    ]
+  },
+  "chunk_selection": {
+    "nor": {
+      "DATA": { "all": true },
+      "PAT": { "all": true },
+      "RGM": { "all": true },
+      "SSS": { "all": true },
+      "TEXT": { "all": true },
+      "FONT": { "chunks": [1] }
+    },
+    "tf": {
+      "ABC": { "all": true },
+      "BALL": { "all": true },
+      "F": { "all": true },
+      "FBP": { "all": true },
+      "FIRE": { "all": true },
+      "GOP": { "all": true },
+      "MAP": { "all": true },
+      "MGO": { "all": true },
+      "MIDI": { "all": true },
+      "MUS": { "all": true },
+      "RNG": { "all": true },
+      "SFX": { "all": true }
+    }
+  },
+  "pack_limits": {
+    "nor": { "max_bytes": 1572864 }
+  }
+}

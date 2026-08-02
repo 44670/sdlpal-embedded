@@ -58,7 +58,7 @@
 
 typedef struct tagPALMAP
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(MEM_LEVEL1) || defined(MEM_LEVEL2)
    const DWORD   (*Tiles)[64][2];
 #else
    DWORD          Tiles[128][64][2];

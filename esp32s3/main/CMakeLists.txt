@@ -50,7 +50,25 @@ target_compile_options(${COMPONENT_LIB} PRIVATE
     -fstack-usage
 )
 else()
-if(CARDPUTER_EXTREME_NO_PSRAM)
+if(XIAOMIAO_WROVER)
+    if(NOT CONFIG_IDF_TARGET_ESP32)
+        message(FATAL_ERROR "Xiaomiao profile requires target esp32")
+    endif()
+    if(NOT CONFIG_SPIRAM)
+        message(FATAL_ERROR "Xiaomiao profile requires CONFIG_SPIRAM=y")
+    endif()
+    set(PAL_TARGET_BOARD_SOURCES
+        "xiaomiao_board.c"
+        "xiaomiao_memory.c"
+        "cardputer_extreme_native_view.c"
+        "../../embedded/pal_font10_cache.c"
+        "../../embedded/pal_native_ui.c"
+    )
+    set(PAL_TARGET_AUDIO_SOURCES
+        "../../unix/contract_noaudio.c"
+    )
+    set(PAL_ENGINE_LDFRAGMENT_ARGS)
+elseif(CARDPUTER_EXTREME_NO_PSRAM)
     if(CONFIG_SPIRAM)
         message(FATAL_ERROR "Cardputer extreme profile must be built with CONFIG_SPIRAM=n")
     endif()
@@ -132,6 +150,7 @@ set(PAL_ENGINE_HOST_SOURCES
     "../../sdl_compat/sdl_compat.c"
     "../../unix/embedded_contract_stubs.c"
     "../../embedded/pal_pack.c"
+    "../../embedded/pal_memory_profile.c"
     "../../embedded/pal_text_cache.c"
     "../../embedded/pal_font_cache.c"
     "../engine_bridge/pal_engine_app_main.c"
@@ -153,7 +172,7 @@ if(CARDPUTER_EXTREME_CHAPTER_CACHE)
     )
 endif()
 
-if(CARDPUTER_EXTREME_NO_PSRAM)
+if(CARDPUTER_EXTREME_NO_PSRAM OR XIAOMIAO_WROVER)
     list(APPEND PAL_ENGINE_HOST_SOURCES
         "../../embedded/pal_event_journal.c"
         "../../embedded/pal_event_pager.c"
@@ -200,9 +219,31 @@ target_compile_definitions(${COMPONENT_LIB} PRIVATE
     USE_SDL3=0
 )
 
-if(CARDPUTER_EXTREME_NO_PSRAM)
+if(XIAOMIAO_WROVER)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
-        PAL_CARDPUTER_EXTREME=1
+        MEM_LEVEL2=1
+        PAL_TARGET_XIAOMIAO=1
+        PAL_STORAGE_SD_ONLY=1
+        PAL_NATIVE_UI_GENERATED_HEADER=\"generated/pal_native_ui_160x128.h\"
+        PAL_EXTREME_TWO_SCREENS=1
+        PAL_EXTREME_SPRITES_TO_DRAW=512
+        PAL_GLOBAL_BUFFER_SIZE=256
+        PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1
+        PAL_ENGINE_TF_TOC_BYTES=40960u
+        PAL_LOG_BUFFER_SIZE=1024
+        PAL_CONTRACT_NO_AUDIO=1
+        PAL_ESP_CORES3SE_NO_AUDIO=1
+        SHIM_MAX_SURFACES=6
+        SHIM_MAX_PALETTES=1
+        SHIM_MAX_TEXTURES=1
+        SHIM_SURFACE_PIXELS=1u
+        SHIM_TEXTURE_PIXELS=1u
+        SHIM_KEYBOARD_KEYS=256
+        SHIM_EVENT_QUEUE=8
+    )
+elseif(CARDPUTER_EXTREME_NO_PSRAM)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MEM_LEVEL1=1
         PAL_TARGET_CARDPUTER_ADV=1
         PAL_NATIVE_UI_GENERATED_HEADER=\"generated/pal_native_ui_240x135.h\"
         PAL_EXTREME_TWO_SCREENS=1
@@ -238,6 +279,7 @@ if(CARDPUTER_EXTREME_NO_PSRAM)
     endif()
 else()
     target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        MEM_LEVEL2=1
         PAL_CONTRACT_NO_AUDIO=1
         PAL_ESP_CORES3SE_NO_AUDIO=1
         SHIM_MAX_SURFACES=8

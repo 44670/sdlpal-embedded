@@ -214,7 +214,7 @@ PAL_FBPBlitToSurface(
    SDL_Surface      *lpDstSurface
 );
 
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
 INT
 PAL_FBPBlitChunkToSurface(
    FILE              *fp,

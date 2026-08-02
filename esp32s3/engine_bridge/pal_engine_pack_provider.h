@@ -32,7 +32,23 @@ bool PalEngineBridge_TargetInitPacks(void);
 bool PalContract_TargetOpenNorPack(PalPack *pack);
 bool PalContract_TargetOpenTfPack(PalPack *pack);
 bool PalEngineBridge_IsPackFile(FILE *fp);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
+typedef struct PalEngineBridgeNativeRngFrame {
+   const uint8_t *mapped_data;
+   uint32_t tf_offset;
+   uint32_t size;
+   bool tf_backed;
+} PalEngineBridgeNativeRngFrame;
+
+bool PalEngineBridge_OpenNativeRngFrame(
+   uint16_t movie_id,
+   uint16_t frame_id,
+   PalEngineBridgeNativeRngFrame *frame);
+bool PalEngineBridge_ReadNativeRngFrameRange(
+   const PalEngineBridgeNativeRngFrame *frame,
+   uint32_t frame_offset,
+   uint8_t *dst,
+   uint32_t size);
 int PalEngineBridge_ReadNativeRngFrame(uint16_t movie_id,
                                       uint16_t frame_id,
                                       uint8_t *dst,

@@ -120,7 +120,7 @@ typedef struct tagSCENE
    WORD         wEventObjectIndex;  // event objects in this scene begins from number wEventObjectIndex + 1
 } SCENE, *LPSCENE;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 /*
  * The audited data peaks at 142 event objects in one scene.  The extreme
  * sprite-pointer table reserves 160, so every template/save boundary check
@@ -595,7 +595,7 @@ PAL_SceneMarkDirty(
    WORD scene_index
 );
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
 LPEVENTOBJECT
 PAL_GetEventObjectByID(
    WORD event_object_id

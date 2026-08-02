@@ -36,8 +36,8 @@ previews are not evidence of gameplay integration.
 
 ## Active development lines
 
-This repository has two distinct ESP32-S3 ports. Do not mix their hardware,
-memory, storage, or bus assumptions.
+This repository has three distinct ESP32-family ports. Do not mix their
+hardware, memory, storage, or bus assumptions.
 
 ### Primary: Cardputer ADV extreme
 
@@ -46,6 +46,8 @@ memory, storage, or bus assumptions.
   dirty worktree before editing; do not overwrite unrelated user changes.
 - Flash: 8MB.
 - PSRAM: none.
+- Resource ownership uses `MEM_LEVEL1`; do not emulate PSRAM with TF or add a
+  target allocator.
 - LCD: ST7789, physical/native resolution 240x135.
 - TF: independent SPI2 bus at 20MHz; LCD uses SPI3. There is no CoreS3-style
   LCD-D/C versus TF-MISO pin handoff on this board.
@@ -75,6 +77,34 @@ enforced default-profile limits live in
   Follow the pin-direction handoff in the existing board code. Do not apply
   that rule to Cardputer ADV.
 - Audio/SFX are still excluded from the CoreS3 SE target app.
+- Resource ownership uses `MEM_LEVEL2`; board wiring and the existing NOR/TF
+  split remain separate choices.
+
+### Secondary: Xueersi Xiaomiao
+
+- Board: Xueersi Xiaomiao with classic ESP32-WROVER-B, not ESP32-S3.
+- The profile deliberately uses a conservative 4MB-compatible flash geometry
+  (WROVER-B itself has 4/8/16MB ordering variants); the partition table
+  contains no PAL resource or chapter-cache partition.
+- Physical PSRAM is 8MB, but this profile keeps all named resident buffers
+  inside the classic ESP32's 4MB directly mapped window and does not use
+  himem bank switching or a general allocator. Resource ownership uses
+  `MEM_LEVEL2`.
+- LCD: ST7735, physical/native landscape resolution 160x128.
+- LCD and SD share VSPI. GPIO19 is used for the one-time LCD reset before the
+  bus is initialized, then becomes SD MISO; do not apply the CoreS3 SE GPIO35
+  D/C/MISO handoff or the Cardputer ADV independent-bus assumption.
+- All decoded/native game data is stored on SD as `0:/pal_core.pak`,
+  `0:/pal_sd.pak`, and `0:/EVENT.DEF`; the core is copied into its fixed
+  mapped-PSRAM owner at boot and the gameplay pack remains streamed.
+- Source of truth: `esp32s3/main/xiaomiao_*`,
+  `tools/pal_pack_layout_xiaomiao.json`, and `esp32s3/check_xiaomiao.py`.
+- Build/data gate: `make -C esp32s3 xiaomiao-check`; card generation:
+  `make -C esp32s3 xiaomiao-tf`. The gate drives the SD-only provider through
+  real 160x128 map and forced-battle gameplay captures under `tmp_ui/`; the
+  forced battle proves integration, not natural story-route reachability.
+- Audio is disabled in the initial profile; real hardware acceptance remains
+  required before claiming LCD/SD/input or complete-story support.
 
 Useful hardware references:
 
@@ -88,9 +118,29 @@ Useful hardware references:
   or hidden allocator-backed containers on target paths.
 - No runtime YJ1/YJ2/LZ4 or other asset decompression. Decode and convert on
   the host when building packs.
-- Use normal, named, fixed-lifetime `uint8_t` SRAM/PSRAM buffers and typed
-  `const` views for mapped read-only data. Do not add a memory pool, tier
-  allocator, or generic cache framework.
+- Follow `embedded/RESPONSIVE_RENDERING.md`. The only common full-canvas
+  transform currently allowed is the audited FBP/RNG path in
+  `embedded/FULLSCREEN_ASSET_RENDERING.md`; do not route maps or UI through it.
+- Every no-heap engine target defines exactly one resource-memory profile.
+  `MEM_LEVEL1` keeps persistent resource views mapped from NOR/core/overlay and
+  is the no-PSRAM Cardputer profile. `MEM_LEVEL2` is for targets with at least
+  4MB of directly addressable PSRAM; it reads mutable-lifetime resources into
+  the fixed scene (256KB), player (128KB), and battle (512KB) linear arenas in
+  `embedded/pal_memory_profile.[ch]`. Those arenas only bump forward and reset
+  as a whole at their matching engine lifecycle boundary. The two 64KB fight
+  buffers are fixed owners because effect and summon data can coexist.
+- Do not add individual arena frees, freelists, compaction, fallback
+  allocation, a general memory pool, or a generic cache framework. Arena reset
+  changes only the used offset; it does not clear PSRAM. Overflow is a
+  fail-closed profile/configuration error, and the real-data checker must prove
+  the shipped pack fits before the size is changed.
+- Memory profile, board wiring, display geometry, and storage topology are
+  orthogonal. In particular, `PAL_STORAGE_SD_ONLY` selects the Xiaomiao core
+  copy/streaming provider; it is not a board name and does not define a memory
+  profile. `PAL_CARDPUTER_EXTREME` is retired: use `MEM_LEVEL1`/`MEM_LEVEL2`
+  for resource ownership and the existing target, storage, or presentation
+  capability for those independent choices. Use normal named buffers and typed
+  `const` views outside the three Level2 arenas.
 - Keep FatFS LFN heap support and dynamic FatFS buffers disabled. Runtime
   filenames must stay short (`0:/pal_tf.pak`, `0:/EVENT.STA`, `0:/b00.pak`,
   and similar).
@@ -137,23 +187,6 @@ string. Missing glyphs or a wrong archive must fail the build.
 
 ## Resource and state architecture
 
-### Legacy Cardputer extreme packs
-
-- `tools/pal_pack_build.py` is the host conversion/pack builder.
-- `tools/pal_pack_layout_cardputer_extreme.json` is the active sparse
-  chapter-candidate policy.
-- `/tmp/pal_cardputer_extreme_nor.pak` is the active NOR image.
-- `/tmp/pal_cardputer_extreme_tf.pak` is the small runtime-active TF image.
-- `/tmp/pal_cardputer_extreme_full.pak` is a complete decoded/native TF mirror.
-  It intentionally overlaps NOR and active TF resources, but current firmware
-  does not index it because its TOC exceeds the 2KB active-index budget.
-- Pack-set ID, whole-image CRC, manifest hashes, archive/chunk format, and
-  source hashes are part of the fail-closed contract.
-
-Do not describe `pal_full.pak` as swap or as a runtime fallback. It is an
-offline-complete source for future pack generation until a bounded streaming
-index is deliberately implemented.
-
 ### Default Cardputer ADV music/cache packs
 
 `tools/pal_chapter_pack_build.py` produces:
@@ -166,6 +199,10 @@ index is deliberately implemented.
   catalog;
 - `chapter_manifest.json`;
 - `EVENT.DEF`.
+
+`pal_full.pak` is an offline-complete mirror, not swap and not a runtime
+fallback. The active firmware indexes only the bounded core, chapter, and TF
+packs described by `PALSET.BIN`.
 
 At boot, the target validates the core cache against `PALSET.BIN`; a mismatch
 enters a native 240x135 `LOADING` screen and verifies/copies/verifies
@@ -229,122 +266,31 @@ persistence behavior.
 
 ## Responsive small-screen presentation
 
-The small-screen path is deliberately not a replacement UI. The engine draws
-directly into the native 240x135 indexed framebuffer. Legacy 320x200 positions
-remain compatibility coordinates for resources, scripts, events, collision,
-and battle logic; convert them only at the draw boundary and never write
-physical coordinates back into gameplay or save state. The LCD presenter is a
-1:1 indexed-to-RGB565 strip conversion and must not resize a completed frame.
+The normative rendering rules are split by responsibility:
 
-Keep three coordinate spaces explicit; never use one as an implicit substitute
-for another:
+- `embedded/RESPONSIVE_RENDERING.md`: coordinate spaces, map viewport, native
+  FONT10, and case-by-case UI/material layout;
+- `embedded/FULLSCREEN_ASSET_RENDERING.md`: the FBP/RNG-only full-canvas
+  allowlist, transform, streaming boundary, and regression checks;
+- `embedded/UI_REVIEW_SOP.md`: human visual-acceptance order;
+- `unix/WEBSOCKET_HARNESS.md`: repeatable host control and capture.
 
-- legacy gameplay/resource coordinates, normally 320x200;
-- the pixel coordinates inside an individual source material;
-- final physical coordinates in the native framebuffer.
+Hard boundaries: draw into the native indexed framebuffer, never resize a
+completed frame, never write presentation coordinates into gameplay state,
+and never infer that a transform for one asset also applies to its overlays.
+Maps retain their responsive 1:1 viewport. Text and numbers remain native
+10px pixels with pre-authored line/page boundaries. All non-allowlisted assets
+and UI elements are handled case by case.
 
-Every Cardputer draw path must make its conversion at the draw boundary. A map
-viewport translation, a full-screen material mapping, and a native UI position
-are different operations. In particular, never put the map viewport offset in
-a generic FBP/RLE blitter and never infer overlay coordinates from the current
-framebuffer dimensions.
-
-Map frames use a viewport, not scaling. Conceptually compose the original map,
-cover tiles, sprites, effects, and animations and take the 1:1 source viewport
-`(40,45,240,135)`, which maps PAL's canonical party anchor `(160,112)` to
-`(120,67)`. The implementation may clip those draw operations directly into
-the native framebuffer; it must not allocate or produce an intermediate
-320x200 frame. Legacy `gpGlobals->viewport` remains the only world camera and
-continues to handle movement and scripted camera motion. The physical viewport
-offset is draw-only and must not be added to gameplay state. Do not scale map
-tiles, map sprites, or a completed map frame.
-
-A 320x200 to 240x135 nearest-centre mapping is permitted only while blitting a
-specific full-screen art resource, such as a battle background or a fixed
-full-screen item/status/equipment FBP. It scales that source material directly
-into the native framebuffer; it never scales the framebuffer or a completed
-composition. Use it only when cropping the resource would discard required
-content. A screen backed by semantic full-screen artwork must be migrated as
-one composition: background, portraits, equipment/item images, labels,
-numbers, cursors, and hit positions must all use the same legacy-to-physical
-base mapping. Graphical overlays are mapped as individual materials directly
-into the native framebuffer; do not scale only the background while leaving
-its dependent overlays at legacy coordinates. Other elements continue through
-their original draw functions with only necessary native positions or bounded
-per-asset fitting.
-
-Text and number pixels are never mapped, although their anchor positions may
-be converted into physical coordinates. Small-screen text uses FONT10 and must
-be rasterized directly into the native indexed framebuffer at its final
-physical coordinates as ordinary 10x10 cells with a 10-pixel advance. Native
-glyph/number extents do not shrink with their anchors: after converting
-positions, check spacing and alignment against those final extents and make
-the smallest screen-local adjustment needed to prevent overlap. Text must
-never be drawn into a legacy-sized surface and then downsampled, filtered,
-sample-dropped, or otherwise shrunk. Existing pre-authored message lines retain
-their original line/page/control-code boundaries and must not be reflowed.
-
-The current source of truth is intentionally small:
-
-- 1:1 indexed strip conversion:
-  `esp32s3/main/cardputer_extreme_native_view.[ch]`;
-- geometry/header generator: `tools/pal_native_ui_layout.py`;
-- generated 240x135 and 160x128 profiles:
-  `esp32s3/main/generated/pal_native_ui_*.h`;
-- FONT10 drawing, bounded portrait fitting, and dialogue-layout compatibility:
-  `embedded/pal_native_ui.[ch]`;
-- read-only FONT10 pack view: `embedded/pal_font10_cache.[ch]`.
-
-Cardputer extreme NOR/core packs contain only `FONT` chunk 1, the corpus-
-subsetted FONT10 payload. The converted original 16px font (`FONT` chunk 0)
-is excluded from those flash-resident packs and is retained only in the
-offline-complete TF mirror.
-
-Only 240x135 is the current Cardputer ADV acceptance target. The 160x128
-profile remains a later engine/host check until the 240x135 vertical slice is
-accepted and a matching board presenter exists.
-
-Map and battle keep the original scene layers, sprites, animations, target
-markers, action diamond, player information boxes, input order, and return
-values. Do not add focus-following presentation crops, special small-screen
-battle HUDs, semantic layout solvers, replacement menus, independently
-redesigned chrome, or a whole-frame scaler. UI follow-up work must continue
-from the original draw functions and DATA.MKF assets, making only necessary
-position or per-material size changes for the physical canvas. Existing
-viewport compatibility code must not become a second world camera or control
-gameplay state.
-
-Per-material downsampling must be bounded and deterministic, use
-nearest-centre sampling, and preserve RLE transparency. Dialogue portraits use
-aspect-preserving fitting. Materials that belong to a mapped full-screen
-composition, such as status portraits and equipment images, use that
-composition's axis mapping so they remain aligned with its artwork.
+Only 240x135 is accepted on Cardputer ADV. Xiaomiao's 160x128 profile has host
+map/battle coverage but still requires physical-board acceptance.
 
 ### Required gameplay review
 
-Tests are necessary but not visual acceptance. For the current slice, capture
-map and battle frames at 240x135 from the full gameplay executable, write them
-under `./tmp_ui/`, and inspect every final PNG with the image viewer. Dialogue,
-menu, and 160x128 captures become required when those slices are implemented.
-A crop of an old screenshot can help diagnose geometry but is not a final
-acceptance capture. Never substitute a Python-drawn preview, wireframe, or
-synthetic fixture for a real gameplay frame.
-
-Any screen changed during a slice becomes a required acceptance screen even if
-it appears later in the SOP. Before handing control to the reviewer: build the
-exact binary, position the real game at every changed screen, capture it, and
-personally inspect the final PNG. Do not claim the SDL session is ready while a
-known reachable screen still mixes old and new coordinate transforms. Only
-after this gate should the window be placed on the human's desktop and all
-automated input stop.
-
-Use `embedded/UI_REVIEW_SOP.md` as the persistent major-screen review order.
-Keep session-specific screenshots and notes under `./tmp_ui/`; do not replace
-the real-gameplay review with synthetic fixtures or direct renderer calls.
-
-The host-only forced-battle probe remains automatic by default.  Set
-`PAL_DETERMINISTIC_FORCE_BATTLE_AUTO=0` when a review capture must hold on the
-real interactive action selector; this does not change target gameplay.
+Tests are not visual acceptance. Capture every changed screen from the real
+gameplay loop under `./tmp_ui/`, inspect it, then follow
+`embedded/UI_REVIEW_SOP.md` and pause for the human reviewer. A forced state
+proves rendering/integration, not natural story-route reachability.
 
 ## Input mapping
 
@@ -412,6 +358,8 @@ Useful narrow checks:
 make -C esp32s3 cardputer-extreme-chapter-cache-logic-check
 make -C esp32s3 cardputer-extreme-event-pager-check
 make -C esp32s3 cardputer-extreme-event-journal-check
+make -C embedded fullscreen-stretch-check
+make -C esp32s3 cardputer-extreme-rng-decoder-check
 make -C esp32s3 FONT10_ARCHIVE="$FONT10_ARCHIVE" \
   cardputer-extreme-native-smoke
 make -C esp32s3 FONT10_ARCHIVE="$FONT10_ARCHIVE" \
@@ -439,6 +387,8 @@ still pass no-heap/no-runtime-decompression checks.
 
 ## Source-of-truth rule
 
+Use `embedded/README.md` as the current documentation index.
+
 Keep this file compact and navigational. Detailed measured results belong in
 the checker output or focused README, not in an ever-growing historical list
 of every embedded slice. When behavior changes:
@@ -449,8 +399,5 @@ of every embedded slice. When behavior changes:
    boundary, or primary command changed;
 4. remove superseded claims instead of appending contradictory history.
 
-
-
-# Update .gitignore, not rm every time
-
-Do not clean __pycache__, it has been git-ignored.
+Do not clean ignored `__pycache__` directories merely to make status output
+look tidy; update ignore rules when generated files are repeatedly noisy.

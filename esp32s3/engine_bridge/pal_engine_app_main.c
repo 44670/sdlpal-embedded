@@ -1,12 +1,13 @@
 #include "pal_target_board.h"
 #include "pal_target_memory.h"
+#include "pal_memory_profile.h"
 #include "pal_engine_pack_provider.h"
 #include "pal_engine_runtime_metrics.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#if defined(PAL_CARDPUTER_EXTREME) && defined(ESP_PLATFORM)
+#if (defined(MEM_LEVEL1) || defined(MEM_LEVEL2)) && defined(ESP_PLATFORM)
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #endif
@@ -18,7 +19,7 @@ PalEngineBridge_LogRuntimeMemory(
    const char *stage
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME) && defined(ESP_PLATFORM)
+#if (defined(MEM_LEVEL1) || defined(MEM_LEVEL2)) && defined(ESP_PLATFORM)
    const uint32_t internal_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
    const uint32_t dma_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
    size_t free_bytes = heap_caps_get_free_size(internal_caps);
@@ -63,11 +64,14 @@ app_main(
       }
    }
    PalTarget_TouchReservedBuffers();
+#if defined(MEM_LEVEL2)
+   PAL_MemoryLevel2Touch();
+#endif
    PalEngineBridge_LogRuntimeMemory("board-ready");
 
    if (!PalEngineBridge_TargetInitPacks())
    {
-      PalTarget_ShowError("PACK FAIL", "NOR OR TF");
+      PalTarget_ShowError("PACK FAIL", "RESOURCE STORAGE");
       for (;;)
       {
          vTaskDelay(pdMS_TO_TICKS(1000));

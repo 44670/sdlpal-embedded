@@ -11,7 +11,7 @@
 #include "util.h"
 #include "video.h"
 #include "audio.h"
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
 #include "../embedded/pal_font10_cache.h"
 #include "../embedded/pal_native_ui.h"
 #else
@@ -68,7 +68,7 @@
 static PalPack pal_contract_nor_pack;
 static PalPack pal_contract_tf_pack;
 static PalTextCache pal_contract_text;
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
 static PalFont10Cache pal_contract_font10;
 static PalNativeUiDialogLayout pal_contract_dialog_layout;
 #else
@@ -272,7 +272,7 @@ PalContract_Utf16LeToSlot(
     return out;
 }
 
-#ifndef PAL_CARDPUTER_EXTREME
+#ifndef PAL_EXTREME_TWO_SCREENS
 static void
 PalContract_DrawGlyph16(
     const uint8_t *glyph,
@@ -485,7 +485,7 @@ BOOL g_fUpdatedInBattle;
 int PAL_InitFont(const CONFIGURATION *cfg)
 {
     (void)cfg;
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     pal_contract_font_ready = PalContract_OpenNorPack() &&
         PalFont10_Open(&pal_contract_nor_pack, &pal_contract_font10);
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
@@ -521,7 +521,7 @@ void PAL_FreeFont(void)
 
 void PAL_DrawCharOnSurface(uint16_t wChar, SDL_Surface *lpSurface, PAL_POS pos, uint8_t bColor, BOOL fUse8x8Font)
 {
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     PalFont10Glyph glyph10;
 
     (void)fUse8x8Font;
@@ -554,7 +554,7 @@ void PAL_DrawCharOnSurface(uint16_t wChar, SDL_Surface *lpSurface, PAL_POS pos, 
 
 int PAL_CharWidth(uint16_t wChar)
 {
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     PalFont10Glyph glyph10;
     if (pal_contract_font_ready &&
         PalFont10_FindGlyph(&pal_contract_font10, wChar, &glyph10)) {
@@ -567,13 +567,13 @@ int PAL_CharWidth(uint16_t wChar)
 
 int PAL_FontHeight(void)
 {
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     return PAL_NATIVE_UI_GENERATED_FONT_CELL_HEIGHT;
 #endif
     return 16;
 }
 
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
 static bool
 PalContract_NativeResetDefaultDialogLayout(
     void
@@ -618,7 +618,7 @@ INT PAL_InitText(VOID)
     g_TextLib.fUserSkip = FALSE;
     g_TextLib.fPlayingRNG = FALSE;
     memset(g_TextLib.bufDialogIcons, 0, sizeof(g_TextLib.bufDialogIcons));
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     if (!PalContract_NativeResetDefaultDialogLayout()) {
         return -1;
     }
@@ -701,7 +701,7 @@ VOID PAL_DrawTextUnescape(
             PAL_DrawCharOnSurface((uint16_t)*lpszText, gpScreen, PAL_XY(x + 1, y + 1), 0, fUse8x8Font);
         }
         PAL_DrawCharOnSurface((uint16_t)*lpszText, gpScreen, pos, bColor, fUse8x8Font);
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
         pos = PAL_XY(x + PAL_CharWidth((uint16_t)*lpszText), y);
 #else
         pos = PAL_XY(x + (fUse8x8Font ? 8 : PAL_CharWidth((uint16_t)*lpszText)), y);
@@ -747,7 +747,7 @@ VOID PAL_StartDialogWithOffset(BYTE bDialogLocation, BYTE bFontColor, INT iNumCh
         g_TextLib.fPlayingRNG = TRUE;
     }
 
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     if (bDialogLocation == kDialogCenter ||
         bDialogLocation == kDialogCenterWindow) {
         if (!PalNativeUi_GetCenterDialogLayout(
@@ -920,7 +920,7 @@ static void PalContract_DialogWaitForKey(FLOAT max_seconds)
     g_TextLib.fUserSkip = FALSE;
 }
 
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
 static bool
 PalContract_NativeDialogControl(
     WCHAR value
@@ -1186,7 +1186,7 @@ VOID PAL_ShowDialogText(LPCWSTR lpszText)
         g_fUpdatedInBattle = TRUE;
     }
 
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     len = lpszText != NULL ? wcslen(lpszText) : 0;
     if (g_TextLib.bDialogPosition == kDialogCenterWindow) {
         int x_offset;
@@ -1307,7 +1307,7 @@ VOID PAL_ClearDialog(BOOL fWaitForKey)
     }
     g_TextLib.nCurrentDialogLine = 0;
     if (g_TextLib.bDialogPosition == kDialogCenter) {
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
         (void)PalContract_NativeResetDefaultDialogLayout();
 #else
         g_TextLib.posDialogTitle = PAL_XY(12, 8);
@@ -1321,7 +1321,7 @@ VOID PAL_ClearDialog(BOOL fWaitForKey)
 VOID PAL_EndDialog(VOID)
 {
     PAL_ClearDialog(TRUE);
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
     (void)PalContract_NativeResetDefaultDialogLayout();
 #else
     g_TextLib.posDialogTitle = PAL_XY(12, 8);

@@ -20,14 +20,20 @@
 //
 
 #include "main.h"
-
-#if defined(PAL_CARDPUTER_EXTREME)
-#include "pal_engine_runtime_metrics.h"
-#if defined(PAL_EXTREME_CHAPTER_CACHE)
-#include "pal_engine_chapter_cache.h"
-#include "pal_engine_event_state.h"
+#include "embedded/pal_memory_profile.h"
+#if defined(ESP_PLATFORM) && defined(MEM_LEVEL2)
+#include <esp_attr.h>
 #endif
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+#include "pal_engine_runtime_metrics.h"
+#endif
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+#include "embedded/pal_event_pager.h"
+#include "pal_engine_chapter_cache.h"
+#endif
+
+#if defined(PAL_PAGED_EVENT_STATE)
 static VOID
 PAL_ResReadEventObject(
    WORD             wEventObjectID,
@@ -69,16 +75,16 @@ typedef struct tagRESOURCES
 static LPRESOURCES gpResources = NULL;
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
-#if defined(__GNUC__)
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(ESP_PLATFORM) && defined(MEM_LEVEL2)
+#define PAL_RES_PSRAM EXT_RAM_BSS_ATTR __attribute__((aligned(4)))
+#elif defined(__GNUC__) && defined(MEM_LEVEL1)
 #define PAL_RES_PSRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
-#else
+#elif defined(__GNUC__)
 #define PAL_RES_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
-#endif
 #else
 #define PAL_RES_PSRAM
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 /*
  * The complete 5,369-object data set peaks at 142 objects in one scene.
  * Round that audited maximum up to 160 so the fixed table also tolerates
@@ -168,6 +174,9 @@ PAL_FreePlayerSprites(
 #endif
       gpResources->rglpPlayerSprite[i] = NULL;
    }
+#if defined(MEM_LEVEL2)
+   PAL_MemoryPlayerReset();
+#endif
 }
 
 VOID
@@ -228,6 +237,9 @@ PAL_FreeResources(
       // Free map
       //
       PAL_FreeMap(gpResources->lpMap);
+#if defined(MEM_LEVEL2)
+      PAL_MemorySceneReset();
+#endif
 
       //
       // Delete the instance
@@ -325,6 +337,9 @@ PAL_LoadResources(
       PAL_FreeEventObjectSprites();
       PAL_FreeMap(gpResources->lpMap);
       gpResources->lpMap = NULL;
+#if defined(MEM_LEVEL2)
+      PAL_MemorySceneReset();
+#endif
 
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
       {
@@ -385,12 +400,11 @@ PAL_LoadResources(
       //
       // Load map
       //
-#if defined(PAL_CARDPUTER_EXTREME) && \
-   !defined(PAL_EXTREME_CHAPTER_CACHE)
+#if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)
       if (!((gpGlobals->wNumScene >= 1 && gpGlobals->wNumScene <= 20) ||
             gpGlobals->wNumScene == 22))
       {
-         TerminateOnError("Cardputer chapter boundary: scene %u is outside 1..20,22",
+         TerminateOnError("MEM_LEVEL1 chapter boundary: scene %u is outside 1..20,22",
             gpGlobals->wNumScene);
       }
 #endif
@@ -411,14 +425,14 @@ PAL_LoadResources(
       // Load sprites
       //
       index = gpGlobals->g.rgScene[i].wEventObjectIndex;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       if (index < 0 ||
          index > gpGlobals->g.rgScene[i + 1].wEventObjectIndex ||
          gpGlobals->g.rgScene[i + 1].wEventObjectIndex >
             gpGlobals->g.nEventObject)
       {
          TerminateOnError(
-            "Cardputer scene event boundary: scene %u uses %d..%u, capacity is %d",
+            "Paged event boundary: scene %u uses %d..%u, capacity is %d",
             gpGlobals->wNumScene,
             index,
             gpGlobals->g.rgScene[i + 1].wEventObjectIndex,
@@ -427,7 +441,7 @@ PAL_LoadResources(
       if (!PAL_EventObjectPinScene(gpGlobals->wNumScene))
       {
          TerminateOnError(
-            "Cardputer event-state pin failed for scene %u",
+            "Paged event-state pin failed for scene %u",
             gpGlobals->wNumScene);
       }
 #endif
@@ -442,8 +456,8 @@ PAL_LoadResources(
 #ifdef PAL_NO_RUNTIME_HEAP
          if (gpResources->nEventObject > PAL_RES_EVENT_SPRITE_CAPACITY)
          {
-#if defined(PAL_CARDPUTER_EXTREME)
-            TerminateOnError("Cardputer scene sprite pointer capacity exceeded: %d > %d",
+#if defined(PAL_PAGED_EVENT_STATE)
+            TerminateOnError("Paged scene sprite pointer capacity exceeded: %d > %d",
                gpResources->nEventObject, PAL_RES_EVENT_SPRITE_CAPACITY);
 #else
             gpResources->nEventObject = MAX_EVENT_OBJECTS;
@@ -459,7 +473,7 @@ PAL_LoadResources(
 
       for (i = 0; i < gpResources->nEventObject; i++, index++)
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          EVENTOBJECT eventObject;
 
          PAL_ResReadEventObject((WORD)(index + 1), &eventObject);
@@ -479,7 +493,7 @@ PAL_LoadResources(
 #ifdef PAL_NO_RUNTIME_HEAP
          for (l = 0; l < i; l++)
          {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
             EVENTOBJECT previousEventObject;
 
             PAL_ResReadEventObject(
@@ -493,7 +507,7 @@ PAL_LoadResources(
 #endif
             {
                gpResources->lppEventObjectSprites[i] = gpResources->lppEventObjectSprites[l];
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
                eventObject.nSpriteFramesAuto =
                   PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
                PAL_ResWriteEventObject((WORD)(index + 1), &eventObject);
@@ -524,6 +538,23 @@ PAL_LoadResources(
 
 #ifdef PAL_NO_RUNTIME_HEAP
          {
+#if defined(MEM_LEVEL2)
+            LPBYTE sprite_data =
+               (LPBYTE)PAL_MemorySceneAlloc((size_t)l);
+            gpResources->lppEventObjectSprites[i] =
+               (sprite_data != NULL &&
+                  PAL_MKFReadChunk(sprite_data, (UINT)l,
+                     (UINT)n, gpGlobals->f.fpMGO) == l) ?
+                  (LPCSPRITE)sprite_data : NULL;
+            if (gpResources->lppEventObjectSprites[i] == NULL)
+            {
+               TerminateOnError(
+                  "MEM_LEVEL2 scene arena/read failed: chunk=%d size=%d used=%u/%u",
+                  n, l, (unsigned)PAL_MemorySceneUsed(),
+                  (unsigned)PAL_MEM_LEVEL2_SCENE_ARENA_BYTES);
+               continue;
+            }
+#else
             LPCBYTE lpSpriteData;
             UINT uiSpriteSize;
             if (!PAL_MKFMapChunk(gpGlobals->f.fpMGO, n, &lpSpriteData, &uiSpriteSize) ||
@@ -533,6 +564,7 @@ PAL_LoadResources(
                continue;
             }
             gpResources->lppEventObjectSprites[i] = lpSpriteData;
+#endif
          }
 #else
          gpResources->lppEventObjectSprites[i] = (LPSPRITE)UTIL_malloc(l);
@@ -545,7 +577,7 @@ PAL_LoadResources(
 #endif
 #endif
          {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
             eventObject.nSpriteFramesAuto =
                PAL_SpriteGetNumFrames(gpResources->lppEventObjectSprites[i]);
             PAL_ResWriteEventObject((WORD)(index + 1), &eventObject);
@@ -596,6 +628,24 @@ PAL_LoadResources(
 
 #ifdef PAL_NO_RUNTIME_HEAP
          {
+#if defined(MEM_LEVEL2)
+            LPBYTE sprite_data =
+               (LPBYTE)PAL_MemoryPlayerAlloc((size_t)l);
+            gpResources->rglpPlayerSprite[i] =
+               (sprite_data != NULL &&
+                  PAL_MKFReadChunk(sprite_data, (UINT)l,
+                     (UINT)wSpriteNum, gpGlobals->f.fpMGO) == l) ?
+                  (LPCSPRITE)sprite_data : NULL;
+            if (gpResources->rglpPlayerSprite[i] == NULL)
+            {
+               TerminateOnError(
+                  "MEM_LEVEL2 player arena/read failed: chunk=%u size=%d used=%u/%u",
+                  (unsigned)wSpriteNum, l,
+                  (unsigned)PAL_MemoryPlayerUsed(),
+                  (unsigned)PAL_MEM_LEVEL2_PLAYER_ARENA_BYTES);
+               continue;
+            }
+#else
             LPCBYTE lpSpriteData;
             UINT uiSpriteSize;
             if (PAL_MKFMapChunk(gpGlobals->f.fpMGO, wSpriteNum, &lpSpriteData, &uiSpriteSize) &&
@@ -603,6 +653,7 @@ PAL_LoadResources(
             {
                gpResources->rglpPlayerSprite[i] = lpSpriteData;
             }
+#endif
          }
 #else
          gpResources->rglpPlayerSprite[i] = (LPSPRITE)UTIL_malloc(l);
@@ -632,6 +683,26 @@ PAL_LoadResources(
 
 #ifdef PAL_NO_RUNTIME_HEAP
          {
+#if defined(MEM_LEVEL2)
+            LPBYTE sprite_data =
+               (LPBYTE)PAL_MemoryPlayerAlloc((size_t)l);
+            gpResources->rglpPlayerSprite[
+               (short)gpGlobals->wMaxPartyMemberIndex + i] =
+               (sprite_data != NULL &&
+                  PAL_MKFReadChunk(sprite_data, (UINT)l,
+                     (UINT)wSpriteNum, gpGlobals->f.fpMGO) == l) ?
+                  (LPCSPRITE)sprite_data : NULL;
+            if (gpResources->rglpPlayerSprite[
+                  (short)gpGlobals->wMaxPartyMemberIndex + i] == NULL)
+            {
+               TerminateOnError(
+                  "MEM_LEVEL2 follower arena/read failed: chunk=%u size=%d used=%u/%u",
+                  (unsigned)wSpriteNum, l,
+                  (unsigned)PAL_MemoryPlayerUsed(),
+                  (unsigned)PAL_MEM_LEVEL2_PLAYER_ARENA_BYTES);
+               continue;
+            }
+#else
             LPCBYTE lpSpriteData;
             UINT uiSpriteSize;
             if (PAL_MKFMapChunk(gpGlobals->f.fpMGO, wSpriteNum, &lpSpriteData, &uiSpriteSize) &&
@@ -639,6 +710,7 @@ PAL_LoadResources(
             {
                gpResources->rglpPlayerSprite[(short)gpGlobals->wMaxPartyMemberIndex+i] = lpSpriteData;
             }
+#endif
          }
 #else
          gpResources->rglpPlayerSprite[(short)gpGlobals->wMaxPartyMemberIndex+i] = (LPSPRITE)UTIL_malloc(l);
@@ -652,7 +724,7 @@ PAL_LoadResources(
    // Clear all of the load flags
    //
    gpResources->bLoadFlags = 0;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PalEngineBridge_LogRuntimeMemory("resources-loaded");
 #endif
 }

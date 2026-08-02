@@ -1,8 +1,8 @@
 {
   "version": 2,
   "baseline_id": "cardputer-extreme-v1",
-  "reviewed_against_commit": "3f5f25df3609f4dd7e3ef4eb8ec914f89658ab2f",
-  "description": "Post-review engine baseline for the Cardputer ADV 8MB/no-PSRAM extreme profile. The profile is a mechanically verified candidate; a complete new-game-to-Suzhou hardware route has not yet been proven.",
+  "reviewed_against_commit": "7cd28ad01ccb2161cdec0b752decea486192b806",
+  "description": "Post-review engine baseline for the board-independent MEM_LEVEL1/MEM_LEVEL2 resource profiles and responsive embedded presentation. Cardputer ADV and Xiaomiao remain mechanically verified candidates; complete natural-story hardware routes have not yet been proven.",
   "verification": [
     "make -C esp32s3 CARDPUTER_EXTREME_BUILD_DIR=/tmp/sdlpal-cardputer-release-build cardputer-extreme-check",
     "make -C embedded contract-check",
@@ -11,69 +11,69 @@
   "files": [
     {
       "path": "script.c",
-      "sha256": "171fc065accf43d1b3f5b99140798b6ade2e45d5a1a12a0e82043fc10733724e",
+      "sha256": "42a5edde2e8ebf645fbc2095e205898de36d091a065e9b278ed74c0fed90be95",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed bounded sparse-event lookup, the finite-profile endpoint, and the compile-gated chapter-cache continuation"
+      "reason": "reviewed bounded event/scene paging, responsive dialogue integration, finite-profile endpoint, and MEM_LEVEL1 chapter-cache continuation"
     },
     {
       "path": "scene.c",
-      "sha256": "abc9d76e2d2318ba7b99d16d1ba9a99c7565af10c288b3071cafd6bb121e5762",
+      "sha256": "1b7e63739fb1132609be1899557a3a6a4b034c1135d24241d94b79896ce87010",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed compile-time sprite draw-list sizing, high-water telemetry, and fail-fast overflow behavior"
+      "reason": "reviewed bounded event-state access, native render-coordinate projection, sprite draw-list sizing, telemetry, and fail-fast overflow"
     },
     {
       "path": "res.c",
-      "sha256": "128bb8f7fc50f77da84cbc46f65315bbadb179e99596515fcaf4382ee9a4d3cb",
+      "sha256": "c3a433cf1f7e813c2719bdcb17e7c0c7aa054d2ffe6c56521bc53a9bb6e19dc0",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed pack views, sprite deduplication, bounded event-resource storage, and cache-safe pointer teardown before compile-gated overlay switches"
+      "reason": "reviewed fixed MEM_LEVEL1 pack views, lifecycle-scoped MEM_LEVEL2 scene/player arenas, sprite deduplication, event paging, and cache-safe teardown"
     },
     {
       "path": "global.c",
-      "sha256": "c4b26f64ac8f015f06ff6994efc31cb7f4d31ca144c5cdc8e40ebe61acd4895a",
+      "sha256": "d9e5bd8f0133617a95ca6fd42be1bae13604272823016c65e6d07ec600c2347c",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed global storage plus SZC2 atomic saves, CRC validation, and sparse event 5334 preservation"
+      "reason": "reviewed fixed profile-owned global storage, derived paged event/scene state, fail-closed tagged atomic saves, CRC validation, and legacy-save rejection"
     },
     {
       "path": "uigame.c",
-      "sha256": "bd508533a0849a76b963eab7ac84c50867e1d14333d74e498abcf8a0ac2eaf70",
+      "sha256": "de0a8ea179f3560cbc8440ebef43798d586e1c5fe13806209c0731bb7cfc2f5c",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed two-screen UI scratch reuse and save-counter/error semantics"
+      "reason": "reviewed two-screen UI scratch reuse, faithful native status/shop/system layouts, menu-item scrolling, and save-counter/error semantics"
     },
     {
       "path": "ui.c",
-      "sha256": "dd362c4f6903aef78fdac88bf4aa02e5bc6b7ef40a531e72e629e8415d8a809e",
+      "sha256": "86e9a2dd86ad0e87ed00b61301263d9f985e269ee5c6580cd619262c7fd1609d",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed no-heap UI boxes and read-only generated-pack asset views"
+      "reason": "reviewed no-heap UI boxes, physical-pixel FONT10 drawing, bounded portrait fitting, and read-only generated-pack asset views"
     },
     {
       "path": "battle.c",
-      "sha256": "2e95e53ee7ac6e0601c87c885dbc8232beafb71a5fc5705ab0b8488f282963c5",
+      "sha256": "95f99e6f466efb47e12227c46323cdd55a0edbad4f9532bf009999e2afe2c045",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed two-screen battle/background reuse and battle residency telemetry"
+      "reason": "reviewed native battle geometry, original scene/HUD semantics, two-screen background reuse, MEM_LEVEL2 battle arena lifecycle, and residency telemetry"
     },
     {
       "path": "fight.c",
-      "sha256": "0181828260b014fb855cffa1291529c903b6512c91ad962dea43d7dd47d20d7d",
-      "policy": "frozen-upstream",
-      "reason": "unchanged authoritative fight logic"
+      "sha256": "42d89fcaf0c18c24cbd155db1190da63cdbb08025ab4d54c1887856224f2968e",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed native battle effect positioning and separate fixed MEM_LEVEL2 fight-effect and summon owners"
     },
     {
       "path": "rngplay.c",
-      "sha256": "8d6cf8035ea442bd6b268a73f3f03281c55a17b334fe4be98e71ee6b0b80bdb1",
+      "sha256": "e9b44c60b14464babe93c731b89b283488ca44b2ec1fc9fbc96121fb2f7be254",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed TF-backed native RNG frame streaming and auxiliary-framebuffer guards"
+      "reason": "reviewed bounded canonical RNG command decoding, common full-canvas nearest-centre writes, range-streamed encoded input through the native auxiliary window, and malformed/cursor-overflow rejection"
     },
     {
       "path": "ending.c",
-      "sha256": "f932946ee7e9afc42ac0cfebf89d3e970e89b8f92c5dc25eabf227155ccec636",
+      "sha256": "b27d47d735d9f2b06b0bca5b8e87a20404d4314c453e5ea43ba0a33d79399ee2",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed auxiliary-framebuffer guards and native generated-pack views"
+      "reason": "reviewed small-screen FBP scanline streaming, auxiliary-screen ownership guards, and native generated-pack sprite views"
     },
     {
       "path": "input.c",
-      "sha256": "bc13b5927a29565c8ac2883694a20c52d0b8c330b82c7165fc23ce8ff8e771a8",
-      "policy": "frozen-upstream",
-      "reason": "unchanged authoritative input seam"
+      "sha256": "06882eb5ee863ab0760790250bcf75f7c9b4cb9af85583c8082272fb9fe70dcb",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed host-only WebSocket input polling plus independently gated paged-state checkpoints and fixed-music telemetry at the normal cooperative input seam"
     },
     {
       "path": "game.c",
@@ -83,39 +83,39 @@
     },
     {
       "path": "play.c",
-      "sha256": "f13ba4e3a9c86c494390ea1eda121be1ae4c7fa5110f5e51cf4680321c742ef8",
-      "policy": "frozen-upstream",
-      "reason": "unchanged authoritative gameplay flow"
+      "sha256": "c1d47611adcdd436a6d4171dffb69623a380b6d58c26f972000f32984afa8e6a",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed ordinary gameplay flow through bounded TF-backed event/scene read, write, and dirty-state interfaces"
     },
     {
       "path": "itemmenu.c",
-      "sha256": "e816d7c7cead714598f026e0906287ee9e3a556d40c53f4b8ea9954b4d5edb5b",
+      "sha256": "bad3bb40b70beb005b1f0a13c482a6c43c706d06cb46f0c37b83c2c123f39549",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed item-menu buffers and read-only generated-pack views"
+      "reason": "reviewed fixed item-menu buffers, faithful small-screen placement, visible selection values, and read-only generated-pack views"
     },
     {
       "path": "magicmenu.c",
-      "sha256": "d3744426d40167d4130aeaa0fac686264df285e44d73cc3648dba56f3645d312",
-      "policy": "frozen-upstream",
-      "reason": "unchanged authoritative magic-menu behavior"
+      "sha256": "37915923a2e7052ba4b4c74b7cef8ed457e38765afbc05505e7e06aedf49ed01",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed faithful small-screen magic menu placement while preserving selection and return semantics"
     },
     {
       "path": "uibattle.c",
-      "sha256": "b5bd5104def667c9ae134481c4843450ec1513feb61141f7196f9047dc7814d3",
-      "policy": "frozen-upstream",
-      "reason": "unchanged authoritative battle UI behavior"
+      "sha256": "079a81e3e9e315dc0b1f99ff524111f142bfb4659e7a41708ace9bf8008e34bf",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed faithful small-screen battle menus, action selector, target overlays, and selected-party status without changing battle return values"
     },
     {
       "path": "main.c",
-      "sha256": "5db338a7830296d280d053d94754b8c478aa9ae85c4c80eaebe345907cc220de",
+      "sha256": "f33439c8cacbec1d7436d9594e3e0108c184280ea8610af97cbb7ca964555b68",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed extreme-profile startup that skips unsupported splash/trademark paths and consumes native assets"
+      "reason": "reviewed two-screen embedded startup, fixed RIX music initialization, and explicit omission of unsupported trademark/title sequences"
     },
     {
       "path": "palcommon.c",
-      "sha256": "93f0f8cbfc355a0500ed90482d3dad0b853f3f2a0bc2d3e168b9221d5b2f0ca9",
-      "policy": "frozen-upstream",
-      "reason": "unchanged generated-pack archive seam"
+      "sha256": "77ccf64470287c3bc188fbcd8c78c1e45f8655c1eec8a67038b9fa73a722b39f",
+      "policy": "frozen-reviewed-extreme",
+      "reason": "reviewed generated-pack archive seam plus the common full-canvas FBP stretch and bounded scanline streaming into native embedded surfaces"
     },
     {
       "path": "util.c",
@@ -125,9 +125,9 @@
     },
     {
       "path": "video.c",
-      "sha256": "d8dcc9cd3d42a4d70baddbeb00f6a5d61a67a6efa8fa9ca079afdaaa895207f9",
+      "sha256": "eb6d44fc871b691f02c610d67d24098740686d56b7c94aaca2df0c52b362cc44",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed exactly-two indexed-screen storage and direct target presentation"
+      "reason": "reviewed exactly-two indexed-screen storage, native physical surface creation, and direct target presentation without a scaled final framebuffer"
     },
     {
       "path": "audio.c",
@@ -149,9 +149,9 @@
     },
     {
       "path": "map.c",
-      "sha256": "8bf12ffdacd172a08420dae9176ff0894a34dbceb2022351ea089a11610cfef3",
+      "sha256": "2f4d5da6eeaf8c7b97866ca825f3fdc8bf4ada85518e1c088aae135e616235bb",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed native MAP/GOP buffers and no-runtime-decompression loader"
+      "reason": "reviewed MEM_LEVEL1 mapped MAP/GOP views and MEM_LEVEL2 scene-arena reads with common no-runtime-decompression ownership"
     },
     {
       "path": "common.h",
@@ -161,15 +161,15 @@
     },
     {
       "path": "global.h",
-      "sha256": "90893288a7cf237159c93da2aeb4badb180b8305b5d47ce5c5c4cb288c50717d",
+      "sha256": "4a4a72dc779a31ee90380207ac12d428ee2e5dafdcfb03f0bc04764b560cb1d8",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed extreme save-state declarations and event-storage interface"
+      "reason": "reviewed fixed profile-owned save-state declarations plus bounded resident-or-paged event/scene persistence interfaces"
     },
     {
       "path": "map.h",
-      "sha256": "0869b8707be568d8d69bda9858df49a770cdb19f09adb2dffe8c7ce1b677c890",
+      "sha256": "1aee1505196ce7ce374cd995d5e06f7cbf48fde3f0432041cbfd36e46b97ddce",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed static-map ownership declarations for the no-heap profile"
+      "reason": "reviewed pointer-based map ownership shared by MEM_LEVEL1 mapped views and MEM_LEVEL2 scene-arena reads"
     },
     {
       "path": "video.h",

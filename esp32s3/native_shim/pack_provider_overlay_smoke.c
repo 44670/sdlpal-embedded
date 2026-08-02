@@ -52,6 +52,30 @@ write_le32(
 }
 
 static uint32_t
+pack_crc32(
+   const uint8_t *image,
+   uint32_t       size
+)
+{
+   static const uint32_t nibble_table[16] = {
+      0x00000000u, 0x1db71064u, 0x3b6e20c8u, 0x26d930acu,
+      0x76dc4190u, 0x6b6b51f4u, 0x4db26158u, 0x5005713cu,
+      0xedb88320u, 0xf00f9344u, 0xd6d6a3e8u, 0xcb61b38cu,
+      0x9b64c2b0u, 0x86d3d2d4u, 0xa00ae278u, 0xbdbdf21cu,
+   };
+   uint32_t crc = 0xffffffffu;
+   uint32_t i;
+
+   for (i = 0; i < size; i++)
+   {
+      crc ^= image[i];
+      crc = (crc >> 4) ^ nibble_table[crc & 0x0fu];
+      crc = (crc >> 4) ^ nibble_table[crc & 0x0fu];
+   }
+   return crc ^ 0xffffffffu;
+}
+
+static uint32_t
 build_pack(
    uint8_t *image,
    uint16_t chunk_count,
@@ -100,6 +124,7 @@ build_pack(
    write_le16(image + archive_offset, TEST_ARCHIVE_ID);
    write_le16(image + archive_offset + 2, chunk_count);
    write_le32(image + archive_offset + 4, chunk_table_offset);
+   write_le32(image + 28, pack_crc32(image, payload_offset));
    return payload_offset;
 }
 

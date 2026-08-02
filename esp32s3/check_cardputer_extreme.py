@@ -22,6 +22,7 @@ PACK_HEADER_BYTES = 32
 ARCHIVE_ENTRY_BYTES = 12
 CHUNK_ENTRY_BYTES = 16
 CHUNK_FLAG_COMPRESSED = 0x0001
+PACK_FORMAT_NATIVE = 1
 APP_BYTES = 0x100000
 NOR_OFFSET = 0x110000
 NOR_BYTES = 0x6F0000
@@ -521,10 +522,28 @@ def main() -> int:
     target_pack_source = (
         root / "esp32s3/engine_bridge/pal_engine_target_packs.c"
     )
+    pack_provider_source = (
+        root / "esp32s3/engine_bridge/pal_engine_pack_provider.c"
+    )
+    fullscreen_stretch_header = root / "embedded/pal_fullscreen_stretch.h"
+    fullscreen_rendering_doc = root / "embedded/FULLSCREEN_ASSET_RENDERING.md"
+    palcommon_source = root / "palcommon.c"
+    rngplay_source = root / "rngplay.c"
     native_view_source = root / "esp32s3/main/cardputer_extreme_native_view.c"
+    map_source = root / "map.c"
     scene_source = root / "scene.c"
     battle_source = root / "battle.c"
     battle_ui_source = root / "uibattle.c"
+    responsive_ui_sources = (
+        map_source,
+        scene_source,
+        battle_source,
+        battle_ui_source,
+        root / "ui.c",
+        root / "uigame.c",
+        root / "itemmenu.c",
+        root / "magicmenu.c",
+    )
     embedded_stubs_source = root / "unix/embedded_contract_stubs.c"
     main_archive = build / "esp-idf/main/libmain.a"
     ninja_path = build / "build.ninja"
@@ -550,10 +569,13 @@ def main() -> int:
         partition_bin,
         ui_layout_header,
         target_pack_source,
+        pack_provider_source,
+        fullscreen_stretch_header,
+        fullscreen_rendering_doc,
+        palcommon_source,
+        rngplay_source,
         native_view_source,
-        scene_source,
-        battle_source,
-        battle_ui_source,
+        *responsive_ui_sources,
         embedded_stubs_source,
         main_archive,
         ninja_path,
@@ -621,6 +643,46 @@ def main() -> int:
         source_text = path.read_text(encoding="utf-8")
         if "PalNativeUi_FocusLogical" in source_text:
             errors.append(f"{path}: map/battle viewport focus was reintroduced")
+
+    palcommon_text = palcommon_source.read_text(encoding="utf-8")
+    rngplay_text = rngplay_source.read_text(encoding="utf-8")
+    pack_provider_text = pack_provider_source.read_text(encoding="utf-8")
+    for label, text, tokens in (
+        (
+            "FBP renderer",
+            palcommon_text,
+            (
+                "PalFullScreenStretch_BlitIndexed(",
+                "PalFullScreenStretch_BlitIndexedRow(",
+                "PAL_EXTREME_FBP_SCANLINE_BYTES",
+            ),
+        ),
+        (
+            "RNG renderer",
+            rngplay_text,
+            (
+                "PalFullScreenStretch_DestinationRange(",
+                "PalEngineBridge_OpenNativeRngFrame(",
+                "PalEngineBridge_ReadNativeRngFrameRange(",
+            ),
+        ),
+        (
+            "RNG pack provider",
+            pack_provider_text,
+            (
+                "PalEngineBridge_OpenNativeRngFrame(",
+                "PalEngineBridge_ReadNativeRngFrameRange(",
+            ),
+        ),
+    ):
+        for token in tokens:
+            if token not in text:
+                errors.append(f"{label} is missing {token!r}")
+    for path in responsive_ui_sources:
+        if "PalFullScreenStretch_" in path.read_text(encoding="utf-8"):
+            errors.append(
+                f"{path}: full-screen asset transform leaked into responsive map/UI"
+            )
     battle_ui_text = battle_ui_source.read_text(encoding="utf-8")
     for token in (
         "{SPRITENUM_BATTLEICON_ATTACK,    PAL_XY(27, 140)",
@@ -916,7 +978,8 @@ def main() -> int:
         "CardputerExtreme_NativeViewValidate",
         "PalFont10_Open",
         "PalEngineBridge_LogRuntimeMemory",
-        "PalEngineBridge_ReadNativeRngFrame",
+        "PalEngineBridge_OpenNativeRngFrame",
+        "PalEngineBridge_ReadNativeRngFrameRange",
         "PalEngineEventState_Init",
         "PalEngineEventState_ReadEvent",
         "PalEngineEventState_WriteEvent",
@@ -1060,6 +1123,13 @@ def main() -> int:
         errors.append("unexpected TF FBP chapter selection")
     if nonempty(tf, ARCHIVE["RNG"]) != {1}:
         errors.append("unexpected TF RNG chapter selection")
+    for label, pack in (("NOR", nor), ("TF", tf)):
+        for chunk_id, (size, fmt) in pack.get(ARCHIVE["FBP"], {}).items():
+            if size and (size != 320 * 200 or fmt != PACK_FORMAT_NATIVE):
+                errors.append(
+                    f"{label} FBP chunk {chunk_id} is not a native 320x200 canvas: "
+                    f"size={size}, format={fmt}"
+                )
     font_chunks = nor.get(ARCHIVE["FONT"], {})
     if (
         font10_identity is None
@@ -1215,12 +1285,12 @@ def main() -> int:
 
     project_objects: list[tuple[str, Path]] = []
     required_compile_tokens = (
-        "-DPAL_CARDPUTER_EXTREME=1",
         "-DPAL_EXTREME_TWO_SCREENS=1",
         "-DPAL_EXTREME_SPRITES_TO_DRAW=512",
         "-DPAL_GLOBAL_BUFFER_SIZE=256",
         "-DPAL_NO_RUNTIME_HEAP=1",
         "-DPAL_NO_RUNTIME_DECOMPRESS=1",
+        "-DMEM_LEVEL1=1",
         "-DPAL_ESP_CORES3SE_NO_SFX=1",
         "-fstack-usage",
     )
@@ -1236,6 +1306,10 @@ def main() -> int:
         ("-DPAL_CONTRACT_NO_AUDIO=1", "-DPAL_ESP_CORES3SE_NO_AUDIO=1")
         if music_profile
         else ("-DPAL_EXTREME_RIX_MUSIC=1",)
+    )
+    forbidden_compile_tokens += (
+        "-DMEM_LEVEL2=1",
+        "-DPAL_CARDPUTER_EXTREME=1",
     )
     for entry in compile_entries:
         source = normalized_source(Path(str(entry.get("file", ""))), root)
@@ -1295,7 +1369,6 @@ def main() -> int:
 
     ninja = ninja_path.read_text(encoding="utf-8", errors="replace")
     for token in (
-        "PAL_CARDPUTER_EXTREME=1",
         "PAL_EXTREME_TWO_SCREENS=1",
         "cardputer_extreme_board.c",
         "cardputer_extreme_memory.c",
@@ -1304,6 +1377,8 @@ def main() -> int:
     ):
         if token not in ninja:
             errors.append(f"build graph is missing {token}")
+    if "PAL_CARDPUTER_EXTREME=1" in ninja:
+        errors.append("build graph still defines retired PAL_CARDPUTER_EXTREME")
     if music_profile:
         for token in (
             "PAL_EXTREME_RIX_MUSIC=1",

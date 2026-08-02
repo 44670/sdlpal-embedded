@@ -25,8 +25,16 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#if defined(ESP_PLATFORM) && defined(MEM_LEVEL2)
+#include <esp_attr.h>
+#endif
 
-#if defined(PAL_CARDPUTER_EXTREME)
+/* Tagged target saves must never be mistaken for a legacy DOS/WIN save. */
+#ifndef PAL_EXTREME_SAVE_MAGIC
+#define PAL_EXTREME_SAVE_MAGIC "PALXSAVE"
+#endif
+
+#if defined(PAL_PAGED_EVENT_STATE)
 #include "pal_engine_event_state.h"
 #include "pal_engine_pack_provider.h"
 #include "pal_target_board.h"
@@ -38,23 +46,23 @@ GLOBALVARS * const  gpGlobals = &_gGlobals;
 CONFIGURATION gConfig;
 
 #ifdef PAL_NO_RUNTIME_HEAP
-#if defined(__GNUC__)
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(ESP_PLATFORM) && defined(MEM_LEVEL2)
+#define PAL_GLOBAL_PSRAM EXT_RAM_BSS_ATTR __attribute__((aligned(4)))
+#elif defined(__GNUC__) && defined(MEM_LEVEL1)
 #define PAL_GLOBAL_PSRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
-#else
+#elif defined(__GNUC__)
 #define PAL_GLOBAL_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
-#endif
 #else
 #define PAL_GLOBAL_PSRAM
 #endif
 #define PAL_GLOBAL_MAGIC_SLOTS 114
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
 #define PAL_GLOBAL_EVENT_OBJECT_CAPACITY MAX_EVENT_OBJECTS
 static uint8_t pal_psram_global_event_objects[
    PAL_GLOBAL_EVENT_OBJECT_CAPACITY * sizeof(EVENTOBJECT)] PAL_GLOBAL_PSRAM;
 #define PAL_GLOBAL_EVENT_OBJECT_STORAGE pal_psram_global_event_objects
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 static uint8_t pal_sram_extreme_global_magics[
    PAL_GLOBAL_MAGIC_SLOTS * sizeof(MAGIC)] PAL_GLOBAL_PSRAM;
 #define PAL_GLOBAL_MAGIC_STORAGE pal_sram_extreme_global_magics
@@ -75,7 +83,7 @@ PAL_EventObjectRead(
    {
       return FALSE;
    }
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    return PalEngineEventState_ReadEvent(
       event_object_id, event_object, sizeof(*event_object));
 #else
@@ -96,7 +104,7 @@ PAL_EventObjectWrite(
    {
       return FALSE;
    }
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    return PalEngineEventState_WriteEvent(
       event_object_id, event_object, sizeof(*event_object));
 #else
@@ -124,7 +132,7 @@ PAL_EventObjectPinScene(
    {
       return FALSE;
    }
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    return PalEngineEventState_PinScene(
       (uint16_t)start, (uint16_t)(end - start));
 #else
@@ -137,7 +145,7 @@ PAL_EventStateFlush(
    INT reason
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    if (reason < PAL_EVENT_WRITE_EVICT ||
       reason > PAL_EVENT_WRITE_SHUTDOWN)
    {
@@ -156,7 +164,7 @@ PAL_EventStateCheckpoint(
    VOID
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    return PalEngineEventState_Checkpoint();
 #else
    return TRUE;
@@ -172,14 +180,14 @@ PAL_SceneMarkDirty(
    {
       return FALSE;
    }
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    return PalEngineEventState_MarkSceneDirty(scene_index);
 #else
    return TRUE;
 #endif
 }
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
 LPEVENTOBJECT
 PAL_GetEventObjectByID(
    WORD event_object_id
@@ -425,7 +433,7 @@ PAL_FreeGlobals(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    PalEngineEventState_Shutdown();
 #endif
    //
@@ -580,7 +588,7 @@ PAL_InitGlobalGameData(
    // If the memory has not been allocated, allocate first.
    //
    if (
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       gpGlobals->g.nEventObject == 0
 #else
       gpGlobals->g.lprgEventObject == NULL
@@ -588,7 +596,7 @@ PAL_InitGlobalGameData(
       )
    {
 #ifdef PAL_NO_RUNTIME_HEAP
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       if (!PalEngineEventState_Init())
       {
          TerminateOnError(
@@ -685,7 +693,7 @@ PAL_LoadDefaultGame(
    //
    // Load the default data from the game data files.
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    if (!PalEngineEventState_ResetDefaults(
          p->rgScene, sizeof(p->rgScene)))
    {
@@ -706,7 +714,7 @@ PAL_LoadDefaultGame(
    }
    else
    {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(MEM_LEVEL1) || defined(MEM_LEVEL2)
       LPCBYTE objects = NULL;
       UINT objects_size = 0;
       if (!PAL_MKFMapChunk(gpGlobals->f.fpSSS, 2, &objects, &objects_size) ||
@@ -840,7 +848,7 @@ typedef struct tagSAVEDGAME_DOS
 	INVENTORY        rgInventory[MAX_INVENTORY];               // inventory status
 	SCENE            rgScene[MAX_SCENES];
 	OBJECT_DOS       rgObject[MAX_OBJECTS];
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 	EVENTOBJECT      rgEventObject[1]; /* streamed after the fixed header */
 #else
 	EVENTOBJECT      rgEventObject[MAX_EVENT_OBJECTS];
@@ -875,7 +883,7 @@ typedef struct tagSAVEDGAME_WIN
 	INVENTORY        rgInventory[MAX_INVENTORY];               // inventory status
 	SCENE            rgScene[MAX_SCENES];
 	OBJECT           rgObject[MAX_OBJECTS];
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 	EVENTOBJECT      rgEventObject[1]; /* streamed after the fixed header */
 #else
 	EVENTOBJECT      rgEventObject[MAX_EVENT_OBJECTS];
@@ -883,7 +891,7 @@ typedef struct tagSAVEDGAME_WIN
 } SAVEDGAME_WIN, *LPSAVEDGAME_WIN;
 
 #ifdef PAL_NO_RUNTIME_HEAP
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 #define PAL_EXTREME_SAVE_DOS_BYTES offsetof(SAVEDGAME_DOS, rgEventObject)
 #define PAL_EXTREME_SAVE_WIN_BYTES offsetof(SAVEDGAME_WIN, rgEventObject)
 static uint8_t pal_sram_extreme_savegame_static[
@@ -900,7 +908,7 @@ static uint8_t pal_psram_savegame_static[
 #endif
 #endif
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 #include "esp32s3/engine_bridge/pal_engine_extreme_save.inc"
 #endif
 
@@ -909,7 +917,7 @@ PAL_GetSavedTimes(
    int iSaveSlot
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    char final_path[PAL_EXTREME_SAVE_PATH_BYTES];
    char backup_path[PAL_EXTREME_SAVE_PATH_BYTES];
    WORD saved_times = 0;
@@ -955,7 +963,7 @@ PAL_LoadGame_Common(
 	size_t              size
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 	char final_path[PAL_EXTREME_SAVE_PATH_BYTES];
 	char backup_path[PAL_EXTREME_SAVE_PATH_BYTES];
 	WORD format = gConfig.fIsWIN95 ?
@@ -1031,7 +1039,7 @@ PAL_LoadGame_Common(
 	//
 	// Adjust endianness
 	//
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
 	DO_BYTESWAP(s, size);
 #endif
 
@@ -1114,7 +1122,7 @@ PAL_LoadGame_DOS(
    // Get all the data from the saved game struct.
    //
    if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s,
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       PAL_EXTREME_SAVE_DOS_BYTES
 #else
       sizeof(SAVEDGAME_DOS)
@@ -1136,7 +1144,7 @@ PAL_LoadGame_DOS(
       gpGlobals->g.rgObject[i].rgwData[6] = s->rgObject[i].rgwData[5];     // wFlags
       gpGlobals->g.rgObject[i].rgwData[5] = 0;                            // wScriptDesc or wReserved2
    }
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    memcpy(gpGlobals->g.lprgEventObject, s->rgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
 #endif
 
@@ -1179,7 +1187,7 @@ PAL_LoadGame_WIN(
    // Get all the data from the saved game struct.
    //
    if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s,
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       PAL_EXTREME_SAVE_WIN_BYTES
 #else
       sizeof(SAVEDGAME_WIN)
@@ -1193,7 +1201,7 @@ PAL_LoadGame_WIN(
    }
 
    memcpy(gpGlobals->g.rgObject, s->rgObject, sizeof(gpGlobals->g.rgObject));
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    memcpy(gpGlobals->g.lprgEventObject, s->rgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
 #endif
     
@@ -1223,7 +1231,7 @@ PAL_SaveGame_Common(
 	size_t             size
 )
 {
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
 	FILE *fp;
 	size_t i;
 #endif
@@ -1271,7 +1279,7 @@ PAL_SaveGame_Common(
 	s->dwCash = ((s->dwCash >> 16) | (s->dwCash << 16));
 #endif
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 	BOOL result = PAL_ExtremeSaveWriteFile(iSaveSlot,
 		gConfig.fIsWIN95 ? PAL_EXTREME_SAVE_FORMAT_WIN95 :
 			PAL_EXTREME_SAVE_FORMAT_DOS,
@@ -1334,7 +1342,7 @@ PAL_SaveGame_DOS(
    UINT32                    i;
    BOOL                      result;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    memset(s, 0, PAL_EXTREME_SAVE_DOS_BYTES);
 #endif
    //
@@ -1345,7 +1353,7 @@ PAL_SaveGame_DOS(
       memcpy(&s->rgObject[i], &gpGlobals->g.rgObject[i], sizeof(OBJECT_DOS));
       s->rgObject[i].rgwData[5] = gpGlobals->g.rgObject[i].rgwData[6];     // wFlags
    }
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    memcpy(s->rgEventObject, gpGlobals->g.lprgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
 #endif
 
@@ -1353,7 +1361,7 @@ PAL_SaveGame_DOS(
    // Put all the data to the saved game struct.
    //
    result = PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s,
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       PAL_EXTREME_SAVE_DOS_BYTES
 #else
       sizeof(SAVEDGAME_DOS)
@@ -1392,19 +1400,19 @@ PAL_SaveGame_WIN(
 #endif
    BOOL result;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    memset(s, 0, PAL_EXTREME_SAVE_WIN_BYTES);
 #endif
    //
    // Put all the data to the saved game struct.
    //
    memcpy(&s->rgObject, gpGlobals->g.rgObject, sizeof(gpGlobals->g.rgObject));
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    memcpy(&s->rgEventObject, gpGlobals->g.lprgEventObject, sizeof(EVENTOBJECT) * gpGlobals->g.nEventObject);
 #endif
 
    result = PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s,
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       PAL_EXTREME_SAVE_WIN_BYTES
 #else
       sizeof(SAVEDGAME_WIN)

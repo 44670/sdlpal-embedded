@@ -6,7 +6,7 @@
 #include "main.h"
 #include "unix/pal_ws_server.h"
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #include "cardputer_extreme_native_view.h"
 #endif
 
@@ -648,7 +648,7 @@ pal_ws_screen_width(
    void
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    return PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH;
 #else
    return gpScreen == NULL ? 0 : gpScreen->w;
@@ -660,7 +660,7 @@ pal_ws_screen_height(
    void
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    return PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT;
 #else
    return gpScreen == NULL ? 0 : gpScreen->h;
@@ -675,7 +675,7 @@ pal_ws_screen_source(
    int *source_y
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    if (destination_x < 0 || destination_y < 0 ||
        destination_x >= PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH ||
        destination_y >= PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT)

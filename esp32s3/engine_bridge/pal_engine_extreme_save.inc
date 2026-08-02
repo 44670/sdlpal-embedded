@@ -1,5 +1,5 @@
 /*
- * Full-state TF save support for PAL_CARDPUTER_EXTREME.
+ * Full-state TF save support for PAL_PAGED_EVENT_STATE targets.
  *
  * This file is included by global.c after the SAVEDGAME_* layouts have been
  * declared.  Keeping the implementation beside the event-state backend makes
@@ -8,7 +8,7 @@
  */
 
 #if SDL_BYTEORDER != SDL_LIL_ENDIAN
-#error PAL_CARDPUTER_EXTREME save serialization requires a little-endian target
+#error PAL_PAGED_EVENT_STATE save serialization requires a little-endian target
 #endif
 
 #ifndef PAL_EXTREME_ALLOW_LEGACY_DOS_IMPORT

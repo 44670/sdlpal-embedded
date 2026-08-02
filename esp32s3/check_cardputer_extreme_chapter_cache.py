@@ -778,7 +778,9 @@ def check_build(
         )
 
     compile_tokens = (
-        "-DPAL_CARDPUTER_EXTREME=1",
+        "-DMEM_LEVEL1=1",
+        "-DPAL_TARGET_CARDPUTER_ADV=1",
+        "-DPAL_EXTREME_TWO_SCREENS=1",
         "-DPAL_EXTREME_CHAPTER_CACHE=1",
         "-DPAL_EXTREME_RIX_MUSIC=1",
         "-DPAL_CONTRACT_NO_SFX=1",
@@ -804,6 +806,8 @@ def check_build(
         for token in (
             "-DPAL_CONTRACT_NO_AUDIO=1",
             "-DPAL_ESP_CORES3SE_NO_AUDIO=1",
+            "-DMEM_LEVEL2=1",
+            "-DPAL_CARDPUTER_EXTREME=1",
         ):
             if token in words:
                 errors.append(

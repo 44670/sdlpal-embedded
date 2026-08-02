@@ -22,10 +22,11 @@
 #include "palcommon.h"
 #include "global.h"
 #include "palcfg.h"
+#include "embedded/pal_fullscreen_stretch.h"
 
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
 #include "esp32s3/engine_bridge/pal_engine_pack_provider.h"
-#include "esp32s3/main/cardputer_extreme_memory.h"
+#include "esp32s3/main/pal_target_memory.h"
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -931,13 +932,12 @@ PAL_FBPBlitToSurface(
 /*++
   Purpose:
 
-    Blit an uncompressed 320x200 bitmap in FBP.MKF to an SDL surface.
-    Cardputer maps this full-screen source material into its native surface;
-    other targets retain the original 320x200 copy.
+    Map an uncompressed full-canvas 320x200 bitmap from FBP.MKF directly into
+    an indexed destination surface.
 
   Parameters:
 
-    [IN]  lpBitmapFBP - pointer to the RLE-compressed bitmap to be decoded.
+    [IN]  lpBitmapFBP - pointer to the decoded 320x200 indexed bitmap.
 
     [OUT] lpDstSurface - pointer to the destination SDL surface.
 
@@ -947,51 +947,18 @@ PAL_FBPBlitToSurface(
 
 --*/
 {
-   int       x, y;
-   LPBYTE    p;
-
-   if (lpBitmapFBP == NULL || lpDstSurface == NULL)
-   {
-      return -1;
-   }
-#if defined(PAL_CARDPUTER_EXTREME)
-   if (lpDstSurface->w <= 0 || lpDstSurface->w > 320 ||
-      lpDstSurface->h <= 0 || lpDstSurface->h > 200)
-   {
-      return -1;
-   }
-#else
-   if (lpDstSurface->w != 320 || lpDstSurface->h != 200)
-   {
-      return -1;
-   }
-#endif
-
-   //
-   // simply copy everything to the surface
-   //
-   for (y = 0; y < lpDstSurface->h; y++)
-   {
-      p = (LPBYTE)(lpDstSurface->pixels) + y * lpDstSurface->pitch;
-      for (x = 0; x < lpDstSurface->w; x++)
-      {
-#if defined(PAL_CARDPUTER_EXTREME)
-         const int source_x =
-            ((x * 2 + 1) * 320) / (lpDstSurface->w * 2);
-         const int source_y =
-            ((y * 2 + 1) * 200) / (lpDstSurface->h * 2);
-         *(p++) = lpBitmapFBP[source_y * 320 + source_x];
-#else
-         *(p++) = lpBitmapFBP[
-            y * 320 + x];
-#endif
-      }
-   }
-
-   return 0;
+   return (lpDstSurface != NULL && lpDstSurface->pixels != NULL &&
+      lpDstSurface->w > 0 && lpDstSurface->h > 0 &&
+      lpDstSurface->pitch > 0 &&
+      PalFullScreenStretch_BlitIndexed(lpBitmapFBP,
+         320u, 200u, 320u,
+         (LPBYTE)lpDstSurface->pixels,
+         (uint32_t)lpDstSurface->w,
+         (uint32_t)lpDstSurface->h,
+         (size_t)lpDstSurface->pitch)) ? 0 : -1;
 }
 
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
 INT
 PAL_FBPBlitChunkToSurface(
    FILE              *fp,
@@ -1011,13 +978,12 @@ PAL_FBPBlitChunkToSurface(
 
 --*/
 {
-   int x;
    int y;
+   uint32_t last_source_y = UINT32_MAX;
 
    if (fp == NULL || uiChunkNum > 0xffffu || lpDstSurface == NULL ||
       lpDstSurface->pixels == NULL || lpDstSurface->w <= 0 ||
-      lpDstSurface->w > 320 || lpDstSurface->h <= 0 ||
-      lpDstSurface->h > 200 ||
+      lpDstSurface->h <= 0 || lpDstSurface->pitch < lpDstSurface->w ||
       PalEngineBridge_GetNativeChunkSize(fp, (uint16_t)uiChunkNum) !=
          320 * 200)
    {
@@ -1026,23 +992,24 @@ PAL_FBPBlitChunkToSurface(
 
    for (y = 0; y < lpDstSurface->h; y++)
    {
-      const uint32_t source_y =
-         (uint32_t)(((y * 2 + 1) * 200) / (lpDstSurface->h * 2));
+      uint32_t source_y = 0u;
       LPBYTE destination =
          (LPBYTE)lpDstSurface->pixels + y * lpDstSurface->pitch;
 
-      if (!PalEngineBridge_ReadNativeChunkRange(fp, (uint16_t)uiChunkNum,
-         source_y * PAL_EXTREME_FBP_SCANLINE_BYTES,
-         pal_sram_fbp_scanline, PAL_EXTREME_FBP_SCANLINE_BYTES))
+      if (!PalFullScreenStretch_SourceCoordinate((uint32_t)y,
+            (uint32_t)lpDstSurface->h, 200u, &source_y) ||
+         (source_y != last_source_y &&
+            !PalEngineBridge_ReadNativeChunkRange(fp,
+               (uint16_t)uiChunkNum,
+               source_y * PAL_EXTREME_FBP_SCANLINE_BYTES,
+               pal_sram_fbp_scanline,
+               PAL_EXTREME_FBP_SCANLINE_BYTES)) ||
+         !PalFullScreenStretch_BlitIndexedRow(pal_sram_fbp_scanline,
+            320u, destination, (uint32_t)lpDstSurface->w))
       {
          return -1;
       }
-      for (x = 0; x < lpDstSurface->w; x++)
-      {
-         const uint32_t source_x =
-            (uint32_t)(((x * 2 + 1) * 320) / (lpDstSurface->w * 2));
-         destination[x] = pal_sram_fbp_scanline[source_x];
-      }
+      last_source_y = source_y;
    }
    return 0;
 }

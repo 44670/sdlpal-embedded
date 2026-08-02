@@ -652,6 +652,12 @@ static const char *map_fatfs_path(const char *path, char *buffer, size_t buffer_
     if (strcmp(path, "0:/pal_tf.pak") == 0) {
         return env_or_default("PAL_CORES3SE_NATIVE_TF_PACK", "/tmp/pal_tf_default.pak");
     }
+    if (strcmp(path, "0:/pal_core.pak") == 0) {
+        return env_or_default("PAL_CORES3SE_NATIVE_NOR_PACK", "/tmp/pal_core.pak");
+    }
+    if (strcmp(path, "0:/pal_sd.pak") == 0) {
+        return env_or_default("PAL_CORES3SE_NATIVE_TF_PACK", "/tmp/pal_sd.pak");
+    }
     if (strncmp(path, "0:/", 3) == 0) {
         save_dir = env_or_default("PAL_CORES3SE_NATIVE_SAVE_DIR", "/mnt/hgfs/deb13/PALSteam/PAL_DOS");
         if (snprintf(buffer, buffer_size, "%s/%s", save_dir, path + 3) >= (int)buffer_size) {

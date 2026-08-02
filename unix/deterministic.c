@@ -8,7 +8,7 @@
 #include "script.h"
 #include "util.h"
 #include "video.h"
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
 #include "cardputer_extreme_native_view.h"
 #endif
 
@@ -28,7 +28,7 @@
 #define PAL_DETERMINISTIC_EVENT_CODE 0x50445250u
 #define PAL_DETERMINISTIC_LINE_BYTES 128u
 #define PAL_DETERMINISTIC_PNG_MAX_WIDTH 1024u
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
 #define PAL_DETERMINISTIC_LCD_WIDTH PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
 #define PAL_DETERMINISTIC_LCD_HEIGHT PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
 #else
@@ -398,14 +398,14 @@ pal_deterministic_write_png(
    png_write_info(png, info);
    for (y = 0; y < png_height; y++) {
       int x;
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
       int source_y = y;
 #else
       int source_y = lcd_frame ? y - (int)PAL_DETERMINISTIC_LCD_Y_OFFSET : y;
 #endif
       for (x = 0; x < png_width; x++) {
          int source_x = x;
-#ifdef PAL_CARDPUTER_EXTREME
+#ifdef PAL_EXTREME_TWO_SCREENS
          (void)lcd_frame;
 #endif
          if (source_y < 0 || source_y >= gpScreen->h ||
@@ -466,7 +466,7 @@ pal_deterministic_maybe_save_game(
    const char *generic_state_text;
    WORD generic_event_id;
    EVENTOBJECT generic_event;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    EVENTOBJECT sparse_event;
 #else
    LPEVENTOBJECT sparse_event;
@@ -491,7 +491,7 @@ pal_deterministic_maybe_save_game(
    }
    saved_times = (WORD)read_env_ulong("PAL_DETERMINISTIC_SAVE_TIMES", 1);
    sparse_state_text = SDL_getenv("PAL_DETERMINISTIC_SPARSE_EVENT_5334_STATE");
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    if (sparse_state_text != NULL && sparse_state_text[0] != '\0') {
       if (!PAL_EventObjectRead(5334, &sparse_event)) {
          TerminateOnError(
@@ -753,7 +753,7 @@ pal_deterministic_event_object_crc(
    uint32_t hash = 2166136261u;
 
    hash = pal_deterministic_crc_u32(hash, (uint32_t)gpGlobals->g.nEventObject);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    {
       EVENTOBJECT event_object;
       WORD event_object_id;
@@ -919,7 +919,7 @@ pal_deterministic_emit_save_event(
    uint32_t save_size = 0;
    uint32_t save_hash;
    WORD menu_saved_times;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    EVENTOBJECT sparse_event;
 #else
    LPEVENTOBJECT sparse_event;
@@ -934,7 +934,7 @@ pal_deterministic_emit_save_event(
    path = PAL_CombinePath(0, gConfig.pszSavePath, PAL_va(1, "%d.rpg", slot));
    save_hash = pal_deterministic_hash_file(path, &save_size);
    menu_saved_times = PAL_GetSavedTimes(slot);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    sparse_state =
       PAL_EventObjectRead(5334, &sparse_event) ? sparse_event.sState : 0;
 #else

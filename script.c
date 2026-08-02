@@ -33,7 +33,7 @@ PAL_ScriptFindEventObject(
    LPEVENTOBJECT  pStorage
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    if (pStorage != NULL && PAL_EventObjectRead(wEventObjectID, pStorage))
    {
       return pStorage;
@@ -72,7 +72,7 @@ PAL_ScriptWriteEventObject(
    const char          *context
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    if (!PAL_EventObjectWrite(wEventObjectID, pEventObject))
    {
       TerminateOnError(
@@ -105,7 +105,7 @@ PAL_ScriptRequireEventPointer(
    }
 }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 static LPEVENTOBJECT
 PAL_ScriptRequireInstructionEventObject(
    WORD           wEventObjectID,
@@ -141,7 +141,7 @@ PAL_ScriptMarkSceneDirty(
    WORD           wOperation
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    if (!PAL_SceneMarkDirty(wSceneIndex))
    {
       TerminateOnError(
@@ -218,7 +218,7 @@ PAL_NPCWalkTo(
       PAL_ScriptWriteEventObject(
          wEventObjectID, pEvtObj, "NPC walk before step");
       PAL_NPCWalkOneStep(wEventObjectID, iSpeed);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       pEvtObj = PAL_ScriptRequireEventObject(
          wEventObjectID, "NPC walk after step", &eventObject);
 #endif
@@ -773,7 +773,7 @@ PAL_InterpretInstruction(
 
    pScript = &(gpGlobals->g.lprgScriptEntry[wScriptEntry]);
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    pEvtObj = NULL;
 #else
    if (wEventObjectID != 0)
@@ -789,7 +789,7 @@ PAL_InterpretInstruction(
 
    if (pScript->rgwOperand[0] == 0 || pScript->rgwOperand[0] == 0xFFFF)
    {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       pCurrent = NULL;
 #else
       pCurrent = pEvtObj;
@@ -805,7 +805,7 @@ PAL_InterpretInstruction(
          // HACK for Dream 2.11 to avoid crash
          i -= 0x9000;
       }
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       pCurrent = NULL;
 #else
       pCurrent = PAL_ScriptFindEventObject(
@@ -1702,7 +1702,7 @@ PAL_InterpretInstruction(
          PAL_RLEBlitToSurface(pBG, gpScreen, pos);
          
          WORD wObject = gpGlobals->g.lprgStore[0].rgwItems[i];
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(MEM_LEVEL1) || defined(MEM_LEVEL2)
          LPCBYTE lpImage;
          UINT uiImageSize;
 
@@ -2118,8 +2118,7 @@ PAL_InterpretInstruction(
       //
       // Change to the specified scene
       //
-#if defined(PAL_CARDPUTER_EXTREME) && \
-   !defined(PAL_EXTREME_CHAPTER_CACHE)
+#if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)
       if (gpGlobals->wNumScene == 22 && pScript->rgwOperand[0] == 21)
       {
          /*
@@ -3111,7 +3110,7 @@ PAL_InterpretInstruction(
       }
       for (i = pScript->rgwOperand[0]; i <= pScript->rgwOperand[1]; i++)
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          EVENTOBJECT eventObjectRange;
          LPEVENTOBJECT pRange = PAL_ScriptRequireInstructionEventObject(
             (WORD)i, pScript->wOperation, &eventObjectRange);
@@ -3525,7 +3524,7 @@ PAL_RunTriggerScript(
    WORD              wNextScriptEntry;
    BOOL              fEnded;
    LPSCRIPTENTRY     pScript;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    LPEVENTOBJECT     pEvtObj = NULL;
 #endif
    int               i;
@@ -3543,7 +3542,7 @@ PAL_RunTriggerScript(
 
    wLastEventObject = wEventObjectID;
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    if (wEventObjectID != 0)
    {
       pEvtObj = PAL_ScriptFindEventObject(wEventObjectID, NULL);
@@ -3593,7 +3592,7 @@ PAL_RunTriggerScript(
          }
          else
          {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
             EVENTOBJECT eventObject;
             LPEVENTOBJECT pEvtObj =
                PAL_ScriptRequireInstructionEventObject(
@@ -3630,7 +3629,7 @@ PAL_RunTriggerScript(
          }
          else
          {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
             EVENTOBJECT eventObject;
             LPEVENTOBJECT pEvtObj =
                PAL_ScriptRequireInstructionEventObject(
@@ -3902,13 +3901,13 @@ PAL_RunAutoScript(
 --*/
 {
    LPSCRIPTENTRY          pScript;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    LPEVENTOBJECT          pEvtObj;
 #endif
 
 begin:
    pScript = &(gpGlobals->g.lprgScriptEntry[wScriptEntry]);
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_PAGED_EVENT_STATE)
    pEvtObj = PAL_ScriptRequireEventObject(
       wEventObjectID, "autoscript", NULL);
 #endif
@@ -3946,7 +3945,7 @@ begin:
       }
       else
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          EVENTOBJECT eventObject;
          LPEVENTOBJECT pEvtObj =
             PAL_ScriptRequireInstructionEventObject(
@@ -3977,7 +3976,7 @@ begin:
       }
       else
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          EVENTOBJECT eventObject;
          LPEVENTOBJECT pEvtObj =
             PAL_ScriptRequireInstructionEventObject(
@@ -4029,7 +4028,7 @@ begin:
       // Wait for a certain number of frames
       //
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          EVENTOBJECT eventObject;
          LPEVENTOBJECT pEvtObj =
             PAL_ScriptRequireInstructionEventObject(

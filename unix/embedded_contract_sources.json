@@ -7,6 +7,7 @@
     "audio.c",
     "battle.c",
     "embedded/pal_font_cache.c",
+    "embedded/pal_memory_profile.c",
     "embedded/pal_music_cache.c",
     "embedded/pal_noheap.c",
     "embedded/pal_pack.c",

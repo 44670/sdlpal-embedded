@@ -1,7 +1,8 @@
 #include "pal_engine_pack_provider.h"
 
 #include "pal_target_board.h"
-#if defined(PAL_CARDPUTER_EXTREME) || defined(PAL_EXTREME_CHAPTER_CACHE)
+#include "pal_memory_profile.h"
+#if defined(PAL_EXTREME_TWO_SCREENS) || defined(PAL_EXTREME_CHAPTER_CACHE)
 #include "../../embedded/pal_font10_cache.h"
 #include "../../embedded/pal_native_ui.h"
 #endif
@@ -29,13 +30,23 @@
 #define PAL_ENGINE_NOR_PARTITION_LABEL "pal_nor"
 #endif
 #define PAL_ENGINE_TF_PACK_PATH "0:/pal_tf.pak"
+#if defined(PAL_STORAGE_SD_ONLY)
+#undef PAL_ENGINE_TF_PACK_PATH
+#define PAL_ENGINE_TF_PACK_PATH "0:/pal_sd.pak"
+#define PAL_ENGINE_CORE_PACK_PATH "0:/pal_core.pak"
+#endif
 
 static const char *TAG = "pal_engine_packs";
 static FIL pal_engine_tf_file;
 static bool pal_engine_tf_open;
+#if defined(PAL_STORAGE_SD_ONLY)
+static FIL pal_engine_core_file;
+#else
 static esp_partition_mmap_handle_t pal_engine_nor_mmap_handle;
 static uint8_t pal_sram_engine_pack_header[PAL_ENGINE_PACK_HEADER_BYTES];
+#endif
 
+#if !defined(PAL_STORAGE_SD_ONLY)
 static uint32_t
 read_le32(
    const uint8_t *p
@@ -46,6 +57,7 @@ read_le32(
       ((uint32_t)p[2] << 16) |
       ((uint32_t)p[3] << 24);
 }
+#endif
 
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
 static bool
@@ -88,11 +100,134 @@ tf_read_at(
    return f_read(file, dst, (UINT)size, &got) == FR_OK && got == (UINT)size;
 }
 
+#if defined(PAL_STORAGE_SD_ONLY)
+static bool
+sd_only_load_core_pack(
+   uint32_t *out_size
+)
+{
+   FRESULT result;
+   uint32_t size;
+   uint32_t offset = 0u;
+
+   if (out_size == NULL)
+   {
+      return false;
+   }
+   PalTarget_PrepareTfAccess();
+   result = f_open(&pal_engine_core_file,
+      PAL_ENGINE_CORE_PACK_PATH, FA_READ | FA_OPEN_EXISTING);
+   if (result != FR_OK)
+   {
+      ESP_LOGE(TAG, "core pack open failed: %s (%d)",
+         PAL_ENGINE_CORE_PACK_PATH, (int)result);
+      return false;
+   }
+   size = (uint32_t)f_size(&pal_engine_core_file);
+   if (size < PAL_ENGINE_PACK_HEADER_BYTES ||
+      size > PAL_MEM_LEVEL2_CORE_PACK_BYTES)
+   {
+      ESP_LOGE(TAG, "core pack size invalid: %" PRIu32 "/%u",
+         size, (unsigned)PAL_MEM_LEVEL2_CORE_PACK_BYTES);
+      (void)f_close(&pal_engine_core_file);
+      return false;
+   }
+
+   while (offset < size)
+   {
+      UINT got = 0u;
+      UINT amount = (UINT)(size - offset);
+
+      if (amount > 32768u)
+      {
+         amount = 32768u;
+      }
+      PalTarget_PrepareTfAccess();
+      if (f_read(&pal_engine_core_file,
+            pal_mem_level2_core_pack + offset, amount, &got) != FR_OK ||
+         got != amount)
+      {
+         ESP_LOGE(TAG, "core pack read failed at %" PRIu32, offset);
+         (void)f_close(&pal_engine_core_file);
+         return false;
+      }
+      offset += amount;
+   }
+   if (f_close(&pal_engine_core_file) != FR_OK)
+   {
+      ESP_LOGE(TAG, "core pack close failed");
+      return false;
+   }
+   *out_size = size;
+   return true;
+}
+
+static bool
+sd_only_init_packs(
+   void
+)
+{
+   PalPack core_pack;
+   PalFont10Cache font10;
+   uint32_t core_size;
+   FRESULT result;
+
+   PalEngineBridge_ClearPacks();
+   if (!PalTarget_MountTf() || !sd_only_load_core_pack(&core_size))
+   {
+      return false;
+   }
+   if (!PalPack_OpenConst(
+         &core_pack, pal_mem_level2_core_pack, core_size) ||
+      !PalFont10_Open(&core_pack, &font10) ||
+      !PalNativeUi_Font10IdentityMatches(
+         font10.glyph_count,
+         font10.size,
+         font10.payload_crc32,
+         font10.cell_width,
+         font10.cell_height,
+         (int8_t)font10.ascent,
+         (int8_t)font10.descent) ||
+      !PalEngineBridge_SetCorePackConst(
+         pal_mem_level2_core_pack, core_size))
+   {
+      ESP_LOGE(TAG, "SD core pack or generated FONT10 validation failed");
+      return false;
+   }
+
+   PalTarget_PrepareTfAccess();
+   result = f_open(&pal_engine_tf_file,
+      PAL_ENGINE_TF_PACK_PATH, FA_READ | FA_OPEN_EXISTING);
+   if (result != FR_OK)
+   {
+      ESP_LOGE(TAG, "SD gameplay pack open failed: %s (%d)",
+         PAL_ENGINE_TF_PACK_PATH, (int)result);
+      return false;
+   }
+   pal_engine_tf_open = true;
+   if (!PalEngineBridge_SetTfPackReadAt(
+         (uint32_t)f_size(&pal_engine_tf_file),
+         tf_read_at,
+         &pal_engine_tf_file))
+   {
+      ESP_LOGE(TAG, "SD gameplay pack validation failed: %s",
+         PAL_ENGINE_TF_PACK_PATH);
+      return false;
+   }
+   ESP_LOGI(TAG, "SD-only packs ready: core=%" PRIu32 " gameplay=%" PRIu32,
+      core_size, (uint32_t)f_size(&pal_engine_tf_file));
+   return true;
+}
+#endif
+
 bool
 PalEngineBridge_TargetInitPacks(
    void
 )
 {
+#if defined(PAL_STORAGE_SD_ONLY)
+   return sd_only_init_packs();
+#else
    const esp_partition_t *partition;
    const void *nor_image = NULL;
    esp_err_t err;
@@ -104,7 +239,7 @@ PalEngineBridge_TargetInitPacks(
    uint32_t core_set_id;
    const uint8_t *catalog_image = NULL;
    uint32_t catalog_size = 0u;
-#elif defined(PAL_CARDPUTER_EXTREME)
+#elif defined(PAL_EXTREME_TWO_SCREENS)
    PalPack nor_pack;
    PalFont10Cache font10;
 #endif
@@ -183,7 +318,7 @@ PalEngineBridge_TargetInitPacks(
    }
 #else
    if (
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       !PalPack_OpenConst(
          &nor_pack, (const uint8_t *)nor_image, nor_pack_size) ||
       !PalFont10_Open(&nor_pack, &font10) ||
@@ -252,4 +387,5 @@ PalEngineBridge_TargetInitPacks(
       (uint32_t)f_size(&pal_engine_tf_file));
 #endif
    return true;
+#endif
 }

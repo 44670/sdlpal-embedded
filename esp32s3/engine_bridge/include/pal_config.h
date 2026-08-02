@@ -27,7 +27,13 @@
 #define PAL_VIDEO_INIT_FLAGS (SDL_WINDOW_SHOWN)
 #define PAL_SDL_INIT_FLAGS (SDL_INIT_VIDEO | SDL_INIT_NOPARACHUTE)
 
+#if defined(PAL_TARGET_XIAOMIAO)
+#define PAL_PLATFORM "Xueersi Xiaomiao"
+#elif defined(PAL_TARGET_CARDPUTER_ADV)
+#define PAL_PLATFORM "M5Stack Cardputer ADV"
+#else
 #define PAL_PLATFORM "M5Stack CoreS3 SE"
+#endif
 #define PAL_CREDIT NULL
 #define PAL_PORTYEAR NULL
 

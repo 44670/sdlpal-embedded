@@ -47,10 +47,10 @@ PAL_ItemSelectMenuUpdate(
    int                i, j, k, line, item_delta, item_x, item_y;
    WORD               wObject, wScript;
    BYTE               bColor;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    static BYTE        bufImage[2048];
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    const int          iItemsPerLine = 2;
    const int          iItemTextWidth = 112;
    const int          iLinesPerPage = 2;
@@ -125,7 +125,7 @@ PAL_ItemSelectMenuUpdate(
    //
    // Redraw the box
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_CreateBoxWithShadow(PAL_XY(2, 0), iLinesPerPage - 1, 12, 1,
       FALSE, 0);
 #else
@@ -142,7 +142,7 @@ PAL_ItemSelectMenuUpdate(
       i = 0;
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    const int xBase = 2, yBase = 70;
 #else
    const int xBase = 0, yBase = 140;
@@ -202,7 +202,7 @@ PAL_ItemSelectMenuUpdate(
             bColor = MENUITEM_COLOR_EQUIPPEDITEM;
          }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          item_x = 8 + k * iItemTextWidth;
          item_y = 10 + j * 18;
 #else
@@ -223,14 +223,14 @@ PAL_ItemSelectMenuUpdate(
             //
             // Draw the picture of current selected item
             //
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
             PAL_RLEBlitToSurfaceWithShadow(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ITEMBOX), gpScreen,
                PAL_XY(xBase + 5, yBase + 5 - iPictureYOffset), TRUE);
 #endif
             PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ITEMBOX), gpScreen,
                PAL_XY(xBase, yBase - iPictureYOffset));
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
             {
                LPCBYTE lpImage;
                UINT uiImageSize;
@@ -283,7 +283,7 @@ PAL_ItemSelectMenuUpdate(
 
          if (d != NULL)
          {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
             k = 72;
 #else
             k = 150 - gConfig.ScreenLayout.ExtraItemDescLines * 16;
@@ -299,7 +299,7 @@ PAL_ItemSelectMenuUpdate(
                   *next++ = '\0';
                }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
                PAL_DrawText(d, PAL_XY(72, k), DESCTEXT_COLOR,
                   TRUE, FALSE, FALSE);
                k += 11;
@@ -352,7 +352,7 @@ PAL_ItemSelectMenuUpdate(
             j = (gpGlobals->iCurInvMenuItem < iItemsPerLine * iPageLineOffset) ? (gpGlobals->iCurInvMenuItem / iItemsPerLine) : iPageLineOffset;
             k = gpGlobals->iCurInvMenuItem % iItemsPerLine;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
             item_x = 8 + k * iItemTextWidth;
             item_y = 10 + j * 18;
 #else

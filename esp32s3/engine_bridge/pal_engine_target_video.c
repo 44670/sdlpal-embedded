@@ -19,7 +19,7 @@ PalEngineBridge_RenderPresent(
    int h
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    (void)pixels;
    (void)pitch;
    (void)w;
@@ -64,7 +64,7 @@ PalEngineBridge_RenderPresent(
 #endif
 }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 void
 PalEngineBridge_RenderPresentIndexed(
    const void *pixels,
@@ -85,11 +85,11 @@ PalEngineBridge_RenderPresentIndexed(
    }
 
    start_us = esp_timer_get_time();
-   if (!CardputerExtreme_FlushIndexedFramebuffer((const uint8_t *)pixels,
+   if (!PalTarget_FlushIndexedFramebuffer((const uint8_t *)pixels,
       (uint16_t)pitch,
       (const uint8_t *)palette_rgba))
    {
-      ESP_LOGE(TAG, "Cardputer indexed LCD present failed: w=%d h=%d pitch=%d", w, h, pitch);
+      ESP_LOGE(TAG, "native indexed LCD present failed: w=%d h=%d pitch=%d", w, h, pitch);
       return;
    }
    flush_us = esp_timer_get_time() - start_us;
@@ -101,7 +101,7 @@ PalEngineBridge_RenderPresentIndexed(
    if (!pal_engine_logged_first_present)
    {
       ESP_LOGI(TAG,
-         "Cardputer first native indexed present: %ux%u, flush_us=%lld",
+         "first native indexed present: %ux%u, flush_us=%lld",
          (unsigned)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
          (unsigned)PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
          (long long)flush_us);
@@ -109,7 +109,7 @@ PalEngineBridge_RenderPresentIndexed(
    }
    if (pal_engine_present_count == 60u)
    {
-      ESP_LOGI(TAG, "Cardputer present stats: frames=%lu last_us=%lld max_us=%lld",
+      ESP_LOGI(TAG, "native present stats: frames=%lu last_us=%lld max_us=%lld",
          (unsigned long)pal_engine_present_count,
          (long long)flush_us,
          (long long)pal_engine_present_max_us);

@@ -20,12 +20,12 @@
 //
 
 #include "main.h"
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #include "embedded/pal_native_ui.h"
 #endif
 static BOOL __buymenu_firsttime_render;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #define PAL_BUYMENU_NATIVE_LIST_X          100
 #define PAL_BUYMENU_NATIVE_LIST_Y          0
 #define PAL_BUYMENU_NATIVE_LIST_ROWS       6
@@ -188,7 +188,7 @@ PAL_BuyMenuNativeRead(
 #endif
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #include "esp32s3/main/cardputer_extreme_memory.h"
 #define PAL_UIGAME_PSRAM __attribute__((section(".bss.pal_sram"), aligned(8)))
 #define pal_psram_uigame_background pal_sram_aux_framebuffer
@@ -203,13 +203,13 @@ static uint8_t pal_psram_uigame_background[320 * 200] PAL_UIGAME_PSRAM;
 #if defined(PAL_NO_RUNTIME_HEAP) && !defined(PAL_NO_RUNTIME_DECOMPRESS)
 static uint8_t pal_psram_uigame_image[PAL_RLEBUFSIZE] PAL_UIGAME_PSRAM;
 #endif
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
 static uint8_t pal_psram_uigame_box[72 * 72] PAL_UIGAME_PSRAM;
 #endif
 #endif
 
 #ifdef PAL_NO_RUNTIME_HEAP
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 #define PAL_UIGAME_CASH_PIXELS 0u
 #define PAL_UIGAME_SYSTEM_PIXELS 0u
 #define PAL_UIGAME_SELECT_PIXELS 0u
@@ -297,7 +297,7 @@ PAL_UIGameCreateSelectionBox(
 }
 #endif
 
-#if defined(PAL_NO_RUNTIME_DECOMPRESS) && defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_NO_RUNTIME_DECOMPRESS) && defined(PAL_EXTREME_TWO_SCREENS)
 static BOOL
 PAL_BlitNativeFbpChunkToSurface(
    UINT           chunknum,
@@ -358,7 +358,7 @@ PAL_MapNativeRleChunk(
 }
 #endif
 
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
 static PAL_POS
 PAL_UIGameNativePosition(
    PAL_POS       position
@@ -399,7 +399,7 @@ PAL_UIGameFbpPosition(
    PAL_POS       position
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    return PAL_UIGameNativePosition(position);
 #else
    return position;
@@ -425,7 +425,7 @@ PAL_DrawOpeningMenuBackground(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
    if (!PAL_BlitNativeFbpChunkToSurface(
       MAINMENU_BACKGROUND_FBPNUM, gpScreen))
    {
@@ -582,7 +582,7 @@ PAL_SaveSlotMenu(
 
    const SDL_Rect  rect = { 195 - dx, 7, 120 + dx, 190 };
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    /*
     * The extreme profile deliberately has no per-box save buffers.  Borrow
     * the second 320x200 screen for the lifetime of this modal screen and
@@ -631,7 +631,7 @@ PAL_SaveSlotMenu(
       PAL_DeleteBox(rgpBox[i]);
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    VIDEO_RestoreScreen(gpScreen);
 #endif
    VIDEO_UpdateScreen(&rect);
@@ -675,7 +675,7 @@ PAL_SelectionMenu(
 	PAL_POS         boxPos[4] = { PAL_XY(130, 100), PAL_XY(205 + dx[0], 100), PAL_XY(130, 150), PAL_XY(205 + dx[2], 150) };
 	WORD            wReturnValue;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 	const SDL_Rect  rect = { 0, 0, gpScreen->w, gpScreen->h };
 #else
 	const SDL_Rect  rect = { 130, 100, 125 + max(dx[0] + dx[1], dx[2] + dx[3]), 100 };
@@ -685,7 +685,7 @@ PAL_SelectionMenu(
 		if (nWords > i && !wItems[i])
 			return MENUITEM_VALUE_CANCELLED;
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 	{
 		const int gap = 16;
 		const int rowStride = 50;
@@ -766,7 +766,7 @@ PAL_SelectionMenu(
 		PAL_DeleteBox(rgpBox[i]);
 	}
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 	VIDEO_RestoreScreen(gpScreen);
 #endif
 	VIDEO_UpdateScreen(&rect);
@@ -879,7 +879,7 @@ PAL_BattleSpeedMenu(
       { 5,   BATTLESPEEDMENU_LABEL_5,       TRUE,   PAL_XY(245, 110) },
    };
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    /*
     * Keep the system menu underneath this modal selector intact without a
     * dedicated 160x48 saved-pixel array.
@@ -909,7 +909,7 @@ PAL_BattleSpeedMenu(
    //
    PAL_DeleteBox(lpBox);
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    VIDEO_RestoreScreen(gpScreen);
 #endif
    VIDEO_UpdateScreen(&rect);
@@ -993,7 +993,7 @@ PAL_SystemMenu_OnItemChange(
    gpGlobals->iCurSystemMenuItem = wCurrentItem - 1;
 }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 static LPBOX
 PAL_SystemMenuCreateNativeBox(
    LPCMENUITEM     rgMenuItem,
@@ -1168,7 +1168,7 @@ PAL_SystemMenu(
    LPBOX               lpMenuBox = NULL;
    WORD                wReturnValue;
    int                 iSlot, i;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    const SDL_Rect      rect = {0, 0,
       PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
       PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT};
@@ -1193,7 +1193,7 @@ PAL_SystemMenu(
    };
    const int           nSystemMenuItem = sizeof(rgSystemMenuItem) / sizeof(MENUITEM);
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    /*
     * The main menu is the parent of this modal screen.  The auxiliary
     * framebuffer belongs to the system menu until it either restores that
@@ -1206,7 +1206,7 @@ PAL_SystemMenu(
    //
    // Create the menu box.
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    wReturnValue = PAL_ReadSystemMenuNative(
       rgSystemMenuItem, nSystemMenuItem,
       gpGlobals->iCurSystemMenuItem, &lpMenuBox);
@@ -1232,7 +1232,7 @@ PAL_SystemMenu(
       // User cancelled the menu
       //
       PAL_DeleteBox(lpMenuBox);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       VIDEO_RestoreScreen(gpScreen);
 #endif
       VIDEO_UpdateScreen(&rect);
@@ -1350,7 +1350,7 @@ PAL_InGameMagicMenu(
    //
    // Draw the player info boxes
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    y = (gpScreen->w - 77 * (gpGlobals->wMaxPartyMemberIndex + 1)) / 2;
    for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
    {
@@ -1370,7 +1370,7 @@ PAL_InGameMagicMenu(
    }
 #endif
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    y = 10;
 #else
    y = 75;
@@ -1389,14 +1389,14 @@ PAL_InGameMagicMenu(
       rgMenuItem[i].fEnabled =
          (gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[i].wPlayerRole] > 0);
       rgMenuItem[i].pos = PAL_XY(
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          16,
 #else
          48,
 #endif
          y);
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       y += 12;
 #else
       y += 18;
@@ -1406,7 +1406,7 @@ PAL_InGameMagicMenu(
    //
    // Draw the box
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_CreateBoxWithShadow(PAL_XY(2, 0),
       gpGlobals->wMaxPartyMemberIndex, 3, 0, FALSE, 0);
 #else
@@ -1463,7 +1463,7 @@ start_magicmenu:
          // Need to select which player to use the magic on.
          //
          WORD       wPlayer = 0;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
          SDL_Rect   rect;
 #endif
 
@@ -1472,7 +1472,7 @@ start_magicmenu:
             //
             // Redraw the player info boxes first
             //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
             VIDEO_RestoreScreen(gpScreen);
             y = (gpScreen->w -
                77 * (gpGlobals->wMaxPartyMemberIndex + 1)) / 2;
@@ -1585,7 +1585,7 @@ start_magicmenu:
       //
       // Redraw the player info boxes
       //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       y = (gpScreen->w - 77 * (gpGlobals->wMaxPartyMemberIndex + 1)) / 2;
       for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
       {
@@ -1696,7 +1696,7 @@ PAL_InGameMenu(
    WORD                 wReturnValue;
    
    // Fix render problem with shadow
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    VIDEO_BackupScreen(gpScreen);
 #endif
 
@@ -1779,7 +1779,7 @@ out:
    PAL_DeleteBox(lpMenuBox);
 
    // Fix render problem with shadow
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    /*
     * Status/equipment FBP screens and nested magic cursors also borrow the
     * auxiliary framebuffer.  Rebuild the field from world state instead of
@@ -1816,7 +1816,7 @@ PAL_PlayerStatus(
 #ifndef PAL_NO_RUNTIME_DECOMPRESS
    BYTE            *bufImage = pal_psram_uigame_image;
 #endif
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    BYTE            *bufImageBox = pal_psram_uigame_box;
 #endif
 #else
@@ -1842,7 +1842,7 @@ PAL_PlayerStatus(
    WORD             w;
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    (void)bufBackground;
 #else
    if (!PAL_ReadNativeFbpToBuffer(bufBackground, STATUS_BACKGROUND_FBPNUM))
@@ -1855,7 +1855,7 @@ PAL_PlayerStatus(
 #endif
    iCurrent = 0;
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    if (gConfig.fUseCustomScreenLayout)
    {
       for (i = 0; i < 49; i++)
@@ -1892,7 +1892,7 @@ PAL_PlayerStatus(
       //
       // Draw the background image
       //
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
       if (!PAL_BlitNativeFbpChunkToSurface(
          STATUS_BACKGROUND_FBPNUM, gpScreen))
       {
@@ -1907,7 +1907,7 @@ PAL_PlayerStatus(
       //
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
          (void)PAL_UIGameBlitMappedRle(
             gpGlobals->f.fpRGM,
             gpGlobals->g.PlayerRoles.rgwAvatar[iPlayerRole],
@@ -1946,7 +1946,7 @@ PAL_PlayerStatus(
          //
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
          {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
             (void)PAL_UIGameBlitMappedRle(
                gpGlobals->f.fpBALL,
                gpGlobals->g.rgObject[w].item.wBitmap,
@@ -1977,7 +1977,7 @@ PAL_PlayerStatus(
          {
             PAL_POS position = PAL_UIGameFbpPosition(
                gConfig.ScreenLayout.RoleEquipNames[i]);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
             offset = PAL_TextWidth(PAL_GetWord(w));
             if (PAL_X(position) + offset > gpScreen->w)
             {
@@ -2143,7 +2143,7 @@ PAL_PlayerStatus(
       }
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    if (gpGlobals->fInBattle)
    {
       /*
@@ -2156,7 +2156,7 @@ PAL_PlayerStatus(
 #endif
 }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
 static VOID
 PAL_ItemUseMenuDrawNative(
    WORD           wItem,
@@ -2258,7 +2258,7 @@ PAL_ItemUseMenu(
 
 --*/
 {
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    BYTE           bColor;
 #endif
    BYTE           bSelectedColor;
@@ -2269,7 +2269,7 @@ PAL_ItemUseMenu(
 #endif
    DWORD          dwColorChangeTime;
    static SHORT   sSelectedPlayer = 0;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    SDL_Rect       rect = {110, 2, 200, 180};
 #endif
    int            i;
@@ -2284,7 +2284,7 @@ PAL_ItemUseMenu(
          sSelectedPlayer = 0;
       }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       i = PAL_GetItemAmount(wItemToUse);
       PAL_ItemUseMenuDrawNative(wItemToUse, sSelectedPlayer,
          bSelectedColor, i);
@@ -2400,7 +2400,7 @@ PAL_ItemUseMenu(
       //
       // Update the screen area
       //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       VIDEO_UpdateScreen(NULL);
 #else
       VIDEO_UpdateScreen(&rect);
@@ -2435,7 +2435,7 @@ PAL_ItemUseMenu(
             //
             PAL_DrawText(
                PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[gpGlobals->rgParty[sSelectedPlayer].wPlayerRole]),
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
                PAL_XY(12, 10 + 12 * sSelectedPlayer),
 #else
                PAL_XY(125, 16 + 20 * sSelectedPlayer),
@@ -2508,7 +2508,7 @@ PAL_BuyMenu_OnItemChange(
 
 --*/
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    const SDL_Rect      rect = {0, 0, PAL_BUYMENU_NATIVE_INFO_WIDTH, 135};
 #else
    const SDL_Rect      rect = {20, 8, 300, 175};
@@ -2523,13 +2523,13 @@ PAL_BuyMenu_OnItemChange(
    //
    // Prepare item bakcground box pos
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    x = 18, y = 0;
 #else
    x = 40, y = 8;
 #endif
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    if( __buymenu_firsttime_render )
       PAL_RLEBlitToSurfaceWithShadow(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ITEMBOX), gpScreen, PAL_XY(x + 6, y + 6), TRUE);
 #endif
@@ -2542,7 +2542,7 @@ PAL_BuyMenu_OnItemChange(
    //
    // Prepare item pos
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    x = 26, y = 7;
 #else
    x = 48, y = 15;
@@ -2596,7 +2596,7 @@ PAL_BuyMenu_OnItemChange(
    //
    // Prepare inventory quantities pos
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    x = 0, y = 65;
    PAL_CreateSingleLineBoxWithShadow(PAL_XY(x, y), 5, FALSE, 0);
 #else
@@ -2611,7 +2611,7 @@ PAL_BuyMenu_OnItemChange(
    PAL_CreateSingleLineBoxWithShadow(PAL_XY(x, y), 5, FALSE, 0);
 #endif
    PAL_DrawText(PAL_GetWord(BUYMENU_LABEL_CURRENT), PAL_XY(x + 10, y + 10), 0, FALSE, FALSE, FALSE);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_DrawNumber(n, 6, PAL_XY(x + 55, y + 15), kNumColorYellow, kNumAlignRight);
 #else
    PAL_DrawNumber(n, 6, PAL_XY(x + 49, y + 15), kNumColorYellow, kNumAlignRight);
@@ -2620,7 +2620,7 @@ PAL_BuyMenu_OnItemChange(
    //
    // Prepare inventory quantities pos
    //
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    x = 0, y = 100;
    PAL_CreateSingleLineBoxWithShadow(PAL_XY(x, y), 5, FALSE, 0);
 #else
@@ -2635,7 +2635,7 @@ PAL_BuyMenu_OnItemChange(
    PAL_CreateSingleLineBoxWithShadow(PAL_XY(x, y), 5, FALSE, 0);
 #endif
    PAL_DrawText(PAL_GetWord(CASH_LABEL), PAL_XY(x + 10, y + 10), 0, FALSE, FALSE, FALSE);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    PAL_DrawNumber(gpGlobals->dwCash, 6, PAL_XY(x + 55, y + 15), kNumColorYellow, kNumAlignRight);
 #else
    PAL_DrawNumber(gpGlobals->dwCash, 6, PAL_XY(x + 49, y + 15), kNumColorYellow, kNumAlignRight);
@@ -2684,7 +2684,7 @@ PAL_BuyMenu(
       rgMenuItem[i].wValue = gpGlobals->g.lprgStore[wStoreNum].rgwItems[i];
       rgMenuItem[i].wNumWord = gpGlobals->g.lprgStore[wStoreNum].rgwItems[i];
       rgMenuItem[i].fEnabled = TRUE;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       rgMenuItem[i].pos = PAL_XY(PAL_BUYMENU_NATIVE_NAME_X,
          PAL_BUYMENU_NATIVE_NAME_Y +
             i * PAL_BUYMENU_NATIVE_ROW_HEIGHT);
@@ -2698,7 +2698,7 @@ PAL_BuyMenu(
    //
    // Draw the box
    //
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    PAL_CreateBox(PAL_XY(122, 8), 8, 8, 1, FALSE);
 
    //
@@ -2716,7 +2716,7 @@ PAL_BuyMenu(
 
    while (TRUE)
    {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
       w = PAL_BuyMenuNativeRead(rgMenuItem, i, w);
 #else
       w = PAL_ReadMenu(PAL_BuyMenu_OnItemChange, rgMenuItem, i, w, MENUITEM_COLOR);
@@ -2858,7 +2858,7 @@ PAL_EquipItemMenu(
 {
 #ifdef PAL_NO_RUNTIME_HEAP
    BYTE            *bufBackground = pal_psram_uigame_background;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    BYTE            *bufImageBox = pal_psram_uigame_box;
 #endif
 #ifndef PAL_NO_RUNTIME_DECOMPRESS
@@ -2877,7 +2877,7 @@ PAL_EquipItemMenu(
    gpGlobals->wLastUnequippedItem = wItem;
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_EXTREME_TWO_SCREENS)
    (void)bufBackground;
 #else
    if (!PAL_ReadNativeFbpToBuffer(bufBackground, EQUIPMENU_BACKGROUND_FBPNUM))
@@ -2890,7 +2890,7 @@ PAL_EquipItemMenu(
       gpGlobals->f.fpFBP);
 #endif
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    if (gConfig.fUseCustomScreenLayout)
    {
       int x = PAL_X(gConfig.ScreenLayout.EquipImageBox);
@@ -2931,7 +2931,7 @@ PAL_EquipItemMenu(
       //
       // Draw the background
       //
-#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
       if (!PAL_BlitNativeFbpChunkToSurface(
          EQUIPMENU_BACKGROUND_FBPNUM, gpScreen))
       {
@@ -2961,7 +2961,7 @@ PAL_EquipItemMenu(
       }
 #endif
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
       if (gConfig.fUseCustomScreenLayout)
       {
          int labels1[] = { STATUS_LABEL_ATTACKPOWER, STATUS_LABEL_MAGICPOWER, STATUS_LABEL_RESISTANCE, STATUS_LABEL_DEXTERITY, STATUS_LABEL_FLEERATE };

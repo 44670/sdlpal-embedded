@@ -2,6 +2,7 @@
 
 #include "palcommon.h"
 #include "pal_pack.h"
+#include "pal_memory_profile.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -22,15 +23,21 @@
 #define PAL_ENGINE_PACK_SIZE_OFFSET 24u
 #define PAL_ENGINE_PACK_CRC32_OFFSET 28u
 #define PAL_ENGINE_PACK_ARCHIVE_ENTRY_SIZE 12u
+#if defined(MEM_LEVEL1) || defined(PAL_STORAGE_SD_ONLY)
+#define PAL_ENGINE_STRICT_PACK_VALIDATION 1
+#endif
 #ifndef PAL_ENGINE_TF_TOC_BYTES
 #define PAL_ENGINE_TF_TOC_BYTES (32u * 1024u)
 #endif
-#if !defined(PAL_CARDPUTER_EXTREME)
-#define PAL_ENGINE_TF_MAP_BYTES (2176u * 1024u)
+#define PAL_ENGINE_LEVEL2_TF_MAP_BYTES (2176u * 1024u)
+#if defined(PAL_STORAGE_SD_ONLY)
+#define PAL_ENGINE_TF_MAP_BYTES PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES
+#elif defined(MEM_LEVEL2)
+#define PAL_ENGINE_TF_MAP_BYTES PAL_ENGINE_LEVEL2_TF_MAP_BYTES
 #endif
 
 #if defined(__GNUC__)
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(MEM_LEVEL1)
 #define PAL_ENGINE_PSRAM __attribute__((section(".bss.pal_sram"), aligned(4)))
 #elif defined(EXT_RAM_BSS_ATTR)
 #define PAL_ENGINE_PSRAM EXT_RAM_BSS_ATTR __attribute__((aligned(4)))
@@ -61,18 +68,22 @@ static uint32_t pal_engine_overlay_set_id;
 static uint32_t pal_engine_tf_set_id;
 static bool pal_engine_default_tried;
 static bool pal_engine_tf_map_valid;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(MEM_LEVEL1)
 static uint16_t pal_engine_tf_map_archive;
 static uint16_t pal_engine_tf_map_chunk;
 static uint32_t pal_engine_tf_map_size;
 #endif
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_STORAGE_SD_ONLY)
+#define PAL_ENGINE_TF_TOC_STORAGE pal_mem_level2_tf_toc
+#define PAL_ENGINE_TF_MAP_STORAGE pal_mem_level2_transient_chunk
+#elif defined(MEM_LEVEL1)
 static uint8_t pal_sram_extreme_engine_tf_toc[PAL_ENGINE_TF_TOC_BYTES] PAL_ENGINE_PSRAM;
 #define PAL_ENGINE_TF_TOC_STORAGE pal_sram_extreme_engine_tf_toc
 #else
 static uint8_t pal_psram_engine_tf_toc[PAL_ENGINE_TF_TOC_BYTES] PAL_ENGINE_PSRAM;
 static uint8_t pal_psram_engine_tf_map[PAL_ENGINE_TF_MAP_BYTES] PAL_ENGINE_PSRAM;
 #define PAL_ENGINE_TF_TOC_STORAGE pal_psram_engine_tf_toc
+#define PAL_ENGINE_TF_MAP_STORAGE pal_psram_engine_tf_map
 #endif
 
 bool PalEngineBridge_LoadDefaultPacks(void) __attribute__((weak));
@@ -97,7 +108,7 @@ read_le16(
    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
 static uint32_t
 pack_crc32_update(
    uint32_t       crc,
@@ -430,7 +441,7 @@ PalEngineBridge_SetNorPackConst(
    PalPack candidate;
    uint32_t pack_size;
    uint32_t pack_set_id;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    uint32_t declared_crc;
 #endif
 
@@ -445,7 +456,7 @@ PalEngineBridge_SetNorPackConst(
       return false;
    }
    pack_set_id = read_le32(image + PAL_ENGINE_PACK_SET_ID_OFFSET);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    declared_crc = read_le32(image + PAL_ENGINE_PACK_CRC32_OFFSET);
    if (pack_set_id == 0 || declared_crc == 0 ||
       pack_crc32_const(image, pack_size) != declared_crc)
@@ -495,7 +506,7 @@ PalEngineBridge_SetOverlayPackConst(
    PalPack candidate;
    uint32_t pack_size;
    uint32_t pack_set_id;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    uint32_t declared_crc;
 #endif
 
@@ -510,7 +521,7 @@ PalEngineBridge_SetOverlayPackConst(
       return false;
    }
    pack_set_id = read_le32(image + PAL_ENGINE_PACK_SET_ID_OFFSET);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    declared_crc = read_le32(image + PAL_ENGINE_PACK_CRC32_OFFSET);
    if (pack_set_id == 0 || declared_crc == 0 ||
       pack_crc32_const(image, pack_size) != declared_crc)
@@ -577,7 +588,7 @@ PalEngineBridge_SetTfPackReadAt(
 )
 {
    uint32_t tf_set_id;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    uint32_t declared_crc;
    uint32_t actual_crc;
 #endif
@@ -590,7 +601,7 @@ PalEngineBridge_SetTfPackReadAt(
 
    pal_engine_tf_read_at = read_at;
    pal_engine_tf_user = user;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    if (!pal_engine_nor_ready ||
       !read_at(user, 0, PAL_ENGINE_TF_TOC_STORAGE,
          PAL_ENGINE_PACK_HEADER_SIZE))
@@ -826,7 +837,34 @@ __wrap_PAL_MKFMapChunk(
       return FALSE;
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_STORAGE_SD_ONLY)
+   if (!PalPackToc_GetChunkInfo(&pal_engine_tf_toc,
+         (uint16_t)archive_id, (uint16_t)chunk_id, &info) ||
+      info.size > PAL_ENGINE_TF_MAP_BYTES)
+   {
+      return FALSE;
+   }
+   if (!pal_engine_tf_map_valid ||
+      pal_engine_tf_map_archive != (uint16_t)archive_id ||
+      pal_engine_tf_map_chunk != (uint16_t)chunk_id ||
+      pal_engine_tf_map_size != info.size)
+   {
+      if (info.size != 0u &&
+         !pal_engine_tf_read_at(pal_engine_tf_user, info.offset,
+            PAL_ENGINE_TF_MAP_STORAGE, info.size))
+      {
+         pal_engine_tf_map_valid = false;
+         return FALSE;
+      }
+      pal_engine_tf_map_archive = (uint16_t)archive_id;
+      pal_engine_tf_map_chunk = (uint16_t)chunk_id;
+      pal_engine_tf_map_size = info.size;
+      pal_engine_tf_map_valid = true;
+   }
+   *data = PAL_ENGINE_TF_MAP_STORAGE;
+   *size = info.size;
+   return TRUE;
+#elif defined(MEM_LEVEL1)
    /*
     * TF is deliberately read-only/streaming in the no-PSRAM profile. Every
     * asset used as a const per-frame view must be selected into the NOR pack.
@@ -844,7 +882,7 @@ __wrap_PAL_MKFMapChunk(
       pal_engine_tf_map_size != info.size)
    {
       if (info.size != 0 &&
-         !pal_engine_tf_read_at(pal_engine_tf_user, info.offset, pal_psram_engine_tf_map, info.size))
+         !pal_engine_tf_read_at(pal_engine_tf_user, info.offset, PAL_ENGINE_TF_MAP_STORAGE, info.size))
       {
          pal_engine_tf_map_valid = false;
          return FALSE;
@@ -855,7 +893,7 @@ __wrap_PAL_MKFMapChunk(
       pal_engine_tf_map_valid = true;
    }
 
-   *data = pal_psram_engine_tf_map;
+   *data = PAL_ENGINE_TF_MAP_STORAGE;
    *size = info.size;
    return TRUE;
 #endif
@@ -1033,13 +1071,12 @@ PalContract_TargetOpenTfPack(
    return false;
 }
 
-#if defined(PAL_CARDPUTER_EXTREME)
-int
-PalEngineBridge_ReadNativeRngFrame(
+#if defined(PAL_EXTREME_TWO_SCREENS)
+bool
+PalEngineBridge_OpenNativeRngFrame(
    uint16_t movie_id,
    uint16_t frame_id,
-   uint8_t *dst,
-   uint32_t dst_capacity
+   PalEngineBridgeNativeRngFrame *frame
 )
 {
    PalPackSpan span;
@@ -1047,14 +1084,17 @@ PalEngineBridge_ReadNativeRngFrame(
    PalEngineArchiveStore store;
    uint8_t words[8];
    uint32_t frame_count;
+   uint32_t table_bytes;
+   uint32_t table_offset;
    uint32_t start;
    uint32_t end;
 
    ensure_default_packs();
-   if (dst == NULL || dst_capacity == 0)
+   if (frame == NULL)
    {
-      return -1;
+      return false;
    }
+   memset(frame, 0, sizeof(*frame));
 
    store = find_chunk_store(PAL_PACK_ARCHIVE_RNG, movie_id,
       &span, &info);
@@ -1067,51 +1107,111 @@ PalEngineBridge_ReadNativeRngFrame(
          frame_count > (UINT32_MAX - 8u) / 4u ||
          span.size < 4u + (frame_count + 1u) * 4u)
       {
-         return -1;
+         return false;
       }
+      table_bytes = 4u + (frame_count + 1u) * 4u;
       start = read_le32(span.data + 4u + (uint32_t)frame_id * 4u);
       end = read_le32(span.data + 8u + (uint32_t)frame_id * 4u);
-      if (start > end || end > span.size || end - start > dst_capacity)
+      if (start < table_bytes || start >= end || end > span.size)
       {
-         return start <= end && end - start > dst_capacity ? -2 : -1;
+         return false;
       }
-      memcpy(dst, span.data + start, end - start);
-      return (int)(end - start);
+      frame->mapped_data = span.data + start;
+      frame->size = end - start;
+      return true;
    }
 
    if (store != PAL_ENGINE_ARCHIVE_STORE_TF || info.size < 4 ||
+      pal_engine_tf_read_at == NULL ||
       !pal_engine_tf_read_at(pal_engine_tf_user, info.offset, words, 4))
    {
-      return -1;
+      return false;
    }
    frame_count = read_le32(words);
    if (frame_id >= frame_count ||
       frame_count > (UINT32_MAX - 8u) / 4u ||
-      info.size < 4u + (frame_count + 1u) * 4u ||
+      info.size < 4u + (frame_count + 1u) * 4u)
+   {
+      return false;
+   }
+   table_bytes = 4u + (frame_count + 1u) * 4u;
+   table_offset = 4u + (uint32_t)frame_id * 4u;
+   if (info.offset > UINT32_MAX - table_offset ||
       !pal_engine_tf_read_at(pal_engine_tf_user,
-         info.offset + 4u + (uint32_t)frame_id * 4u,
+         info.offset + table_offset,
          words,
          sizeof(words)))
    {
-      return -1;
+      return false;
    }
    start = read_le32(words);
    end = read_le32(words + 4);
-   if (start > end || end > info.size)
+   if (start < table_bytes || start >= end || end > info.size ||
+      info.offset > UINT32_MAX - start)
+   {
+      return false;
+   }
+   frame->tf_offset = info.offset + start;
+   frame->size = end - start;
+   frame->tf_backed = true;
+   return true;
+}
+
+bool
+PalEngineBridge_ReadNativeRngFrameRange(
+   const PalEngineBridgeNativeRngFrame *frame,
+   uint32_t frame_offset,
+   uint8_t *dst,
+   uint32_t size
+)
+{
+   if (frame == NULL || (dst == NULL && size != 0u) ||
+      frame_offset > frame->size || size > frame->size - frame_offset)
+   {
+      return false;
+   }
+   if (size == 0u)
+   {
+      return true;
+   }
+   if (frame->mapped_data != NULL)
+   {
+      memcpy(dst, frame->mapped_data + frame_offset, size);
+      return true;
+   }
+   if (!frame->tf_backed || frame->tf_offset > UINT32_MAX - frame_offset ||
+      pal_engine_tf_read_at == NULL)
+   {
+      return false;
+   }
+   return pal_engine_tf_read_at(pal_engine_tf_user,
+      frame->tf_offset + frame_offset, dst, size);
+}
+
+int
+PalEngineBridge_ReadNativeRngFrame(
+   uint16_t movie_id,
+   uint16_t frame_id,
+   uint8_t *dst,
+   uint32_t dst_capacity
+)
+{
+   PalEngineBridgeNativeRngFrame frame;
+
+   if (dst == NULL || dst_capacity == 0u ||
+      !PalEngineBridge_OpenNativeRngFrame(movie_id, frame_id, &frame))
    {
       return -1;
    }
-   if (end - start > dst_capacity)
+   if (frame.size > dst_capacity)
    {
       return -2;
    }
-   if (end == start)
+   if (frame.size > INT_MAX ||
+      !PalEngineBridge_ReadNativeRngFrameRange(&frame, 0u, dst, frame.size))
    {
       return -1;
    }
-   return pal_engine_tf_read_at(pal_engine_tf_user,
-      info.offset + start,
-      dst,
-      end - start) ? (int)(end - start) : -1;
+   return (int)frame.size;
 }
 #endif

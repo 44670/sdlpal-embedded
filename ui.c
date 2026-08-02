@@ -80,7 +80,7 @@ PAL_CreateBoxInternal(
 
 	if (rect == NULL || rect->w <= 0 || rect->h <= 0 ||
 		lpBox == NULL
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
 		|| lpSavedPixels == NULL
 #endif
 		)
@@ -89,7 +89,7 @@ PAL_CreateBoxInternal(
 	}
 
 	uiNeededBytes = (UINT)rect->w * (UINT)rect->h;
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_EXTREME_TWO_SCREENS)
 	if (uiSavedPixelBytes < uiNeededBytes)
 	{
 		return NULL;

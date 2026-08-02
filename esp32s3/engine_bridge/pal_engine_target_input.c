@@ -15,7 +15,7 @@
 static int pal_engine_current_key;
 static int pal_engine_pending_key;
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_TARGET_CARDPUTER_ADV) && !defined(PAL_TARGET_XIAOMIAO)
 static int
 touch_key_from_point(
    uint16_t x,
@@ -67,7 +67,7 @@ touch_key_from_point(
 }
 #else
 static int
-cardputer_key_to_sdl(
+button_key_to_sdl(
    uint8_t key
 )
 {
@@ -127,7 +127,7 @@ PalEngineBridge_PollEvent(
    SDL_Event *event
 )
 {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_TARGET_CARDPUTER_ADV) || defined(PAL_TARGET_XIAOMIAO)
    uint8_t raw_key = 0;
    bool pressed = false;
 #else
@@ -149,13 +149,13 @@ PalEngineBridge_PollEvent(
       return 1;
    }
 
-#if defined(PAL_CARDPUTER_EXTREME)
-   if (!CardputerExtreme_PollKey(&raw_key, &pressed))
+#if defined(PAL_TARGET_CARDPUTER_ADV) || defined(PAL_TARGET_XIAOMIAO)
+   if (!PalTarget_PollKey(&raw_key, &pressed))
    {
       return 0;
    }
    {
-      int key = cardputer_key_to_sdl(raw_key);
+      int key = button_key_to_sdl(raw_key);
       if (key == 0)
       {
          return 0;

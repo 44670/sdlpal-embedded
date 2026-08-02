@@ -21,18 +21,19 @@
 
 #include "palcommon.h"
 #include "map.h"
+#include "embedded/pal_memory_profile.h"
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(MEM_LEVEL1) || defined(MEM_LEVEL2)
 
-static PALMAP pal_extreme_map_instance;
+static PALMAP pal_embedded_map_instance;
 
 static LPPALMAP
 PAL_MapAllocInstance(
    VOID
 )
 {
-   memset(&pal_extreme_map_instance, 0, sizeof(pal_extreme_map_instance));
-   return &pal_extreme_map_instance;
+   memset(&pal_embedded_map_instance, 0, sizeof(pal_embedded_map_instance));
+   return &pal_embedded_map_instance;
 }
 
 static VOID
@@ -41,54 +42,6 @@ PAL_MapFreeInstance(
 )
 {
    (void)lpMap;
-}
-
-static VOID
-PAL_MapFreeGop(
-   LPBYTE            pTileSprite
-)
-{
-   (void)pTileSprite;
-}
-
-#elif defined(PAL_NO_RUNTIME_HEAP)
-
-#if defined(__GNUC__)
-#define PAL_MAP_PSRAM __attribute__((section(".bss.pal_psram"), aligned(4)))
-#else
-#define PAL_MAP_PSRAM
-#endif
-
-static uint8_t pal_psram_map_instance[sizeof(PALMAP)] PAL_MAP_PSRAM;
-static uint8_t pal_psram_map_gop_static[65536] PAL_MAP_PSRAM;
-
-static LPPALMAP
-PAL_MapAllocInstance(
-   VOID
-)
-{
-   memset(pal_psram_map_instance, 0, sizeof(pal_psram_map_instance));
-   return (LPPALMAP)pal_psram_map_instance;
-}
-
-static VOID
-PAL_MapFreeInstance(
-   LPPALMAP          lpMap
-)
-{
-   (void)lpMap;
-}
-
-static LPBYTE
-PAL_MapAllocGop(
-   INT               size
-)
-{
-   if (size <= 0 || (size_t)size > sizeof(pal_psram_map_gop_static))
-   {
-      return NULL;
-   }
-   return pal_psram_map_gop_static;
 }
 
 static VOID
@@ -163,7 +116,8 @@ PAL_LoadMap(
 
 --*/
 {
-#if !defined(PAL_NO_RUNTIME_DECOMPRESS) && !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(PAL_NO_RUNTIME_DECOMPRESS) && \
+   !defined(MEM_LEVEL1) && !defined(MEM_LEVEL2)
    LPBYTE                     buf;
 #endif
    INT                        size, i, j;
@@ -184,19 +138,36 @@ PAL_LoadMap(
    //
    size = PAL_MKFGetChunkSize(iMapNum, fpMapMKF);
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(MEM_LEVEL1) || defined(MEM_LEVEL2)
    {
       LPCBYTE map_data = NULL;
+#if defined(MEM_LEVEL1)
       UINT map_size = 0;
+#endif
 
       map = PAL_MapAllocInstance();
-      if (map == NULL || size != 128 * 64 * 2 * (INT)sizeof(DWORD) ||
-         !PAL_MKFMapChunk(fpMapMKF, (UINT)iMapNum, &map_data, &map_size) ||
+      if (map == NULL || size != 128 * 64 * 2 * (INT)sizeof(DWORD))
+      {
+         PAL_MapFreeInstance(map);
+         return NULL;
+      }
+#if defined(MEM_LEVEL2)
+      map_data = (LPCBYTE)PAL_MemorySceneAlloc((size_t)size);
+      if (map_data == NULL ||
+         PAL_MKFReadChunk((LPBYTE)map_data, (UINT)size,
+            (UINT)iMapNum, fpMapMKF) != size)
+      {
+         PAL_MapFreeInstance(map);
+         return NULL;
+      }
+#else
+      if (!PAL_MKFMapChunk(fpMapMKF, (UINT)iMapNum, &map_data, &map_size) ||
          map_size != (UINT)size)
       {
          PAL_MapFreeInstance(map);
          return NULL;
       }
+#endif
       map->Tiles = (const DWORD (*)[64][2])map_data;
    }
 #elif !defined(PAL_NO_RUNTIME_DECOMPRESS)
@@ -256,7 +227,7 @@ PAL_LoadMap(
    }
 #endif
 
-#if !defined(PAL_CARDPUTER_EXTREME)
+#if !defined(MEM_LEVEL1) && !defined(MEM_LEVEL2)
    //
    // Adjust the endianness of the decompressed data.
    //
@@ -282,16 +253,29 @@ PAL_LoadMap(
       PAL_MapFreeInstance(map);
       return NULL;
    }
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(MEM_LEVEL1) || defined(MEM_LEVEL2)
    {
       LPCBYTE gop_data = NULL;
+#if defined(MEM_LEVEL1)
       UINT gop_size = 0;
+#endif
+#if defined(MEM_LEVEL2)
+      gop_data = (LPCBYTE)PAL_MemorySceneAlloc((size_t)size);
+      if (gop_data == NULL ||
+         PAL_MKFReadChunk((LPBYTE)gop_data, (UINT)size,
+            (UINT)iMapNum, fpGopMKF) != size)
+      {
+         PAL_MapFreeInstance(map);
+         return NULL;
+      }
+#else
       if (!PAL_MKFMapChunk(fpGopMKF, (UINT)iMapNum, &gop_data, &gop_size) ||
          gop_size != (UINT)size)
       {
          PAL_MapFreeInstance(map);
          return NULL;
       }
+#endif
       map->pTileSprite = (LPSPRITE)gop_data;
    }
 #else

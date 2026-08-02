@@ -1,6 +1,9 @@
 #include "../main/cardputer_extreme_board.h"
 #include "../main/cardputer_extreme_native_view.h"
 #include "../main/cores3se_board.h"
+#if defined(PAL_TARGET_XIAOMIAO)
+#include "../main/xiaomiao_board.h"
+#endif
 
 #include <errno.h>
 #include <stdbool.h>
@@ -175,6 +178,74 @@ CardputerExtreme_ShowError(
       line2 != NULL ? line2 : "");
 }
 
+#if defined(PAL_TARGET_XIAOMIAO)
+/*
+ * The Linux harness exercises Xiaomiao's exact 160x128 engine/storage path;
+ * only physical GPIO/SPI operations remain represented by the existing SDL
+ * board adapter.  The ESP-IDF firmware never compiles this translation unit.
+ */
+bool
+Xiaomiao_Begin(
+   void
+)
+{
+   return CardputerExtreme_Begin();
+}
+
+bool
+Xiaomiao_MountTf(
+   void
+)
+{
+   return CardputerExtreme_MountTf();
+}
+
+bool
+Xiaomiao_TfMounted(
+   void
+)
+{
+   return true;
+}
+
+void
+Xiaomiao_PrepareTfAccess(
+   void
+)
+{
+   CardputerExtreme_PrepareTfAccess();
+}
+
+bool
+Xiaomiao_PollKey(
+   uint8_t *ascii,
+   bool    *pressed
+)
+{
+   return CardputerExtreme_PollKey(ascii, pressed);
+}
+
+bool
+Xiaomiao_FlushIndexedFramebuffer(
+   const uint8_t *pixels,
+   uint16_t       pitch,
+   const uint8_t *palette_rgba
+)
+{
+   return CardputerExtreme_FlushIndexedFramebuffer(
+      pixels, pitch, palette_rgba);
+}
+
+void
+Xiaomiao_ShowError(
+   const char *line1,
+   const char *line2
+)
+{
+   CardputerExtreme_ShowError(line1, line2);
+}
+#endif
+
 /*
  * The target build gets these operations from FatFS.  The deterministic
  * Cardputer host maps the same short "0:/" save names into its isolated save
@@ -293,3 +364,23 @@ CardputerExtreme_SaveRename(
    }
    return false;
 }
+
+#if defined(PAL_TARGET_XIAOMIAO)
+bool
+Xiaomiao_SaveUnlink(
+   const char *path,
+   bool        missing_ok
+)
+{
+   return CardputerExtreme_SaveUnlink(path, missing_ok);
+}
+
+bool
+Xiaomiao_SaveRename(
+   const char *old_path,
+   const char *new_path
+)
+{
+   return CardputerExtreme_SaveRename(old_path, new_path);
+}
+#endif

@@ -5,6 +5,11 @@ repeatable gameplay review. It is disabled unless `PAL_WS_PORT` is set, binds
 only to `127.0.0.1`, rejects browser `Origin` requests, serves one client at a
 time, and executes commands on the game thread.
 
+Rendering expectations live in
+[`../embedded/RESPONSIVE_RENDERING.md`](../embedded/RESPONSIVE_RENDERING.md);
+human review follows
+[`../embedded/UI_REVIEW_SOP.md`](../embedded/UI_REVIEW_SOP.md).
+
 Build and launch from the PAL data directory:
 
 ```sh
@@ -30,11 +35,10 @@ python3 -B tools/ws_cli.py battle 0 --battlefield 2
 ```
 
 `record` writes a bounded PNG sequence plus per-frame `state.jsonl`; `--battle`
-starts the battle on that same WebSocket connection so short-lived states are
-not lost to reconnect latency. `--battlefield` selects the real FBP battle
-background resource instead of inheriting an unrelated field-state value. This is
-useful for transient animation/message/result states. `input` sends ordinary PAL key transitions; a tap is an explicit bounded
-down/up pair. `scene` changes only an already-running field game and accepts
+starts the battle on that connection so short-lived states are not lost to
+reconnect latency. `--battlefield` selects the real FBP battle background.
+`input` sends ordinary PAL key transitions; a tap is a bounded down/up pair.
+`scene` changes only an already-running field game and accepts
 coordinates only as a pair. `battle` enters the real `PAL_StartBattle()` loop,
 and the server remains responsive inside that loop for input, state queries,
 and screenshots. `load` requests the engine's ordinary next-tick save reload
@@ -45,9 +49,8 @@ opens the selected real `PAL_BuyMenu()` after drawing the current field scene;
 it does not invent shop data or bypass the ordinary menu/input loop, but it
 does bypass the NPC trigger script and therefore does not show the
 shopkeeper's preceding dialogue. Use `script` when that dialogue-to-shop
-sequence is the behavior under review. `status`
-reports field and battle UI state so automation can
-wait for a specific real interaction state without guessing frame numbers.
+sequence is under review. `status` reports field and battle UI state so
+automation can wait for a real interaction state without guessing frames.
 `event` reads one live event-object record through the same public event-state
 API used by the engine, so it also observes the Cardputer extreme pager rather
 than a desktop-only resident array.

@@ -47,6 +47,22 @@ CARDPUTER_EXTREME_MUSIC_TF ?= /tmp/pal_cardputer_extreme_music_tf.pak
 CARDPUTER_EXTREME_MUSIC_TF_COMPLETE ?= /tmp/pal_cardputer_extreme_music_full.pak
 CARDPUTER_EXTREME_MUSIC_EVENT_TEMPLATE ?= /tmp/pal_cardputer_extreme_music_EVENT.DEF
 CARDPUTER_EXTREME_MUSIC_MANIFEST ?= /tmp/pal_cardputer_extreme_music_manifest.json
+XIAOMIAO_BUILD_DIR ?= ../build-xiaomiao
+XIAOMIAO_SDKCONFIG ?= $(abspath $(XIAOMIAO_BUILD_DIR)/sdkconfig)
+XIAOMIAO_DEFAULTS ?= $(abspath sdkconfig.xiaomiao.defaults)
+XIAOMIAO_LAYOUT ?= ../tools/pal_pack_layout_xiaomiao.json
+XIAOMIAO_TF_DATAPAK ?= $(abspath TF_xiaomiao)
+XIAOMIAO_CORE_PACK ?= $(XIAOMIAO_TF_DATAPAK)/pal_core.pak
+XIAOMIAO_SD_PACK ?= $(XIAOMIAO_TF_DATAPAK)/pal_sd.pak
+XIAOMIAO_EVENT_TEMPLATE ?= $(XIAOMIAO_TF_DATAPAK)/EVENT.DEF
+XIAOMIAO_MANIFEST ?= $(XIAOMIAO_TF_DATAPAK)/MANIFEST.JSON
+XIAOMIAO_NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/xiaomiao_engine_host
+XIAOMIAO_NATIVE_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/xiaomiao-host-objects
+XIAOMIAO_NATIVE_OBJECTS ?= $(XIAOMIAO_NATIVE_BUILD_DIR)/objects.list
+XIAOMIAO_NATIVE_MAP_SCREENSHOT ?= $(abspath ../tmp_ui/xiaomiao_160x128_map.png)
+XIAOMIAO_NATIVE_BATTLE_SCREENSHOT ?= $(abspath ../tmp_ui/xiaomiao_160x128_battle.png)
+XIAOMIAO_NATIVE_MAP_FRAME ?= 1200
+XIAOMIAO_NATIVE_BATTLE_FRAME ?= 1320
 NATIVE_BUILD_DIR ?= /tmp/sdlpal-cores3se-native
 NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/cores3se_native_smoke
 NATIVE_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cores3se_scene.png
@@ -82,6 +98,7 @@ CARDPUTER_EXTREME_NATIVE_BASELINE_METADATA ?= $(abspath cardputer_extreme_native
 CARDPUTER_EXTREME_NATIVE_FRAMES ?= 3000
 CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_native_view_240_test
 CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_native_view_160_test
+PAL_RNG_NATIVE_TEST_TARGET ?= $(NATIVE_BUILD_DIR)/pal_rng_native_test
 CARDPUTER_EXTREME_CACHE_LOGIC_TARGET ?= $(NATIVE_BUILD_DIR)/chapter_cache_logic_test
 CARDPUTER_EXTREME_EVENT_PAGER_TARGET ?= $(NATIVE_BUILD_DIR)/event_pager_logic_test
 CARDPUTER_EXTREME_EVENT_JOURNAL_TARGET ?= $(NATIVE_BUILD_DIR)/event_journal_fault_test
@@ -106,6 +123,9 @@ IDF_EXPORT ?= /home/john/esp-idf/export.sh
 CARDPUTER_EXTREME_TOOLCHAIN_GCC ?= $(lastword $(sort $(wildcard $(HOME)/.espressif/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc)))
 CARDPUTER_EXTREME_TOOLCHAIN_BIN ?= $(patsubst %/,%,$(dir $(CARDPUTER_EXTREME_TOOLCHAIN_GCC)))
 CARDPUTER_EXTREME_IDF_ENV = test -f "$(IDF_EXPORT)" || { echo "missing ESP-IDF environment: $(IDF_EXPORT)" >&2; exit 2; }; source "$(IDF_EXPORT)" >/dev/null; export IDF_MAINTAINER=1; test -x "$(CARDPUTER_EXTREME_TOOLCHAIN_BIN)/xtensa-esp32s3-elf-gcc" || { echo "missing local ESP32-S3 toolchain (set CARDPUTER_EXTREME_TOOLCHAIN_BIN; no download is attempted)" >&2; exit 2; }; export PATH="$(CARDPUTER_EXTREME_TOOLCHAIN_BIN):$$PATH"; command -v idf.py >/dev/null || { echo "idf.py not found after sourcing $(IDF_EXPORT)" >&2; exit 2; }; command -v esp-idf-configdep >/dev/null || { echo "esp-idf-configdep not found after sourcing $(IDF_EXPORT)" >&2; exit 2; }; python -c "import esptool" || { echo "esptool is unavailable in the ESP-IDF Python environment" >&2; exit 2; }
+XIAOMIAO_TOOLCHAIN_GCC ?= $(lastword $(sort $(wildcard $(HOME)/.espressif/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-gcc)))
+XIAOMIAO_TOOLCHAIN_BIN ?= $(patsubst %/,%,$(dir $(XIAOMIAO_TOOLCHAIN_GCC)))
+XIAOMIAO_IDF_ENV = test -f "$(IDF_EXPORT)" || { echo "missing ESP-IDF environment: $(IDF_EXPORT)" >&2; exit 2; }; source "$(IDF_EXPORT)" >/dev/null; export IDF_MAINTAINER=1; test -x "$(XIAOMIAO_TOOLCHAIN_BIN)/xtensa-esp32-elf-gcc" || { echo "missing local ESP32 toolchain (set XIAOMIAO_TOOLCHAIN_BIN; no download is attempted)" >&2; exit 2; }; export PATH="$(XIAOMIAO_TOOLCHAIN_BIN):$$PATH"; command -v idf.py >/dev/null || { echo "idf.py not found after sourcing $(IDF_EXPORT)" >&2; exit 2; }; python -c "import esptool" || { echo "esptool is unavailable in the ESP-IDF Python environment" >&2; exit 2; }
 PORT ?=
 BAUD ?= 460800
 ENGINE_HARDWARE_SMOKE_TIMEOUT ?= 45
@@ -117,6 +137,8 @@ FLASH_SIZE ?= 16MB
 FLASH_FREQ ?= 80m
 LIBPNG_CFLAGS := $(shell pkg-config --cflags libpng)
 LIBPNG_LIBS := $(shell pkg-config --libs libpng)
+SDL2_CFLAGS := $(shell pkg-config --cflags sdl2)
+SDL2_LIBS := $(shell pkg-config --libs sdl2)
 PACK_BUILD_ARGS = --layout "$(PACK_LAYOUT)"
 CARDPUTER_EXTREME_FONT10_ARG = $(if $(strip $(FONT10_ARCHIVE)),--font10-archive "$(FONT10_ARCHIVE)",)
 ifneq ($(strip $(PACK_NOR_ARCHIVES)),)
@@ -172,6 +194,7 @@ NATIVE_ENGINE_BRIDGE_CFLAGS = -std=gnu99 -Wall -O2 -g -fno-strict-aliasing \
 	-DPAL_NO_LAUNCH_UI \
 	-DPAL_NO_RUNTIME_DECOMPRESS=1 \
 	-DPAL_NO_RUNTIME_HEAP=1 \
+	-DMEM_LEVEL2=1 \
 	-DPAL_CONTRACT_EXTERNAL_RIX=1 \
 	-DUSE_RIX_EXTRA_INIT=0 \
 	-DPAL_CONTRACT_NO_AUDIO=1 \
@@ -225,6 +248,7 @@ NATIVE_ENGINE_BRIDGE_SRCS = \
 	../unix/embedded_contract_stubs.c \
 	../unix/contract_noaudio.c \
 	../embedded/pal_noheap.c \
+	../embedded/pal_memory_profile.c \
 	../embedded/pal_pack.c \
 	../embedded/pal_text_cache.c \
 	../embedded/pal_font_cache.c \
@@ -261,6 +285,7 @@ IDF_ENGINE_BRIDGE_SRCS = \
 	../unix/embedded_contract_stubs.c \
 	../unix/contract_noaudio.c \
 	../embedded/pal_noheap.c \
+	../embedded/pal_memory_profile.c \
 	../embedded/pal_pack.c \
 	../embedded/pal_text_cache.c \
 	../embedded/pal_font_cache.c \
@@ -288,6 +313,7 @@ IDF_ENGINE_BRIDGE_CFLAGS = -std=gnu99 -Wall -O2 -fno-strict-aliasing \
 	-DPAL_NO_LAUNCH_UI \
 	-DPAL_NO_RUNTIME_DECOMPRESS=1 \
 	-DPAL_NO_RUNTIME_HEAP=1 \
+	-DMEM_LEVEL2=1 \
 	-DPAL_CONTRACT_EXTERNAL_RIX=1 \
 	-DPAL_CONTRACT_TARGET_PACK_PROVIDER=1 \
 	-DUSE_RIX_EXTRA_INIT=0 \
@@ -327,6 +353,7 @@ NATIVE_ENGINE_HOST_CFLAGS = -std=gnu99 -Wall -O2 -g -fno-strict-aliasing \
 	-DPAL_NO_LAUNCH_UI \
 	-DPAL_NO_RUNTIME_DECOMPRESS=1 \
 	-DPAL_NO_RUNTIME_HEAP=1 \
+	-DMEM_LEVEL2=1 \
 	-DPAL_CONTRACT_EXTERNAL_RIX=1 \
 	-DPAL_CONTRACT_TARGET_PACK_PROVIDER=1 \
 	-DPAL_ENGINE_BRIDGE_REQUIRE_TARGET_HOOKS=1 \
@@ -390,6 +417,7 @@ NATIVE_ENGINE_HOST_SRCS = \
 	../unix/embedded_contract_stubs.c \
 	../unix/contract_noaudio.c \
 	../embedded/pal_noheap.c \
+	../embedded/pal_memory_profile.c \
 	../embedded/pal_pack.c \
 	../embedded/pal_text_cache.c \
 	../embedded/pal_font_cache.c \
@@ -419,8 +447,8 @@ NATIVE_ENGINE_HOST_DETERMINISTIC_SRCS = \
 	../unix/deterministic.c
 
 CARDPUTER_EXTREME_NATIVE_CFLAGS = \
-	$(filter-out -DSHIM_MAX_SURFACES=8 -DSHIM_MAX_PALETTES=8 -DSHIM_SURFACE_PIXELS=65536u,$(NATIVE_ENGINE_HOST_DETERMINISTIC_CFLAGS)) \
-	-DPAL_CARDPUTER_EXTREME=1 \
+	$(filter-out -DMEM_LEVEL2=1 -DSHIM_MAX_SURFACES=8 -DSHIM_MAX_PALETTES=8 -DSHIM_SURFACE_PIXELS=65536u,$(NATIVE_ENGINE_HOST_DETERMINISTIC_CFLAGS)) \
+	-DMEM_LEVEL1=1 \
 	-DPAL_TARGET_CARDPUTER_ADV=1 \
 	-DPAL_EXTREME_TWO_SCREENS=1 \
 	-DPAL_EXTREME_CHAPTER_EVENT_OBJECTS=423 \
@@ -444,6 +472,31 @@ CARDPUTER_EXTREME_NATIVE_SRCS = \
 	main/cardputer_extreme_native_view.c \
 	native_shim/cardputer_extreme_native_alias.c
 
+XIAOMIAO_NATIVE_CFLAGS = \
+	$(filter-out -DSHIM_MAX_SURFACES=8 -DSHIM_MAX_PALETTES=8 -DSHIM_SURFACE_PIXELS=65536u,$(NATIVE_ENGINE_HOST_DETERMINISTIC_CFLAGS)) \
+	-DPAL_TARGET_XIAOMIAO=1 \
+	-DPAL_STORAGE_SD_ONLY=1 \
+	-DPAL_EXTREME_TWO_SCREENS=1 \
+	-DPAL_EXTREME_SPRITES_TO_DRAW=512 \
+	-DPAL_GLOBAL_BUFFER_SIZE=256 \
+	-DPAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1 \
+	-DPAL_ENGINE_TF_TOC_BYTES=40960u \
+	-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' \
+	-DPAL_LOG_BUFFER_SIZE=1024 \
+	-DSHIM_MAX_SURFACES=6 \
+	-DSHIM_MAX_PALETTES=1 \
+	-DSHIM_SURFACE_PIXELS=1u
+XIAOMIAO_NATIVE_SRCS = \
+	$(filter-out main/cores3se_memory.c,$(NATIVE_ENGINE_HOST_DETERMINISTIC_SRCS)) \
+	../embedded/pal_event_journal.c \
+	../embedded/pal_event_pager.c \
+	../embedded/pal_font10_cache.c \
+	../embedded/pal_native_ui.c \
+	engine_bridge/pal_engine_event_state.c \
+	main/xiaomiao_memory.c \
+	main/cardputer_extreme_native_view.c \
+	native_shim/cardputer_extreme_native_alias.c
+
 # Host-only opt-in control endpoint for interactive Linux review.  This source
 # is never part of the ESP-IDF target component.
 CARDPUTER_EXTREME_NATIVE_WS ?= 0
@@ -452,17 +505,121 @@ CARDPUTER_EXTREME_NATIVE_CFLAGS += -DPAL_HAS_WS_SERVER=1
 CARDPUTER_EXTREME_NATIVE_SRCS += ../unix/pal_ws_server.c
 endif
 
-.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-generate cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
+.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-generate cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
 
 all: build
 
 build: engine-host-build
 
 scaffold-build:
-	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && if [ ! -f "$(BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=0 set-target esp32s3; fi && idf.py -C . -B "$(BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=0 build'
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=0 set-target esp32s3; fi; idf.py -C . -B "$(BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=0 build'
 
 engine-host-build:
-	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && if [ ! -f "$(ENGINE_HOST_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 set-target esp32s3; fi && idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 build'
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(ENGINE_HOST_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 set-target esp32s3; fi; idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 build'
+
+xiaomiao-build:
+	bash -lc 'set -e; $(XIAOMIAO_IDF_ENV); if [ ! -f "$(XIAOMIAO_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" -DSDKCONFIG="$(XIAOMIAO_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(XIAOMIAO_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DXIAOMIAO_WROVER=ON -DCARDPUTER_EXTREME_NO_PSRAM=OFF set-target esp32; fi; idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" -DSDKCONFIG="$(XIAOMIAO_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(XIAOMIAO_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DXIAOMIAO_WROVER=ON -DCARDPUTER_EXTREME_NO_PSRAM=OFF build'
+
+xiaomiao-tf:
+	@test -n "$(FONT10_ARCHIVE)" || { echo "set FONT10_ARCHIVE to the pinned Fusion Pixel Font release zip" >&2; exit 2; }
+	mkdir -p "$(XIAOMIAO_TF_DATAPAK)"
+	$(PYTHON) -B ../tools/pal_pack_build.py "$(PAL_DATA_DIR)" \
+		--layout "$(XIAOMIAO_LAYOUT)" \
+		--out-nor "$(XIAOMIAO_CORE_PACK)" \
+		--out-tf "$(XIAOMIAO_SD_PACK)" \
+		--manifest "$(XIAOMIAO_MANIFEST)" \
+		--font10-archive "$(FONT10_ARCHIVE)"
+	$(PYTHON) -B ../tools/pal_event_template_build.py \
+		--full-pack "$(XIAOMIAO_CORE_PACK)" \
+		--out "$(XIAOMIAO_EVENT_TEMPLATE)"
+	@ls -lh "$(XIAOMIAO_CORE_PACK)" "$(XIAOMIAO_SD_PACK)" \
+		"$(XIAOMIAO_EVENT_TEMPLATE)" "$(XIAOMIAO_MANIFEST)"
+
+xiaomiao-pack-check: xiaomiao-tf
+	$(PYTHON) -B ../tools/test_pal_pack_build.py
+	$(PYTHON) -B ../tools/test_pal_event_template_build.py
+	@test -s "$(XIAOMIAO_CORE_PACK)"
+	@test -s "$(XIAOMIAO_SD_PACK)"
+	@test -s "$(XIAOMIAO_EVENT_TEMPLATE)"
+	@test -s "$(XIAOMIAO_MANIFEST)"
+
+$(XIAOMIAO_NATIVE_TARGET): $(XIAOMIAO_NATIVE_SRCS) engine_bridge/pal_engine_event_state.h engine_bridge/pal_engine_extreme_save.inc ../embedded/pal_event_journal.h ../embedded/pal_event_pager.h ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h ../embedded/pal_fullscreen_stretch.h main/generated/pal_native_ui_160x128.h main/xiaomiao_memory.h main/pal_target_memory.h engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
+	mkdir -p "$(XIAOMIAO_NATIVE_BUILD_DIR)"
+	: >"$(XIAOMIAO_NATIVE_OBJECTS)"
+	@set -e; for src in $(XIAOMIAO_NATIVE_SRCS); do \
+		obj="$(XIAOMIAO_NATIVE_BUILD_DIR)/$$(basename "$$src" .c).native.o"; \
+		extra=""; \
+		case "$$src" in ../main.c) extra="-Dmain=PAL_EngineMain";; esac; \
+		echo "[XIAOMIAO-NATIVE-CC] $$src"; \
+		$(CC) $(XIAOMIAO_NATIVE_CFLAGS) $$extra -c "$$src" -o "$$obj"; \
+		printf "%s\n" "$$obj" >>"$(XIAOMIAO_NATIVE_OBJECTS)"; \
+	done
+	$(CC) $$(cat "$(XIAOMIAO_NATIVE_OBJECTS)") -o "$@" $(NATIVE_ENGINE_HOST_DETERMINISTIC_LDFLAGS)
+
+xiaomiao-native-smoke: xiaomiao-pack-check $(XIAOMIAO_NATIVE_TARGET)
+	@set -eu; \
+	mkdir -p "$(dir $(XIAOMIAO_NATIVE_MAP_SCREENSHOT))"; \
+	for scene in map battle; do \
+		state=$$(mktemp -d /tmp/pal-xiaomiao-native-XXXXXX); \
+		cp "$(XIAOMIAO_EVENT_TEMPLATE)" "$$state/EVENT.DEF"; \
+		case "$$scene" in \
+		map) screenshot="$(XIAOMIAO_NATIVE_MAP_SCREENSHOT)"; screenshot_frame=$(XIAOMIAO_NATIVE_MAP_FRAME); max_presents=$$((screenshot_frame + 1)); battle_frame=999999; battle_auto=1;; \
+		battle) screenshot="$(XIAOMIAO_NATIVE_BATTLE_SCREENSHOT)"; screenshot_frame=$(XIAOMIAO_NATIVE_BATTLE_FRAME); max_presents=$$((screenshot_frame + 1)); battle_frame=1300; battle_auto=0;; \
+		esac; \
+		event_trace="$$state/$$scene.event"; \
+		rc=0; \
+		(cd "$(PAL_DATA_DIR)" && \
+			PAL_CORES3SE_NATIVE_NOR_PACK="$(abspath $(XIAOMIAO_CORE_PACK))" \
+			PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(XIAOMIAO_SD_PACK))" \
+			PAL_CORES3SE_NATIVE_SAVE_DIR="$$state" \
+			PAL_CORES3SE_NATIVE_SCREENSHOT_FRAME=999999 \
+			PAL_CORES3SE_NATIVE_MAX_PRESENTS=0 \
+			PAL_CORES3SE_NATIVE_FRAMES=1 \
+			PAL_DETERMINISTIC_REPLAY="$(abspath $(NATIVE_ENGINE_BRIDGE_ROUTE))" \
+			PAL_DETERMINISTIC_SCREENSHOT="$$screenshot" \
+			PAL_DETERMINISTIC_SCREENSHOT_LCD=0 \
+			PAL_DETERMINISTIC_SCREENSHOT_FRAME="$$screenshot_frame" \
+			PAL_DETERMINISTIC_CHECKPOINTS="$$state/$$scene.trace" \
+			PAL_DETERMINISTIC_EVENT_TRACE="$$event_trace" \
+			PAL_DETERMINISTIC_FORCE_BATTLE_TEAM=0 \
+			PAL_DETERMINISTIC_FORCE_BATTLE_FRAME="$$battle_frame" \
+			PAL_DETERMINISTIC_FORCE_BATTLE_AUTO="$$battle_auto" \
+			PAL_DETERMINISTIC_MAX_PRESENTS="$$max_presents" \
+			timeout 20 "$(abspath $(XIAOMIAO_NATIVE_TARGET))") || rc=$$?; \
+		if [ "$$rc" -ne 1 ]; then \
+			echo "Xiaomiao native $$scene run: expected native-shim sentinel exit 1, got $$rc" >&2; \
+			exit 1; \
+		fi; \
+		grep -E ' init | scene ' "$$event_trace" >/dev/null; \
+		if [ "$$scene" = battle ]; then grep -E ' battle .*from=0 to=1 .*enemies=[1-9]' "$$event_trace" >/dev/null; fi; \
+	done
+	$(PYTHON) -B native_shim/check_png.py "$(XIAOMIAO_NATIVE_MAP_SCREENSHOT)" 160 128 6000 24
+	$(PYTHON) -B native_shim/check_png.py "$(XIAOMIAO_NATIVE_BATTLE_SCREENSHOT)" 160 128 6000 24
+
+xiaomiao-check: xiaomiao-build xiaomiao-native-smoke cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check
+	$(PYTHON) -B check_xiaomiao.py \
+		--build-dir "$(XIAOMIAO_BUILD_DIR)" \
+		--core-pack "$(XIAOMIAO_CORE_PACK)" \
+		--sd-pack "$(XIAOMIAO_SD_PACK)" \
+		--event-template "$(XIAOMIAO_EVENT_TEMPLATE)" \
+		--manifest "$(XIAOMIAO_MANIFEST)" \
+		--expected-compiler "$(XIAOMIAO_TOOLCHAIN_BIN)/xtensa-esp32-elf-gcc"
+
+xiaomiao-prepare-tf: xiaomiao-pack-check
+	@test -n "$(TF_MOUNT)" || { echo "TF_MOUNT=/media/... is required"; exit 2; }
+	@test -d "$(TF_MOUNT)" || { echo "TF_MOUNT does not exist: $(TF_MOUNT)"; exit 2; }
+	cp -f "$(XIAOMIAO_CORE_PACK)" "$(TF_MOUNT)/pal_core.pak"
+	cp -f "$(XIAOMIAO_SD_PACK)" "$(TF_MOUNT)/pal_sd.pak"
+	cp -f "$(XIAOMIAO_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
+	cp -f "$(XIAOMIAO_MANIFEST)" "$(TF_MOUNT)/MANIFEST.JSON"
+	sync "$(TF_MOUNT)/pal_core.pak"
+	sync "$(TF_MOUNT)/pal_sd.pak"
+	sync "$(TF_MOUNT)/EVENT.DEF"
+	sync "$(TF_MOUNT)/MANIFEST.JSON"
+	cmp "$(XIAOMIAO_CORE_PACK)" "$(TF_MOUNT)/pal_core.pak"
+	cmp "$(XIAOMIAO_SD_PACK)" "$(TF_MOUNT)/pal_sd.pak"
+	cmp "$(XIAOMIAO_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
+	cmp "$(XIAOMIAO_MANIFEST)" "$(TF_MOUNT)/MANIFEST.JSON"
 
 cardputer-extreme-build:
 	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(CARDPUTER_EXTREME_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_MUSIC=OFF set-target esp32s3; fi; idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_MUSIC=OFF build'
@@ -526,7 +683,7 @@ cardputer-extreme-chapter-pack-check: cardputer-extreme-chapter-pack-build cardp
 	@test "$(words $(CARDPUTER_EXTREME_CHAPTER_BUNDLES))" -eq 15
 	@for pack in $(CARDPUTER_EXTREME_CHAPTER_BUNDLES); do test -s "$$pack"; done
 
-cardputer-extreme-chapter-cache-check: cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-pack-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check
+cardputer-extreme-chapter-cache-check: cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-pack-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check cardputer-extreme-rng-decoder-check
 	$(MAKE) -C ../embedded mame-opl2-static-check
 	$(MAKE) -C ../embedded \
 		PACK_NOR="$(CARDPUTER_EXTREME_CHAPTER_CORE)" \
@@ -564,10 +721,13 @@ cardputer-extreme-music-pack-build:
 		--full-pack "$(CARDPUTER_EXTREME_MUSIC_TF_COMPLETE)" \
 		--out "$(CARDPUTER_EXTREME_MUSIC_EVENT_TEMPLATE)"
 
-$(CARDPUTER_EXTREME_PACK_SMOKE_TARGET): native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_font10_cache.c ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.c ../embedded/pal_native_ui.h main/generated/pal_native_ui_240x135.h engine_bridge/pal_engine_pack_provider.h Makefile
+$(CARDPUTER_EXTREME_PACK_SMOKE_TARGET): native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_memory_profile.h ../embedded/pal_font10_cache.c ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.c ../embedded/pal_native_ui.h main/generated/pal_native_ui_240x135.h main/cardputer_extreme_memory.h engine_bridge/pal_engine_pack_provider.h Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=gnu99 -Wall -Wextra -O2 \
-		-DPAL_CARDPUTER_EXTREME=1 -DPAL_ENGINE_TF_TOC_BYTES=2048u \
+		-DMEM_LEVEL1=1 -DPAL_TARGET_CARDPUTER_ADV=1 \
+		-DPAL_EXTREME_TWO_SCREENS=1 \
+		-DPAL_NO_RUNTIME_HEAP=1 -DPAL_NO_RUNTIME_DECOMPRESS=1 \
+		-DPAL_ENGINE_TF_TOC_BYTES=2048u \
 		-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' \
 		-I main -I engine_bridge -I engine_bridge/include -I native_engine_shim/include -I .. -I ../embedded -I ../sdl_compat \
 		native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_font10_cache.c ../embedded/pal_native_ui.c \
@@ -637,6 +797,22 @@ cardputer-extreme-native-view-check: $(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET)
 	"$(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET)"
 	"$(CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET)"
 
+$(PAL_RNG_NATIVE_TEST_TARGET): ../rngplay.c ../rngplay.h ../embedded/pal_fullscreen_stretch.h ../tests/test_rng_native.c Makefile
+	mkdir -p "$(NATIVE_BUILD_DIR)"
+	$(CC) -std=gnu99 -O1 -g -Wall -Wextra -Werror \
+		-ffunction-sections -fdata-sections -fsanitize=address,undefined \
+		-DPAL_EXTREME_TWO_SCREENS=1 -DPAL_RNG_DECODER_TEST=1 \
+		-I .. -I ../unix -I ../sdl_compat $(SDL2_CFLAGS) \
+		../rngplay.c ../tests/test_rng_native.c \
+		-Wl,--gc-sections -fsanitize=address,undefined $(SDL2_LIBS) \
+		-o "$@"
+
+cardputer-extreme-fullscreen-stretch-check:
+	$(MAKE) -C ../embedded fullscreen-stretch-check
+
+cardputer-extreme-rng-decoder-check: cardputer-extreme-fullscreen-stretch-check $(PAL_RNG_NATIVE_TEST_TARGET)
+	ASAN_OPTIONS=detect_leaks=0 "$(PAL_RNG_NATIVE_TEST_TARGET)"
+
 $(CARDPUTER_EXTREME_CACHE_LOGIC_TARGET): native_shim/chapter_cache_logic_test.c engine_bridge/pal_engine_chapter_cache.c engine_bridge/pal_engine_chapter_cache.h Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=c99 -Wall -Wextra -Werror -O2 \
@@ -681,7 +857,7 @@ CARDPUTER_EXTREME_MUSIC_STATE_FLAGS = \
 	-Wno-ignored-qualifiers -Wno-unused-parameter -Wno-unused-function \
 	-fno-exceptions -fno-rtti \
 	-DPAL_NO_RUNTIME_HEAP=1 -DUSE_RIX_EXTRA_INIT=0 -DUSE_SDL3=0 \
-	-DPAL_CARDPUTER_EXTREME=1 \
+	-DMEM_LEVEL1=1 -DPAL_TARGET_CARDPUTER_ADV=1 \
 	-I native_shim/music_test_include -I native_shim/include \
 	-I engine_bridge -I engine_bridge/include -I native_engine_shim/include \
 	-I .. -I ../embedded -I ../sdl_compat
@@ -709,7 +885,7 @@ cardputer-extreme-music-state-check: $(CARDPUTER_EXTREME_MUSIC_STATE_TARGET) $(C
 cardputer-extreme-contract-unit-check: cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check
 	$(PYTHON) -B test_check_cardputer_extreme.py
 
-$(CARDPUTER_EXTREME_NATIVE_TARGET): $(CARDPUTER_EXTREME_NATIVE_SRCS) engine_bridge/pal_engine_event_state.h engine_bridge/pal_engine_extreme_save.inc ../embedded/pal_event_journal.h ../embedded/pal_event_pager.h ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h main/$(CARDPUTER_EXTREME_NATIVE_UI_HEADER) engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
+$(CARDPUTER_EXTREME_NATIVE_TARGET): $(CARDPUTER_EXTREME_NATIVE_SRCS) engine_bridge/pal_engine_event_state.h engine_bridge/pal_engine_extreme_save.inc ../embedded/pal_event_journal.h ../embedded/pal_event_pager.h ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h ../embedded/pal_fullscreen_stretch.h main/$(CARDPUTER_EXTREME_NATIVE_UI_HEADER) main/pal_target_memory.h engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
 	mkdir -p "$(CARDPUTER_EXTREME_NATIVE_BUILD_DIR)"
 	: >"$(CARDPUTER_EXTREME_NATIVE_OBJECTS)"
 	@set -e; for src in $(CARDPUTER_EXTREME_NATIVE_SRCS); do \
@@ -833,7 +1009,7 @@ cardputer-extreme-music-save-check: cardputer-extreme-music-pack-build $(CARDPUT
 		--data-dir "$(PAL_DATA_DIR)" \
 		--route "$(NATIVE_ENGINE_BRIDGE_ROUTE)"
 
-cardputer-extreme-check: cardputer-extreme-build cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check
+cardputer-extreme-check: cardputer-extreme-build cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check
 	$(PYTHON) -B ../tools/test_pal_pack_build.py
 	$(PYTHON) -B ../tools/test_pal_event_template_build.py
 	$(PYTHON) -B check_cardputer_extreme.py \
@@ -845,7 +1021,7 @@ cardputer-extreme-check: cardputer-extreme-build cardputer-extreme-pack-smoke ca
 		--expected-compiler "$(CARDPUTER_EXTREME_TOOLCHAIN_BIN)/xtensa-esp32s3-elf-gcc" \
 		--source-inventory "$(CARDPUTER_EXTREME_SOURCE_INVENTORY)"
 
-cardputer-extreme-music-check: cardputer-extreme-music-build cardputer-extreme-music-pack-check cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-contract-unit-check cardputer-extreme-music-state-check cardputer-extreme-music-save-check
+cardputer-extreme-music-check: cardputer-extreme-music-build cardputer-extreme-music-pack-check cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check cardputer-extreme-contract-unit-check cardputer-extreme-music-state-check cardputer-extreme-music-save-check
 	$(MAKE) -C ../embedded mame-opl2-static-check
 	$(MAKE) -C ../embedded \
 		PACK_NOR="$(CARDPUTER_EXTREME_MUSIC_NOR)" \
@@ -920,7 +1096,7 @@ cardputer-extreme-chapter-prepare-tf: cardputer-extreme-chapter-pack-check
 		$(addprefix "$(TF_MOUNT)/",$(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES))
 
 engine-host-check: engine-host-build pack-build
-	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && $(PYTHON) -B check_engine_host.py --root .. --build-dir "$(ENGINE_HOST_BUILD_DIR)" --nor-pack "$(PACK_NOR)" --tf-pack "$(PACK_TF)" --manifest "$(PACK_MANIFEST)"'
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); $(PYTHON) -B check_engine_host.py --root .. --build-dir "$(ENGINE_HOST_BUILD_DIR)" --nor-pack "$(PACK_NOR)" --tf-pack "$(PACK_TF)" --manifest "$(PACK_MANIFEST)"'
 
 engine-port-check:
 	$(MAKE) native-pack-provider-cache-smoke
@@ -944,7 +1120,7 @@ prepare-tf: pack-build
 	@ls -l "$(TF_MOUNT)/pal_tf.pak"
 
 check: scaffold-build pack-build
-	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && $(PYTHON) -B check_contract.py --root .. --build-dir "$(BUILD_DIR)" --nor-pack "$(PACK_NOR)" --tf-pack "$(PACK_TF)" --manifest "$(PACK_MANIFEST)"'
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); $(PYTHON) -B check_contract.py --root .. --build-dir "$(BUILD_DIR)" --nor-pack "$(PACK_NOR)" --tf-pack "$(PACK_TF)" --manifest "$(PACK_MANIFEST)"'
 
 $(NATIVE_TARGET): $(NATIVE_SRCS) Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
@@ -985,16 +1161,20 @@ $(NATIVE_ENGINE_HOST_DETERMINISTIC_TARGET): $(NATIVE_ENGINE_HOST_DETERMINISTIC_S
 	done
 	$(CC) $$(cat "$(NATIVE_ENGINE_HOST_DETERMINISTIC_OBJECTS)") -o "$@" $(NATIVE_ENGINE_HOST_DETERMINISTIC_LDFLAGS)
 
-$(NATIVE_PACK_PROVIDER_CACHE_TARGET): native_shim/pack_provider_cache_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c engine_bridge/pal_engine_pack_provider.h Makefile
+$(NATIVE_PACK_PROVIDER_CACHE_TARGET): native_shim/pack_provider_cache_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_memory_profile.h engine_bridge/pal_engine_pack_provider.h Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=gnu99 -Wall -Wextra -O2 \
+		-DMEM_LEVEL2=1 -DPAL_NO_RUNTIME_HEAP=1 \
+		-DPAL_NO_RUNTIME_DECOMPRESS=1 \
 		-I engine_bridge -I engine_bridge/include -I native_engine_shim/include -I .. -I ../embedded -I ../sdl_compat \
 		native_shim/pack_provider_cache_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c \
 		-o "$@" -Wl,--wrap=fclose
 
-$(NATIVE_PACK_PROVIDER_OVERLAY_TARGET): native_shim/pack_provider_overlay_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c engine_bridge/pal_engine_pack_provider.h Makefile
+$(NATIVE_PACK_PROVIDER_OVERLAY_TARGET): native_shim/pack_provider_overlay_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_memory_profile.h engine_bridge/pal_engine_pack_provider.h Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=gnu99 -Wall -Wextra -O2 \
+		-DMEM_LEVEL1=1 -DPAL_NO_RUNTIME_HEAP=1 \
+		-DPAL_NO_RUNTIME_DECOMPRESS=1 \
 		-I engine_bridge -I engine_bridge/include -I native_engine_shim/include -I .. -I ../embedded -I ../sdl_compat \
 		native_shim/pack_provider_overlay_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c \
 		-o "$@" -Wl,--wrap=fclose
@@ -1371,6 +1551,12 @@ flash-engine-host: engine-host-build
 cardputer-extreme-flash: cardputer-extreme-build
 	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" $(if $(PORT),-p "$(PORT)",) flash'
 
+xiaomiao-flash: xiaomiao-build
+	bash -lc 'set -e; $(XIAOMIAO_IDF_ENV); idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" $(if $(PORT),-p "$(PORT)",) flash'
+
+xiaomiao-flash-app: xiaomiao-build
+	bash -lc 'set -e; $(XIAOMIAO_IDF_ENV); python -m esptool --chip esp32 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode dio --flash-size 4MB --flash-freq 40m 0x10000 "$(XIAOMIAO_BUILD_DIR)/sdlpal_xiaomiao.bin"'
+
 cardputer-extreme-music-flash: cardputer-extreme-music-flash-all
 
 cardputer-extreme-music-flash-all: cardputer-extreme-music-check
@@ -1410,4 +1596,4 @@ flash-nor: pack-build
 	$(PYTHON) -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode $(FLASH_MODE) --flash-size $(FLASH_SIZE) --flash-freq $(FLASH_FREQ) $(PAL_NOR_OFFSET) $(PACK_NOR)
 
 clean:
-	rm -rf "$(BUILD_DIR)" "$(ENGINE_HOST_BUILD_DIR)" "$(CARDPUTER_EXTREME_BUILD_DIR)" "$(CARDPUTER_EXTREME_MUSIC_BUILD_DIR)" "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" "$(NATIVE_BUILD_DIR)" "$(NATIVE_ENGINE_SHIM_BUILD_DIR)"
+	rm -rf "$(BUILD_DIR)" "$(ENGINE_HOST_BUILD_DIR)" "$(XIAOMIAO_BUILD_DIR)" "$(CARDPUTER_EXTREME_BUILD_DIR)" "$(CARDPUTER_EXTREME_MUSIC_BUILD_DIR)" "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" "$(NATIVE_BUILD_DIR)" "$(NATIVE_ENGINE_SHIM_BUILD_DIR)"

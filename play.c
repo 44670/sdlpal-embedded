@@ -21,7 +21,7 @@
 
 #include "main.h"
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
 static VOID
 PAL_PlayReadEventObject(
    WORD             wEventObjectID,
@@ -72,7 +72,7 @@ PAL_GameUpdate(
    int             i;
    LPEVENTOBJECT   p;
    WORD            wResult;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    EVENTOBJECT     eventObject;
 #endif
 
@@ -94,7 +94,7 @@ PAL_GameUpdate(
          i = gpGlobals->wNumScene - 1;
          wResult = PAL_RunTriggerScript(
             gpGlobals->g.rgScene[i].wScriptOnEnter, 0xFFFF);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          if (gpGlobals->g.rgScene[i].wScriptOnEnter != wResult)
          {
             gpGlobals->g.rgScene[i].wScriptOnEnter = wResult;
@@ -127,7 +127,7 @@ PAL_GameUpdate(
          wEventObjectID <= gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex;
          wEventObjectID++)
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          PAL_PlayReadEventObject(wEventObjectID, &eventObject);
          p = &eventObject;
 #else
@@ -140,7 +140,7 @@ PAL_GameUpdate(
             // Update the vanish time for all event objects
             //
             p->sVanishTime += ((p->sVanishTime < 0) ? 1 : -1);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
             PAL_PlayWriteEventObject(wEventObjectID, p);
 #endif
             continue;
@@ -155,7 +155,7 @@ PAL_GameUpdate(
             {
                p->sState = abs(p->sState);
                p->wCurrentFrameNum = 0;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
                PAL_PlayWriteEventObject(wEventObjectID, p);
 #endif
             }
@@ -194,7 +194,7 @@ PAL_GameUpdate(
                      p->wDirection = ((yOffset > 0) ? kDirSouth : kDirWest);
                   }
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
                   PAL_PlayWriteEventObject(wEventObjectID, p);
 #endif
 
@@ -212,7 +212,7 @@ PAL_GameUpdate(
                //
                wResult = PAL_RunTriggerScript(
                   p->wTriggerScript, wEventObjectID);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
                PAL_PlayReadEventObject(wEventObjectID, &eventObject);
                eventObject.wTriggerScript = wResult;
                PAL_PlayWriteEventObject(wEventObjectID, &eventObject);
@@ -242,7 +242,7 @@ PAL_GameUpdate(
       wEventObjectID <= gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex;
       wEventObjectID++)
    {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
       PAL_PlayReadEventObject(wEventObjectID, &eventObject);
       p = &eventObject;
 #else
@@ -255,7 +255,7 @@ PAL_GameUpdate(
          if (wScriptEntry != 0)
          {
             wResult = PAL_RunAutoScript(wScriptEntry, wEventObjectID);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
             PAL_PlayReadEventObject(wEventObjectID, &eventObject);
             eventObject.wAutoScript = wResult;
             PAL_PlayWriteEventObject(wEventObjectID, &eventObject);
@@ -523,7 +523,7 @@ PAL_Search(
    LPEVENTOBJECT      p;
    WORD               wResult;
    TRIGGERRANGE       rgRange;
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
    EVENTOBJECT        eventObject;
 #endif
 
@@ -544,7 +544,7 @@ PAL_Search(
       for (k = gpGlobals->g.rgScene[gpGlobals->wNumScene - 1].wEventObjectIndex;
          k < gpGlobals->g.rgScene[gpGlobals->wNumScene].wEventObjectIndex; k++)
       {
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          PAL_PlayReadEventObject((WORD)(k + 1), &eventObject);
          p = &eventObject;
 #else
@@ -568,7 +568,7 @@ PAL_Search(
             p->wCurrentFrameNum = 0; // use standing gesture
             p->wDirection = (gpGlobals->wPartyDirection + 2) % 4; // face the party
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
             PAL_PlayWriteEventObject((WORD)(k + 1), p);
 #endif
 
@@ -591,7 +591,7 @@ PAL_Search(
          // Execute the script
          //
          wResult = PAL_RunTriggerScript(p->wTriggerScript, k + 1);
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_PAGED_EVENT_STATE)
          PAL_PlayReadEventObject((WORD)(k + 1), &eventObject);
          eventObject.wTriggerScript = wResult;
          PAL_PlayWriteEventObject((WORD)(k + 1), &eventObject);

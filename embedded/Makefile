@@ -52,10 +52,11 @@ NATIVE_UI_160_OBJECT := $(BUILD_DIR)/pal_native_ui_160x128.o
 NATIVE_UI_OBJECTS := $(NATIVE_UI_240_OBJECT) $(NATIVE_UI_160_OBJECT)
 NATIVE_UI_FLASH_MAX ?= 8192
 NATIVE_UI_SRAM_MAX ?= 16
+FULLSCREEN_STRETCH_SMOKE := $(BUILD_DIR)/pal_fullscreen_stretch_smoke
 
-.PHONY: all clean check pack-build font10-pack-build font10-check realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check native-ui-check
+.PHONY: all clean check pack-build font10-pack-build font10-check realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check native-ui-check fullscreen-stretch-check
 
-all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK) $(NATIVE_UI_SMOKES)
+all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK) $(NATIVE_UI_SMOKES) $(FULLSCREEN_STRETCH_SMOKE)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -97,6 +98,13 @@ native-ui-check: $(NATIVE_UI_SMOKES) $(NATIVE_UI_OBJECTS)
 	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_native_ui.c --source-file pal_native_ui.h --binary $(NATIVE_UI_240_OBJECT) --max text=$(NATIVE_UI_FLASH_MAX) --max .data=$(NATIVE_UI_SRAM_MAX) --max .bss=$(NATIVE_UI_SRAM_MAX)
 	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_native_ui.c --source-file pal_native_ui.h --binary $(NATIVE_UI_160_OBJECT) --max text=$(NATIVE_UI_FLASH_MAX) --max .data=$(NATIVE_UI_SRAM_MAX) --max .bss=$(NATIVE_UI_SRAM_MAX)
 
+$(FULLSCREEN_STRETCH_SMOKE): pal_fullscreen_stretch.h ../tests/test_fullscreen_stretch.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I.. ../tests/test_fullscreen_stretch.c -o $@ $(LDFLAGS)
+
+fullscreen-stretch-check: $(FULLSCREEN_STRETCH_SMOKE)
+	$(FULLSCREEN_STRETCH_SMOKE)
+	! $(NM) -u $(FULLSCREEN_STRETCH_SMOKE) | grep -E 'malloc|calloc|realloc|free'
+
 $(MAME_OPL2_STATIC_OBJ): pal_mame_opl2_static.cpp pal_mame_opl2_static.h pal_mame_opl2_fixed_tables.inc ../adplug/mame/fmopl.cpp.h ../adplug/mame/fmopl.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I.. -c pal_mame_opl2_static.cpp -o $@
 
@@ -130,7 +138,7 @@ rix-mame-opl2-check: $(RIX_MAME_OPL2_SMOKE)
 	$(RIX_MAME_OPL2_SMOKE) $(PACK_NOR) $(RIX_EXPECTED_TRACKS)
 	! $(NM) -u -C $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(MAME_OPL2_STATIC_OBJ) | grep -E ' U (malloc|calloc|realloc|free|pow|sin|log)(@[^ ]*)?$$| U operator (new|delete)'
 
-check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(NATIVE_UI_SMOKES) native-ui-check
+check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(NATIVE_UI_SMOKES) native-ui-check fullscreen-stretch-check
 	$(SMOKE)
 	$(MEMORY_SMOKE)
 	SDL_VIDEODRIVER=dummy $(NATIVE_SDL_SMOKE)
@@ -172,7 +180,7 @@ realdata-check: pack-build $(PACK_CHECK) $(REALDATA_SDL_SMOKE)
 sanitize-check:
 	$(MAKE) BUILD_DIR=$(SANITIZE_BUILD_DIR) CFLAGS='$(SANITIZE_CFLAGS)' LDFLAGS='$(SANITIZE_LDFLAGS)' realdata-check
 
-contract-check: pack-build $(REALDATA_SDL_SMOKE)
+contract-check: pack-build $(REALDATA_SDL_SMOKE) fullscreen-stretch-check
 	$(PYTHON) -B ../tools/embedded_contract_check.py \
 		--root . \
 		--fail-on-source \

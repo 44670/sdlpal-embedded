@@ -10,6 +10,7 @@
     "embedded/pal_font10_cache.c",
     "embedded/pal_font_cache.c",
     "embedded/pal_mame_opl2_static.cpp",
+    "embedded/pal_memory_profile.c",
     "embedded/pal_music_cache.c",
     "embedded/pal_native_ui.c",
     "embedded/pal_pack.c",

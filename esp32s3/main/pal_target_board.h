@@ -1,7 +1,22 @@
 #ifndef PAL_TARGET_BOARD_H
 #define PAL_TARGET_BOARD_H
 
-#if defined(PAL_CARDPUTER_EXTREME)
+#if defined(PAL_TARGET_XIAOMIAO)
+
+#include "xiaomiao_board.h"
+
+#define PAL_TARGET_LCD_WIDTH XIAOMIAO_LCD_WIDTH
+#define PAL_TARGET_LCD_HEIGHT XIAOMIAO_LCD_HEIGHT
+#define PalTarget_Begin Xiaomiao_Begin
+#define PalTarget_MountTf Xiaomiao_MountTf
+#define PalTarget_PrepareTfAccess Xiaomiao_PrepareTfAccess
+#define PalTarget_ShowError Xiaomiao_ShowError
+#define PalTarget_SaveUnlink Xiaomiao_SaveUnlink
+#define PalTarget_SaveRename Xiaomiao_SaveRename
+#define PalTarget_PollKey Xiaomiao_PollKey
+#define PalTarget_FlushIndexedFramebuffer Xiaomiao_FlushIndexedFramebuffer
+
+#elif defined(PAL_TARGET_CARDPUTER_ADV)
 
 #include "cardputer_extreme_board.h"
 
@@ -13,6 +28,8 @@
 #define PalTarget_ShowError CardputerExtreme_ShowError
 #define PalTarget_SaveUnlink CardputerExtreme_SaveUnlink
 #define PalTarget_SaveRename CardputerExtreme_SaveRename
+#define PalTarget_PollKey CardputerExtreme_PollKey
+#define PalTarget_FlushIndexedFramebuffer CardputerExtreme_FlushIndexedFramebuffer
 
 #else
 

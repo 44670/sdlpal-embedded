@@ -89,6 +89,7 @@ REQUIRED_SUPPORT_SOURCES = (
     "sdl_compat/sdl_compat.c",
     "unix/embedded_contract_stubs.c",
     "unix/contract_noaudio.c",
+    "embedded/pal_memory_profile.c",
     "embedded/pal_pack.c",
     "embedded/pal_text_cache.c",
     "embedded/pal_font_cache.c",
@@ -165,7 +166,8 @@ FORBIDDEN_ENGINE_HOST_SOURCE_ENTRIES = (
     "pal_save_fatfs.c",
 )
 REQUIRED_ENGINE_HOST_SOURCE_ENTRIES = (
-    "../../unix/contract_noaudio.c",
+    "${PAL_TARGET_AUDIO_SOURCES}",
+    "../../embedded/pal_memory_profile.c",
     "../engine_bridge/pal_engine_app_main.c",
     "../engine_bridge/pal_engine_fatfs_stdio.c",
     "../engine_bridge/pal_engine_pack_provider.c",
@@ -482,11 +484,15 @@ def check_tf_map_capacity(root: Path, manifest: Path | None) -> list[str]:
     errors: list[str] = []
     provider = root / "esp32s3" / "engine_bridge" / "pal_engine_pack_provider.c"
     try:
-        tf_map_bytes = parse_c_define_uint(provider, "PAL_ENGINE_TF_MAP_BYTES")
+        tf_map_bytes = parse_c_define_uint(
+            provider, "PAL_ENGINE_LEVEL2_TF_MAP_BYTES"
+        )
     except (OSError, ValueError) as exc:
-        return [f"{provider}: cannot parse PAL_ENGINE_TF_MAP_BYTES: {exc}"]
+        return [
+            f"{provider}: cannot parse PAL_ENGINE_LEVEL2_TF_MAP_BYTES: {exc}"
+        ]
     if tf_map_bytes is None:
-        return [f"{provider}: missing PAL_ENGINE_TF_MAP_BYTES"]
+        return [f"{provider}: missing PAL_ENGINE_LEVEL2_TF_MAP_BYTES"]
 
     max_tf_payload = max_manifest_payload(manifest, "tf")
     if max_tf_payload is None:
@@ -954,6 +960,32 @@ def check_engine_host_source_set_contract(root: Path) -> list[str]:
         errors.append(f"{rel}: engine host must compile with PAL_CONTRACT_NO_AUDIO=1")
     if "PAL_ESP_CORES3SE_NO_AUDIO=1" not in text or "PAL_ESP_CORES3SE_NO_SFX=1" not in text:
         errors.append(f"{rel}: engine host must compile with CoreS3 SE no-audio/no-SFX definitions")
+    if 'set(PAL_TARGET_AUDIO_SOURCES\n        "../../unix/contract_noaudio.c"' not in text:
+        errors.append(f"{rel}: no-audio target source set must select ../../unix/contract_noaudio.c")
+    return errors
+
+
+def check_memory_profile_contract(build_dir: Path) -> list[str]:
+    compile_commands = build_dir / "compile_commands.json"
+    if not compile_commands.is_file():
+        return [f"missing compile command database: {compile_commands}"]
+    try:
+        entries = json.loads(compile_commands.read_text(errors="replace"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"{compile_commands}: cannot parse: {exc}"]
+
+    commands = "\n".join(
+        str(entry.get("command", ""))
+        for entry in entries
+        if isinstance(entry, dict) and "/esp32s3/main/" in str(entry.get("file", ""))
+    )
+    errors: list[str] = []
+    if "-DMEM_LEVEL2=1" not in commands:
+        errors.append("CoreS3 SE engine host must compile with MEM_LEVEL2=1")
+    if "-DMEM_LEVEL1=1" in commands:
+        errors.append("CoreS3 SE engine host must not compile with MEM_LEVEL1=1")
+    if "-DPAL_STORAGE_SD_ONLY=1" in commands:
+        errors.append("CoreS3 SE storage must not inherit Xiaomiao SD-only policy")
     return errors
 
 
@@ -1109,7 +1141,7 @@ def check_named_buffer_placement(
             sram_total += size
             if not address_is_in_section(address, size, ranges, (".dram0.bss", ".dram0.data")):
                 errors.append(f"{name} size={size} is not in DRAM SRAM sections")
-        elif name.startswith("pal_psram_"):
+        elif name.startswith("pal_psram_") or name.startswith("pal_mem_level2_"):
             psram_total += size
             if not address_is_in_section(address, size, ranges, (".ext_ram.bss",)):
                 errors.append(f"{name} size={size} is not in external PSRAM section")
@@ -1135,6 +1167,7 @@ def check_engine_buffer_symbol_registry(
         (name, size)
         for name, _address, size in rows
         if name.startswith("pal_sram_") or name.startswith("pal_psram_")
+        or name.startswith("pal_mem_level2_")
     )
     expected: Counter[tuple[str, int]] = Counter()
     for entry in entries:
@@ -1153,6 +1186,8 @@ def check_engine_buffer_symbol_registry(
         elif name.startswith("pal_sram_") and region != "SRAM":
             errors.append(f"engine buffer registry entry {name} must be in SRAM")
         elif name.startswith("pal_psram_") and region != "PSRAM":
+            errors.append(f"engine buffer registry entry {name} must be in PSRAM")
+        elif name.startswith("pal_mem_level2_") and region != "PSRAM":
             errors.append(f"engine buffer registry entry {name} must be in PSRAM")
         if not isinstance(owner, str) or not owner:
             errors.append(f"engine buffer registry entry {name} must have an owner")
@@ -1351,6 +1386,12 @@ def main() -> int:
     for hit in engine_host_source_hits:
         print(hit)
     errors.extend(engine_host_source_hits)
+
+    memory_profile_hits = check_memory_profile_contract(build_dir)
+    print(f"\nresource-memory profile hits: {len(memory_profile_hits)}")
+    for hit in memory_profile_hits:
+        print(hit)
+    errors.extend(memory_profile_hits)
 
     no_audio_power_hits = check_core_no_audio_power_contract(root)
     print(f"\nCoreS3 SE no-audio power hits: {len(no_audio_power_hits)}")

@@ -9,6 +9,13 @@
 
 Check the link above for a web-based demo of SDLPAL. It should work on most modern browsers (e.g., Google Chrome, Mozilla Firefox, Safari), though compatibility issues may exist on some platforms. To play, please prepare a ZIP file containing the original game resource data.
 
+## Embedded ports
+
+This fork's ESP32-family work is documented in
+[`../embedded/README.md`](../embedded/README.md). Start there for the current
+board, resource, responsive-rendering, review, and verification documents;
+the reports under `Consult/` are retired historical notes.
+
 ## Gitee Mirror (Gitee 镜像)
 
 If you experience difficulties downloading code from GitHub in mainland China, please use our [Gitee mirror](https://gitee.com/sdlpal/sdlpal) (updated hourly).
@@ -25,7 +32,7 @@ Copyright (c) 2011-2026, SDLPAL development team.
 All rights reserved.
 ```
 
-SDLPAL is distributed under the terms of the **GNU General Public License, version 3**, as published by the [Free Software Foundation](http://www.fsf.org/). See [LICENSE](LICENSE) for details.
+SDLPAL is distributed under the terms of the **GNU General Public License, version 3**, as published by the [Free Software Foundation](http://www.fsf.org/). See [LICENSE](../LICENSE) for details.
 
 Many concepts in this program are based on documents from the [PAL Research Project](https://github.com/palxex/palresearch), and portions of the code are based on work by Baldur and [louyihua](https://github.com/louyihua).
 

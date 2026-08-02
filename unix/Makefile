@@ -83,15 +83,15 @@ ifeq ($(EMBEDDED_CONTRACT),1)
 	SOURCES = .. ../sdl_compat
 	CONTRACT_CFILE_EXCLUDES = ../aviplay.c ../font.c ../glslp.c ../midi_timidity.c ../midi_tsf.c ../mini_glloader.c ../mp3play.c ../oggplay.c ../opusplay.c ../resampler.c ../sound.c ../text.c ../video_glsl.c ../yj1.c
 	CONTRACT_CPPFILE_EXCLUDES = ../rixplay.cpp
-	CONTRACT_CFILES = embedded_contract_stubs.c ../embedded/pal_noheap.c ../embedded/pal_pack.c ../embedded/pal_text_cache.c ../embedded/pal_font_cache.c ../embedded/pal_music_cache.c
+	CONTRACT_CFILES = embedded_contract_stubs.c ../embedded/pal_noheap.c ../embedded/pal_memory_profile.c ../embedded/pal_pack.c ../embedded/pal_text_cache.c ../embedded/pal_font_cache.c ../embedded/pal_music_cache.c
 	CONTRACT_CPPFILES = contract_music.cpp contract_opl2.cpp ../adplug/player.cpp ../adplug/rix.cpp
-	EMBEDDED_CCFLAGS = -ffunction-sections -fdata-sections -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI -DPAL_NO_RUNTIME_DECOMPRESS=1 -DPAL_NO_RUNTIME_HEAP=1 -DPAL_CONTRACT_EXTERNAL_RIX=1 -DUSE_RIX_EXTRA_INIT=0
+	EMBEDDED_CCFLAGS = -ffunction-sections -fdata-sections -DPAL_HAS_MP3=0 -DPAL_HAS_OGG=0 -DPAL_HAS_OPUS=0 -DPAL_HAS_NATIVEMIDI=0 -DPAL_HAS_GLSL=0 -DPAL_HAS_CONFIG_PAGE=0 -DPAL_NO_LAUNCH_UI -DPAL_NO_RUNTIME_DECOMPRESS=1 -DPAL_NO_RUNTIME_HEAP=1 -DMEM_LEVEL2=1 -DPAL_CONTRACT_EXTERNAL_RIX=1 -DUSE_RIX_EXTRA_INIT=0
 	EMBEDDED_LDFLAGS = -Wl,--gc-sections -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free
 	ifeq ($(EMBEDDED_CONTRACT_NO_AUDIO),1)
 		TARGET = sdlpal-embedded-contract-noaudio
 		INTER = .embedded.noaudio.unix
 		CONTRACT_CFILE_EXCLUDES += ../audio.c ../midi.c
-		CONTRACT_CFILES = embedded_contract_stubs.c contract_noaudio.c ../embedded/pal_noheap.c ../embedded/pal_pack.c ../embedded/pal_text_cache.c ../embedded/pal_font_cache.c
+		CONTRACT_CFILES = embedded_contract_stubs.c contract_noaudio.c ../embedded/pal_noheap.c ../embedded/pal_memory_profile.c ../embedded/pal_pack.c ../embedded/pal_text_cache.c ../embedded/pal_font_cache.c
 		CONTRACT_CPPFILES =
 		EMBEDDED_CCFLAGS += -DPAL_CONTRACT_NO_AUDIO=1 -DPAL_ESP_CORES3SE_NO_AUDIO=1 -DPAL_ESP_CORES3SE_NO_SFX=1
 		CONTRACT_BINARY_EXTRA_FLAGS = \
@@ -164,6 +164,7 @@ CONTRACT_CHECK_SOURCE_FLAGS = \
 	$(CONTRACT_SOURCE_ARGS) \
 	--source-define PAL_NO_RUNTIME_HEAP=1 \
 	--source-define PAL_NO_RUNTIME_DECOMPRESS=1 \
+	--source-define MEM_LEVEL2=1 \
 	--source-define PAL_CONTRACT_EXTERNAL_RIX=1 \
 	--source-define USE_RIX_EXTRA_INIT=0 \
 	$(if $(filter 1,$(EMBEDDED_CONTRACT_NO_AUDIO)),--source-define PAL_CONTRACT_NO_AUDIO=1 --source-define PAL_ESP_CORES3SE_NO_AUDIO=1 --source-define PAL_ESP_CORES3SE_NO_SFX=1,) \

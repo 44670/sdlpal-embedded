@@ -33,4 +33,32 @@ PAL_RNGPlay(
    INT           iSpeed
 );
 
+#if defined(PAL_RNG_DECODER_TEST)
+typedef BOOL (*PALRNGTESTREADAT)(
+   void     *user,
+   uint32_t  offset,
+   uint8_t  *destination,
+   uint32_t  size
+);
+
+PAL_C_LINKAGE
+INT
+PAL_RNGBlitToSurfaceForTest(
+   const uint8_t *rng,
+   int            length,
+   SDL_Surface   *surface
+);
+
+PAL_C_LINKAGE
+INT
+PAL_RNGBlitReadAtToSurfaceForTest(
+   PALRNGTESTREADAT read_at,
+   void            *user,
+   uint32_t         length,
+   uint8_t         *window,
+   uint32_t         window_capacity,
+   SDL_Surface     *surface
+);
+#endif
+
 #endif

@@ -7,6 +7,7 @@
     "embedded/pal_event_pager.c",
     "embedded/pal_font10_cache.c",
     "embedded/pal_font_cache.c",
+    "embedded/pal_memory_profile.c",
     "embedded/pal_native_ui.c",
     "embedded/pal_pack.c",
     "embedded/pal_text_cache.c",
