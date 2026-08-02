@@ -94,13 +94,18 @@ enforced default-profile limits live in
 - LCD and SD share VSPI. GPIO19 is used for the one-time LCD reset before the
   bus is initialized, then becomes SD MISO; do not apply the CoreS3 SE GPIO35
   D/C/MISO handoff or the Cardputer ADV independent-bus assumption.
-- All decoded/native game data is stored on SD as `0:/pal_core.pak`,
-  `0:/pal_sd.pak`, and `0:/EVENT.DEF`; the core is copied into its fixed
-  mapped-PSRAM owner at boot and the gameplay pack remains streamed.
+- All decoded/native game data comes from the shared `0:/pal_full.pak`.
+  `0:/pal_l2.pak` is only a duplicate resident-view cache copied into its
+  fixed mapped-PSRAM owner at boot; gameplay chunks remain streamed from the
+  complete pack.
+- TF is the only PAL-data source. The app contains no data-set digest and the
+  SD-only provider must not hash or scan the `pal_full.pak` payload at boot;
+  it accepts any structurally compatible pair with matching data-provided
+  pack-set IDs.
 - Source of truth: `esp32s3/main/xiaomiao_*`,
   `tools/pal_pack_layout_xiaomiao.json`, and `esp32s3/check_xiaomiao.py`.
-- Build/data gate: `make -C esp32s3 xiaomiao-check`; card generation:
-  `make -C esp32s3 xiaomiao-tf`. The gate drives the SD-only provider through
+- Build/data gate: `make -C esp32s3 xiaomiao-check`; shared card generation:
+  `make -C esp32s3 tf-datapack`. The gate drives the SD-only provider through
   real 160x128 map and forced-battle gameplay captures under `tmp_ui/`; the
   forced battle proves integration, not natural story-route reachability.
 - Audio is disabled in the initial profile; real hardware acceptance remains
@@ -142,8 +147,8 @@ Useful hardware references:
   capability for those independent choices. Use normal named buffers and typed
   `const` views outside the three Level2 arenas.
 - Keep FatFS LFN heap support and dynamic FatFS buffers disabled. Runtime
-  filenames must stay short (`0:/pal_tf.pak`, `0:/EVENT.STA`, `0:/b00.pak`,
-  and similar).
+  filenames must stay short (`0:/pal_full.pak`, `0:/pal_tf.pak`,
+  `0:/EVENT.STA`, `0:/b00.pak`, and similar).
 - Existing PAL resources, scripts, saves, collision tests, and battle
   animations retain their legacy coordinate meanings. A 320x200 compatibility
   coordinate is not the physical display architecture; presentation transforms
@@ -187,29 +192,49 @@ string. Missing glyphs or a wrong archive must fail the build.
 
 ## Resource and state architecture
 
+### Shared TF data set
+
+`esp32s3/TF_datapak/` is the single generated TF directory for every port.
+`pal_full.pak` is the complete host-decoded, runtime-native resource source;
+it is portable across target profiles and must not omit data merely because a
+particular board does not use it. Target-specific files beside it are optional
+caches with the same pack-set ID: Cardputer uses `pal_core.pak` and `bNN.pak`
+as replaceable NOR contents, while Xiaomiao copies `pal_l2.pak` into PSRAM.
+They may overlap `pal_full.pak` and never define data completeness. A
+constrained target may index derived bounded packs instead of the full TOC,
+but its TF card still carries the complete pack. This is neither block-device
+swap nor permission to add a generic cache framework. The pack-set ID is
+derived only from the complete native data; changing cache placement must not
+change `pal_full.pak` or invalidate otherwise compatible state.
+
 ### Default Cardputer ADV music/cache packs
 
 `tools/pal_chapter_pack_build.py` produces:
 
 - TF source `pal_core.pak`, copied to the core SPI-NOR cache on demand;
 - active `pal_tf.pak`;
-- complete `pal_full.pak`;
+- portable complete `pal_full.pak`;
+- optional Level2 resident-view cache `pal_l2.pak`;
 - 15 conservative bundles `b00.pak` through `b14.pak`;
 - `PALSET.BIN`, containing the external pack-set ID, core SHA-256, and chapter
   catalog;
 - `chapter_manifest.json`;
 - `EVENT.DEF`.
 
-`pal_full.pak` is an offline-complete mirror, not swap and not a runtime
-fallback. The active firmware indexes only the bounded core, chapter, and TF
-packs described by `PALSET.BIN`.
+The Cardputer firmware does not index the larger `pal_full.pak` TOC; it uses
+the bounded core, chapter, and TF packs described by `PALSET.BIN`. Xiaomiao
+indexes that same complete file directly. `pal_full.pak` is not swap.
 
 At boot, the target validates the core cache against `PALSET.BIN`; a mismatch
 enters a native 240x135 `LOADING` screen and verifies/copies/verifies
 `pal_core.pak` from TF before mapping it. At game load and bundle transitions,
 the same pattern applies to `bNN.pak`; the commit record is written last. The
 global current-bundle state skips repeated hashes while scenes remain in the
-same verified bundle. No data-set hash is compiled into the default app. The
+same verified bundle. The chapter-cache SHA layer is the only target-side
+full-payload integrity owner: the provider must not repeat whole-pack CRC scans
+of core, overlays, or `pal_tf.pak`. It still validates pack structure, bounds,
+ownership, and pack-set identity; host generation/provisioning retains the
+pack CRC checks. No data-set hash is compiled into the default app. The
 implementation is in:
 
 - `esp32s3/engine_bridge/pal_engine_chapter_cache.[ch]`

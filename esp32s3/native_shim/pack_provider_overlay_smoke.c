@@ -180,6 +180,7 @@ main(
 )
 {
    static uint8_t core_image[TEST_PACK_CAPACITY];
+   static uint8_t core_zero_crc_image[TEST_PACK_CAPACITY];
    static uint8_t core_mismatch_image[TEST_PACK_CAPACITY];
    static uint8_t overlay_image[TEST_PACK_CAPACITY];
    static uint8_t overlay_replacement_image[TEST_PACK_CAPACITY];
@@ -267,6 +268,15 @@ main(
       tf_core_duplicate_size == 0)
    {
       fprintf(stderr, "synthetic pack construction failed\n");
+      return 2;
+   }
+   memcpy(core_zero_crc_image, core_image, core_size);
+   write_le32(core_zero_crc_image + 28u, 0u);
+
+   PalEngineBridge_ClearPacks();
+   if (PalEngineBridge_SetNorPackConst(core_zero_crc_image, core_size))
+   {
+      fprintf(stderr, "legacy Level1 provider accepted a missing pack CRC\n");
       return 2;
    }
 

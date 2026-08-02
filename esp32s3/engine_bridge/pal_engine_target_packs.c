@@ -32,8 +32,8 @@
 #define PAL_ENGINE_TF_PACK_PATH "0:/pal_tf.pak"
 #if defined(PAL_STORAGE_SD_ONLY)
 #undef PAL_ENGINE_TF_PACK_PATH
-#define PAL_ENGINE_TF_PACK_PATH "0:/pal_sd.pak"
-#define PAL_ENGINE_CORE_PACK_PATH "0:/pal_core.pak"
+#define PAL_ENGINE_TF_PACK_PATH "0:/pal_full.pak"
+#define PAL_ENGINE_CORE_PACK_PATH "0:/pal_l2.pak"
 #endif
 
 static const char *TAG = "pal_engine_packs";
@@ -180,18 +180,11 @@ sd_only_init_packs(
    if (!PalPack_OpenConst(
          &core_pack, pal_mem_level2_core_pack, core_size) ||
       !PalFont10_Open(&core_pack, &font10) ||
-      !PalNativeUi_Font10IdentityMatches(
-         font10.glyph_count,
-         font10.size,
-         font10.payload_crc32,
-         font10.cell_width,
-         font10.cell_height,
-         (int8_t)font10.ascent,
-         (int8_t)font10.descent) ||
+      font10.cell_width != 10u || font10.cell_height != 10u ||
       !PalEngineBridge_SetCorePackConst(
          pal_mem_level2_core_pack, core_size))
    {
-      ESP_LOGE(TAG, "SD core pack or generated FONT10 validation failed");
+      ESP_LOGE(TAG, "SD core pack or FONT10 geometry validation failed");
       return false;
    }
 

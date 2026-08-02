@@ -1182,11 +1182,11 @@ def parse_complete_tf_mirror(
     index_strategy = raw["index_strategy"]
     if (
         not isinstance(index_strategy, str)
-        or index_strategy != "offline-mirror-not-runtime-indexed"
+        or index_strategy != "not-indexed-by-this-profile"
     ):
         raise SystemExit(
             "tf_complete_mirror.index_strategy must be "
-            "offline-mirror-not-runtime-indexed"
+            "not-indexed-by-this-profile"
         )
     return CompleteMirrorLayout(
         tuple(names),
@@ -1361,20 +1361,32 @@ def canonical_pack_identity_image(
     return bytes(image)
 
 
+def compute_portable_pack_set_id(
+    complete_archives: dict[str, list[Chunk]],
+) -> int:
+    """Identify canonical data independently of target cache placement."""
+
+    digest = hashlib.sha256()
+    digest.update(b"sdlpal-portable-pack-set-v1\0")
+    digest.update(canonical_pack_identity_image(complete_archives))
+    value = int.from_bytes(digest.digest()[:4], "little")
+    return value if value != 0 else 1
+
+
 def compute_pack_set_id(
     nor_archives: dict[str, list[Chunk]],
     tf_archives: dict[str, list[Chunk]],
     tf_complete_archives: dict[str, list[Chunk]] | None = None,
 ) -> int:
+    if tf_complete_archives is not None:
+        return compute_portable_pack_set_id(tf_complete_archives)
+
     digest = hashlib.sha256()
     digest.update(b"sdlpal-pack-set-v1\0")
     digest.update(b"NOR\0")
     digest.update(canonical_pack_identity_image(nor_archives))
     digest.update(b"TF\0")
     digest.update(canonical_pack_identity_image(tf_archives))
-    if tf_complete_archives is not None:
-        digest.update(b"TF-COMPLETE\0")
-        digest.update(canonical_pack_identity_image(tf_complete_archives))
     value = int.from_bytes(digest.digest()[:4], "little")
     return value if value != 0 else 1
 

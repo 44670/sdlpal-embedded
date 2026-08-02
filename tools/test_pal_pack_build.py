@@ -241,7 +241,7 @@ class PackBuilderUnitTests(unittest.TestCase):
             "runtime_active": False,
             "all_chunks": True,
             "allow_overlap": True,
-            "index_strategy": "offline-mirror-not-runtime-indexed",
+            "index_strategy": "not-indexed-by-this-profile",
         }
         layout_data = {
             "schema": "sdlpal-embedded-pack-layout",
@@ -357,6 +357,18 @@ class PackBuilderUnitTests(unittest.TestCase):
         }
         full_set_id = builder.compute_pack_set_id(nor, tf, full)
         self.assertNotEqual(full_set_id, pack_set_id)
+        self.assertEqual(
+            full_set_id,
+            builder.compute_pack_set_id(
+                {"MGO": [builder.Chunk(b"different cache", builder.FORMAT_NATIVE)]},
+                {},
+                full,
+            ),
+        )
+        self.assertEqual(
+            full_set_id,
+            builder.compute_portable_pack_set_id(full),
+        )
         self.assertNotEqual(
             full_set_id,
             builder.compute_pack_set_id(

@@ -36,6 +36,8 @@ FLASH_BYTES = 4 * 1024 * 1024
 APP_OFFSET = 0x10000
 APP_PARTITION_BYTES = 0x300000
 MAPPED_PSRAM_LIMIT = 0x003C0000
+ESP32_IRAM_START = 0x40080000
+ESP32_IRAM_END = 0x400A0000
 MAIN_TASK_STACK_BYTES = 16 * 1024
 MIN_LINKER_DRAM_RESERVE = 80 * 1024
 MIN_POST_MAIN_STACK_RESERVE = 64 * 1024
@@ -63,10 +65,7 @@ ARCHIVE_IDS = {
     "SFX": 19,
 }
 CORE_ARCHIVES = {"DATA", "PAT", "RGM", "SSS", "TEXT", "FONT"}
-SD_ARCHIVES = {
-    "ABC", "BALL", "F", "FBP", "FIRE", "GOP", "MAP", "MGO",
-    "MIDI", "MUS", "RNG", "SFX",
-}
+FULL_ARCHIVES = set(ARCHIVE_IDS)
 DIRECT_STAGED_ARCHIVES = {
     "ABC", "BALL", "F", "FIRE", "GOP", "MAP", "MGO",
 }
@@ -255,6 +254,20 @@ def parse_objdump_symbols(text: str) -> dict[str, tuple[int, str]]:
     return result
 
 
+def parse_objdump_symbol_addresses(text: str) -> dict[str, tuple[int, str]]:
+    result: dict[str, tuple[int, str]] = {}
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) < 6 or not fields[3].startswith("."):
+            continue
+        try:
+            address = int(fields[0], 16)
+        except ValueError:
+            continue
+        result[fields[5]] = (address, fields[3])
+    return result
+
+
 def parse_sections(text: str) -> dict[str, tuple[int, int]]:
     sections: dict[str, tuple[int, int]] = {}
     for line in text.splitlines():
@@ -350,19 +363,18 @@ def aligned_total(sizes: list[int]) -> int:
 
 def audit_sprite_arenas(
     core_path: Path,
-    sd_path: Path,
     core: Pack,
-    sd: Pack,
+    full: Pack,
     errors: list[str],
 ) -> tuple[int, int, int]:
     """Prove scoped resource arenas against the shipped DOS data and scripts."""
     core_image = core_path.read_bytes()
-    mgo = sd.archives.get(ARCHIVE_IDS["MGO"], [])
-    maps = sd.archives.get(ARCHIVE_IDS["MAP"], [])
-    gop = sd.archives.get(ARCHIVE_IDS["GOP"], [])
-    abc = sd.archives.get(ARCHIVE_IDS["ABC"], [])
-    player_f = sd.archives.get(ARCHIVE_IDS["F"], [])
-    fire = sd.archives.get(ARCHIVE_IDS["FIRE"], [])
+    mgo = full.archives.get(ARCHIVE_IDS["MGO"], [])
+    maps = full.archives.get(ARCHIVE_IDS["MAP"], [])
+    gop = full.archives.get(ARCHIVE_IDS["GOP"], [])
+    abc = full.archives.get(ARCHIVE_IDS["ABC"], [])
+    player_f = full.archives.get(ARCHIVE_IDS["F"], [])
+    fire = full.archives.get(ARCHIVE_IDS["FIRE"], [])
     sss = core.archives.get(ARCHIVE_IDS["SSS"], [])
     data = core.archives.get(ARCHIVE_IDS["DATA"], [])
 
@@ -509,7 +521,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", required=True, type=Path)
     parser.add_argument("--core-pack", required=True, type=Path)
-    parser.add_argument("--sd-pack", required=True, type=Path)
+    parser.add_argument("--full-pack", required=True, type=Path)
     parser.add_argument("--event-template", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--expected-compiler", required=True, type=Path)
@@ -518,7 +530,7 @@ def main() -> int:
     root = Path(__file__).resolve().parent.parent
     build = args.build_dir.resolve()
     core_path = args.core_pack.resolve()
-    sd_path = args.sd_pack.resolve()
+    full_path = args.full_pack.resolve()
     event_path = args.event_template.resolve()
     manifest_path = args.manifest.resolve()
     elf = build / "sdlpal_xiaomiao.elf"
@@ -536,6 +548,8 @@ def main() -> int:
     palcommon_source = root / "palcommon.c"
     rngplay_source = root / "rngplay.c"
     pack_provider_source = root / "esp32s3/engine_bridge/pal_engine_pack_provider.c"
+    target_packs_source = root / "esp32s3/engine_bridge/pal_engine_target_packs.c"
+    contract_stubs_source = root / "unix/embedded_contract_stubs.c"
     fullscreen_stretch_header = root / "embedded/pal_fullscreen_stretch.h"
     fullscreen_rendering_doc = root / "embedded/FULLSCREEN_ASSET_RENDERING.md"
     responsive_ui_sources = (
@@ -560,9 +574,10 @@ def main() -> int:
     required = (
         elf, app_bin, map_path, sdkconfig_path, project_path,
         compile_commands_path, flasher_path, partition_bin, main_archive,
-        core_path, sd_path, event_path, manifest_path, ui_header, board_source,
+        core_path, full_path, event_path, manifest_path, ui_header, board_source,
         ending_source, palcommon_source, rngplay_source, pack_provider_source,
-        fullscreen_stretch_header, fullscreen_rendering_doc,
+        target_packs_source, contract_stubs_source, fullscreen_stretch_header,
+        fullscreen_rendering_doc,
         *responsive_ui_sources,
     )
     for path in required:
@@ -602,6 +617,7 @@ def main() -> int:
             errors.append(f"sdkconfig must enable {name}")
     for name in (
         "CONFIG_SPIRAM_USE_CAPS_ALLOC", "CONFIG_SPIRAM_USE_MALLOC",
+        "CONFIG_SPIRAM_BANKSWITCH_ENABLE",
         "CONFIG_FATFS_USE_DYN_BUFFERS", "CONFIG_FATFS_PER_FILE_CACHE",
         "CONFIG_FATFS_USE_FASTSEEK",
     ):
@@ -650,7 +666,7 @@ def main() -> int:
         "shared-bus LCD MISO": "bus_cfg.miso_io_num = PIN_LCD_RESET_TF_MISO",
         "shared-bus SD host": "slot.host_id = SHARED_HOST",
         "20 MHz SD limit": "TF_SPI_CLOCK_KHZ = 20000u",
-        "landscape BGR MADCTL": "value = 0x68",
+        "landscape RGB MADCTL": "value = 0x60",
     }
     for label, snippet in board_contract.items():
         if snippet not in board_text:
@@ -673,6 +689,34 @@ def main() -> int:
     palcommon_text = palcommon_source.read_text(encoding="utf-8")
     rngplay_text = rngplay_source.read_text(encoding="utf-8")
     provider_text = pack_provider_source.read_text(encoding="utf-8")
+    target_packs_text = target_packs_source.read_text(encoding="utf-8")
+    contract_stubs_text = contract_stubs_source.read_text(encoding="utf-8")
+    if (
+        "#if defined(MEM_LEVEL1)\n#define PAL_ENGINE_STRICT_PACK_VALIDATION 1"
+        not in provider_text
+        or "defined(MEM_LEVEL1) || defined(PAL_STORAGE_SD_ONLY)"
+        in provider_text
+    ):
+        errors.append(
+            "SD-only packs must not enable whole-pack payload CRC validation"
+        )
+    for token in (
+        '#define PAL_ENGINE_CORE_PACK_PATH "0:/pal_l2.pak"',
+        '#define PAL_ENGINE_TF_PACK_PATH "0:/pal_full.pak"',
+    ):
+        if token not in target_packs_text:
+            errors.append(f"Xiaomiao portable-pack path is missing {token!r}")
+    if "font10.cell_width != 10u || font10.cell_height != 10u" not in target_packs_text:
+        errors.append(
+            "Xiaomiao must accept data-pack FONT10 subsets by geometry"
+        )
+    if (
+        "defined(PAL_EXTREME_CHAPTER_CACHE) || defined(PAL_STORAGE_SD_ONLY)"
+        not in contract_stubs_text
+    ):
+        errors.append(
+            "Xiaomiao font initialization is still bound to a generated data hash"
+        )
     for label, text, tokens in (
         (
             "FBP renderer",
@@ -742,7 +786,37 @@ def main() -> int:
     if any(offset + size > FLASH_BYTES for _, _, offset, size, _ in partitions):
         errors.append("partition table exceeds 4 MiB flash")
 
-    symbols = parse_objdump_symbols(run_text([objdump, "-t", elf]))
+    objdump_symbols = run_text([objdump, "-t", elf])
+    symbols = parse_objdump_symbols(objdump_symbols)
+    symbol_addresses = parse_objdump_symbol_addresses(objdump_symbols)
+    forbidden_data_binding_symbols = (
+        "PalNativeUi_Font10IdentityMatches",
+        "pack_crc32_const",
+        "pack_crc32_read_at",
+        "pack_crc32_update",
+    )
+    for forbidden in forbidden_data_binding_symbols:
+        if any(
+            name == forbidden or name.startswith(forbidden + ".")
+            for name in symbol_addresses
+        ):
+            errors.append(
+                f"Xiaomiao app retains data-binding/hash symbol: {forbidden}"
+            )
+    for name in ("memcpy", "memset"):
+        actual = symbol_addresses.get(name)
+        if actual is None:
+            errors.append(f"required cache-off runtime symbol missing: {name}")
+            continue
+        address, section = actual
+        if (
+            section != ".iram0.text"
+            or not ESP32_IRAM_START <= address < ESP32_IRAM_END
+        ):
+            errors.append(
+                f"{name} must execute from internal RAM during flash init; "
+                f"got {address:#010x} in {section}"
+            )
     for name in (
         "PalEngineBridge_OpenNativeRngFrame",
         "PalEngineBridge_ReadNativeRngFrameRange",
@@ -817,34 +891,64 @@ def main() -> int:
         )
 
     core = parse_pack(core_path, errors)
-    sd = parse_pack(sd_path, errors)
+    full = parse_pack(full_path, errors)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if core is not None and sd is not None:
-        if core.set_id != sd.set_id:
-            errors.append("core and SD packs have different pack-set IDs")
+    if core is not None and full is not None:
+        if core.set_id != full.set_id:
+            errors.append("Level2 cache and portable pack have different pack-set IDs")
         if core.size > CORE_MAX_BYTES:
-            errors.append(f"core pack {core.size} exceeds {CORE_MAX_BYTES}")
-        if sd.toc_bytes > TF_TOC_MAX_BYTES:
-            errors.append(f"SD pack TOC {sd.toc_bytes} exceeds {TF_TOC_MAX_BYTES}")
+            errors.append(f"Level2 cache {core.size} exceeds {CORE_MAX_BYTES}")
+        if full.toc_bytes > TF_TOC_MAX_BYTES:
+            errors.append(
+                f"portable pack TOC {full.toc_bytes} exceeds {TF_TOC_MAX_BYTES}"
+            )
         core_ids = {ARCHIVE_IDS[name] for name in CORE_ARCHIVES}
-        sd_ids = {ARCHIVE_IDS[name] for name in SD_ARCHIVES}
+        full_ids = {ARCHIVE_IDS[name] for name in FULL_ARCHIVES}
         if set(core.archives) != core_ids:
-            errors.append(f"core archive IDs {set(core.archives)} != {core_ids}")
-        if set(sd.archives) != sd_ids:
-            errors.append(f"SD archive IDs {set(sd.archives)} != {sd_ids}")
-        if set(core.archives) & set(sd.archives):
-            errors.append("core and SD packs overlap archive ownership")
+            errors.append(f"cache archive IDs {set(core.archives)} != {core_ids}")
+        if set(full.archives) != full_ids:
+            errors.append(
+                f"portable pack archive IDs {set(full.archives)} != {full_ids}"
+            )
+        core_image = core_path.read_bytes()
+        full_image = full_path.read_bytes()
+        for archive_id, cache_chunks in core.archives.items():
+            portable_chunks = full.archives.get(archive_id, [])
+            for chunk_id, cache_chunk in enumerate(cache_chunks):
+                if cache_chunk.size == 0:
+                    continue
+                if chunk_id >= len(portable_chunks):
+                    errors.append(
+                        f"cache chunk {archive_id}/{chunk_id} is absent from pal_full.pak"
+                    )
+                    continue
+                portable_chunk = portable_chunks[chunk_id]
+                cache_payload = core_image[
+                    cache_chunk.offset : cache_chunk.offset + cache_chunk.size
+                ]
+                portable_payload = full_image[
+                    portable_chunk.offset : portable_chunk.offset + portable_chunk.size
+                ]
+                if (
+                    cache_chunk.fmt != portable_chunk.fmt
+                    or cache_payload != portable_payload
+                ):
+                    errors.append(
+                        f"cache chunk {archive_id}/{chunk_id} differs from pal_full.pak"
+                    )
         font_chunks = core.archives.get(ARCHIVE_IDS["FONT"], [])
         if len(font_chunks) <= 1 or font_chunks[1].fmt != PACK_FORMAT_FONT10:
-            errors.append("core pack is missing FONT10 chunk 1")
+            errors.append("Level2 cache is missing FONT10 chunk 1")
         for name in DIRECT_STAGED_ARCHIVES:
-            chunks = sd.archives.get(ARCHIVE_IDS[name], [])
+            chunks = full.archives.get(ARCHIVE_IDS[name], [])
             maximum = max((chunk.size for chunk in chunks), default=0)
             if maximum > TRANSIENT_CHUNK_BYTES:
                 errors.append(
                     f"{name} chunk {maximum} exceeds the 64 KiB staging buffer"
                 )
-        for chunk_id, chunk in enumerate(sd.archives.get(ARCHIVE_IDS["FBP"], [])):
+        for chunk_id, chunk in enumerate(
+            full.archives.get(ARCHIVE_IDS["FBP"], [])
+        ):
             if chunk.size and (
                 chunk.size != 320 * 200 or chunk.fmt != PACK_FORMAT_NATIVE
             ):
@@ -852,13 +956,15 @@ def main() -> int:
                     f"FBP chunk {chunk_id} is not a native 320x200 canvas: "
                     f"size={chunk.size}, format={chunk.fmt}"
                 )
-        max_rng_frame, rng_frame_count = audit_rng_frames(sd_path, sd, errors)
+        max_rng_frame, rng_frame_count = audit_rng_frames(
+            full_path, full, errors
+        )
         validate_event_template(event_path, core.set_id, errors)
         (
             max_event_sprites,
             max_player_sprites,
             max_battle_sprites,
-        ) = audit_sprite_arenas(core_path, sd_path, core, sd, errors)
+        ) = audit_sprite_arenas(core_path, core, full, errors)
 
     font_manifest = manifest.get("font10", {}).get("font10", {})
     font_defines = {
@@ -889,13 +995,33 @@ def main() -> int:
         if len(font_chunks) > 1 and font_chunks[1].size != font_manifest.get("bytes"):
             errors.append("packed FONT10 byte count differs from its manifest")
 
-    if manifest.get("runtime") != {
+    runtime = manifest.get("runtime", {})
+    required_runtime = {
         "heap_required": False,
         "payloads_are_runtime_native": True,
         "runtime_decompression_required": False,
-    }:
-        errors.append("manifest runtime contract is not native/no-heap/no-decode")
-    for key, path, pack in (("nor", core_path, core), ("tf", sd_path, sd)):
+        "level2_core_cache_tf_file": "pal_l2.pak",
+        "portable_complete_tf_file": "pal_full.pak",
+        "tf_directory_contract": (
+            "one portable complete pack plus optional target cache packs"
+        ),
+    }
+    if not isinstance(runtime, dict) or any(
+        runtime.get(key) != value for key, value in required_runtime.items()
+    ):
+        errors.append("manifest runtime contract is not the unified Level2 set")
+    pack_set = manifest.get("pack_set", {})
+    if core is not None and pack_set.get("id") != core.set_id:
+        errors.append("manifest data identity differs from the Level2 packs")
+    if (
+        pack_set.get("scope") != "portable-complete-data"
+        or pack_set.get("cache_layout_affects_id") is not False
+    ):
+        errors.append("pack-set identity is not independent of target caches")
+    for key, path, pack in (
+        ("level2_core", core_path, core),
+        ("full", full_path, full),
+    ):
         item = manifest.get("packs", {}).get(key, {})
         if item.get("size") != path.stat().st_size or item.get("sha256") != sha256_file(path):
             errors.append(f"manifest identity mismatch for {key} pack")
@@ -905,9 +1031,36 @@ def main() -> int:
             item.get("pack_set_id") != pack.set_id or item.get("crc32") != pack.crc32
         ):
             errors.append(f"manifest header identity mismatch for {key} pack")
-        for name, selection in item.get("chunk_selection", {}).items():
-            if name != "FONT" and selection.get("absent_chunk_count") != 0:
-                errors.append(f"{key}/{name} is not a complete archive selection")
+    full_summary = manifest.get("packs", {}).get("full", {})
+    if (
+        full_summary.get("portable_complete") is not True
+        or full_summary.get("all_chunks") is not True
+        or full_summary.get("allow_cache_overlap") is not True
+    ):
+        errors.append("pal_full.pak is not declared complete and portable")
+    full_archive_summaries = full_summary.get("archives", {})
+    if not isinstance(full_archive_summaries, dict) or set(
+        full_archive_summaries
+    ) != FULL_ARCHIVES:
+        errors.append("pal_full.pak manifest does not cover every native archive")
+    elif full is not None:
+        for name, archive_id in ARCHIVE_IDS.items():
+            item = full_archive_summaries.get(name, {})
+            chunk_count = len(full.archives.get(archive_id, []))
+            if (
+                item.get("source_chunk_count") != chunk_count
+                or item.get("present_chunk_ids") != list(range(chunk_count))
+            ):
+                errors.append(f"pal_full.pak manifest is sparse for {name}")
+    level2_layout = manifest.get("level2_cache_policy", {})
+    layout_path = root / "tools/pal_pack_layout_xiaomiao.json"
+    if (
+        not isinstance(level2_layout, dict)
+        or level2_layout.get("sha256") != sha256_file(layout_path)
+        or level2_layout.get("core_max_bytes") != CORE_MAX_BYTES
+        or level2_layout.get("storage") != "SD-only"
+    ):
+        errors.append("manifest Level2 cache policy identity/limit is invalid")
 
     data_dir = Path(manifest.get("data_dir", ""))
     source_files = manifest.get("source_files", [])
@@ -934,7 +1087,7 @@ def main() -> int:
             print(f"ERROR: {item}")
         return 1
 
-    print("Xiaomiao SD-only check passed")
+    print("Xiaomiao unified-TF SD-only check passed")
     print(f"  app: {app_bin.stat().st_size} / {APP_PARTITION_BYTES} bytes")
     print(f"  linker DRAM reserve: {dram_reserve} bytes")
     print(
@@ -948,8 +1101,11 @@ def main() -> int:
         f"player {max_player_sprites}/{PLAYER_ARENA_BYTES}, "
         f"battle {max_battle_sprites}/{BATTLE_ARENA_BYTES} bytes"
     )
-    print(f"  core pack: {core_path.stat().st_size} / {CORE_MAX_BYTES} bytes")
-    print(f"  SD pack: {sd_path.stat().st_size} bytes; TOC {sd.toc_bytes} / {TF_TOC_MAX_BYTES}")
+    print(f"  Level2 cache: {core_path.stat().st_size} / {CORE_MAX_BYTES} bytes")
+    print(
+        f"  portable full pack: {full_path.stat().st_size} bytes; "
+        f"TOC {full.toc_bytes} / {TF_TOC_MAX_BYTES}"
+    )
     print(
         f"  RNG frames: max {max_rng_frame} bytes across {rng_frame_count} "
         f"frames; bounded input window {RNG_INPUT_WINDOW_BYTES} bytes"

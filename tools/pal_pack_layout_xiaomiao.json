@@ -1,7 +1,7 @@
 {
   "schema": "sdlpal-embedded-pack-layout",
   "version": 2,
-  "description": "Xueersi Xiaomiao ESP32-WROVER-B SD-only layout. pal_core.pak is read once from SD into mapped PSRAM and owns only long-lived pointer views; pal_sd.pak remains on SD and supplies complete decoded gameplay assets through bounded named staging buffers. No game resource is stored in internal SPI flash.",
+  "description": "MEM_LEVEL2 cache policy for the shared ESP32 TF datapak. pal_full.pak remains the complete portable source; pal_l2.pak duplicates only the long-lived pointer views that Xiaomiao copies once into mapped PSRAM. The tf classification records resources left solely in pal_full.pak and does not produce a second gameplay pack.",
   "packs": {
     "nor": [
       "DATA",

@@ -23,7 +23,15 @@
 #define PAL_ENGINE_PACK_SIZE_OFFSET 24u
 #define PAL_ENGINE_PACK_CRC32_OFFSET 28u
 #define PAL_ENGINE_PACK_ARCHIVE_ENTRY_SIZE 12u
-#if defined(MEM_LEVEL1) || defined(PAL_STORAGE_SD_ONLY)
+/*
+ * A chapter-cache build already authenticates every NOR-backed core/overlay
+ * payload with the SHA-256 stored in PALSET.BIN.  In that profile the pack
+ * provider owns only structural/routing validation; repeating a whole-pack
+ * CRC here would scan the same NOR bytes again and would also force a full
+ * pal_tf.pak read at every boot.  Legacy Level1 layouts have no cache-level
+ * SHA owner, so they retain strict provider CRC validation.
+ */
+#if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)
 #define PAL_ENGINE_STRICT_PACK_VALIDATION 1
 #endif
 #ifndef PAL_ENGINE_TF_TOC_BYTES
@@ -385,12 +393,24 @@ find_chunk_store(
 
    /*
     * Layout-v2 packs preserve source chunk numbers with zero-sized holes.
-    * An archive may therefore be split across overlay, core and TF, but one
-    * concrete non-empty chunk must have exactly one owner.
+    * Normally one concrete non-empty chunk has exactly one owner.  The
+    * SD-only Level2 profile is the narrow exception: its small resident cache
+    * duplicates long-lived chunks from the portable complete TF pack, and
+    * the resident copy wins.
     */
    if (nonempty_count > 1u)
    {
+#if defined(PAL_STORAGE_SD_ONLY)
+      if (nonempty_count != 2u ||
+         !(in_core && core_span.size != 0) ||
+         !(in_tf && info->size != 0) ||
+         (in_overlay && overlay_span.size != 0))
+      {
+         return PAL_ENGINE_ARCHIVE_STORE_NONE;
+      }
+#else
       return PAL_ENGINE_ARCHIVE_STORE_NONE;
+#endif
    }
    if (in_overlay && overlay_span.size != 0)
    {
@@ -456,9 +476,13 @@ PalEngineBridge_SetNorPackConst(
       return false;
    }
    pack_set_id = read_le32(image + PAL_ENGINE_PACK_SET_ID_OFFSET);
+   if (pack_set_id == 0u)
+   {
+      return false;
+   }
 #if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    declared_crc = read_le32(image + PAL_ENGINE_PACK_CRC32_OFFSET);
-   if (pack_set_id == 0 || declared_crc == 0 ||
+   if (declared_crc == 0 ||
       pack_crc32_const(image, pack_size) != declared_crc)
    {
       return false;
@@ -476,8 +500,11 @@ PalEngineBridge_SetNorPackConst(
       return false;
    }
    if (pal_engine_tf_ready &&
-      (pack_set_id != pal_engine_tf_set_id ||
-         const_pack_toc_overlap(&candidate, &pal_engine_tf_toc)))
+      (pack_set_id != pal_engine_tf_set_id
+#if !defined(PAL_STORAGE_SD_ONLY)
+         || const_pack_toc_overlap(&candidate, &pal_engine_tf_toc)
+#endif
+      ))
    {
       return false;
    }
@@ -521,9 +548,13 @@ PalEngineBridge_SetOverlayPackConst(
       return false;
    }
    pack_set_id = read_le32(image + PAL_ENGINE_PACK_SET_ID_OFFSET);
+   if (pack_set_id == 0u)
+   {
+      return false;
+   }
 #if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    declared_crc = read_le32(image + PAL_ENGINE_PACK_CRC32_OFFSET);
-   if (pack_set_id == 0 || declared_crc == 0 ||
+   if (declared_crc == 0 ||
       pack_crc32_const(image, pack_size) != declared_crc)
    {
       return false;
@@ -634,12 +665,15 @@ PalEngineBridge_SetTfPackReadAt(
    }
    tf_set_id = read_le32(
       PAL_ENGINE_TF_TOC_STORAGE + PAL_ENGINE_PACK_SET_ID_OFFSET);
-   if ((pal_engine_nor_ready && tf_set_id != pal_engine_nor_set_id) ||
+   if (tf_set_id == 0u ||
+      (pal_engine_nor_ready && tf_set_id != pal_engine_nor_set_id) ||
       (pal_engine_overlay_ready &&
          tf_set_id != pal_engine_overlay_set_id) ||
+#if !defined(PAL_STORAGE_SD_ONLY)
       (pal_engine_nor_ready &&
          const_pack_toc_overlap(&pal_engine_nor_pack,
             &pal_engine_tf_toc)) ||
+#endif
       (pal_engine_overlay_ready &&
          const_pack_toc_overlap(&pal_engine_overlay_pack,
             &pal_engine_tf_toc)))

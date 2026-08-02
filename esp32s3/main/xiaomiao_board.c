@@ -283,8 +283,12 @@ init_lcd(void)
     value = 0x05;
     if (!lcd_tx(LCD_CMD_COLMOD, &value, 1u, "LCD COLMOD")) return false;
     vTaskDelay(pdMS_TO_TICKS(50));
-    /* The Xiaomiao reference driver uses landscape rotation plus BGR order. */
-    value = 0x68;
+    /*
+     * The framebuffer is sent as wire-order RGB565 (MSB first).  Xiaomiao's
+     * ST7735 reference configuration uses RGB channel order in landscape;
+     * setting MADCTL_BGR here would swap red and blue a second time.
+     */
+    value = 0x60;
     if (!lcd_tx(LCD_CMD_MADCTL, &value, 1u, "LCD MADCTL")) return false;
     if (!lcd_tx(LCD_CMD_INVOFF, NULL, 0u, "LCD INVOFF")) return false;
     if (!lcd_tx(0xe0, gamma_positive, sizeof(gamma_positive), "LCD GMCTRP1")) return false;

@@ -28,6 +28,7 @@ FONT10_ARCHIVE = Path(
 EXPECTED_CORE_BYTES = 4_310_096
 EXPECTED_TF_BYTES = 11_917_143
 EXPECTED_FULL_BYTES = 57_646_486
+EXPECTED_LEVEL2_CORE_BYTES = 1_415_292
 EXPECTED_BUNDLE_BYTES = (
     2_648_156,
     2_463_416,
@@ -221,45 +222,18 @@ class ChapterPackUnitTests(unittest.TestCase):
         self.assertIn(3, closure.map_ids)
         self.assertIn(10, closure.mgo_ids)
 
-    def test_pack_set_id_changes_with_resource_or_scene_mapping(self) -> None:
+    def test_pack_set_id_depends_only_on_portable_complete_data(self) -> None:
         core = {
             "DATA": [chapter.pack.Chunk(b"core", chapter.pack.FORMAT_NATIVE)]
         }
         tf = {
             "FBP": [chapter.pack.Chunk(b"tf", chapter.pack.FORMAT_NATIVE)]
         }
-        overlays = [
-            {
-                "MGO": [
-                    chapter.pack.Chunk(b"overlay", chapter.pack.FORMAT_NATIVE)
-                ]
-            }
-        ]
-        scenes = bytes([0xFF, 0])
-        original = chapter.compute_chapter_pack_set_id(
-            core, tf, {**core, **tf}, overlays, scenes
-        )
-        changed_resource = chapter.compute_chapter_pack_set_id(
-            core,
-            tf,
-            {**core, **tf},
-            [
-                {
-                    "MGO": [
-                        chapter.pack.Chunk(
-                            b"OVERLAY", chapter.pack.FORMAT_NATIVE
-                        )
-                    ]
-                }
-            ],
-            scenes,
-        )
-        changed_mapping = chapter.compute_chapter_pack_set_id(
-            core, tf, {**core, **tf}, overlays, bytes([0xFF, 1])
-        )
+        complete = {**core, **tf}
+        original = chapter.compute_chapter_pack_set_id(complete)
+        changed_cache = chapter.compute_chapter_pack_set_id(complete)
+        changed_mapping = chapter.compute_chapter_pack_set_id(complete)
         changed_full_mirror = chapter.compute_chapter_pack_set_id(
-            core,
-            tf,
             {
                 "DATA": [
                     chapter.pack.Chunk(
@@ -268,12 +242,14 @@ class ChapterPackUnitTests(unittest.TestCase):
                 ],
                 **tf,
             },
-            overlays,
-            scenes,
         )
-        self.assertNotEqual(original, changed_resource)
-        self.assertNotEqual(original, changed_mapping)
+        self.assertEqual(original, changed_cache)
+        self.assertEqual(original, changed_mapping)
         self.assertNotEqual(original, changed_full_mirror)
+        self.assertEqual(
+            original,
+            chapter.pack.compute_portable_pack_set_id(complete),
+        )
 
 
 @unittest.skipUnless(
@@ -296,6 +272,9 @@ class ChapterPackRealDataTests(unittest.TestCase):
         self.assertEqual(len(self.build.tf_pack), EXPECTED_TF_BYTES)
         self.assertEqual(len(self.build.full_pack), EXPECTED_FULL_BYTES)
         self.assertEqual(
+            len(self.build.level2_core_pack), EXPECTED_LEVEL2_CORE_BYTES
+        )
+        self.assertEqual(
             tuple(map(len, self.build.bundle_packs)),
             EXPECTED_BUNDLE_BYTES,
         )
@@ -311,6 +290,7 @@ class ChapterPackRealDataTests(unittest.TestCase):
             self.build.core_pack,
             self.build.tf_pack,
             self.build.full_pack,
+            self.build.level2_core_pack,
             *self.build.bundle_packs,
         ):
             chapter.pack.verify_pack(image)
@@ -330,7 +310,28 @@ class ChapterPackRealDataTests(unittest.TestCase):
             set(packs["full"]["archives"]),
             set(chapter.FULL_MIRROR_ARCHIVES),
         )
-        self.assertFalse(packs["full"]["runtime_active"])
+        self.assertTrue(packs["full"]["portable_complete"])
+        self.assertTrue(packs["full"]["all_chunks"])
+        self.assertTrue(packs["full"]["allow_cache_overlap"])
+        self.assertEqual(
+            set(packs["level2_core"]["archives"]),
+            {"DATA", "PAT", "RGM", "SSS", "TEXT", "FONT"},
+        )
+        self.assertTrue(
+            set(packs["level2_core"]["archives"])
+            <= set(packs["full"]["archives"])
+        )
+        self.assertEqual(
+            self.build.manifest["runtime"]["portable_complete_tf_file"],
+            "pal_full.pak",
+        )
+        self.assertEqual(
+            self.build.manifest["pack_set"]["scope"],
+            "portable-complete-data",
+        )
+        self.assertFalse(
+            self.build.manifest["pack_set"]["cache_layout_affects_id"]
+        )
         self.assertEqual(
             packs["core"]["archives"]["MGO"]["present_chunk_ids"],
             sorted(chapter.CORE_PERSISTENT_MGO),
@@ -375,7 +376,23 @@ class ChapterPackRealDataTests(unittest.TestCase):
             packed_chunk(self.build.full_pack, "FONT", 1),
             expected,
         )
+        self.assertEqual(
+            packed_chunk(self.build.level2_core_pack, "FONT", 1),
+            expected,
+        )
         self.assertEqual(self.build.manifest["font10"], summary)
+
+    def test_level2_cache_payloads_are_exact_full_pack_duplicates(self) -> None:
+        cache_archives = self.build.manifest["packs"]["level2_core"]["archives"]
+        for archive_name, summary in cache_archives.items():
+            for chunk_id in summary["present_chunk_ids"]:
+                self.assertEqual(
+                    packed_chunk(
+                        self.build.level2_core_pack, archive_name, chunk_id
+                    ),
+                    packed_chunk(self.build.full_pack, archive_name, chunk_id),
+                    f"{archive_name}#{chunk_id}",
+                )
 
     def test_real_closure_records_required_dynamic_edges(self) -> None:
         bundles = self.build.manifest["packs"]["bundles"]

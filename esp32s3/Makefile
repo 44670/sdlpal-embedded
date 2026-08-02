@@ -20,10 +20,11 @@ CARDPUTER_EXTREME_CACHE_BUILD_DIR ?= ../build-cardputer-extreme-cache
 CARDPUTER_EXTREME_CACHE_SDKCONFIG ?= $(abspath $(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/sdkconfig)
 CARDPUTER_EXTREME_CACHE_DEFAULTS ?= $(abspath sdkconfig.cardputer_extreme_cache.defaults)
 CARDPUTER_EXTREME_CHAPTER_PACK_DIR ?= /tmp/pal_cardputer_extreme_chapters
-CARDPUTER_ADV_TF_DATAPAK ?= $(abspath TF_datapak)
+TF_DATAPAK_DIR ?= $(abspath TF_datapak)
 CARDPUTER_EXTREME_CHAPTER_CORE ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/pal_core.pak
 CARDPUTER_EXTREME_CHAPTER_TF ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/pal_tf.pak
 CARDPUTER_EXTREME_CHAPTER_FULL ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/pal_full.pak
+CARDPUTER_EXTREME_CHAPTER_LEVEL2 ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/pal_l2.pak
 CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/EVENT.DEF
 CARDPUTER_EXTREME_CHAPTER_MANIFEST ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/chapter_manifest.json
 CARDPUTER_EXTREME_CHAPTER_SET ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/PALSET.BIN
@@ -33,6 +34,10 @@ CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES = \
 	b10.pak b11.pak b12.pak b13.pak b14.pak
 CARDPUTER_EXTREME_CHAPTER_BUNDLES = \
 	$(addprefix $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/,$(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES))
+UNIFIED_TF_FILE_NAMES = \
+	PALSET.BIN EVENT.DEF chapter_manifest.json \
+	pal_core.pak pal_tf.pak pal_full.pak pal_l2.pak \
+	$(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES)
 CARDPUTER_EXTREME_LAYOUT ?= ../tools/pal_pack_layout_cardputer_extreme.json
 CARDPUTER_EXTREME_NOR ?= /tmp/pal_cardputer_extreme_nor.pak
 CARDPUTER_EXTREME_TF ?= /tmp/pal_cardputer_extreme_tf.pak
@@ -50,12 +55,11 @@ CARDPUTER_EXTREME_MUSIC_MANIFEST ?= /tmp/pal_cardputer_extreme_music_manifest.js
 XIAOMIAO_BUILD_DIR ?= ../build-xiaomiao
 XIAOMIAO_SDKCONFIG ?= $(abspath $(XIAOMIAO_BUILD_DIR)/sdkconfig)
 XIAOMIAO_DEFAULTS ?= $(abspath sdkconfig.xiaomiao.defaults)
-XIAOMIAO_LAYOUT ?= ../tools/pal_pack_layout_xiaomiao.json
-XIAOMIAO_TF_DATAPAK ?= $(abspath TF_xiaomiao)
-XIAOMIAO_CORE_PACK ?= $(XIAOMIAO_TF_DATAPAK)/pal_core.pak
-XIAOMIAO_SD_PACK ?= $(XIAOMIAO_TF_DATAPAK)/pal_sd.pak
+XIAOMIAO_TF_DATAPAK ?= $(TF_DATAPAK_DIR)
+XIAOMIAO_CORE_PACK ?= $(XIAOMIAO_TF_DATAPAK)/pal_l2.pak
+XIAOMIAO_FULL_PACK ?= $(XIAOMIAO_TF_DATAPAK)/pal_full.pak
 XIAOMIAO_EVENT_TEMPLATE ?= $(XIAOMIAO_TF_DATAPAK)/EVENT.DEF
-XIAOMIAO_MANIFEST ?= $(XIAOMIAO_TF_DATAPAK)/MANIFEST.JSON
+XIAOMIAO_MANIFEST ?= $(XIAOMIAO_TF_DATAPAK)/chapter_manifest.json
 XIAOMIAO_NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/xiaomiao_engine_host
 XIAOMIAO_NATIVE_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/xiaomiao-host-objects
 XIAOMIAO_NATIVE_OBJECTS ?= $(XIAOMIAO_NATIVE_BUILD_DIR)/objects.list
@@ -80,6 +84,8 @@ NATIVE_ENGINE_HOST_DETERMINISTIC_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/engine-host-de
 NATIVE_ENGINE_HOST_DETERMINISTIC_OBJECTS ?= $(NATIVE_ENGINE_HOST_DETERMINISTIC_BUILD_DIR)/objects.list
 NATIVE_PACK_PROVIDER_CACHE_TARGET ?= $(NATIVE_BUILD_DIR)/pack_provider_cache_smoke
 NATIVE_PACK_PROVIDER_OVERLAY_TARGET ?= $(NATIVE_BUILD_DIR)/pack_provider_overlay_smoke
+NATIVE_PACK_PROVIDER_SD_ONLY_OPEN_TARGET ?= $(NATIVE_BUILD_DIR)/pack_provider_sd_only_open_smoke
+NATIVE_PACK_PROVIDER_CHAPTER_OPEN_TARGET ?= $(NATIVE_BUILD_DIR)/pack_provider_chapter_open_smoke
 CARDPUTER_EXTREME_PACK_SMOKE_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_pack_smoke
 CARDPUTER_EXTREME_NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_engine_host
 CARDPUTER_EXTREME_NATIVE_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/cardputer-extreme-host-objects
@@ -505,7 +511,8 @@ CARDPUTER_EXTREME_NATIVE_CFLAGS += -DPAL_HAS_WS_SERVER=1
 CARDPUTER_EXTREME_NATIVE_SRCS += ../unix/pal_ws_server.c
 endif
 
-.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-generate cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
+.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check tf-datapack xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf unified-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-prepare-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-generate cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke native-pack-provider-sd-only-open-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
+.PHONY: native-pack-provider-chapter-open-smoke
 
 all: build
 
@@ -518,28 +525,32 @@ engine-host-build:
 	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(ENGINE_HOST_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 set-target esp32s3; fi; idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 build'
 
 xiaomiao-build:
-	bash -lc 'set -e; $(XIAOMIAO_IDF_ENV); if [ ! -f "$(XIAOMIAO_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" -DSDKCONFIG="$(XIAOMIAO_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(XIAOMIAO_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DXIAOMIAO_WROVER=ON -DCARDPUTER_EXTREME_NO_PSRAM=OFF set-target esp32; fi; idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" -DSDKCONFIG="$(XIAOMIAO_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(XIAOMIAO_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DXIAOMIAO_WROVER=ON -DCARDPUTER_EXTREME_NO_PSRAM=OFF build'
+	bash -lc 'set -e; \
+		$(XIAOMIAO_IDF_ENV); \
+		reset_build=0; \
+		if [ -f "$(XIAOMIAO_BUILD_DIR)/build.ninja" ]; then \
+			cmp -s "$(XIAOMIAO_DEFAULTS)" "$(XIAOMIAO_BUILD_DIR)/.sdkconfig.defaults.applied" || reset_build=1; \
+			grep -Fq "$(XIAOMIAO_TOOLCHAIN_BIN)/xtensa-esp32-elf-gcc" "$(XIAOMIAO_BUILD_DIR)/project_description.json" || reset_build=1; \
+		fi; \
+		if [ "$$reset_build" = 1 ]; then \
+			echo "Xiaomiao build inputs changed; regenerating configuration"; \
+			idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" fullclean; \
+		fi; \
+		if [ ! -f "$(XIAOMIAO_BUILD_DIR)/build.ninja" ]; then \
+			idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" -DSDKCONFIG="$(XIAOMIAO_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(XIAOMIAO_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DXIAOMIAO_WROVER=ON -DCARDPUTER_EXTREME_NO_PSRAM=OFF set-target esp32; \
+		fi; \
+		idf.py -C . -B "$(XIAOMIAO_BUILD_DIR)" -DSDKCONFIG="$(XIAOMIAO_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(XIAOMIAO_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DXIAOMIAO_WROVER=ON -DCARDPUTER_EXTREME_NO_PSRAM=OFF build; \
+		cp -f "$(XIAOMIAO_DEFAULTS)" "$(XIAOMIAO_BUILD_DIR)/.sdkconfig.defaults.applied"'
 
-xiaomiao-tf:
-	@test -n "$(FONT10_ARCHIVE)" || { echo "set FONT10_ARCHIVE to the pinned Fusion Pixel Font release zip" >&2; exit 2; }
-	mkdir -p "$(XIAOMIAO_TF_DATAPAK)"
-	$(PYTHON) -B ../tools/pal_pack_build.py "$(PAL_DATA_DIR)" \
-		--layout "$(XIAOMIAO_LAYOUT)" \
-		--out-nor "$(XIAOMIAO_CORE_PACK)" \
-		--out-tf "$(XIAOMIAO_SD_PACK)" \
-		--manifest "$(XIAOMIAO_MANIFEST)" \
-		--font10-archive "$(FONT10_ARCHIVE)"
-	$(PYTHON) -B ../tools/pal_event_template_build.py \
-		--full-pack "$(XIAOMIAO_CORE_PACK)" \
-		--out "$(XIAOMIAO_EVENT_TEMPLATE)"
-	@ls -lh "$(XIAOMIAO_CORE_PACK)" "$(XIAOMIAO_SD_PACK)" \
+xiaomiao-tf: tf-datapack
+	@ls -lh "$(XIAOMIAO_CORE_PACK)" "$(XIAOMIAO_FULL_PACK)" \
 		"$(XIAOMIAO_EVENT_TEMPLATE)" "$(XIAOMIAO_MANIFEST)"
 
 xiaomiao-pack-check: xiaomiao-tf
 	$(PYTHON) -B ../tools/test_pal_pack_build.py
 	$(PYTHON) -B ../tools/test_pal_event_template_build.py
 	@test -s "$(XIAOMIAO_CORE_PACK)"
-	@test -s "$(XIAOMIAO_SD_PACK)"
+	@test -s "$(XIAOMIAO_FULL_PACK)"
 	@test -s "$(XIAOMIAO_EVENT_TEMPLATE)"
 	@test -s "$(XIAOMIAO_MANIFEST)"
 
@@ -570,7 +581,7 @@ xiaomiao-native-smoke: xiaomiao-pack-check $(XIAOMIAO_NATIVE_TARGET)
 		rc=0; \
 		(cd "$(PAL_DATA_DIR)" && \
 			PAL_CORES3SE_NATIVE_NOR_PACK="$(abspath $(XIAOMIAO_CORE_PACK))" \
-			PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(XIAOMIAO_SD_PACK))" \
+			PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(XIAOMIAO_FULL_PACK))" \
 			PAL_CORES3SE_NATIVE_SAVE_DIR="$$state" \
 			PAL_CORES3SE_NATIVE_SCREENSHOT_FRAME=999999 \
 			PAL_CORES3SE_NATIVE_MAX_PRESENTS=0 \
@@ -596,30 +607,30 @@ xiaomiao-native-smoke: xiaomiao-pack-check $(XIAOMIAO_NATIVE_TARGET)
 	$(PYTHON) -B native_shim/check_png.py "$(XIAOMIAO_NATIVE_MAP_SCREENSHOT)" 160 128 6000 24
 	$(PYTHON) -B native_shim/check_png.py "$(XIAOMIAO_NATIVE_BATTLE_SCREENSHOT)" 160 128 6000 24
 
-xiaomiao-check: xiaomiao-build xiaomiao-native-smoke cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check
+xiaomiao-check: xiaomiao-build xiaomiao-native-smoke native-pack-provider-sd-only-open-smoke cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check
 	$(PYTHON) -B check_xiaomiao.py \
 		--build-dir "$(XIAOMIAO_BUILD_DIR)" \
 		--core-pack "$(XIAOMIAO_CORE_PACK)" \
-		--sd-pack "$(XIAOMIAO_SD_PACK)" \
+		--full-pack "$(XIAOMIAO_FULL_PACK)" \
 		--event-template "$(XIAOMIAO_EVENT_TEMPLATE)" \
 		--manifest "$(XIAOMIAO_MANIFEST)" \
 		--expected-compiler "$(XIAOMIAO_TOOLCHAIN_BIN)/xtensa-esp32-elf-gcc"
 
-xiaomiao-prepare-tf: xiaomiao-pack-check
+xiaomiao-prepare-tf: unified-prepare-tf
+
+cardputer-adv-music-prepare-tf: unified-prepare-tf
+
+unified-prepare-tf: xiaomiao-pack-check
 	@test -n "$(TF_MOUNT)" || { echo "TF_MOUNT=/media/... is required"; exit 2; }
 	@test -d "$(TF_MOUNT)" || { echo "TF_MOUNT does not exist: $(TF_MOUNT)"; exit 2; }
-	cp -f "$(XIAOMIAO_CORE_PACK)" "$(TF_MOUNT)/pal_core.pak"
-	cp -f "$(XIAOMIAO_SD_PACK)" "$(TF_MOUNT)/pal_sd.pak"
-	cp -f "$(XIAOMIAO_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
-	cp -f "$(XIAOMIAO_MANIFEST)" "$(TF_MOUNT)/MANIFEST.JSON"
-	sync "$(TF_MOUNT)/pal_core.pak"
-	sync "$(TF_MOUNT)/pal_sd.pak"
-	sync "$(TF_MOUNT)/EVENT.DEF"
-	sync "$(TF_MOUNT)/MANIFEST.JSON"
-	cmp "$(XIAOMIAO_CORE_PACK)" "$(TF_MOUNT)/pal_core.pak"
-	cmp "$(XIAOMIAO_SD_PACK)" "$(TF_MOUNT)/pal_sd.pak"
-	cmp "$(XIAOMIAO_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
-	cmp "$(XIAOMIAO_MANIFEST)" "$(TF_MOUNT)/MANIFEST.JSON"
+	@set -e; for name in $(UNIFIED_TF_FILE_NAMES); do \
+		cp -f "$(TF_DATAPAK_DIR)/$$name" "$(TF_MOUNT)/$$name"; \
+	done
+	@set -e; for name in $(UNIFIED_TF_FILE_NAMES); do \
+		sync "$(TF_MOUNT)/$$name"; \
+		cmp "$(TF_DATAPAK_DIR)/$$name" "$(TF_MOUNT)/$$name"; \
+	done
+	@echo "Unified Cardputer ADV/Xiaomiao TF data verified at $(TF_MOUNT)"
 
 cardputer-extreme-build:
 	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(CARDPUTER_EXTREME_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_MUSIC=OFF set-target esp32s3; fi; idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_MUSIC=OFF build'
@@ -657,9 +668,11 @@ cardputer-adv-music-build: cardputer-extreme-chapter-cache-build
 
 cardputer-adv-music-check: cardputer-extreme-chapter-cache-check
 
-cardputer-adv-music-tf: CARDPUTER_EXTREME_CHAPTER_PACK_DIR = $(CARDPUTER_ADV_TF_DATAPAK)
-cardputer-adv-music-tf: cardputer-extreme-chapter-pack-check
-	@echo "Cardputer ADV TF datapak: $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)"
+tf-datapack: CARDPUTER_EXTREME_CHAPTER_PACK_DIR = $(TF_DATAPAK_DIR)
+tf-datapack: cardputer-extreme-chapter-pack-check
+	@echo "Portable TF datapak with optional target caches: $(TF_DATAPAK_DIR)"
+
+cardputer-adv-music-tf: tf-datapack
 
 cardputer-extreme-chapter-pack-build:
 	@test -n "$(FONT10_ARCHIVE)" || { echo "set FONT10_ARCHIVE to the pinned Fusion Pixel Font release zip" >&2; exit 2; }
@@ -671,12 +684,13 @@ cardputer-extreme-chapter-pack-build:
 		--full-pack "$(CARDPUTER_EXTREME_CHAPTER_FULL)" \
 		--out "$(CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE)"
 
-cardputer-extreme-chapter-pack-check: cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-cache-logic-check native-pack-provider-overlay-smoke
+cardputer-extreme-chapter-pack-check: cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-cache-logic-check native-pack-provider-overlay-smoke native-pack-provider-chapter-open-smoke
 	FONT10_ARCHIVE="$(FONT10_ARCHIVE)" $(PYTHON) -B ../tools/test_pal_chapter_pack_build.py
 	$(PYTHON) -B ../tools/test_pal_event_template_build.py
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_CORE)"
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_TF)"
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_FULL)"
+	@test -s "$(CARDPUTER_EXTREME_CHAPTER_LEVEL2)"
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_MANIFEST)"
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE)"
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_SET)"
@@ -1073,6 +1087,7 @@ cardputer-extreme-chapter-prepare-tf: cardputer-extreme-chapter-pack-check
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_TF)" "$(TF_MOUNT)/pal_tf.pak"
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_CORE)" "$(TF_MOUNT)/pal_core.pak"
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_FULL)" "$(TF_MOUNT)/pal_full.pak"
+	cp -f "$(CARDPUTER_EXTREME_CHAPTER_LEVEL2)" "$(TF_MOUNT)/pal_l2.pak"
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_SET)" "$(TF_MOUNT)/PALSET.BIN"
 	cp -f $(CARDPUTER_EXTREME_CHAPTER_BUNDLES) "$(TF_MOUNT)/"
@@ -1080,6 +1095,7 @@ cardputer-extreme-chapter-prepare-tf: cardputer-extreme-chapter-pack-check
 	sync "$(TF_MOUNT)/pal_tf.pak"
 	sync "$(TF_MOUNT)/pal_core.pak"
 	sync "$(TF_MOUNT)/pal_full.pak"
+	sync "$(TF_MOUNT)/pal_l2.pak"
 	sync "$(TF_MOUNT)/EVENT.DEF"
 	sync "$(TF_MOUNT)/PALSET.BIN"
 	@for name in $(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES); do sync "$(TF_MOUNT)/$$name"; done
@@ -1087,11 +1103,13 @@ cardputer-extreme-chapter-prepare-tf: cardputer-extreme-chapter-pack-check
 	cmp "$(CARDPUTER_EXTREME_CHAPTER_TF)" "$(TF_MOUNT)/pal_tf.pak"
 	cmp "$(CARDPUTER_EXTREME_CHAPTER_CORE)" "$(TF_MOUNT)/pal_core.pak"
 	cmp "$(CARDPUTER_EXTREME_CHAPTER_FULL)" "$(TF_MOUNT)/pal_full.pak"
+	cmp "$(CARDPUTER_EXTREME_CHAPTER_LEVEL2)" "$(TF_MOUNT)/pal_l2.pak"
 	cmp "$(CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
 	cmp "$(CARDPUTER_EXTREME_CHAPTER_SET)" "$(TF_MOUNT)/PALSET.BIN"
 	@for name in $(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES); do cmp "$(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/$$name" "$(TF_MOUNT)/$$name"; done
 	@ls -l "$(TF_MOUNT)/pal_tf.pak" "$(TF_MOUNT)/pal_full.pak" \
-		"$(TF_MOUNT)/pal_core.pak" "$(TF_MOUNT)/PALSET.BIN" \
+		"$(TF_MOUNT)/pal_core.pak" "$(TF_MOUNT)/pal_l2.pak" \
+		"$(TF_MOUNT)/PALSET.BIN" \
 		"$(TF_MOUNT)/EVENT.DEF" \
 		$(addprefix "$(TF_MOUNT)/",$(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES))
 
@@ -1179,8 +1197,32 @@ $(NATIVE_PACK_PROVIDER_OVERLAY_TARGET): native_shim/pack_provider_overlay_smoke.
 		native_shim/pack_provider_overlay_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c \
 		-o "$@" -Wl,--wrap=fclose
 
+$(NATIVE_PACK_PROVIDER_SD_ONLY_OPEN_TARGET): native_shim/pack_provider_bounded_open_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_memory_profile.h engine_bridge/pal_engine_pack_provider.h Makefile
+	mkdir -p "$(NATIVE_BUILD_DIR)"
+	$(CC) -std=gnu99 -Wall -Wextra -Werror -O2 \
+		-DMEM_LEVEL2=1 -DPAL_STORAGE_SD_ONLY=1 \
+		-DPAL_NO_RUNTIME_HEAP=1 -DPAL_NO_RUNTIME_DECOMPRESS=1 \
+		-I engine_bridge -I engine_bridge/include -I native_engine_shim/include -I .. -I ../embedded -I ../sdl_compat \
+		native_shim/pack_provider_bounded_open_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c \
+		-o "$@" -Wl,--wrap=fclose
+
+$(NATIVE_PACK_PROVIDER_CHAPTER_OPEN_TARGET): native_shim/pack_provider_bounded_open_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_memory_profile.h engine_bridge/pal_engine_pack_provider.h Makefile
+	mkdir -p "$(NATIVE_BUILD_DIR)"
+	$(CC) -std=gnu99 -Wall -Wextra -Werror -O2 \
+		-DMEM_LEVEL1=1 -DPAL_EXTREME_CHAPTER_CACHE=1 \
+		-DPAL_NO_RUNTIME_HEAP=1 -DPAL_NO_RUNTIME_DECOMPRESS=1 \
+		-I engine_bridge -I engine_bridge/include -I native_engine_shim/include -I .. -I ../embedded -I ../sdl_compat \
+		native_shim/pack_provider_bounded_open_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c \
+		-o "$@" -Wl,--wrap=fclose
+
 native-pack-provider-overlay-smoke: $(NATIVE_PACK_PROVIDER_OVERLAY_TARGET)
 	"$(NATIVE_PACK_PROVIDER_OVERLAY_TARGET)"
+
+native-pack-provider-sd-only-open-smoke: $(NATIVE_PACK_PROVIDER_SD_ONLY_OPEN_TARGET)
+	"$(NATIVE_PACK_PROVIDER_SD_ONLY_OPEN_TARGET)"
+
+native-pack-provider-chapter-open-smoke: $(NATIVE_PACK_PROVIDER_CHAPTER_OPEN_TARGET)
+	"$(NATIVE_PACK_PROVIDER_CHAPTER_OPEN_TARGET)"
 
 native-pack-provider-cache-smoke: pack-build $(NATIVE_PACK_PROVIDER_CACHE_TARGET) native-pack-provider-overlay-smoke
 	"$(NATIVE_PACK_PROVIDER_CACHE_TARGET)" "$(PACK_TF)"

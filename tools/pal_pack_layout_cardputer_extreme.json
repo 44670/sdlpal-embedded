@@ -1,7 +1,7 @@
 {
   "schema": "sdlpal-embedded-pack-layout",
   "version": 2,
-  "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile for the stock PALSteam/PAL_DOS data set. The active NOR/pal_tf.pak pair keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, keeps only the corpus-subsetted 10px font in NOR, excludes audio and the DOS splash unless an explicit profile adds it, and preserves source chunk numbering with zero-sized absent entries. A separate pal_full.pak TF mirror contains every host-decoded/runtime-converted archive for future expansion but is not indexed by the current firmware. This layout is not a proof of a complete story-route closure.",
+  "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile for the stock PALSteam/PAL_DOS data set. The active NOR/pal_tf.pak pair keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, keeps only the corpus-subsetted 10px font in NOR, excludes audio and the DOS splash unless an explicit profile adds it, and preserves source chunk numbering with zero-sized absent entries. The shared pal_full.pak contains every host-decoded/runtime-converted archive and is portable to other profiles; only the current Cardputer firmware declines to index its larger TOC. This layout is not a proof of a complete story-route closure.",
   "range_semantics": "All chunk ranges are inclusive [first, last].",
   "packs": {
     "nor": [
@@ -50,7 +50,7 @@
     "runtime_active": false,
     "all_chunks": true,
     "allow_overlap": true,
-    "index_strategy": "offline-mirror-not-runtime-indexed"
+    "index_strategy": "not-indexed-by-this-profile"
   },
   "profiles": {
     "rix-music": {

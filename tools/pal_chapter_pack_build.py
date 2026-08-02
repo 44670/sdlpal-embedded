@@ -10,8 +10,12 @@ chapter overlay:
   and a compact binary CACHE catalog.
 * ``pal_tf.pak`` contains every host-decoded FBP and RNG chunk.
 * ``b00.pak`` through ``b14.pak`` contain sparse ABC/GOP/MAP/MGO archives.
-* ``pal_full.pak`` is a complete decoded/native TF mirror for recovery and
-  future profiles.  It overlaps the runtime packs and is not runtime-indexed.
+* ``pal_full.pak`` is the complete, portable decoded/native TF data pack.  A
+  target may index it directly or use the target-specific cache packs beside
+  it; those caches never replace the complete source.
+* ``pal_l2.pak`` is the optional MEM_LEVEL2 resident-view cache used by
+  Xiaomiao.  It deliberately overlaps ``pal_full.pak`` and shares its data
+  identity.
 * ``PALSET.BIN`` is the bounded boot record containing the pack-set ID, core
   SHA-256, and complete chapter catalog.  Firmware contains none of those
   data-specific values.
@@ -142,6 +146,7 @@ FULL_MIRROR_ARCHIVES: tuple[str, ...] = tuple(
     )
     if name not in {"VOC", "CACHE"}
 )
+LEVEL2_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_xiaomiao.json")
 ENDING_MGO = frozenset({571, 572, 635})
 
 # PAL_InterpretInstruction normally advances to the next instruction.  These
@@ -253,6 +258,7 @@ class ChapterBuild:
     core_pack: bytes
     tf_pack: bytes
     full_pack: bytes
+    level2_core_pack: bytes
     bundle_packs: tuple[bytes, ...]
     catalog: bytes
     set_file: bytes
@@ -636,6 +642,35 @@ def sparse_chunks(
     ]
 
 
+def build_level2_core_archives(
+    source: dict[str, list[pack.Chunk]],
+    layout_path: Path = LEVEL2_LAYOUT_PATH,
+) -> tuple[
+    pack.PackLayout,
+    dict[str, list[pack.Chunk]],
+]:
+    """Build the optional Level2 cache from the portable source set."""
+
+    layout = pack.load_pack_layout(layout_path)
+    if layout.version != 2 or layout.tf_complete_mirror is not None:
+        raise ValueError("MEM_LEVEL2 cache requires a version-2 cache policy")
+    classified = set(layout.pack_names["nor"]) | set(layout.pack_names["tf"])
+    if classified != set(FULL_MIRROR_ARCHIVES):
+        raise ValueError("MEM_LEVEL2 cache policy must classify every full archive")
+    if set(layout.pack_names["nor"]) & set(layout.pack_names["tf"]):
+        raise ValueError("MEM_LEVEL2 cache policy classifications overlap")
+
+    selected = {
+        name: pack.apply_chunk_rule(
+            source[name],
+            layout.chunk_rules["nor"][name],
+            f"level2/cache/{name}",
+        )
+        for name in layout.pack_names["nor"]
+    }
+    return layout, selected
+
+
 def build_overlay_archives(
     source: dict[str, list[pack.Chunk]],
     closure: BundleClosure,
@@ -670,29 +705,11 @@ def make_scene_table(
 
 
 def compute_chapter_pack_set_id(
-    core_base_archives: dict[str, list[pack.Chunk]],
-    tf_archives: dict[str, list[pack.Chunk]],
     full_archives: dict[str, list[pack.Chunk]],
-    overlay_archives: Sequence[dict[str, list[pack.Chunk]]],
-    scene_table: bytes,
 ) -> int:
-    """Identify the logical pack set without a catalog/hash circularity."""
+    """Use the portable full-data identity for every derived cache pack."""
 
-    digest = hashlib.sha256()
-    digest.update(b"sdlpal-chapter-pack-set-v1\0")
-    digest.update(b"SCENES\0")
-    digest.update(scene_table)
-    digest.update(b"CORE-BASE\0")
-    digest.update(pack.canonical_pack_identity_image(core_base_archives))
-    digest.update(b"TF\0")
-    digest.update(pack.canonical_pack_identity_image(tf_archives))
-    digest.update(b"TF-FULL-MIRROR\0")
-    digest.update(pack.canonical_pack_identity_image(full_archives))
-    for bundle_id, archives in enumerate(overlay_archives):
-        digest.update(f"B{bundle_id:02d}\0".encode("ascii"))
-        digest.update(pack.canonical_pack_identity_image(archives))
-    value = int.from_bytes(digest.digest()[:4], "little")
-    return value if value else 1
+    return pack.compute_portable_pack_set_id(full_archives)
 
 
 def build_catalog(
@@ -1104,18 +1121,13 @@ def build_chapter_packs(
         name: list(source[name])
         for name in FULL_MIRROR_ARCHIVES
     }
+    level2_layout, level2_core_archives = build_level2_core_archives(source)
     overlay_sets = tuple(
         build_overlay_archives(source, closure)
         for closure in closures
     )
     scene_table = make_scene_table()
-    pack_set_id = compute_chapter_pack_set_id(
-        core_base_archives,
-        tf_archives,
-        full_archives,
-        overlay_sets,
-        scene_table,
-    )
+    pack_set_id = compute_chapter_pack_set_id(full_archives)
 
     bundle_images = tuple(
         pack.build_pack(archives, pack_set_id)
@@ -1123,7 +1135,13 @@ def build_chapter_packs(
     )
     tf_image = pack.build_pack(tf_archives, pack_set_id)
     full_image = pack.build_pack(full_archives, pack_set_id)
-    for image in (*bundle_images, tf_image, full_image):
+    level2_core_image = pack.build_pack(level2_core_archives, pack_set_id)
+    for image in (
+        *bundle_images,
+        tf_image,
+        full_image,
+        level2_core_image,
+    ):
         pack.verify_pack(image)
 
     catalog = build_catalog(pack_set_id, scene_table, bundle_images)
@@ -1152,11 +1170,22 @@ def build_chapter_packs(
             f"pal_core.pak is {len(core_image):#x}, exceeds core slot "
             f"{CORE_SLOT_CAP:#x}"
         )
+    level2_core_cap = level2_layout.max_bytes["nor"]
+    if level2_core_cap is None:
+        raise AssertionError("MEM_LEVEL2 core layout has no fixed size limit")
+    if len(level2_core_image) > level2_core_cap:
+        raise ValueError(
+            f"pal_l2.pak is {len(level2_core_image):#x}, exceeds Level2 core "
+            f"limit {level2_core_cap:#x}"
+        )
 
     core_summary = compact_pack_summary("pal_core.pak", core_image, core_archives)
     tf_summary = compact_pack_summary("pal_tf.pak", tf_image, tf_archives)
     full_summary = compact_pack_summary(
         "pal_full.pak", full_image, full_archives
+    )
+    level2_core_summary = compact_pack_summary(
+        "pal_l2.pak", level2_core_image, level2_core_archives
     )
     bundle_summaries = [
         compact_pack_summary(f"b{bundle_id:02d}.pak", image, archives)
@@ -1180,15 +1209,22 @@ def build_chapter_packs(
             "overlay_shape": "one replaceable SPI-NOR bundle",
             "data_identity_file": SET_FILENAME,
             "core_tf_file": "pal_core.pak",
+            "level2_core_cache_tf_file": "pal_l2.pak",
+            "portable_complete_tf_file": "pal_full.pak",
+            "tf_directory_contract": (
+                "one portable complete pack plus optional target cache packs"
+            ),
             "firmware_embeds_data_hashes": False,
         },
         "pack_set": {
             "id": pack_set_id,
             "id_hex": f"0x{pack_set_id:08x}",
+            "scope": "portable-complete-data",
+            "cache_layout_affects_id": False,
             "identity": (
-                "SHA-256 low 32 bits over scene table and canonical "
-                "CORE-BASE/TF/TF-FULL-MIRROR/B00..B14 pack images with "
-                "header pack_set_id and CRC32 zeroed; zero is remapped to one"
+                "SHA-256 low 32 bits over the canonical complete native "
+                "resource pack; independent of target cache placement; "
+                "zero is remapped to one"
             ),
         },
         "scene_partition": {
@@ -1271,12 +1307,19 @@ def build_chapter_packs(
             "tf": tf_summary,
             "full": {
                 **full_summary,
-                "runtime_active": False,
+                "portable_complete": True,
                 "all_chunks": True,
-                "allow_overlap": True,
-                "index_strategy": "offline-mirror-not-runtime-indexed",
+                "allow_cache_overlap": True,
+                "index_strategy": "target-selected direct index or derived caches",
             },
+            "level2_core": level2_core_summary,
             "bundles": bundles,
+        },
+        "level2_cache_policy": {
+            "path": str(LEVEL2_LAYOUT_PATH.resolve()),
+            "sha256": hashlib.sha256(LEVEL2_LAYOUT_PATH.read_bytes()).hexdigest(),
+            "core_max_bytes": level2_core_cap,
+            "storage": "SD-only",
         },
         "overlay_soft_cap": {
             "bytes": soft_cap,
@@ -1303,6 +1346,7 @@ def build_chapter_packs(
         core_image,
         tf_image,
         full_image,
+        level2_core_image,
         bundle_images,
         catalog,
         set_file,
@@ -1319,6 +1363,7 @@ def write_chapter_build(
     (out_dir / "pal_core.pak").write_bytes(build.core_pack)
     (out_dir / "pal_tf.pak").write_bytes(build.tf_pack)
     (out_dir / "pal_full.pak").write_bytes(build.full_pack)
+    (out_dir / "pal_l2.pak").write_bytes(build.level2_core_pack)
     (out_dir / SET_FILENAME).write_bytes(build.set_file)
     for bundle_id, image in enumerate(build.bundle_packs):
         (out_dir / f"b{bundle_id:02d}.pak").write_bytes(image)
@@ -1340,6 +1385,7 @@ def print_audit(build: ChapterBuild) -> None:
         f"pack_set_id={pack_set['id_hex']} "
         f"core={len(build.core_pack)} tf={len(build.tf_pack)} "
         f"full={len(build.full_pack)} "
+        f"l2={len(build.level2_core_pack)} "
         f"catalog={len(build.catalog)}"
     )
     for bundle in packs["bundles"]:
@@ -1398,7 +1444,7 @@ def main() -> int:
     if not args.audit_only:
         manifest_path = write_chapter_build(build, args.out_dir, args.manifest)
         print(
-            f"wrote {len(build.bundle_packs) + 3} packs, {SET_FILENAME}, "
+            f"wrote {len(build.bundle_packs) + 4} packs, {SET_FILENAME}, "
             f"and {manifest_path}"
         )
     return 0

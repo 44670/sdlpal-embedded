@@ -17,6 +17,16 @@ static int fail(const char *message)
 
 int main(void)
 {
+    static const uint8_t channel_palette[] = {
+        0xffu, 0x00u, 0x00u, 0xffu,
+        0x00u, 0xffu, 0x00u, 0xffu,
+        0x00u, 0x00u, 0xffu, 0xffu,
+    };
+    static const uint8_t expected_wire_rgb565[] = {
+        0xf8u, 0x00u,
+        0x07u, 0xe0u,
+        0x00u, 0x1fu,
+    };
     uint16_t destination_x;
     uint16_t destination_y;
     uint16_t x;
@@ -62,6 +72,22 @@ int main(void)
                 return fail("native strip changed a source pixel");
             }
         }
+    }
+    memset(pixels, 0, PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH);
+    pixels[0] = 0u;
+    pixels[1] = 1u;
+    pixels[2] = 2u;
+    memset(output, 0, sizeof(output));
+    if (!CardputerExtreme_CopyIndexedNativeStrip(
+            pixels, PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+            channel_palette, 0u, 1u, output,
+            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH * 2u,
+            sizeof(output))) {
+        return fail("RGB565 channel conversion failed");
+    }
+    if (memcmp(output, expected_wire_rgb565,
+            sizeof(expected_wire_rgb565)) != 0) {
+        return fail("RGB565 framebuffer is not MSB-first RGB wire order");
     }
     return 0;
 }

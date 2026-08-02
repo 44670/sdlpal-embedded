@@ -618,9 +618,11 @@ def check_cmake_sources(errors: list[str]) -> None:
     for token in (
         "cardputer-adv-music-build: cardputer-extreme-chapter-cache-build",
         "cardputer-adv-music-check: cardputer-extreme-chapter-cache-check",
-        "CARDPUTER_ADV_TF_DATAPAK ?= $(abspath TF_datapak)",
-        "cardputer-adv-music-tf: CARDPUTER_EXTREME_CHAPTER_PACK_DIR = $(CARDPUTER_ADV_TF_DATAPAK)",
-        "cardputer-adv-music-tf: cardputer-extreme-chapter-pack-check",
+        "TF_DATAPAK_DIR ?= $(abspath TF_datapak)",
+        "tf-datapack: CARDPUTER_EXTREME_CHAPTER_PACK_DIR = $(TF_DATAPAK_DIR)",
+        "tf-datapack: cardputer-extreme-chapter-pack-check",
+        "cardputer-adv-music-tf: tf-datapack",
+        "cardputer-extreme-chapter-pack-check: cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-cache-logic-check native-pack-provider-overlay-smoke native-pack-provider-chapter-open-smoke",
         "cardputer-adv-music-flash-app: cardputer-adv-music-build",
         "cardputer-adv-music-provision: cardputer-adv-music-build",
     ):
@@ -655,6 +657,20 @@ def check_cmake_sources(errors: list[str]) -> None:
         if token not in cache:
             errors.append(
                 f"{cache_path}: missing fixed-storage FatFS shape {token!r}"
+            )
+    for token in (
+        "matches = hash_core_partition(partition, digest, false)",
+        "!hash_core_file(digest)",
+        "!copy_core_from_tf(partition)",
+        "!hash_core_partition(partition, digest, true)",
+        "!verify_bundle_on_tf(descriptor)",
+        "!copy_bundle_from_tf(descriptor)",
+        "!verify_partition_readback(descriptor)",
+        "if (hash_mapped_payload(&descriptor))",
+    ):
+        if token not in cache:
+            errors.append(
+                f"{cache_path}: missing required TF/NOR SHA path {token!r}"
             )
     forbidden_calls = re.compile(
         r"\b(?:malloc|calloc|realloc|free|fopen|fread|fseek|ftell|fclose)\s*\("
@@ -868,6 +884,12 @@ def check_build(
     if "PalNativeUi_Font10IdentityMatches" in symbols:
         errors.append(
             "default app still links a data-specific FONT10 identity gate"
+        )
+    for name in sorted(
+        symbol for symbol in symbols if symbol.startswith("pack_crc32_")
+    ):
+        errors.append(
+            f"chapter-cache provider still links a whole-pack CRC scan: {name}"
         )
     decoder_hits = sorted(
         name

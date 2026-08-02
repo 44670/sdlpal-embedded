@@ -488,11 +488,11 @@ int PAL_InitFont(const CONFIGURATION *cfg)
 #ifdef PAL_EXTREME_TWO_SCREENS
     pal_contract_font_ready = PalContract_OpenNorPack() &&
         PalFont10_Open(&pal_contract_nor_pack, &pal_contract_font10);
-#if defined(PAL_EXTREME_CHAPTER_CACHE)
+#if defined(PAL_EXTREME_CHAPTER_CACHE) || defined(PAL_STORAGE_SD_ONLY)
     /*
-     * The default Cardputer application is data-set independent.  The pack
-     * parser validates the complete FONT10 image; only the fixed rendering
-     * geometry is an application ABI.
+     * Data-set-independent targets accept the FONT10 subset carried by the
+     * active data pack; only the fixed rendering geometry is an application
+     * ABI.
      */
     pal_contract_font_ready = pal_contract_font_ready &&
         pal_contract_font10.cell_width == 10u &&
