@@ -192,8 +192,12 @@ VIDEO_Startup(
 #endif
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   gpScreen = SDL_CreateRGBSurfaceFrom(pal_sram_framebuffer, 320, 200, 8, 320, 0, 0, 0, 0);
-   gpScreenBak = SDL_CreateRGBSurfaceFrom(pal_sram_aux_framebuffer, 320, 200, 8, 320, 0, 0, 0, 0);
+   gpScreen = SDL_CreateRGBSurfaceFrom(pal_sram_framebuffer,
+      PAL_EXTREME_SCREEN_WIDTH, PAL_EXTREME_SCREEN_HEIGHT, 8,
+      PAL_EXTREME_SCREEN_WIDTH, 0, 0, 0, 0);
+   gpScreenBak = SDL_CreateRGBSurfaceFrom(pal_sram_aux_framebuffer,
+      PAL_EXTREME_SCREEN_WIDTH, PAL_EXTREME_SCREEN_HEIGHT, 8,
+      PAL_EXTREME_SCREEN_WIDTH, 0, 0, 0, 0);
    gpPalette = SDL_AllocPalette(256);
    if (gpScreen == NULL || gpScreenBak == NULL || gpPalette == NULL)
    {

@@ -5,6 +5,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <limits.h>
 #include <string.h>
 
 #if defined(__has_include)
@@ -915,6 +916,97 @@ __wrap_PAL_MKFReadChunk(
    }
    memcpy(buffer, span.data, span.size);
    return (INT)span.size;
+}
+
+int
+PalEngineBridge_GetNativeChunkSize(
+   FILE        *fp,
+   uint16_t     chunk_id
+)
+{
+   UINT archive_id;
+   PalPackSpan span;
+   PalPackChunkInfo info;
+   PalEngineArchiveStore store;
+
+   ensure_default_packs();
+   if (fp == NULL || (archive_id = archive_from_file(fp)) == 0)
+   {
+      return -1;
+   }
+   store = find_chunk_store((uint16_t)archive_id, chunk_id, &span, &info);
+   if (store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE)
+   {
+      return span.size <= INT_MAX ? (int)span.size : -1;
+   }
+   if (store == PAL_ENGINE_ARCHIVE_STORE_TF)
+   {
+      return info.size <= INT_MAX ? (int)info.size : -1;
+   }
+   return -1;
+}
+
+bool
+PalEngineBridge_ReadNativeChunkRange(
+   FILE        *fp,
+   uint16_t     chunk_id,
+   uint32_t     chunk_offset,
+   uint8_t     *dst,
+   uint32_t     size
+)
+{
+   UINT archive_id;
+   PalPackSpan span;
+   PalPackChunkInfo info;
+   PalEngineArchiveStore store;
+   uint32_t chunk_size;
+
+   ensure_default_packs();
+   if ((dst == NULL && size != 0u) || fp == NULL)
+   {
+      return false;
+   }
+   archive_id = archive_from_file(fp);
+   if (archive_id == 0)
+   {
+      return false;
+   }
+   store = find_chunk_store((uint16_t)archive_id, chunk_id, &span, &info);
+   if (store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE)
+   {
+      chunk_size = span.size;
+   }
+   else if (store == PAL_ENGINE_ARCHIVE_STORE_TF)
+   {
+      chunk_size = info.size;
+   }
+   else
+   {
+      return false;
+   }
+   if (chunk_offset > chunk_size || size > chunk_size - chunk_offset)
+   {
+      return false;
+   }
+   if (size == 0u)
+   {
+      return true;
+   }
+   if (store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE)
+   {
+      memcpy(dst, span.data + chunk_offset, size);
+      return true;
+   }
+   if (info.offset > UINT32_MAX - chunk_offset)
+   {
+      return false;
+   }
+   return pal_engine_tf_read_at != NULL &&
+      pal_engine_tf_read_at(pal_engine_tf_user,
+         info.offset + chunk_offset, dst, size);
 }
 
 bool

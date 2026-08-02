@@ -230,6 +230,12 @@ PAL_C_LINKAGE_BEGIN
 
 extern BATTLE g_Battle;
 
+/* Translate legacy battle animation coordinates only at draw time. */
+PAL_POS
+PAL_BattleRenderPosition(
+   PAL_POS pos
+);
+
 VOID
 PAL_LoadBattleSprites(
    VOID

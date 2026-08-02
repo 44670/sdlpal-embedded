@@ -71,6 +71,10 @@ typedef struct tagSPRITE_TO_DRAW
 
 static SPRITE_TO_DRAW    g_rgSpriteToDraw[MAX_SPRITE_TO_DRAW];
 static int               g_nSpriteToDraw;
+/* World-space origin of the region being composed this frame. It is derived
+ * from legacy camera state and never written back into gameplay state. */
+static int               g_iSceneDrawOriginX;
+static int               g_iSceneDrawOriginY;
 #if defined(PAL_CARDPUTER_EXTREME)
 static int               g_nSpriteToDrawHighWater;
 #endif
@@ -141,8 +145,8 @@ PAL_CalcCoverTiles(
    int             x, y, i, l, iTileHeight;
    LPCBITMAPRLE    lpTile;
 
-   const int       sx = PAL_X(gpGlobals->viewport) + PAL_X(lpSpriteToDraw->pos) - lpSpriteToDraw->iLayer/2;
-   const int       sy = PAL_Y(gpGlobals->viewport) + PAL_Y(lpSpriteToDraw->pos) - lpSpriteToDraw->iLayer;
+   const int       sx = g_iSceneDrawOriginX + PAL_X(lpSpriteToDraw->pos) - lpSpriteToDraw->iLayer/2;
+   const int       sy = g_iSceneDrawOriginY + PAL_Y(lpSpriteToDraw->pos) - lpSpriteToDraw->iLayer;
    const int       sh = ((sx % 32) ? 1 : 0);
 
    const int       width = PAL_RLEGetWidth(lpSpriteToDraw->lpSpriteFrame);
@@ -212,8 +216,8 @@ PAL_CalcCoverTiles(
                   // This tile may cover the sprite
                   //
                   PAL_AddSpriteToDraw(lpTile,
-                     dx * 32 + dh * 16 - 16 - PAL_X(gpGlobals->viewport),
-                     dy * 16 + dh * 8 + 7 + l + iTileHeight * 8 - PAL_Y(gpGlobals->viewport),
+                     dx * 32 + dh * 16 - 16 - g_iSceneDrawOriginX,
+                     dy * 16 + dh * 8 + 7 + l + iTileHeight * 8 - g_iSceneDrawOriginY,
                      iTileHeight * 8 + l);
                }
             }
@@ -266,8 +270,10 @@ PAL_SceneDrawSprites(
       // Add it to our array
       //
       PAL_AddSpriteToDraw(lpBitmap,
-         gpGlobals->rgParty[i].x - PAL_RLEGetWidth(lpBitmap) / 2,
-         gpGlobals->rgParty[i].y + gpGlobals->wLayer + 10,
+         PAL_X(gpGlobals->viewport) + gpGlobals->rgParty[i].x -
+            g_iSceneDrawOriginX - PAL_RLEGetWidth(lpBitmap) / 2,
+         PAL_Y(gpGlobals->viewport) + gpGlobals->rgParty[i].y -
+            g_iSceneDrawOriginY + gpGlobals->wLayer + 10,
          gpGlobals->wLayer + 6);
 
       //
@@ -339,10 +345,10 @@ PAL_SceneDrawSprites(
       //
       // Calculate the coordinate and check if outside the screen
       //
-      x = (SHORT)lpEvtObj->x - PAL_X(gpGlobals->viewport);
+      x = (SHORT)lpEvtObj->x - g_iSceneDrawOriginX;
       x -= PAL_RLEGetWidth(lpFrame) / 2;
 
-      if (x >= 320 || x < -(int)PAL_RLEGetWidth(lpFrame))
+      if (x >= gpScreen->w || x < -(int)PAL_RLEGetWidth(lpFrame))
       {
          //
          // outside the screen; skip it
@@ -350,11 +356,11 @@ PAL_SceneDrawSprites(
          continue;
       }
 
-      y = (SHORT)lpEvtObj->y - PAL_Y(gpGlobals->viewport);
+      y = (SHORT)lpEvtObj->y - g_iSceneDrawOriginY;
       y += lpEvtObj->sLayer * 8 + 9;
 
       vy = y - PAL_RLEGetHeight(lpFrame) - lpEvtObj->sLayer * 8 + 2;
-      if (vy >= 200 || vy < -(int)PAL_RLEGetHeight(lpFrame))
+      if (vy >= gpScreen->h || vy < -(int)PAL_RLEGetHeight(lpFrame))
       {
          //
          // outside the screen; skip it
@@ -454,8 +460,18 @@ PAL_ApplyWave(
    static int           index = 0;
    LPBYTE               p;
    BYTE                 buf[320];
+   int                  width;
+   int                  height;
 
    gpGlobals->wScreenWave += gpGlobals->sWaveProgression;
+
+   if (lpSurface == NULL || lpSurface->w <= 0 || lpSurface->w > 320 ||
+      lpSurface->h <= 0)
+   {
+      return;
+   }
+   width = lpSurface->w;
+   height = lpSurface->h;
 
    if (gpGlobals->wScreenWave == 0 || gpGlobals->wScreenWave >= 256)
    {
@@ -479,15 +495,16 @@ PAL_ApplyWave(
       a += b;
 
       //
-      // WARNING: assuming the screen width is 320
-      //
       wave[i] = a * gpGlobals->wScreenWave / 256;
-      wave[i + 16] = 320 - wave[i];
+      if (wave[i] > width)
+      {
+         wave[i] = width;
+      }
+      wave[i + 16] = width - wave[i];
    }
 
    //
-   // Apply the effect.
-   // WARNING: only works with 320x200 8-bit surface.
+   // Apply the effect to the actual indexed render target.
    //
    a = index;
    p = (LPBYTE)(lpSurface->pixels);
@@ -495,7 +512,7 @@ PAL_ApplyWave(
    //
    // Loop through all lines in the screen buffer.
    //
-   for (i = 0; i < 200; i++)
+   for (i = 0; i < height; i++)
    {
       b = wave[a];
 
@@ -505,10 +522,8 @@ PAL_ApplyWave(
          // Do a shift on the current line with the calculated offset.
          //
          memcpy(buf, p, b);
-         //memmove(p, p + b, 320 - b);
-         memmove(p, &p[b], 320 - b);
-         //memcpy(p + 320 - b, buf, b);
-         memcpy(&p[320 - b], buf, b);
+         memmove(p, &p[b], width - b);
+         memcpy(&p[width - b], buf, b);
       }
 
       a = (a + 1) % 32;
@@ -538,22 +553,21 @@ PAL_MakeScene(
 
 --*/
 {
-   static SDL_Rect         rect = {0, 0, 320, 200};
-
-#if defined(PAL_CARDPUTER_EXTREME)
-   /* The world itself remains the original 320x200 scene.  Presentation is a
-    * 1:1 crop centred on the canonical party screen position. */
-   PalNativeUi_FocusLogical(
-      (int16_t)PAL_X(gpGlobals->partyoffset),
-      (int16_t)PAL_Y(gpGlobals->partyoffset),
-      PAL_NATIVE_UI_VIEW_WORLD);
-#endif
+   SDL_Rect                rect;
 
    //
    // Step 1: Draw the complete map, for both of the layers.
    //
-   rect.x = PAL_X(gpGlobals->viewport);
-   rect.y = PAL_Y(gpGlobals->viewport);
+   g_iSceneDrawOriginX = PAL_X(gpGlobals->viewport);
+   g_iSceneDrawOriginY = PAL_Y(gpGlobals->viewport);
+#if defined(PAL_CARDPUTER_EXTREME)
+   g_iSceneDrawOriginX += PAL_NATIVE_UI_GENERATED_MAP_VIEW_OFFSET_X;
+   g_iSceneDrawOriginY += PAL_NATIVE_UI_GENERATED_MAP_VIEW_OFFSET_Y;
+#endif
+   rect.x = g_iSceneDrawOriginX;
+   rect.y = g_iSceneDrawOriginY;
+   rect.w = gpScreen->w;
+   rect.h = gpScreen->h;
 
    PAL_MapBlitToSurface(PAL_GetCurrentMap(), gpScreen, &rect, 0);
    PAL_MapBlitToSurface(PAL_GetCurrentMap(), gpScreen, &rect, 1);

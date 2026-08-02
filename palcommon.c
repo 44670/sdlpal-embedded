@@ -23,6 +23,11 @@
 #include "global.h"
 #include "palcfg.h"
 
+#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+#include "esp32s3/engine_bridge/pal_engine_pack_provider.h"
+#include "esp32s3/main/cardputer_extreme_memory.h"
+#endif
+
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
 #ifndef _WIN32
 #include <fcntl.h>
@@ -920,14 +925,15 @@ end:
 
 INT
 PAL_FBPBlitToSurface(
-   LPBYTE            lpBitmapFBP,
+   LPCBYTE           lpBitmapFBP,
    SDL_Surface      *lpDstSurface
 )
 /*++
   Purpose:
 
-    Blit an uncompressed bitmap in FBP.MKF to an SDL surface.
-    NOTE: Assume the surface is already locked, and the surface is a 8-bit 320x200 one.
+    Blit an uncompressed 320x200 bitmap in FBP.MKF to an SDL surface.
+    Cardputer maps this full-screen source material into its native surface;
+    other targets retain the original 320x200 copy.
 
   Parameters:
 
@@ -944,26 +950,103 @@ PAL_FBPBlitToSurface(
    int       x, y;
    LPBYTE    p;
 
-   if (lpBitmapFBP == NULL || lpDstSurface == NULL ||
-      lpDstSurface->w != 320 || lpDstSurface->h != 200)
+   if (lpBitmapFBP == NULL || lpDstSurface == NULL)
    {
       return -1;
    }
+#if defined(PAL_CARDPUTER_EXTREME)
+   if (lpDstSurface->w <= 0 || lpDstSurface->w > 320 ||
+      lpDstSurface->h <= 0 || lpDstSurface->h > 200)
+   {
+      return -1;
+   }
+#else
+   if (lpDstSurface->w != 320 || lpDstSurface->h != 200)
+   {
+      return -1;
+   }
+#endif
 
    //
    // simply copy everything to the surface
    //
-   for (y = 0; y < 200; y++)
+   for (y = 0; y < lpDstSurface->h; y++)
    {
       p = (LPBYTE)(lpDstSurface->pixels) + y * lpDstSurface->pitch;
-      for (x = 0; x < 320; x++)
+      for (x = 0; x < lpDstSurface->w; x++)
       {
-         *(p++) = *(lpBitmapFBP++);
+#if defined(PAL_CARDPUTER_EXTREME)
+         const int source_x =
+            ((x * 2 + 1) * 320) / (lpDstSurface->w * 2);
+         const int source_y =
+            ((y * 2 + 1) * 200) / (lpDstSurface->h * 2);
+         *(p++) = lpBitmapFBP[source_y * 320 + source_x];
+#else
+         *(p++) = lpBitmapFBP[
+            y * 320 + x];
+#endif
       }
    }
 
    return 0;
 }
+
+#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+INT
+PAL_FBPBlitChunkToSurface(
+   FILE              *fp,
+   UINT               uiChunkNum,
+   SDL_Surface       *lpDstSurface
+)
+/*++
+  Purpose:
+
+    Stream one native 320x200 FBP material into the physical indexed surface.
+    Only a single named source scanline is resident, so TF-owned FBP chunks do
+    not require a 64KB staging buffer.
+
+  Return value:
+
+    0 = success, -1 = invalid input or storage read failure.
+
+--*/
+{
+   int x;
+   int y;
+
+   if (fp == NULL || uiChunkNum > 0xffffu || lpDstSurface == NULL ||
+      lpDstSurface->pixels == NULL || lpDstSurface->w <= 0 ||
+      lpDstSurface->w > 320 || lpDstSurface->h <= 0 ||
+      lpDstSurface->h > 200 ||
+      PalEngineBridge_GetNativeChunkSize(fp, (uint16_t)uiChunkNum) !=
+         320 * 200)
+   {
+      return -1;
+   }
+
+   for (y = 0; y < lpDstSurface->h; y++)
+   {
+      const uint32_t source_y =
+         (uint32_t)(((y * 2 + 1) * 200) / (lpDstSurface->h * 2));
+      LPBYTE destination =
+         (LPBYTE)lpDstSurface->pixels + y * lpDstSurface->pitch;
+
+      if (!PalEngineBridge_ReadNativeChunkRange(fp, (uint16_t)uiChunkNum,
+         source_y * PAL_EXTREME_FBP_SCANLINE_BYTES,
+         pal_sram_fbp_scanline, PAL_EXTREME_FBP_SCANLINE_BYTES))
+      {
+         return -1;
+      }
+      for (x = 0; x < lpDstSurface->w; x++)
+      {
+         const uint32_t source_x =
+            (uint32_t)(((x * 2 + 1) * 320) / (lpDstSurface->w * 2));
+         destination[x] = pal_sram_fbp_scanline[source_x];
+      }
+   }
+   return 0;
+}
+#endif
 
 INT
 PAL_RLEGetWidth(

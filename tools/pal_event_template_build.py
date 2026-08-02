@@ -34,6 +34,16 @@ EVENT_RECORD_COUNT = 5369
 EVENT_BYTES = EVENT_RECORD_BYTES * EVENT_RECORD_COUNT
 EVENT_PAGE_COUNT = 42
 
+# The stock PALSteam/PAL_DOS resources contain 5,332 event records and 294
+# scene rows.  Keep the established on-card journal geometry stable by
+# appending unreachable zero event records and sentinel scene rows when that
+# exact source shape is packed.  The source bytes themselves remain unchanged
+# in pal_full.pak; normalization happens only in EVENT.DEF.
+PAL_DOS_EVENT_RECORD_COUNT = 5332
+PAL_DOS_EVENT_BYTES = EVENT_RECORD_BYTES * PAL_DOS_EVENT_RECORD_COUNT
+PAL_DOS_SCENE_RECORD_COUNT = 294
+PAL_DOS_SCENE_BYTES = 8 * PAL_DOS_SCENE_RECORD_COUNT
+
 SCENE_RECORD_BYTES = 8
 SCENE_RECORD_COUNT = 300
 SCENE_BYTES = SCENE_RECORD_BYTES * SCENE_RECORD_COUNT
@@ -140,6 +150,40 @@ def validate_scene_page_spans(scene_data: bytes) -> None:
                 f"scene {scene_number} event range [{start}, {end}) "
                 "spans more than two event pages"
             )
+
+
+def normalize_event_data(event_data: bytes) -> bytes:
+    if len(event_data) == EVENT_BYTES:
+        return event_data
+    if len(event_data) != PAL_DOS_EVENT_BYTES:
+        raise ValueError(
+            f"pal_full.pak SSS chunk 0 is {len(event_data)} bytes, "
+            f"expected {PAL_DOS_EVENT_BYTES} or {EVENT_BYTES}"
+        )
+    return event_data + bytes(EVENT_BYTES - len(event_data))
+
+
+def normalize_scene_data(scene_data: bytes) -> bytes:
+    if len(scene_data) == SCENE_BYTES:
+        return scene_data
+    if len(scene_data) != PAL_DOS_SCENE_BYTES:
+        raise ValueError(
+            f"pal_full.pak SSS chunk 1 is {len(scene_data)} bytes, "
+            f"expected {PAL_DOS_SCENE_BYTES} or {SCENE_BYTES}"
+        )
+
+    last_boundary = u16(
+        scene_data,
+        (PAL_DOS_SCENE_RECORD_COUNT - 1) * SCENE_RECORD_BYTES + 6,
+    )
+    if last_boundary != PAL_DOS_EVENT_RECORD_COUNT:
+        raise ValueError(
+            "PAL_DOS scene sentinel does not match its event-record count"
+        )
+    sentinel = struct.pack("<HHHH", 0, 0, 0, last_boundary)
+    return scene_data + sentinel * (
+        SCENE_RECORD_COUNT - PAL_DOS_SCENE_RECORD_COUNT
+    )
 
 
 def crc32_with_zeroed_word(data: bytes, offset: int) -> int:
@@ -281,18 +325,18 @@ def parse_full_pack(pack: bytes) -> tuple[int, PackChunk, PackChunk]:
             flags,
         )
 
-    event_chunk = chunk(0)
-    scene_chunk = chunk(1)
-    if len(event_chunk.payload) != EVENT_BYTES:
-        raise ValueError(
-            f"pal_full.pak SSS chunk 0 is {len(event_chunk.payload)} bytes, "
-            f"expected {EVENT_BYTES}"
-        )
-    if len(scene_chunk.payload) != SCENE_BYTES:
-        raise ValueError(
-            f"pal_full.pak SSS chunk 1 is {len(scene_chunk.payload)} bytes, "
-            f"expected {SCENE_BYTES}"
-        )
+    source_event_chunk = chunk(0)
+    source_scene_chunk = chunk(1)
+    event_chunk = PackChunk(
+        normalize_event_data(source_event_chunk.payload),
+        source_event_chunk.fmt,
+        source_event_chunk.flags,
+    )
+    scene_chunk = PackChunk(
+        normalize_scene_data(source_scene_chunk.payload),
+        source_scene_chunk.fmt,
+        source_scene_chunk.flags,
+    )
     validate_scene_page_spans(scene_chunk.payload)
     return pack_set_id, event_chunk, scene_chunk
 

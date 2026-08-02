@@ -1,21 +1,19 @@
-# M5Stack CoreS3 SE Bring-Up
+# ESP32-S3 ports
 
-This ESP-IDF project targets the CoreS3 SE full-engine host by default. The older scene scaffold remains available as an explicit bring-up/check target, with no audio; the target does not link audio/SFX slices or enable the speaker amplifier.
-
-The board init copies/adapts the local walkie-talkie CoreS3 SE reference at `/home/john/work/CardPuterADV/esp-walkie-talkie`: AW9523, AXP2101, FT6336 touch, and SPI LCD init use the same pins and command sequence.
+The primary configuration is the M5Stack Cardputer ADV music profile below.
+The CoreS3 SE port and its older bring-up scaffold remain available later in
+this document.
 
 ## Cardputer ADV 8MB/no-PSRAM extreme profile
 
-`CARDPUTER_EXTREME_NO_PSRAM=ON` selects a separate M5Stack Cardputer ADV
-(K132-Adv) target.  It is not the original Cardputer and it does not replace
-the default CoreS3 SE build.  The profile has:
+The default Cardputer workflow selects the M5Stack Cardputer ADV (K132-Adv),
+not the original Cardputer. It has:
 
-- 8MB flash, a 1MB app partition, and a `0x6f0000` read-only `pal_nor`
-  partition;
+- 8MB flash with a 768KB app partition, a `0x460000` core cache, and a
+  `0x2d0000` chapter cache;
 - no PSRAM and no engine/resource heap allocation;
-- exactly two named 320x200x8-bit logical screens plus one 4KB LCD DMA strip;
-- no audio in the default build; the explicit music build adds RIX/OPL2 only,
-  while desktop codecs and SFX remain excluded;
+- exactly two named 240x135x8-bit native screens plus one 4KB LCD DMA strip;
+- RIX/OPL2 music enabled by default; MIDI, VOC, and SFX remain excluded;
 - no runtime decompressor or splash sequence;
 - the Cardputer ADV vendor timing profile (240MHz CPU and a 1ms FreeRTOS tick);
 - ST7789 240x135 indexed presentation through SPI3 and TCA8418 keyboard input;
@@ -23,182 +21,161 @@ the default CoreS3 SE build.  The profile has:
 - USB Serial/JTAG as the console, leaving the ES8311 word-select GPIO43 free
   from UART0 output.
 
-Build the firmware and the normal sparse resource packs:
+### Quick start
 
-```sh
-make -C esp32s3 cardputer-extreme-build
-make -C esp32s3 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-pack-build
-```
-
-The normal and music pack targets now require the pinned Fusion Pixel Font
-archive. It is vendored under `third_party/fusion-pixel-font/` and is the
-Makefile default; `FONT10_ARCHIVE` remains an optional override. Firmware
-startup opens NOR `FONT` chunk 1 and compares its glyph
-count, byte length, and payload CRC with the Python-generated 240x135 header;
-a legacy pack without the matching FONT10 chunk fails closed.  Full
-`cardputer-extreme-check` / `cardputer-extreme-music-check` runs therefore use
-the vendored pinned archive unless `FONT10_ARCHIVE` explicitly overrides it.
-
-`tools/pal_native_ui_layout.py` defaults to the certified 240x135 and 160x128
-native-view contracts. Repeated `--profile WIDTHxHEIGHT` arguments can generate
-additional native 1:1 profiles from 160x128 through 320x200. Gameplay retains
-its canonical 320x200 indexed frame,
-original palette and original DATA.MKF UI assets, while the LCD copies a 1:1
-player-focused viewport with no whole-frame scaling.  Map view follows the
-party; battle view follows the moving/current player, relocates the intact
-original action group plus one context-player info frame into the live crop,
-shows the selected ally's HP/MP during single-ally targeting, and starts
-target views at the actor/subject midpoint before shifting only as needed to
-retain the active player's actual unscaled sprite.
-List selection may pan to its cursor. Victory/result notices pan to their
-original text region, while the original full-height level-up page uses a
-stable top crop that retains its title and primary level/HP/MP rows. Unchanged
-menus pan the viewport to the current selection, including custom player
-selectors. The original item-use target modal pans to keep its selected name,
-item picture, and primary HP/MP values together even at 160x128, while status
-opens on its identity/primary-value region. Dialogue
-uses the corpus-subsetted 10px
-FONT10 glyphs with word-aware wrapping and glyph-boundary fallback inside
-generated page geometry; portrait-free upper/lower speaker titles retain
-PAL's x=12 inset rather than inheriting the portrait column. An overlong center popup
-reuses the original style-1 DATA.MKF border for multiple lines. Only an
-overlarge portrait is fitted with deterministic aspect-preserving RLE
-sampling. The
-relevant runtime files are `embedded/pal_native_ui.[ch]` and
-`main/cardputer_extreme_native_view.[ch]`.
-
-Only 240x135 is the physical Cardputer ADV panel contract. The 160x128 and
-custom profiles are engine/host contracts until a matching board presenter is
-provided; selecting one does not change the ST7789 panel geometry.
-
-Visual acceptance must use real deterministic gameplay captures for dialogue,
-map, battle, and menus at both resolutions.  Store review artifacts under
-`./tmp_ui/`; Python-drawn mockups are not gameplay evidence.
-
-### TF-backed chapter cache experiment
-
-`CARDPUTER_EXTREME_CHAPTER_CACHE=ON` selects a separate 8MB flash layout:
-the 768KB app is followed by a `0x460000` immutable `pal_core` partition and
-one `0x2d0000` replaceable `pal_cache` partition.  The host tool builds 15
-conservative scene bundles (`b00.pak` through `b14.pak`) plus the active
-`pal_tf.pak` and complete decoded/native `pal_full.pak` TF mirror:
+The pinned Fusion Pixel Font archive is vendored, so no font argument is
+normally needed. Turn a PAL data directory into a complete, verified TF data
+directory in one command:
 
 ```sh
 make -C esp32s3 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-chapter-cache-check
-make -C esp32s3 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  TF_MOUNT=/media/$USER/PALTF \
-  cardputer-extreme-chapter-prepare-tf
-make -C esp32s3 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  PORT=/dev/ttyACM0 \
-  cardputer-extreme-chapter-cache-flash-core
-make -C esp32s3 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  PORT=/dev/ttyACM0 \
-  cardputer-extreme-chapter-cache-flash
+  PAL_DATA_DIR=/path/to/PAL \
+  cardputer-adv-music-tf
 ```
 
-The chapter build requires the same pinned `FONT10_ARCHIVE` as the normal
-extreme profile.  Its host builder puts the identical corpus-subsetted
-`FONT` chunk 1 in `pal_core.pak` (and in the complete TF mirror), while target
-startup validates that chunk against the generated 240x135 header before it
-opens the chapter catalog.  Missing or stale FONT10 data therefore fails
-closed in the chapter-cache profile too.
+This writes the ready-to-copy card contents directly to
+`esp32s3/TF_datapak/`: `PALSET.BIN`, `pal_core.pak`, `pal_tf.pak`,
+`pal_full.pak`, `EVENT.DEF`, `b00.pak` through `b14.pak`, and the audit
+manifest. Copy the contents of that directory to the TF card. The default
+audited source directory is `/mnt/hgfs/deb13/PALSteam/PAL_DOS`, so
+`PAL_DATA_DIR` may be omitted for that data set. `TF_datapak/` is generated
+output and is ignored by Git.
 
-After a save is loaded, and whenever a scene crosses a bundle boundary, the
-engine compares the exact cached SPI-NOR payload SHA-256 with the descriptor
-in the immutable core catalog.  A matching bundle is mapped directly.  A
-mismatch shows a native 240x135 `LOADING` progress screen, streams the matching
-short-name TF file through a caller-owned static FatFS `FIL` into SPI NOR,
-verifies both the TF-side and flash-readback SHA-256, validates the pack CRC/set
-ID/ownership through the normal provider, and writes the commit record last.
-Erasing the commit sector before the payload makes an interrupted update
-rebuild deterministically on the next attempt.
+Install the cache partition layout once on a new board, or again only when the
+partition layout changes:
+
+```sh
+make -C esp32s3 PORT=/dev/ttyACM0 cardputer-adv-music-provision
+```
+
+After that, normal firmware updates write only the application partition:
+
+```sh
+make -C esp32s3 PORT=/dev/ttyACM0 cardputer-adv-music-flash-app
+```
+
+Discover the actual serial port instead of assuming `/dev/ttyACM0`. Prepare
+the TF card before first boot. `cardputer-adv-music-provision` necessarily
+writes the bootloader and partition table as well as the app; it does not
+write either resource partition. The regular gate is:
+
+```sh
+make -C esp32s3 cardputer-adv-music-check
+```
+
+The application build itself does not require a PAL directory and contains no
+pack-set ID, core hash, chapter hash, or corpus-specific FONT10 identity. A
+single compatible app can therefore boot different TF pack sets produced by
+the builder. The file formats, fixed 10x10 font geometry, and engine ABI still
+have to match; this is not compatibility with arbitrary PAL editions.
+
+The runtime core contains only the corpus-subsetted FONT10 payload. `FONT`
+chunk 0, the converted original 16px font, is absent from the core and remains
+only in `pal_full.pak`. The firmware validates the full FONT10 structure and
+fixed 10x10 geometry rather than comparing it with a hash compiled into the
+app.
+
+The default source set is the stock
+`/mnt/hgfs/deb13/PALSteam/PAL_DOS` directory. Resources from the former
+`/mnt/hgfs/deb13/PAL` directory are not save/script compatible and must not be
+mixed into this pack set. The real-data regression gate pins event object 113
+to trigger entry 7739 and verifies the opening Lin carpenter dialogue in the
+matching `M.MSG` table.
+
+The first responsive-display acceptance target is the Cardputer's physical
+240x135 panel. The engine draws directly into a 240x135 indexed framebuffer;
+`main/cardputer_extreme_native_view.[ch]` only converts those native pixels to
+RGB565 strips. It never consumes or resizes a completed 320x200 frame.
+
+320x200 survives only as the compatibility coordinate space used by existing
+scripts, events, collision rules, saves, and battle animation state. The map
+renderer requests a 240x135 world region directly and translates visible
+sprites into that native view. Battle applies the same rule to its background,
+fighters, effects, markers, and HUD: resources are composed on the physical
+canvas, not transformed after composition. Presentation offsets are never
+written back into gameplay state.
+
+Map and battle retain the original layers, sprites, animations, target marks,
+action diamond, player information assets, and input behavior. Their camera
+and element positions are adjusted only where the physical canvas requires it.
+Decoded full-screen FBP materials may live in NOR or TF. TF-owned backgrounds
+are streamed through one named 320-byte scanline and sampled directly into the
+native framebuffer; they never allocate or stage a 64KB completed frame.
+The 160x128 generated profile is a later engine/host check, not a second
+Cardputer panel mode.
+
+Dialogue and menu layout are follow-up slices. They must continue from PAL's
+original draw functions and DATA.MKF assets, change only positions and sizes
+needed by the physical canvas, and draw the pinned 10px FONT10 at physical
+native pixel size. Do not revive scrolling replacement UI, a second display
+mode, or a semantic layout framework. Bounded portrait fitting in
+`embedded/pal_native_ui.[ch]` remains the approved per-asset downsampling path.
+The system-menu box starts at `(0, 0)` and only its item list scrolls when the
+LCD cannot show every entry.
+
+The 240x135 buy screen keeps the original item frame, current-count and cash
+boxes, item names, prices, and confirmation menu. It uses a six-row list beside
+the information column; only that item list scrolls for longer stores. Scripts
+that begin directly with dialogue text, without a preceding dialog-position
+opcode, use the original default upper/no-portrait layout rather than stale or
+uninitialized native geometry.
+
+Visual acceptance uses real gameplay captures under `./tmp_ui/`, never
+Python-drawn mockups. The current vertical slice requires inspected 240x135 map
+and battle frames; dialogue, menu, and 160x128 captures become required when
+those slices are implemented.
+
+For efficient interactive capture, build the native Linux host with
+`CARDPUTER_EXTREME_NATIVE_WS=1` and use `tools/ws_cli.py`; see
+[`unix/WEBSOCKET_HARNESS.md`](../unix/WEBSOCKET_HARNESS.md). The server is
+host-only and is never linked into ESP-IDF firmware.
+
+### TF-managed resource caches
+
+`PALSET.BIN` is the small target-readable data-set record. It contains the
+pack-set ID, exact `pal_core.pak` size and SHA-256, and all 15 chapter bundle
+descriptors. The human-readable `chapter_manifest.json` is copied for audit
+but is not parsed by the firmware, preserving short filenames and fixed FatFS
+storage.
+
+At every boot, before the core is mapped, the target reads `PALSET.BIN` and
+hashes the core SPI-NOR partition. A mismatch displays the native 240x135
+`LOADING` screen, verifies `0:/pal_core.pak`, erases and copies it sequentially,
+then verifies the NOR readback. A reset during this process leaves a bad hash,
+so the next boot repeats the copy before using any core data.
+
+At game load and whenever a scene needs another bundle, the target selects
+`0:/bNN.pak` from the external catalog. It verifies TF, writes the replaceable
+chapter partition with progress, verifies NOR readback and pack ownership, and
+writes the commit record last. The process-global `current_bundle` records the
+already verified and mapped bundle, so scenes in the same bundle do not hash it
+again. A bundle transition clears that state and performs the check before the
+new scene resources are exposed.
+
+Both caches are implementation details: resource source-of-truth stays on TF,
+and neither pack is flashed by the normal host workflow. `pal_full.pak` remains
+an offline-complete decoded/native mirror; firmware does not index it because
+its TOC exceeds the fixed active-index budget.
 
 The generated resource closure covers scenes 1 through 299, but this is not
-yet a full-game runtime claim.  The no-PSRAM profile pages all 5,369 mutable
-event records and all 300 scene records through the fixed `EVENT.STA` journal
-on TF, with three 4KB event pages resident in SRAM.  `EVENT.DEF` supplies the
-matching immutable defaults generated from `pal_full.pak`; tagged saves stream
-the complete event/scene state through the same fixed page storage.
+yet a full-game runtime claim. The stock PALSteam/PAL_DOS data supplies 5,332
+mutable event records and 294 scene rows. `EVENT.DEF` appends 37 unreachable
+zero event records and six zero-content sentinel scene rows so the established
+42-event-page plus one-scene-page `EVENT.STA` journal geometry remains stable.
+Exactly three 4KB event pages are resident in SRAM. Tagged saves stream the
+complete normalized event/scene state through the same fixed page storage.
 
-The default firmware and pack targets remain the established no-audio
-profile.  The explicit music-only profile builds in a fixed-storage OPL2/RIX
-backend and adds the complete original-numbered `MUS.MKF` archive to NOR:
-all 88 source slots are retained, slots 0 and 29 are empty in the source data,
-and the other 86 tracks are playable.  MIDI, VOC, and SFX remain excluded:
+The default fixed-storage OPL2/RIX backend retains all 88 original MUS slots;
+source slots 0 and 29 are empty and the other 86 are playable. The profile gate
+checks the music/no-SFX compile graph, static SRAM and stack budgets, fixed
+music state-machine behavior, and audible output from every non-empty track.
+The sequencer, OPL state, and sample-counted fades freeze while music is
+disabled or its volume is zero.
 
-```sh
-make -C esp32s3 cardputer-extreme-music-build
-make -C esp32s3 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-music-check
-```
-
-The music firmware uses its own `build-cardputer-extreme-music` directory and
-sdkconfig, leaving `build-cardputer-extreme` as the no-audio build.  The full
-gate also writes `/tmp/pal_cardputer_extreme_music_nor.pak`,
-`/tmp/pal_cardputer_extreme_music_tf.pak`, the complete decoded mirror
-`/tmp/pal_cardputer_extreme_music_full.pak`, and a separate music manifest.
-It checks the exact track-ID closure, all 88 source chunk slots, both required
-zero-sized slots, every RIX payload, the 8MB NOR partition budget, the 2KB
-active-TF TOC budget, and the shared three-image pack-set ID.  Firmware startup
-also maps and asks the bounded RIX decoder to validate all 86 non-empty tracks
-before starting the real-time audio task, so a wrong or damaged NOR music
-profile fails visibly instead of becoming a later silent track.  On the linked
-firmware the gate additionally checks the exact 54-source inventory,
-music/no-SFX compile defines and symbols, OPL table placement in flash,
-OPL/audio state in SRAM, stack reports, fixed music state-machine semantics,
-and separate music SRAM/flash budgets.  It also renders every track through the
-same fixed OPL2 core and requires audible PCM from all 86 tracks.
-The extreme backend deliberately freezes the sequencer, OPL state, and
-sample-counted fades while music is disabled or its volume is zero.  This is
-deterministic but differs from the desktop RIX player's one-time wall-clock
-catch-up when a newly requested fade-out has not emitted any samples yet.
-
-The gate runs the complete 5,369-event save/reopen/fault-recovery test against
-the music pack-set ID rather than testing event persistence only with the
-no-audio bundle.  Moving between the same-data no-audio and RIX-music profiles
-atomically rebinds the committed `EVENT.STA` page set when the `EVENT.DEF`
-payload CRC is identical.  An explicit New Game still resets every event and
-scene to template defaults; loading a compatible tagged save restores its full
-event state.  A different template CRC rebases immediately to the new
-defaults.  This compatibility rule is intended for these checked same-dataset
-profiles, not as a promise that arbitrary packs with unrelated scripts or
-object tables are save-compatible.
-
-Run `cardputer-extreme-music-check` for current application, section, stack,
-NOR/TF, TOC, and reserve measurements. The limits are enforced by
-`check_cardputer_extreme.py` and `check_cardputer_extreme_music_pack.py`;
-copied measurements in prose become stale. The pinned FONT10 chunk is
-mandatory and is already included in every supported music pack—there is no
-supported “legacy-font” pack. The separate complete mirror contains every
-host-decoded/preconverted resource, including MIDI/MUS tracks and
-host-converted PCM SFX, while deliberately omitting raw `VOC.MKF` in favor of
-the generated `SFX` archive.
-
-Install the matching firmware and pack bundle with:
-
-```sh
-make -C esp32s3 TF_MOUNT=/media/$USER/PALTF \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-music-prepare-tf
-make -C esp32s3 PORT=/dev/ttyACM0 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-music-flash-all
-```
-
-The TF preparation target syncs and byte-compares all three installed files.
-Both `cardputer-extreme-music-flash` and
-`cardputer-extreme-music-flash-all` write bootloader, partition table,
-application, and the matching music NOR image in one esptool session, so the
-board is not deliberately rebooted between mismatched firmware/resource
-images.
+`EVENT.DEF` and `EVENT.STA` are keyed by the data template rather than by the
+application. New Game resets event and scene state to the installed template;
+a compatible tagged save restores it, while a different template CRC rebases
+to the new defaults.
 
 For a real-board acceptance run, leave the headphone jack unplugged so the
 on-board speaker amplifier is enabled.  The USB Serial/JTAG log must report
@@ -212,95 +189,25 @@ and USB logging run from the cooperative engine/input path rather than the
 real-time audio task; inspect the cumulative values together with the reported
 stack, internal-heap, and DMA-heap low-water marks.
 
-The active music TF payload size is currently unchanged, but its pack-set ID
-differs; it must not be mixed with the default no-audio NOR image.  The prepare
-target installs both `pal_tf.pak` and `pal_full.pak`.
+The gate validates the exact partition table, app/section/stack/SRAM limits,
+music source inventory, absence of target heap/decompression/SFX calls, all TF
+pack hashes, the external set record, and recovery-oriented cache formats.
+Generated scene coverage remains a candidate rather than a proof of a complete
+story playthrough. Real-board acceptance must still verify LCD, keyboard, TF,
+save/reload, audio telemetry, and the intended story route. The firmware logs
+internal-RAM/DMA low-water marks and main-task stack high-water marks around
+resource startup and battle.
 
-The stronger repeatable gate is:
+The older `cardputer-extreme-*` targets remain for explicit no-audio or
+non-cache regression work. They are not the default installation path and may
+still require host-flashed resource images.
 
-```sh
-make -C esp32s3 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-check
-```
+## CoreS3 SE
 
-It builds the Xtensa firmware, validates the ELF/partition/sdkconfig/pack
-budgets, checks source hashes and the declared candidate resource boundaries,
-streams an FBP chunk and one RNG frame from TF, then runs 3000 deterministic
-frames through the exact extreme engine profile.  The host run reaches the
-normal walking loop and injects team 0, a reachable two-enemy battle; it
-requires both battle entry and exit plus a nontrivial logical-screen PNG.  Its
-two compared traces are independent repeatability runs of the same extreme
-binary and packs, not parity against the unrestricted desktop engine.  The
-gate also injects a reproducible scene-20 stress state through GDB into the
-same binary and requires exactly 358 live draw entries and a 358-entry
-high-water mark; this is the measured counterexample to the old 256/320
-capacities.  The
-same gate also exercises the tagged save format, sparse event 5334
-persistence, corruption rejection, backup recovery, successful overwrite, and
-atomic replacement failure paths.  This is host behavioral verification, not
-a substitute for real-board heap/stack/LCD/TF testing or a story-route proof.
-
-The current chapter policy is `tools/pal_pack_layout_cardputer_extreme.json`.
-It is deliberately labelled a candidate rather than a completed story-route
-closure.  It preserves chunk numbering with zero-sized holes and retains
-scenes 1..20 plus 22, their 423 contiguous event objects, one 32-byte sparse
-global-state overlay for event 5334, the selected MAP/GOP/MGO set, and a
-conservative script-derived battle set.  The SZC2 tagged save persists that
-sparse state.  Static traversal still finds an unresolved transition from
-scene 22 to scene 21 in the original script.  The extreme interpreter replaces
-that exact transition with a visible `CHAPTER COMPLETE - SUZHOU NEXT` endpoint,
-and the deterministic gate executes entry 10600 and requires the engine to
-remain in scene 22.  This supplies a finite pre-Suzhou boundary, but the build
-is still not a route-proven “up to Suzhou” release: it lacks
-closure roots for every item/magic/poison/death script, intended-route
-coverage for all 20 statically selected battle teams, and a proof that the
-512-entry scene draw list covers every selected scene state.  The original
-256-entry extreme list and a 320-entry variant both have measured scene-20
-counterexamples; 512 is the SRAM-budgeted engineering setting, not a formal
-route bound.  The profile reduces the five formatting/path scratch strings
-from 1024 to 256 bytes each; target runtime paths are deliberately short.
-
-Const/random-access assets remain in NOR.  Five decoded FBP screens and
-decoded RNG movie 1 live on TF; the runtime reads FBP sequentially into screen
-B and reads only one RNG frame at a time.  NOR and TF may therefore contain
-disjoint chunks of the same archive, and the provider resolves ownership per
-chunk.  Both packs carry one deterministic pack-set ID and a whole-image
-CRC32; startup rejects a mismatched card, stale NOR/TF pair, or corrupted
-image before exposing resources to the engine.
-
-The same TF card also receives `pal_full.pak`, an independent complete mirror
-that may overlap every active NOR/TF chunk.  The current no-PSRAM firmware does
-not open or index this file: its TOC exceeds the 2KB active index budget.
-Keeping the verified sparse `pal_tf.pak` as the runtime image avoids changing
-chunk precedence or the current read path.  The mirror is a future-expansion
-source for generating a larger sparse active pack or for a later bounded
-streaming-index implementation.  The build manifest records the mirror's
-whole-pack SHA-256/CRC32 plus every archive/chunk format, size, and SHA-256.
-The checker rebuilds all host conversions from the source files, compares
-every chunk, rejects residual YJ1 payloads, and verifies all three pack-set
-IDs.
-
-Prepare and flash:
-
-```sh
-make -C esp32s3 TF_MOUNT=/media/$USER/PALTF \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-prepare-tf
-make -C esp32s3 PORT=/dev/ttyACM0 \
-  FONT10_ARCHIVE=/path/to/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip \
-  cardputer-extreme-flash-nor
-make -C esp32s3 PORT=/dev/ttyACM0 cardputer-extreme-flash
-```
-
-`cardputer-extreme-prepare-tf` installs the generated active TF image as
-`pal_tf.pak` and the complete decoded mirror as `pal_full.pak`.  Only
-`pal_tf.pak` is runtime-active.  The firmware logs both general internal-RAM and DMA-capable
-internal-RAM free/minimum/largest-block memory, plus the main-task stack
-high-water mark, at app entry, after board/pack startup, after resource loads,
-and around battle.  Real hardware validation must still capture those logs
-and verify LCD offsets/color order, keyboard matrix behavior, TF stability,
-save/reload, and an uninterrupted playthrough of the selected story range.
+The CoreS3 SE full-engine host is a separate 16MB-flash/8MB-PSRAM target. Its
+board init adapts the local walkie-talkie reference at
+`/home/john/work/CardPuterADV/esp-walkie-talkie`: AW9523, AXP2101, FT6336
+touch, and SPI LCD init use the same pins and command sequence.
 
 Build the full original-engine CoreS3 SE host:
 
@@ -329,7 +236,7 @@ Repeatable target-side contract check:
 make -C esp32s3 check
 ```
 
-That builds the ESP-IDF artifact, rebuilds the default resource packs from `/mnt/hgfs/deb13/PAL`, verifies the NOR pack fits the `pal_nor` partition and stays under the 97% soft utilization gate, rejects compressed/YJ1 payloads in both NOR and TF packs, validates the generated pack manifest source hashes, decoded-size summaries, and pack-layout hash/archive placement, checks the protected-engine-file divergence manifest, scans the target-side sources and linked project objects for heap/decompress calls, checks that every target-linked source is covered by the source scan, checks the shared SPI/SDSPI invariants for the CoreS3 SE TF/LCD bus, checks the scaffold-freeze guard against target-side script/dialog/battle/save mutation, checks key ELF sections, verifies the named SRAM/PSRAM buffer registry, checks generated `-fstack-usage` files, rejects disabled target sources plus target audio/SFX symbols, and reports `pal_sram_` / `pal_psram_` symbol totals from the ESP32-S3 ELF.
+That builds the ESP-IDF artifact, rebuilds the default resource packs from `/mnt/hgfs/deb13/PALSteam/PAL_DOS`, verifies the NOR pack fits the `pal_nor` partition and stays under the 97% soft utilization gate, rejects compressed/YJ1 payloads in both NOR and TF packs, validates the generated pack manifest source hashes, decoded-size summaries, and pack-layout hash/archive placement, checks the protected-engine-file divergence manifest, scans the target-side sources and linked project objects for heap/decompress calls, checks that every target-linked source is covered by the source scan, checks the shared SPI/SDSPI invariants for the CoreS3 SE TF/LCD bus, checks the scaffold-freeze guard against target-side script/dialog/battle/save mutation, checks key ELF sections, verifies the named SRAM/PSRAM buffer registry, checks generated `-fstack-usage` files, rejects disabled target sources plus target audio/SFX symbols, and reports `pal_sram_` / `pal_psram_` symbol totals from the ESP32-S3 ELF.
 
 Native host smoke for the CoreS3 SE target app:
 

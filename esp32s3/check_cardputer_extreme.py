@@ -27,6 +27,7 @@ NOR_OFFSET = 0x110000
 NOR_BYTES = 0x6F0000
 FLASH_BYTES = 8 * 1024 * 1024
 TF_TOC_BYTES = 2048
+NATIVE_SCREEN_BYTES = 240 * 135
 MAX_DRAM_BSS = 210 * 1024
 MAX_DRAM_DATA = 16 * 1024
 MAX_DIRAM_STATIC = 256 * 1024
@@ -520,6 +521,11 @@ def main() -> int:
     target_pack_source = (
         root / "esp32s3/engine_bridge/pal_engine_target_packs.c"
     )
+    native_view_source = root / "esp32s3/main/cardputer_extreme_native_view.c"
+    scene_source = root / "scene.c"
+    battle_source = root / "battle.c"
+    battle_ui_source = root / "uibattle.c"
+    embedded_stubs_source = root / "unix/embedded_contract_stubs.c"
     main_archive = build / "esp-idf/main/libmain.a"
     ninja_path = build / "build.ninja"
     cache_path = build / "CMakeCache.txt"
@@ -544,6 +550,11 @@ def main() -> int:
         partition_bin,
         ui_layout_header,
         target_pack_source,
+        native_view_source,
+        scene_source,
+        battle_source,
+        battle_ui_source,
+        embedded_stubs_source,
         main_archive,
         ninja_path,
         cache_path,
@@ -581,6 +592,58 @@ def main() -> int:
             "target FONT10 validation passes padded partition size "
             "to PalPack_OpenConst"
         )
+
+    native_view_text = native_view_source.read_text(encoding="utf-8")
+    for token in (
+        "CardputerExtreme_CopyIndexedNativeStrip",
+        "(size_t)(destination_y + row) * pitch",
+        "source[destination_x]",
+    ):
+        if token not in native_view_text:
+            errors.append(
+                f"Cardputer direct-native presenter is missing {token!r}"
+            )
+    for token in (
+        "2u * destination_x + 1u",
+        "2u * destination_y + 1u",
+    ):
+        if token in native_view_text:
+            errors.append(
+                f"Cardputer presenter still contains completed-frame scaling {token!r}"
+            )
+    for token in ("PalNativeUi_GetViewport", "PalNativeUi_FocusLogical"):
+        if token in native_view_text:
+            errors.append(
+                f"Cardputer presenter depends on forbidden viewport state {token}"
+            )
+
+    for path in (scene_source, battle_source, battle_ui_source):
+        source_text = path.read_text(encoding="utf-8")
+        if "PalNativeUi_FocusLogical" in source_text:
+            errors.append(f"{path}: map/battle viewport focus was reintroduced")
+    battle_ui_text = battle_ui_source.read_text(encoding="utf-8")
+    for token in (
+        "{SPRITENUM_BATTLEICON_ATTACK,    PAL_XY(27, 140)",
+        "for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)",
+    ):
+        if token not in battle_ui_text:
+            errors.append(
+                f"original battle HUD contract is missing {token!r}"
+            )
+
+    embedded_stubs_text = embedded_stubs_source.read_text(encoding="utf-8")
+    if "PalContract_NativeShowDialogText" not in embedded_stubs_text:
+        errors.append("native dialogue must render one authored message line")
+    for token in (
+        "PalContract_NativeShowWrappedDialogText",
+        "PalContract_NativeDialogLine",
+        "PalContract_NativePopupLineMetrics",
+    ):
+        if token in embedded_stubs_text:
+            errors.append(
+                "native dialogue reintroduced forbidden secondary reflow: "
+                f"{token}"
+            )
 
     try:
         project_description = json.loads(
@@ -708,9 +771,10 @@ def main() -> int:
         )
 
     required_sizes = {
-        "pal_sram_framebuffer": 320 * 200,
-        "pal_sram_aux_framebuffer": 320 * 200,
+        "pal_sram_framebuffer": NATIVE_SCREEN_BYTES,
+        "pal_sram_aux_framebuffer": NATIVE_SCREEN_BYTES,
         "pal_sram_display_dma": 4096,
+        "pal_sram_fbp_scanline": 320,
         # The old 424-record chapter array occupied 13,568 bytes.  The full
         # 5,369-record TF pager must fit entirely inside that same envelope.
         "pal_sram_extreme_event_pages": 3 * 4096,
@@ -751,14 +815,15 @@ def main() -> int:
     if "pal_sram_extreme_global_event_objects" in symbols:
         errors.append("obsolete chapter-only event array is still linked")
     framebuffer_symbols = [
-        name for name, (size, _kind) in symbols.items() if size == 320 * 200
+        name for name, (size, _kind) in symbols.items()
+        if size == NATIVE_SCREEN_BYTES
     ]
     if sorted(framebuffer_symbols) != [
         "pal_sram_aux_framebuffer",
         "pal_sram_framebuffer",
     ]:
         errors.append(
-            "expected exactly two 64,000-byte logical framebuffer symbols, got "
+            "expected exactly two 32,400-byte native framebuffer symbols, got "
             + ",".join(sorted(framebuffer_symbols))
         )
     forbidden_prefixes = ["pal_psram_", "pal_sfx_"]
@@ -848,8 +913,6 @@ def main() -> int:
         "CardputerExtreme_PollKey",
         "CardputerExtreme_FlushIndexedFramebuffer",
         "CardputerExtreme_CopyIndexedNativeStrip",
-        "CardputerExtreme_NativeViewSourceX",
-        "CardputerExtreme_NativeViewSourceY",
         "CardputerExtreme_NativeViewValidate",
         "PalFont10_Open",
         "PalEngineBridge_LogRuntimeMemory",
@@ -860,7 +923,6 @@ def main() -> int:
         "PAL_EventObjectRead",
         "PAL_EventObjectWrite",
         "PalNativeUi_Font10IdentityMatches",
-        "PalNativeUi_GetViewport",
     ]
     if music_profile:
         required_symbols.extend(
@@ -1006,6 +1068,8 @@ def main() -> int:
         errors.append(
             "NOR FONT chunk 1 does not match the generated FONT10 size/format"
         )
+    if nonempty(nor, ARCHIVE["FONT"]) != {1}:
+        errors.append("NOR FONT must contain only the FONT10 chunk 1")
     if ARCHIVE["FONT"] in tf:
         errors.append("FONT10 must be mapped from NOR, not TF")
     if nonempty(nor, ARCHIVE["MAP"]) != nonempty(nor, ARCHIVE["GOP"]):
@@ -1118,8 +1182,8 @@ def main() -> int:
         errors.append("chapter layout must record scene 21 as the completed boundary")
     if closure.get("known_unresolved_event_object_targets") != []:
         errors.append("chapter layout has unexpected unresolved event-object targets")
-    if closure.get("supported_sparse_event_object_targets") != [5334]:
-        errors.append("chapter layout must record sparse event-object 5334 support")
+    if closure.get("supported_sparse_event_object_targets") != []:
+        errors.append("chapter layout has unexpected sparse event-object support")
     if closure.get("known_unmodeled_script_root_classes") != [
         "item-use-equip-throw",
         "magic-use-success",
@@ -1325,7 +1389,7 @@ def main() -> int:
         f"after_main_stack={post_main_stack_reserve}"
     )
     print(
-        f"  screens=2x64000, TF_TOC={tf_toc}/{TF_TOC_BYTES}, "
+        f"  screens=2x{NATIVE_SCREEN_BYTES}, TF_TOC={tf_toc}/{TF_TOC_BYTES}, "
         f"MAP/GOP={len(nonempty(nor, ARCHIVE['MAP']))} chunks, "
         f"sources={len(actual_sources)}, stack_reports={stack_reports}"
     )

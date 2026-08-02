@@ -1,4 +1,5 @@
 #include "../main/cardputer_extreme_board.h"
+#include "../main/cardputer_extreme_native_view.h"
 #include "../main/cores3se_board.h"
 
 #include <errno.h>
@@ -9,12 +10,17 @@
 #include <string.h>
 #include <sys/stat.h>
 
+static uint8_t pal_native_cardputer_argb[
+   CARDPUTER_EXTREME_LCD_WIDTH * CARDPUTER_EXTREME_LCD_HEIGHT * 4u];
+static uint8_t pal_native_cardputer_current_key;
+static uint8_t pal_native_cardputer_pending_key;
+
 /*
  * Host-only board adapter for running the exact Cardputer extreme engine
  * profile through the deterministic harness.  Storage/time/FatFS emulation
  * remains in cores3se_native_shim.c; this file only supplies the different
- * board API.  The real indexed 1:1 viewport/DMA implementation is compiled
- * and linked by the ESP-IDF target build.
+ * board API. The shared scene-mapping math is linked separately so host
+ * screenshots exercise the same coordinates as the ESP-IDF presenter.
  */
 bool
 CardputerExtreme_Begin(
@@ -46,8 +52,72 @@ CardputerExtreme_PollKey(
    bool *pressed
 )
 {
-   (void)ascii;
-   (void)pressed;
+   uint16_t x = 0;
+   uint16_t y = 0;
+   uint8_t desired = 0;
+
+   if (ascii == NULL || pressed == NULL)
+   {
+      return false;
+   }
+   if (pal_native_cardputer_pending_key != 0)
+   {
+      pal_native_cardputer_current_key = pal_native_cardputer_pending_key;
+      pal_native_cardputer_pending_key = 0;
+      *ascii = pal_native_cardputer_current_key;
+      *pressed = true;
+      return true;
+   }
+   if (CoreS3Se_TouchPoint(&x, &y))
+   {
+      if (y < CORES3SE_PAL_Y_OFFSET)
+      {
+         desired = '`';
+      }
+      else if (y >= CORES3SE_PAL_Y_OFFSET + 200u)
+      {
+         desired = '\r';
+      }
+      else if (y < CORES3SE_PAL_Y_OFFSET + 200u / 3u)
+      {
+         desired = ';';
+      }
+      else if (y >= CORES3SE_PAL_Y_OFFSET + 2u * (200u / 3u))
+      {
+         desired = '.';
+      }
+      else if (x < CORES3SE_LCD_WIDTH / 3u)
+      {
+         desired = ',';
+      }
+      else if (x >= 2u * (CORES3SE_LCD_WIDTH / 3u))
+      {
+         desired = '/';
+      }
+      else
+      {
+         desired = '\r';
+      }
+   }
+   if (desired == pal_native_cardputer_current_key)
+   {
+      return false;
+   }
+   if (pal_native_cardputer_current_key != 0)
+   {
+      *ascii = pal_native_cardputer_current_key;
+      *pressed = false;
+      pal_native_cardputer_current_key = 0;
+      pal_native_cardputer_pending_key = desired;
+      return true;
+   }
+   if (desired != 0)
+   {
+      pal_native_cardputer_current_key = desired;
+      *ascii = desired;
+      *pressed = true;
+      return true;
+   }
    return false;
 }
 
@@ -58,12 +128,40 @@ CardputerExtreme_FlushIndexedFramebuffer(
    const uint8_t *palette_rgba
 )
 {
-   /*
-    * unix/deterministic.c hashes and screenshots gpScreen directly.  Avoid a
-    * host-only 32-bit presentation buffer here so the harness still exposes
-    * the same two logical-screen storage shape as the target.
-    */
-   return pixels != NULL && palette_rgba != NULL && pitch >= 320u;
+   uint16_t destination_y;
+
+   if (pixels == NULL || palette_rgba == NULL ||
+      pitch < PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH)
+   {
+      return false;
+   }
+   for (destination_y = 0;
+      destination_y < CARDPUTER_EXTREME_LCD_HEIGHT;
+      destination_y++)
+   {
+      uint16_t destination_x;
+      for (destination_x = 0;
+         destination_x < CARDPUTER_EXTREME_LCD_WIDTH;
+         destination_x++)
+      {
+         const uint8_t *color;
+         uint8_t *destination;
+         color = palette_rgba +
+            (size_t)pixels[(size_t)destination_y * pitch + destination_x] * 4u;
+         destination = pal_native_cardputer_argb +
+            ((size_t)destination_y * CARDPUTER_EXTREME_LCD_WIDTH +
+             destination_x) * 4u;
+         destination[0] = color[2];
+         destination[1] = color[1];
+         destination[2] = color[0];
+         destination[3] = 0xffu;
+      }
+   }
+   return CoreS3Se_FlushArgb8888Texture(
+      pal_native_cardputer_argb,
+      CARDPUTER_EXTREME_LCD_WIDTH,
+      CARDPUTER_EXTREME_LCD_HEIGHT,
+      CARDPUTER_EXTREME_LCD_WIDTH * 4u);
 }
 
 void
@@ -105,7 +203,7 @@ CardputerExtreme_MapSavePath(
    save_dir = getenv("PAL_CORES3SE_NATIVE_SAVE_DIR");
    if (save_dir == NULL || save_dir[0] == '\0')
    {
-      save_dir = "/mnt/hgfs/deb13/PAL";
+      save_dir = "/mnt/hgfs/deb13/PALSteam/PAL_DOS";
    }
    result = snprintf(mapped, mapped_bytes, "%s/%s", save_dir, path + 3);
    return result >= 0 && (size_t)result < mapped_bytes ? mapped : NULL;

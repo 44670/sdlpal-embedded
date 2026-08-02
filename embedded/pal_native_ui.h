@@ -14,27 +14,12 @@
 extern "C" {
 #endif
 
-typedef enum PalNativeUiViewKind {
-    PAL_NATIVE_UI_VIEW_WORLD = 0,
-    PAL_NATIVE_UI_VIEW_UI = 1,
-    PAL_NATIVE_UI_VIEW_DIALOG = 2,
-    PAL_NATIVE_UI_VIEW_BATTLE = 3,
-} PalNativeUiViewKind;
-
 typedef struct PalNativeUiRect {
     int16_t x;
     int16_t y;
     uint16_t width;
     uint16_t height;
 } PalNativeUiRect;
-
-typedef struct PalNativeUiViewport {
-    uint16_t source_x;
-    uint16_t source_y;
-    uint16_t width;
-    uint16_t height;
-    uint8_t kind;
-} PalNativeUiViewport;
 
 typedef struct PalNativeUiDialogLayout {
     PalNativeUiRect portrait;
@@ -45,20 +30,6 @@ typedef struct PalNativeUiDialogLayout {
     uint8_t page_lines;
 } PalNativeUiDialogLayout;
 
-/* Reset to the generated 1:1 world viewport centred on PAL's party anchor. */
-void PalNativeUi_SetWorldView(void);
-
-/* Centre a 1:1 viewport on a logical 320x200 point, clamped at the edges. */
-void PalNativeUi_FocusLogical(
-    int16_t logical_x,
-    int16_t logical_y,
-    PalNativeUiViewKind kind);
-
-/* Dialogue always uses the stable world crop so generated local coordinates
- * do not jump when a prior menu happened to pan the view. */
-void PalNativeUi_SetDialogView(void);
-
-bool PalNativeUi_GetViewport(PalNativeUiViewport *out);
 bool PalNativeUi_GetDialogLayout(
     bool lower,
     bool has_portrait,
@@ -86,6 +57,26 @@ bool PalNativeUi_DrawFont10Glyph(
     int16_t x,
     int16_t y,
     uint8_t color);
+
+/* Map one legacy screen coordinate to the selected physical profile. */
+int16_t PalNativeUi_MapVirtualX(int16_t x);
+int16_t PalNativeUi_MapVirtualY(int16_t y);
+
+/*
+ * Map one RLE material from its legacy position directly into the native
+ * indexed framebuffer. The source is sampled independently on each axis,
+ * transparency is retained, and no intermediate bitmap is allocated.
+ */
+bool PalNativeUi_BlitRleMappedIndexed(
+    const uint8_t *rle,
+    size_t rle_bytes,
+    uint8_t *pixels,
+    uint16_t pitch,
+    uint16_t surface_width,
+    uint16_t surface_height,
+    int16_t virtual_x,
+    int16_t virtual_y,
+    PalNativeUiRect *drawn);
 
 /*
  * Decode only the nearest-centre samples needed for one bounded sprite.

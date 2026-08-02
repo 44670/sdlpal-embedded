@@ -1,7 +1,7 @@
 {
   "schema": "sdlpal-embedded-pack-layout",
   "version": 2,
-  "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile. The active NOR/pal_tf.pak pair keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, excludes audio and the DOS splash unless an explicit profile adds it, and preserves source chunk numbering with zero-sized absent entries. A separate pal_full.pak TF mirror contains every host-decoded/runtime-converted archive for future expansion but is not indexed by the current firmware. This layout is not a proof of a complete story-route closure.",
+  "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile for the stock PALSteam/PAL_DOS data set. The active NOR/pal_tf.pak pair keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, keeps only the corpus-subsetted 10px font in NOR, excludes audio and the DOS splash unless an explicit profile adds it, and preserves source chunk numbering with zero-sized absent entries. A separate pal_full.pak TF mirror contains every host-decoded/runtime-converted archive for future expansion but is not indexed by the current firmware. This layout is not a proof of a complete story-route closure.",
   "range_semantics": "All chunk ranges are inclusive [first, last].",
   "packs": {
     "nor": [
@@ -409,7 +409,9 @@
         "all": true
       },
       "FONT": {
-        "all": true
+        "chunks": [
+          1
+        ]
       }
     },
     "tf": {
@@ -444,15 +446,14 @@
         "known_unresolved_event_object_targets": [
         ],
         "supported_sparse_event_object_targets": [
-            5334
         ],
         "known_unmodeled_script_root_classes": [
             "item-use-equip-throw",
             "magic-use-success",
             "poison-player-dying-friend-death"
         ],
-        "notes": "A conservative script traversal reaches scene 21 from selected scene 22. The extreme runtime replaces that exact transition with a visible chapter-complete endpoint, and a deterministic probe verifies that it remains in scene 22. Sparse global-state event 5334 is explicitly mapped and persisted by the SZC2 runtime. Full intended-route and indirect object-script closure are still required before this profile can be called route-proven.",
-        "dataset": "/mnt/hgfs/deb13/PAL",
+        "notes": "A conservative script traversal reaches scene 21 from selected scene 22. The extreme runtime replaces that exact transition with a visible chapter-complete endpoint, and a deterministic probe verifies that it remains in scene 22. The selected stock PAL_DOS script closure has no out-of-prefix event-object target. Full intended-route and indirect object-script closure are still required before this profile can be called route-proven.",
+        "dataset": "/mnt/hgfs/deb13/PALSteam/PAL_DOS",
     "scenes": {
       "ids": [
         1,

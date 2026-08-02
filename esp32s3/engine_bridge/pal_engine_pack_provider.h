@@ -21,6 +21,12 @@ void PalEngineBridge_ClearOverlayPack(void);
 bool PalEngineBridge_SetTfPackReadAt(uint32_t pack_size, PalEngineBridgeReadAt read_at, void *user);
 bool PalEngineBridge_GetActivePackSetId(uint32_t *pack_set_id);
 bool PalEngineBridge_HasNativeChunk(uint16_t archive_id, uint16_t chunk_id);
+int PalEngineBridge_GetNativeChunkSize(FILE *fp, uint16_t chunk_id);
+bool PalEngineBridge_ReadNativeChunkRange(FILE *fp,
+                                          uint16_t chunk_id,
+                                          uint32_t chunk_offset,
+                                          uint8_t *dst,
+                                          uint32_t size);
 void PalEngineBridge_ClearPacks(void);
 bool PalEngineBridge_TargetInitPacks(void);
 bool PalContract_TargetOpenNorPack(PalPack *pack);

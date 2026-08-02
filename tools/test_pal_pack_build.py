@@ -24,7 +24,7 @@ EXTREME_EARLY_MUSIC_TRACKS = {
     1, 2, 3, 4, 8, 11, 12, 24, 30, 31, 33, 34, 36,
     37, 38, 49, 61, 65, 70, 71, 75, 76, 77, 86, 87,
 }
-PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PAL")
+PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PALSteam/PAL_DOS")
 
 spec = importlib.util.spec_from_file_location("pal_pack_build_under_test", BUILDER_PATH)
 assert spec is not None and spec.loader is not None
@@ -456,6 +456,30 @@ class CardputerExtremeClosureTests(unittest.TestCase):
             for object_id in cls.enemy_object_ids
         }
 
+    def test_stock_pal_dos_identity_restores_lin_carpenter_dialogue(self) -> None:
+        self.assertEqual(len(self.events), 5332 * 32)
+        self.assertEqual(len(self.scenes), 294 * 8)
+        self.assertEqual(len(self.objects), 565 * 12)
+        self.assertEqual(len(self.entries), 42292)
+
+        event_113 = struct.unpack_from("<16H", self.events, (113 - 1) * 32)
+        self.assertEqual(event_113[4], 7739)
+        self.assertEqual(self.entries[7739], (0xFFFF, 1790, 0, 0))
+
+        offsets = struct.unpack(
+            f"<{len(self.sss[3]) // 4}I", self.sss[3]
+        )
+        messages = builder.find_data_file(PAL_DATA_DIR, "M.MSG").read_bytes()
+
+        def message(index: int) -> str:
+            return messages[offsets[index] : offsets[index + 1]].decode(
+                "cp950", errors="strict"
+            )
+
+        self.assertEqual(message(1790), "林木匠：")
+        self.assertEqual(message(1791), "啊～逍遙，你來的正好")
+        self.assertEqual(message(1792), "過來幫幫我吧．．")
+
     def test_scene_map_and_event_sprite_closure(self) -> None:
         map_count = len(builder.read_mkf(builder.find_data_file(PAL_DATA_DIR, "MAP.MKF")))
         gop_count = len(builder.read_mkf(builder.find_data_file(PAL_DATA_DIR, "GOP.MKF")))
@@ -534,7 +558,7 @@ class CardputerExtremeClosureTests(unittest.TestCase):
             and self.entries[index][1] > self.max_event_end
         }
         supported_sparse = set(audit["supported_sparse_event_object_targets"])
-        self.assertEqual(supported_sparse, {5334})
+        self.assertEqual(supported_sparse, set())
         self.assertEqual(
             unresolved_event_targets - supported_sparse,
             set(audit["known_unresolved_event_object_targets"]),

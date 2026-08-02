@@ -3,7 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
-static uint8_t pixels[320u * 200u];
+static uint8_t pixels[
+    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH *
+    PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT];
 static uint8_t palette[256u * 4u];
 static uint8_t output[PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH * 2u * 2u];
 
@@ -15,34 +17,18 @@ static int fail(const char *message)
 
 int main(void)
 {
-    PalNativeUiViewport viewport;
-    uint16_t source;
+    uint16_t destination_x;
+    uint16_t destination_y;
     uint16_t x;
     uint16_t y;
 
-    PalNativeUi_SetWorldView();
-    if (!PalNativeUi_GetViewport(&viewport) ||
-        !CardputerExtreme_NativeViewValidate()) {
+    if (!CardputerExtreme_NativeViewValidate()) {
         return fail("native view validation failed");
     }
-    if (!CardputerExtreme_NativeViewSourceX(0u, &source) ||
-        source != viewport.source_x ||
-        !CardputerExtreme_NativeViewSourceX(
-            viewport.width - 1u, &source) ||
-        source != viewport.source_x + viewport.width - 1u) {
-        return fail("native x mapping is not 1:1");
-    }
-    if (!CardputerExtreme_NativeViewSourceY(0u, &source) ||
-        source != viewport.source_y ||
-        !CardputerExtreme_NativeViewSourceY(
-            viewport.height - 1u, &source) ||
-        source != viewport.source_y + viewport.height - 1u) {
-        return fail("native y mapping is not 1:1");
-    }
-
-    for (y = 0; y < 200u; y++) {
-        for (x = 0; x < 320u; x++) {
-            pixels[(size_t)y * 320u + x] = (uint8_t)(x + y);
+    for (y = 0; y < PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT; y++) {
+        for (x = 0; x < PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH; x++) {
+            pixels[(size_t)y * PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH + x] =
+                (uint8_t)(x + y);
         }
     }
     for (x = 0; x < 256u; x++) {
@@ -53,21 +39,29 @@ int main(void)
     }
     memset(output, 0, sizeof(output));
     if (!CardputerExtreme_CopyIndexedNativeStrip(
-            pixels, 320u, palette, 0u, 2u, output,
-            viewport.width * 2u, sizeof(output))) {
+            pixels, PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+            palette, 0u, 2u, output,
+            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH * 2u,
+            sizeof(output))) {
         return fail("native strip conversion failed");
     }
-    if (output[0] != (uint8_t)(
-            (pixels[(size_t)viewport.source_y * 320u +
-                    viewport.source_x] & 0xf8u)) ||
-        output[1] != 0u) {
-        return fail("native strip sampled the wrong source pixel");
-    }
+    for (destination_y = 0; destination_y < 2u; destination_y++) {
+        for (destination_x = 0;
+             destination_x < PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH;
+             destination_x++) {
+            size_t offset =
+                ((size_t)destination_y *
+                 PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH + destination_x) * 2u;
+            uint8_t expected;
 
-    PalNativeUi_FocusLogical(0, 0, PAL_NATIVE_UI_VIEW_UI);
-    if (!CardputerExtreme_NativeViewSourceX(0u, &source) || source != 0u ||
-        !CardputerExtreme_NativeViewSourceY(0u, &source) || source != 0u) {
-        return fail("native view did not follow a UI focus");
+            expected = (uint8_t)(pixels[
+                (size_t)destination_y *
+                    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH + destination_x] &
+                0xf8u);
+            if (output[offset] != expected || output[offset + 1u] != 0u) {
+                return fail("native strip changed a source pixel");
+            }
+        }
     }
     return 0;
 }

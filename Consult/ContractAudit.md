@@ -1,5 +1,11 @@
 # Embedded Runtime Contract Audit
 
+> Historical dataset note: measurements and commands that name
+> `/mnt/hgfs/deb13/PAL` reproduce the former audited data set. The active
+> Cardputer ADV extreme build now uses
+> `/mnt/hgfs/deb13/PALSteam/PAL_DOS`; current target measurements come from the
+> checker and ELF/map artifacts described in `esp32s3/README.md`.
+
 This records the current state against the target contract:
 
 - no project-side runtime heap allocation,

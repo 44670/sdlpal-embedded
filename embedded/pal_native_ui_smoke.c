@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
+static uint8_t mapped_pixels[
+    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH *
+    PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT];
+
 static int fail(const char *message)
 {
     fprintf(stderr, "%s\n", message);
@@ -11,7 +15,6 @@ static int fail(const char *message)
 
 int main(void)
 {
-    PalNativeUiViewport viewport;
     PalNativeUiDialogLayout dialog;
     PalNativeUiRect box = { 0, 0, 2, 2 };
     PalNativeUiRect drawn;
@@ -26,54 +29,29 @@ int main(void)
         13, 14, 15, 16,
     };
 
-    PalNativeUi_SetWorldView();
-    if (!PalNativeUi_GetViewport(&viewport) ||
-        viewport.width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH ||
-        viewport.height != PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT ||
-        viewport.source_x != PAL_NATIVE_UI_GENERATED_WORLD_ORIGIN_X ||
-        viewport.source_y != PAL_NATIVE_UI_GENERATED_WORLD_ORIGIN_Y) {
-        return fail("bad generated world viewport");
-    }
-
-    PalNativeUi_FocusLogical(-100, -100, PAL_NATIVE_UI_VIEW_UI);
-    if (!PalNativeUi_GetViewport(&viewport) ||
-        viewport.source_x != 0u || viewport.source_y != 0u) {
-        return fail("viewport did not clamp at top-left");
-    }
-    PalNativeUi_FocusLogical(1000, 1000, PAL_NATIVE_UI_VIEW_UI);
-    if (!PalNativeUi_GetViewport(&viewport) ||
-        viewport.source_x + viewport.width !=
-            PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH ||
-        viewport.source_y + viewport.height !=
-            PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT) {
-        return fail("viewport did not clamp at bottom-right");
-    }
-
-    PalNativeUi_SetDialogView();
-    if (!PalNativeUi_GetViewport(&viewport) ||
-        !PalNativeUi_GetDialogLayout(false, true, &dialog) ||
+    if (!PalNativeUi_GetDialogLayout(false, true, &dialog) ||
         dialog.portrait.x >= dialog.text.x ||
         dialog.page_lines != 4u ||
         (uint32_t)dialog.text.x + dialog.text.width >
-            viewport.source_x + viewport.width) {
+            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH) {
         return fail("upper dialogue layout is invalid");
     }
     if (!PalNativeUi_GetDialogLayout(true, true, &dialog) ||
         dialog.text.x >= dialog.portrait.x ||
         dialog.page_lines != 4u ||
-        dialog.title_x != (int16_t)(viewport.source_x +
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X)) {
+        dialog.title_x !=
+            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X) {
         return fail("lower dialogue layout is invalid");
     }
     if (!PalNativeUi_GetDialogLayout(false, false, &dialog) ||
         dialog.text.width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 8u ||
-        dialog.title_x != (int16_t)(viewport.source_x +
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X)) {
+        dialog.title_x !=
+            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X) {
         return fail("portrait-free dialogue layout is invalid");
     }
     if (!PalNativeUi_GetDialogLayout(true, false, &dialog) ||
-        dialog.title_x != (int16_t)(viewport.source_x +
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X)) {
+        dialog.title_x !=
+            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X) {
         return fail("portrait-free lower dialogue title is invalid");
     }
     if (!PalNativeUi_GetCenterDialogLayout(&dialog) ||
@@ -90,6 +68,22 @@ int main(void)
         pixels[0] != 6u || pixels[1] != 8u ||
         pixels[4] != 14u || pixels[5] != 16u) {
         return fail("nearest-centre RLE fit mismatch");
+    }
+
+    memset(mapped_pixels, 0, sizeof(mapped_pixels));
+    if (!PalNativeUi_BlitRleMappedIndexed(
+            rle, sizeof(rle), mapped_pixels,
+            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+            PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
+            0, 0, &drawn) ||
+        drawn.x != 0 || drawn.y != 0 ||
+        drawn.width != (uint16_t)PalNativeUi_MapVirtualX(4) ||
+        drawn.height != (uint16_t)PalNativeUi_MapVirtualY(4) ||
+        mapped_pixels[0] == 0u ||
+        mapped_pixels[(size_t)(drawn.height - 1u) *
+            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH + drawn.width - 1u] != 16u) {
+        return fail("mapped RLE material mismatch");
     }
 
     memset(pixels, 0, sizeof(pixels));

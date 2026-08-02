@@ -41,10 +41,13 @@ main(
    uint8_t catalog_image[
       PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET +
       PAL_ENGINE_CACHE_DESCRIPTOR_BYTES];
+   uint8_t set_image[
+      PAL_ENGINE_CACHE_SET_HEADER_BYTES + sizeof(catalog_image)];
    uint8_t commit[PAL_ENGINE_CACHE_COMMIT_BYTES];
    uint8_t partial_commit[PAL_ENGINE_CACHE_COMMIT_BYTES];
    uint8_t digest[32];
    PalEngineChapterCatalog catalog;
+   PalEngineChapterSet set;
    PalEngineChapterDescriptor descriptor;
    PalEngineChapterDescriptor actual;
    uint32_t generation;
@@ -90,6 +93,34 @@ main(
    assert(actual.bundle_id == 7u);
    assert(actual.pack_size == 1234u);
    assert(memcmp(actual.sha256, abc_sha256, sizeof(actual.sha256)) == 0);
+
+   memset(set_image, 0, sizeof(set_image));
+   write_le32(set_image, PAL_ENGINE_CACHE_SET_MAGIC);
+   write_le16(set_image + 4u, PAL_ENGINE_CACHE_SET_VERSION);
+   write_le16(set_image + 6u, PAL_ENGINE_CACHE_SET_HEADER_BYTES);
+   write_le32(set_image + 8u, sizeof(set_image));
+   write_le32(set_image + 12u, catalog.set_id);
+   write_le32(set_image + 16u, 4u);
+   write_le32(set_image + 20u, PAL_ENGINE_CACHE_SET_HEADER_BYTES);
+   write_le32(set_image + 24u, sizeof(catalog_image));
+   PalEngineChapterCache_Sha256((const uint8_t *)"core", 4u,
+      set_image + PAL_ENGINE_CACHE_SET_CORE_SHA256_OFFSET);
+   memcpy(set_image + PAL_ENGINE_CACHE_SET_HEADER_BYTES,
+      catalog_image, sizeof(catalog_image));
+   crc = PalEngineChapterCache_Crc32(set_image, sizeof(set_image),
+      PAL_ENGINE_CACHE_SET_CRC32_OFFSET, 4u);
+   write_le32(set_image + PAL_ENGINE_CACHE_SET_CRC32_OFFSET, crc);
+   assert(PalEngineChapterCache_OpenSet(&set,
+      set_image, sizeof(set_image)));
+   assert(set.set_id == catalog.set_id);
+   assert(set.core_size == 4u);
+   assert(set.catalog.image_size == sizeof(catalog_image));
+   assert(memcmp(set.catalog.image, catalog_image,
+      sizeof(catalog_image)) == 0);
+   set_image[PAL_ENGINE_CACHE_SET_HEADER_BYTES] ^= 1u;
+   assert(!PalEngineChapterCache_OpenSet(&set,
+      set_image, sizeof(set_image)));
+   set_image[PAL_ENGINE_CACHE_SET_HEADER_BYTES] ^= 1u;
 
    descriptor = actual;
    assert(PalEngineChapterCache_BuildCommit(commit, sizeof(commit),

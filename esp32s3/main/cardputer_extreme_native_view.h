@@ -1,11 +1,14 @@
 #ifndef CARDPUTER_EXTREME_NATIVE_VIEW_H
 #define CARDPUTER_EXTREME_NATIVE_VIEW_H
 
-#include "pal_native_ui.h"
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#ifndef PAL_NATIVE_UI_GENERATED_HEADER
+#define PAL_NATIVE_UI_GENERATED_HEADER "generated/pal_native_ui_240x135.h"
+#endif
+#include PAL_NATIVE_UI_GENERATED_HEADER
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,16 +19,9 @@ extern "C" {
 #define CARDPUTER_EXTREME_VIEW_HEIGHT \
     PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
 
-bool CardputerExtreme_NativeViewSourceX(
-    uint16_t destination_x,
-    uint16_t *source_x);
-bool CardputerExtreme_NativeViewSourceY(
-    uint16_t destination_y,
-    uint16_t *source_y);
 bool CardputerExtreme_NativeViewValidate(void);
 
-/* Convert a 1:1 indexed crop to big-endian RGB565.  There is deliberately no
- * sample table, scale factor, interpolation, or whole-frame resize here. */
+/* Convert an already-native indexed framebuffer to one RGB565 DMA strip. */
 bool CardputerExtreme_CopyIndexedNativeStrip(
     const uint8_t *pixels,
     uint16_t pitch,

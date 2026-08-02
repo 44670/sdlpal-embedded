@@ -52,12 +52,12 @@ set g_nSpriteToDrawHighWater=0
 call PAL_MakeScene()
 
 printf "CARDPUTER_DRAW_STRESS count=%d high_water=%d capacity=512\n", g_nSpriteToDraw, g_nSpriteToDrawHighWater
-if g_nSpriteToDraw != 358
-  printf "CARDPUTER_DRAW_STRESS FAIL: expected count 358\n"
+if g_nSpriteToDraw != 342
+  printf "CARDPUTER_DRAW_STRESS FAIL: expected count 342\n"
   quit 2
 end
-if g_nSpriteToDrawHighWater != 358
-  printf "CARDPUTER_DRAW_STRESS FAIL: expected high-water 358\n"
+if g_nSpriteToDrawHighWater != 342
+  printf "CARDPUTER_DRAW_STRESS FAIL: expected high-water 342\n"
   quit 3
 end
 printf "CARDPUTER_DRAW_STRESS PASS\n"

@@ -121,10 +121,10 @@ typedef char cardputer_extreme_view_height_matches[
      CARDPUTER_EXTREME_PAL_VIEW_HEIGHT == CARDPUTER_EXTREME_LCD_HEIGHT)
         ? 1
         : -1];
-typedef char cardputer_extreme_logical_screen_matches[
+typedef char cardputer_extreme_native_screen_matches[
     (PAL_EXTREME_SCREEN_BYTES ==
-     PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH *
-         PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT) ? 1 : -1];
+     PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH *
+         PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT) ? 1 : -1];
 
 typedef struct CardputerExtremeKeyEvent {
     uint8_t ascii;
@@ -786,9 +786,8 @@ CardputerExtreme_Begin(void)
 {
     gpio_config_t button_cfg = {0};
 
-    PalNativeUi_SetWorldView();
     if (!CardputerExtreme_NativeViewValidate()) {
-        ESP_LOGE(TAG, "generated native PAL viewport validation failed");
+        ESP_LOGE(TAG, "generated PAL scene mapping validation failed");
         return false;
     }
     button_cfg.pin_bit_mask = 1ULL << PIN_BUTTON_A;
@@ -1054,10 +1053,10 @@ CardputerExtreme_FlushIndexedFramebuffer(
     uint16_t y;
 
     if (lcd_io == NULL || pixels == NULL || palette_rgba == NULL ||
-        PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH *
-            PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT !=
+        PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH *
+            PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT !=
             PAL_EXTREME_SCREEN_BYTES ||
-        pitch < PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH || max_rows == 0) {
+        pitch < PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH || max_rows == 0) {
         return false;
     }
 
@@ -1099,14 +1098,13 @@ CardputerExtreme_FlushArgb8888Texture(
         (uint16_t)(PAL_EXTREME_DISPLAY_DMA_BYTES /
                    (CARDPUTER_EXTREME_LCD_WIDTH * 2u));
     const uint8_t *source_pixels = (const uint8_t *)pixels;
-    PalNativeUiViewport viewport;
     uint16_t y;
 
     if (lcd_io == NULL || source_pixels == NULL ||
-        width != PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH ||
-        height != PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT ||
+        width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH ||
+        height != PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT ||
         (uint32_t)pitch < (uint32_t)width * 4u ||
-        max_rows == 0 || !PalNativeUi_GetViewport(&viewport)) {
+        max_rows == 0) {
         return false;
     }
 
@@ -1118,19 +1116,17 @@ CardputerExtreme_FlushArgb8888Texture(
             rows = max_rows;
         }
         for (row = 0; row < rows; row++) {
-            uint16_t source_y = (uint16_t)(viewport.source_y + y + row);
             uint16_t *destination =
                 (uint16_t *)pal_sram_display_dma +
                 (uint32_t)row * CARDPUTER_EXTREME_LCD_WIDTH;
-            const uint8_t *source = source_pixels +
-                (uint32_t)source_y * pitch +
-                (uint32_t)viewport.source_x * 4u;
             uint16_t display_x;
-
             for (display_x = 0;
                  display_x < CARDPUTER_EXTREME_LCD_WIDTH;
                  display_x++) {
-                const uint8_t *pixel = source + (uint32_t)display_x * 4u;
+                const uint8_t *pixel;
+
+                pixel = source_pixels + (uint32_t)(y + row) * pitch +
+                    (uint32_t)display_x * 4u;
                 /* SDL ARGB8888 is B,G,R,A in little-endian memory. */
                 destination[display_x] =
                     lcd_wire_rgb565(pixel[2], pixel[1], pixel[0]);

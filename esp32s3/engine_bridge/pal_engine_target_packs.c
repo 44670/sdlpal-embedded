@@ -16,6 +16,7 @@
 #include <stdbool.h>
 #include <inttypes.h>
 #include <stdint.h>
+#include <string.h>
 
 #define PAL_ENGINE_NOR_PARTITION_SUBTYPE 0x40
 #define PAL_ENGINE_PACK_HEADER_BYTES 32u
@@ -98,15 +99,30 @@ PalEngineBridge_TargetInitPacks(
    uint32_t nor_pack_size;
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
    PalPack core_pack;
-   PalPackSpan catalog_span;
+   PalPackSpan core_catalog_span;
    PalFont10Cache font10;
    uint32_t core_set_id;
+   const uint8_t *catalog_image = NULL;
+   uint32_t catalog_size = 0u;
 #elif defined(PAL_CARDPUTER_EXTREME)
    PalPack nor_pack;
    PalFont10Cache font10;
 #endif
 
    PalEngineBridge_ClearPacks();
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+   if (!PalTarget_MountTf())
+   {
+      ESP_LOGE(TAG, "TF mount failed before core verification");
+      return false;
+   }
+   if (!PalEngineChapterCache_TargetPrepareCore(
+         &catalog_image, &catalog_size, &core_set_id))
+   {
+      ESP_LOGE(TAG, "TF core preparation failed");
+      return false;
+   }
+#endif
    partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
       PAL_ENGINE_NOR_PARTITION_SUBTYPE,
       PAL_ENGINE_NOR_PARTITION_LABEL);
@@ -132,11 +148,10 @@ PalEngineBridge_TargetInitPacks(
       return false;
    }
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
-   core_set_id = read_le32(
-      pal_sram_engine_pack_header + PAL_ENGINE_PACK_SET_ID_OFFSET);
-   if (core_set_id == 0u)
+   if (read_le32(pal_sram_engine_pack_header +
+         PAL_ENGINE_PACK_SET_ID_OFFSET) != core_set_id)
    {
-      ESP_LOGE(TAG, "invalid core pack header");
+      ESP_LOGE(TAG, "core pack and TF set IDs differ");
       return false;
    }
 #endif
@@ -152,23 +167,18 @@ PalEngineBridge_TargetInitPacks(
    if (!PalPack_OpenConst(&core_pack,
          (const uint8_t *)nor_image, nor_pack_size) ||
       !PalFont10_Open(&core_pack, &font10) ||
-      !PalNativeUi_Font10IdentityMatches(
-         font10.glyph_count,
-         font10.size,
-         font10.payload_crc32,
-         font10.cell_width,
-         font10.cell_height,
-         (int8_t)font10.ascent,
-         (int8_t)font10.descent) ||
+      font10.cell_width != 10u || font10.cell_height != 10u ||
       !PalPack_MapConst(&core_pack,
-         PAL_ENGINE_CACHE_CATALOG_ARCHIVE, 0u, &catalog_span) ||
+         PAL_ENGINE_CACHE_CATALOG_ARCHIVE, 0u, &core_catalog_span) ||
+      core_catalog_span.size != catalog_size ||
+      memcmp(core_catalog_span.data, catalog_image, catalog_size) != 0 ||
       !PalEngineBridge_SetCorePackConst(
          (const uint8_t *)nor_image, nor_pack_size))
    {
       esp_partition_munmap(pal_engine_nor_mmap_handle);
       pal_engine_nor_mmap_handle = 0;
       ESP_LOGE(TAG,
-         "core pack, generated FONT10, or chapter catalog validation failed");
+         "core pack, FONT10 geometry, or external catalog validation failed");
       return false;
    }
 #else
@@ -196,11 +206,13 @@ PalEngineBridge_TargetInitPacks(
    }
 #endif
 
+#if !defined(PAL_EXTREME_CHAPTER_CACHE)
    if (!PalTarget_MountTf())
    {
       ESP_LOGE(TAG, "TF mount failed");
       return false;
    }
+#endif
    PalTarget_PrepareTfAccess();
    if (!pal_engine_tf_open &&
       f_open(&pal_engine_tf_file, PAL_ENGINE_TF_PACK_PATH, FA_READ | FA_OPEN_EXISTING) != FR_OK)
@@ -220,8 +232,8 @@ PalEngineBridge_TargetInitPacks(
 
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
    if (!PalEngineChapterCache_TargetInit(
-         catalog_span.data,
-         catalog_span.size,
+         catalog_image,
+         catalog_size,
          core_set_id,
          chapter_overlay_changed,
          NULL))

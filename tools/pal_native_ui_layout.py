@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the small-screen PAL native-view contract.
+"""Generate native framebuffer, map-view, and dialogue constants.
 
-This generator deliberately does not design replacement screens.  The game
-continues to draw the original 320x200 indexed scene and original DATA.MKF UI
-sprites.  A generated 1:1 viewport exposes that scene on a smaller display;
-only dialogue coordinates and bounded per-asset limits differ by profile.
+The generated profile describes a physical render target. 320x200 remains a
+legacy script/event coordinate contract; it is not an intermediate framebuffer
+and the presenter never resizes a completed legacy scene.
 """
 
 from __future__ import annotations
@@ -19,30 +18,17 @@ from typing import Iterable
 import pal_pack_build
 
 
-LOGICAL_WIDTH = 320
-LOGICAL_HEIGHT = 200
+VIRTUAL_WIDTH = 320
+VIRTUAL_HEIGHT = 200
 MIN_DISPLAY_WIDTH = 160
 MIN_DISPLAY_HEIGHT = 128
 DEFAULT_PROFILES = ((240, 135), (160, 128))
-WORLD_FOCUS_X = 160
-WORLD_FOCUS_Y = 112
+MAP_VIEW_FOCUS_X = 160
+MAP_VIEW_FOCUS_Y = 112
 FONT_LINE_HEIGHT = 10
 DIALOG_PAGE_LINES = 4
+DIALOG_SOURCE_LINE_CELLS = 13
 DIALOG_POPUP_SINGLE_TEXT_INSET_Y = 10
-DIALOG_POPUP_MULTI_TEXT_INSET_Y = 12
-BATTLE_ACTION_GROUP_RIGHT = 84
-BATTLE_INFO_ORIGINAL_X = 91
-BATTLE_INFO_FRAME_WIDTH = 75
-BATTLE_INFO_FACE_LEFT_INSET = 2
-BATTLE_VIEW_FOCUS_Y = 170
-BATTLE_ATTACK_POS = (27, 140)
-BATTLE_MAGIC_POS = (0, 155)
-BATTLE_COOP_MAGIC_POS = (54, 155)
-BATTLE_MISC_POS = (27, 170)
-BATTLE_INFO_Y = 165
-BATTLE_RESULT_FOCUS = (153, 110)
-BATTLE_LEVEL_UP_FOCUS_X = 170
-ITEM_USE_FOCUS_X = 200
 
 
 @dataclass(frozen=True)
@@ -66,21 +52,13 @@ class DialogLayout:
 
 
 @dataclass(frozen=True)
-class Point:
+class SystemMenuLayout:
     x: int
     y: int
-
-
-@dataclass(frozen=True)
-class BattleLayout:
-    attack: Point
-    magic: Point
-    coop_magic: Point
-    misc: Point
-    info_local_x: int
-    info_y: int
-    result_focus: Point
-    level_up_focus: Point
+    text_x: int
+    text_y: int
+    row_height: int
+    visible_rows: int
 
 
 @dataclass(frozen=True)
@@ -88,13 +66,12 @@ class Profile:
     name: str
     display_width: int
     display_height: int
-    world_origin_x: int
-    world_origin_y: int
+    map_view_offset_x: int
+    map_view_offset_y: int
     upper: DialogLayout
     lower: DialogLayout
     center_text: Rect
-    battle: BattleLayout
-    item_use_focus: Point
+    system_menu: SystemMenuLayout
     font: dict[str, int]
 
 
@@ -106,26 +83,16 @@ def _origin(focus: int, extent: int, logical_extent: int) -> int:
     return _clamp(focus - extent // 2, 0, logical_extent - extent)
 
 
-def _battle_info_local_x(width: int) -> int:
-    return min(
-        BATTLE_INFO_ORIGINAL_X,
-        max(
-            BATTLE_ACTION_GROUP_RIGHT + BATTLE_INFO_FACE_LEFT_INSET,
-            width - BATTLE_INFO_FRAME_WIDTH,
-        ),
-    )
-
-
 def _validate_profile_size(width: int, height: int) -> None:
-    if not MIN_DISPLAY_WIDTH <= width <= LOGICAL_WIDTH:
+    if not MIN_DISPLAY_WIDTH <= width <= VIRTUAL_WIDTH:
         raise ValueError(
             "native PAL display width must be between "
-            f"{MIN_DISPLAY_WIDTH} and {LOGICAL_WIDTH}: {width}"
+            f"{MIN_DISPLAY_WIDTH} and {VIRTUAL_WIDTH}: {width}"
         )
-    if not MIN_DISPLAY_HEIGHT <= height <= LOGICAL_HEIGHT:
+    if not MIN_DISPLAY_HEIGHT <= height <= VIRTUAL_HEIGHT:
         raise ValueError(
             "native PAL display height must be between "
-            f"{MIN_DISPLAY_HEIGHT} and {LOGICAL_HEIGHT}: {height}"
+            f"{MIN_DISPLAY_HEIGHT} and {VIRTUAL_HEIGHT}: {height}"
         )
 
 
@@ -159,16 +126,25 @@ def build_profile(
     if font["cell_width"] != 10 or font["cell_height"] != 10:
         raise ValueError("native PAL UI requires the pinned 10x10 FONT10 cell")
 
-    battle_origin_y = _origin(
-        BATTLE_VIEW_FOCUS_Y, height, LOGICAL_HEIGHT
+    system_row_height = 18
+    system_text_y = 12
+    system_bottom_inset = 12
+    system_visible_rows = max(
+        1,
+        1 + (height - system_text_y - system_bottom_inset -
+             FONT_LINE_HEIGHT) // system_row_height,
     )
 
     return Profile(
         name=f"{width}x{height}",
         display_width=width,
         display_height=height,
-        world_origin_x=_origin(WORLD_FOCUS_X, width, LOGICAL_WIDTH),
-        world_origin_y=_origin(WORLD_FOCUS_Y, height, LOGICAL_HEIGHT),
+        map_view_offset_x=_origin(
+            MAP_VIEW_FOCUS_X, width, VIRTUAL_WIDTH
+        ),
+        map_view_offset_y=_origin(
+            MAP_VIEW_FOCUS_Y, height, VIRTUAL_HEIGHT
+        ),
         upper=DialogLayout(
             portrait=Rect(margin, margin, portrait_size, portrait_size),
             title_x=margin + portrait_size + gap,
@@ -223,52 +199,14 @@ def build_profile(
             width - margin * 2,
             FONT_LINE_HEIGHT * DIALOG_PAGE_LINES,
         ),
-        battle=BattleLayout(
-            # Preserve the original four-icon diamond and its vertical
-            # placement.  X is local to the live player-focused viewport so
-            # the original assets remain reachable without panning away from
-            # the acting player.
-            attack=Point(
-                BATTLE_ATTACK_POS[0],
-                BATTLE_ATTACK_POS[1] - battle_origin_y,
-            ),
-            magic=Point(
-                BATTLE_MAGIC_POS[0],
-                BATTLE_MAGIC_POS[1] - battle_origin_y,
-            ),
-            coop_magic=Point(
-                BATTLE_COOP_MAGIC_POS[0],
-                BATTLE_COOP_MAGIC_POS[1] - battle_origin_y,
-            ),
-            misc=Point(
-                BATTLE_MISC_POS[0],
-                BATTLE_MISC_POS[1] - battle_origin_y,
-            ),
-            # The original face extends two pixels left of the 75px info
-            # frame.  Solve for the closest placement to PAL's x=91 that
-            # keeps the face clear of the 84px-wide action group and, when
-            # possible, keeps the frame inside the physical viewport.  At
-            # 160px those constraints meet at x=86, so only the last
-            # decorative frame-edge pixel is clipped.
-            info_local_x=_battle_info_local_x(width),
-            info_y=BATTLE_INFO_Y - battle_origin_y,
-            # Victory/result chrome remains at PAL's original 320x200
-            # coordinates.  Pan the 1:1 viewport to the readable result
-            # region instead of leaving it on the acting fighter.
-            result_focus=Point(*BATTLE_RESULT_FOCUS),
-            # The original level-up page is taller than either certified
-            # display.  Keep its title and primary level/HP/MP rows visible
-            # with a stable top crop; later rows remain reachable only on a
-            # taller generated profile.
-            level_up_focus=Point(BATTLE_LEVEL_UP_FOCUS_X, height // 2),
+        system_menu=SystemMenuLayout(
+            x=0,
+            y=0,
+            text_x=13,
+            text_y=system_text_y,
+            row_height=system_row_height,
+            visible_rows=system_visible_rows,
         ),
-        # The original item-target modal puts the selected name at x=125,
-        # the item picture at x=120, and primary values through about x=276.
-        # A focus at x=200 retains that useful 156px span even at 160px,
-        # instead of centring only the name and clipping every numeric value.
-        # Keep y at the top crop so level/HP/MP and all party names remain
-        # visible; no menu pixels or gameplay coordinates are moved.
-        item_use_focus=Point(ITEM_USE_FOCUS_X, height // 2),
         font=font,
     )
 
@@ -298,19 +236,19 @@ def emit_header(profile: Profile) -> str:
     loading_bar_height = 18 if profile.display_width >= 200 else 16
     lines = [
         "/* Generated by tools/pal_native_ui_layout.py; do not edit. */",
-        f"/* profile={profile.name} native 1:1 PAL viewport */",
+        f"/* profile={profile.name} responsive PAL display */",
         f"#ifndef {guard}",
         f"#define {guard}",
         "",
         "#define PAL_NATIVE_UI_SCHEMA_VERSION 1u",
         f"#define {p}_DISPLAY_WIDTH {profile.display_width}u",
         f"#define {p}_DISPLAY_HEIGHT {profile.display_height}u",
-        f"#define {p}_LOGICAL_WIDTH {LOGICAL_WIDTH}u",
-        f"#define {p}_LOGICAL_HEIGHT {LOGICAL_HEIGHT}u",
-        f"#define {p}_WORLD_FOCUS_X {WORLD_FOCUS_X}",
-        f"#define {p}_WORLD_FOCUS_Y {WORLD_FOCUS_Y}",
-        f"#define {p}_WORLD_ORIGIN_X {profile.world_origin_x}u",
-        f"#define {p}_WORLD_ORIGIN_Y {profile.world_origin_y}u",
+        f"#define {p}_VIRTUAL_WIDTH {VIRTUAL_WIDTH}u",
+        f"#define {p}_VIRTUAL_HEIGHT {VIRTUAL_HEIGHT}u",
+        f"#define {p}_MAP_VIEW_FOCUS_X {MAP_VIEW_FOCUS_X}",
+        f"#define {p}_MAP_VIEW_FOCUS_Y {MAP_VIEW_FOCUS_Y}",
+        f"#define {p}_MAP_VIEW_OFFSET_X {profile.map_view_offset_x}u",
+        f"#define {p}_MAP_VIEW_OFFSET_Y {profile.map_view_offset_y}u",
         f"#define {p}_FONT_GLYPH_COUNT {profile.font['glyph_count']}u",
         f"#define {p}_FONT_IMAGE_BYTES {profile.font['image_bytes']}u",
         f"#define {p}_FONT_PAYLOAD_CRC32 0x{profile.font['payload_crc32']:08x}u",
@@ -320,8 +258,8 @@ def emit_header(profile: Profile) -> str:
         f"#define {p}_FONT_DESCENT {profile.font['descent']}u",
         f"#define {p}_DIALOG_LINE_HEIGHT {FONT_LINE_HEIGHT}u",
         f"#define {p}_DIALOG_PAGE_LINES {DIALOG_PAGE_LINES}u",
+        f"#define {p}_DIALOG_SOURCE_LINE_CELLS {DIALOG_SOURCE_LINE_CELLS}u",
         f"#define {p}_DIALOG_POPUP_SINGLE_TEXT_INSET_Y {DIALOG_POPUP_SINGLE_TEXT_INSET_Y}u",
-        f"#define {p}_DIALOG_POPUP_MULTI_TEXT_INSET_Y {DIALOG_POPUP_MULTI_TEXT_INSET_Y}u",
         "",
         "/* Original DATA.MKF #9 visual contract; no replacement chrome. */",
         f"#define {p}_UI_ARCHIVE_CHUNK 9u",
@@ -338,26 +276,6 @@ def emit_header(profile: Profile) -> str:
         f"#define {p}_MENU_INACTIVE_COLOR 0x18u",
         f"#define {p}_MENU_CONFIRMED_COLOR 0x2cu",
         f"#define {p}_MENU_SELECTED_FIRST_COLOR 0xf9u",
-        "",
-        "/* Original battle HUD assets, placed inside the live viewport. */",
-        f"#define {p}_BATTLE_ATTACK_LOCAL_X {profile.battle.attack.x}",
-        f"#define {p}_BATTLE_ATTACK_LOCAL_Y {profile.battle.attack.y}",
-        f"#define {p}_BATTLE_MAGIC_LOCAL_X {profile.battle.magic.x}",
-        f"#define {p}_BATTLE_MAGIC_LOCAL_Y {profile.battle.magic.y}",
-        f"#define {p}_BATTLE_COOP_MAGIC_LOCAL_X {profile.battle.coop_magic.x}",
-        f"#define {p}_BATTLE_COOP_MAGIC_LOCAL_Y {profile.battle.coop_magic.y}",
-        f"#define {p}_BATTLE_MISC_LOCAL_X {profile.battle.misc.x}",
-        f"#define {p}_BATTLE_MISC_LOCAL_Y {profile.battle.misc.y}",
-        f"#define {p}_BATTLE_INFO_LOCAL_X {profile.battle.info_local_x}",
-        f"#define {p}_BATTLE_INFO_LOCAL_Y {profile.battle.info_y}",
-        f"#define {p}_BATTLE_RESULT_FOCUS_X {profile.battle.result_focus.x}",
-        f"#define {p}_BATTLE_RESULT_FOCUS_Y {profile.battle.result_focus.y}",
-        f"#define {p}_BATTLE_LEVEL_UP_FOCUS_X {profile.battle.level_up_focus.x}",
-        f"#define {p}_BATTLE_LEVEL_UP_FOCUS_Y {profile.battle.level_up_focus.y}",
-        "",
-        "/* Original modal pixels stay put; these anchors only pan the 1:1 view. */",
-        f"#define {p}_ITEM_USE_FOCUS_X {profile.item_use_focus.x}",
-        f"#define {p}_ITEM_USE_FOCUS_Y {profile.item_use_focus.y}",
         "",
         "/* Chapter-cache loading screen geometry; not gameplay UI. */",
         f"#define {p}_LOADING_GLYPH_WIDTH {loading_glyph_width}u",
@@ -402,6 +320,16 @@ def emit_header(profile: Profile) -> str:
     ))
     lines.append("")
     lines.extend(_macro_rect(f"{p}_DIALOG_CENTER_TEXT", profile.center_text))
+    lines.extend([
+        "",
+        "/* System menu starts at the LCD origin and scrolls if required. */",
+        f"#define {p}_SYSTEM_MENU_X {profile.system_menu.x}",
+        f"#define {p}_SYSTEM_MENU_Y {profile.system_menu.y}",
+        f"#define {p}_SYSTEM_MENU_TEXT_X {profile.system_menu.text_x}",
+        f"#define {p}_SYSTEM_MENU_TEXT_Y {profile.system_menu.text_y}",
+        f"#define {p}_SYSTEM_MENU_ROW_HEIGHT {profile.system_menu.row_height}u",
+        f"#define {p}_SYSTEM_MENU_VISIBLE_ROWS {profile.system_menu.visible_rows}u",
+    ])
     lines.extend(["", f"#endif /* {guard} */", ""])
     return "\n".join(lines)
 
@@ -445,8 +373,10 @@ def generate(
     manifest_payload = {
         "schema": "sdlpal-native-ui-layout",
         "version": 1,
-        "rendering": "original-320x200-indexed-with-native-1x-viewport",
-        "whole_frame_scaling": False,
+        "rendering": "direct-native-framebuffer",
+        "virtual_coordinates": "legacy-events-and-scripts-only",
+        "map_view": "native-source-region-centered-on-party-anchor",
+        "completed_scene_scaling": False,
         "profiles": [profile.name for profile in profiles],
         "font10": font_summary,
     }
@@ -474,7 +404,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         action="append",
         metavar="WIDTHxHEIGHT",
         help=(
-            "native viewport to generate; repeat for multiple profiles "
+            "native display profile to generate; repeat for multiple profiles "
             "(default: 240x135 and 160x128)"
         ),
     )

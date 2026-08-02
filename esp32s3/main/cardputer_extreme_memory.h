@@ -3,16 +3,26 @@
 
 #include <stdint.h>
 
+#ifndef PAL_NATIVE_UI_GENERATED_HEADER
+#define PAL_NATIVE_UI_GENERATED_HEADER "generated/pal_native_ui_240x135.h"
+#endif
+#include PAL_NATIVE_UI_GENERATED_HEADER
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define PAL_EXTREME_SCREEN_BYTES (320u * 200u)
+#define PAL_EXTREME_SCREEN_WIDTH PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
+#define PAL_EXTREME_SCREEN_HEIGHT PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
+#define PAL_EXTREME_SCREEN_BYTES \
+    (PAL_EXTREME_SCREEN_WIDTH * PAL_EXTREME_SCREEN_HEIGHT)
 #define PAL_EXTREME_DISPLAY_DMA_BYTES (4u * 1024u)
+#define PAL_EXTREME_FBP_SCANLINE_BYTES 320u
 
 extern uint8_t pal_sram_framebuffer[PAL_EXTREME_SCREEN_BYTES];
 extern uint8_t pal_sram_aux_framebuffer[PAL_EXTREME_SCREEN_BYTES];
 extern uint8_t pal_sram_display_dma[PAL_EXTREME_DISPLAY_DMA_BYTES];
+extern uint8_t pal_sram_fbp_scanline[PAL_EXTREME_FBP_SCANLINE_BYTES];
 
 void CardputerExtreme_TouchReservedBuffers(void);
 

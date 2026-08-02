@@ -23,7 +23,7 @@ class NativeUiLayoutTests(unittest.TestCase):
         profile = layout.build_profile(200, 150, FONT)
         self.assertEqual(profile.name, "200x150")
         self.assertEqual(
-            (profile.world_origin_x, profile.world_origin_y), (60, 37)
+            (profile.map_view_offset_x, profile.map_view_offset_y), (60, 37)
         )
         for dialog in (profile.upper, profile.lower):
             self.assertGreater(dialog.text.width, 0)
@@ -50,13 +50,21 @@ class NativeUiLayoutTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     layout.parse_profile_size(value)
 
-    def test_world_view_is_one_to_one_and_player_centered(self) -> None:
+    def test_compatibility_origins_are_deterministic(self) -> None:
         p240 = layout.build_profile(240, 135, FONT)
         p160 = layout.build_profile(160, 128, FONT)
-        self.assertEqual((p240.world_origin_x, p240.world_origin_y), (40, 45))
-        self.assertEqual((p160.world_origin_x, p160.world_origin_y), (80, 48))
-        self.assertEqual(p240.world_origin_x + 120, layout.WORLD_FOCUS_X)
-        self.assertEqual(p160.world_origin_x + 80, layout.WORLD_FOCUS_X)
+        self.assertEqual(
+            (p240.map_view_offset_x, p240.map_view_offset_y), (40, 45)
+        )
+        self.assertEqual(
+            (p160.map_view_offset_x, p160.map_view_offset_y), (80, 48)
+        )
+        self.assertEqual(
+            p240.map_view_offset_x + 120, layout.MAP_VIEW_FOCUS_X
+        )
+        self.assertEqual(
+            p160.map_view_offset_x + 80, layout.MAP_VIEW_FOCUS_X
+        )
 
     def test_dialog_is_bounded_and_keeps_original_asymmetry(self) -> None:
         for width, height in ((240, 135), (160, 128)):
@@ -85,99 +93,47 @@ class NativeUiLayoutTests(unittest.TestCase):
             )
             self.assertEqual(profile.center_text.height, 40)
 
-    def test_header_forbids_whole_frame_scaling_contract(self) -> None:
-        header = layout.emit_header(layout.build_profile(240, 135, FONT))
-        self.assertIn("LOGICAL_WIDTH 320u", header)
-        self.assertIn("DISPLAY_WIDTH 240u", header)
-        self.assertIn("WORLD_ORIGIN_X 40u", header)
-        self.assertNotIn("SCALE_", header)
-        self.assertNotIn("SAMPLE_", header)
-        self.assertIn("DIALOG_POPUP_SINGLE_TEXT_INSET_Y 10u", header)
-        self.assertIn("DIALOG_POPUP_MULTI_TEXT_INSET_Y 12u", header)
-        self.assertIn("DIALOG_UPPER_TITLE_NO_PORTRAIT_X 12", header)
-        self.assertIn("DIALOG_LOWER_TITLE_NO_PORTRAIT_X 12", header)
-
-    def test_battle_keeps_original_hud_shape_inside_player_view(self) -> None:
-        for width, height, info_x, battle_y in (
-            (240, 135, 91, (75, 90, 90, 105, 100)),
-            (160, 128, 86, (68, 83, 83, 98, 93)),
-        ):
-            profile = layout.build_profile(width, height, FONT)
-            battle = profile.battle
-            self.assertEqual(
-                (
-                    (battle.attack.x, battle.attack.y),
-                    (battle.magic.x, battle.magic.y),
-                    (battle.coop_magic.x, battle.coop_magic.y),
-                    (battle.misc.x, battle.misc.y),
-                ),
-                (
-                    (27, battle_y[0]),
-                    (0, battle_y[1]),
-                    (54, battle_y[2]),
-                    (27, battle_y[3]),
-                ),
-            )
-            self.assertLess(battle.coop_magic.x, width)
-            self.assertEqual(battle.info_local_x, info_x)
-            self.assertEqual(battle.info_y, battle_y[4])
-
-            result_left = max(0, battle.result_focus.x - width // 2)
-            result_top = max(0, battle.result_focus.y - height // 2)
-            self.assertLessEqual(result_left, 77)
-            self.assertGreaterEqual(result_left + width, 230)
-            self.assertLessEqual(result_top, 60)
-            self.assertGreaterEqual(result_top + height, 140)
-            self.assertEqual(
-                (battle.result_focus.x, battle.result_focus.y), (153, 110)
-            )
-            self.assertEqual(battle.level_up_focus.x, 170)
-            self.assertEqual(
-                max(0, battle.level_up_focus.y - height // 2), 0
+        # 240x135 is the current visual-acceptance profile. Its portrait-side
+        # text rectangle must hold one authored 13-cell line at native 10px.
+        accepted = layout.build_profile(240, 135, FONT)
+        for dialog in (accepted.upper, accepted.lower):
+            self.assertGreaterEqual(
+                dialog.text.width,
+                layout.DIALOG_SOURCE_LINE_CELLS *
+                FONT["metrics"]["cell_width"],
             )
 
-            header = layout.emit_header(profile)
-            self.assertIn("BATTLE_ATTACK_LOCAL_X 27", header)
-            self.assertIn(
-                f"BATTLE_INFO_LOCAL_X {info_x}", header
-            )
-            self.assertIn(
-                f"BATTLE_ATTACK_LOCAL_Y {battle_y[0]}", header
-            )
-            self.assertIn("BATTLE_RESULT_FOCUS_X 153", header)
-            self.assertIn("BATTLE_RESULT_FOCUS_Y 110", header)
-            self.assertIn("BATTLE_LEVEL_UP_FOCUS_X 170", header)
-            self.assertIn(
-                f"BATTLE_LEVEL_UP_FOCUS_Y {height // 2}", header
-            )
-            self.assertNotIn("BATTLE_INFO_STRIDE", header)
-
-        # The solver returns to PAL's original x=91 as soon as the 75px
-        # frame fits without touching the 84px action group.
-        self.assertEqual(layout._battle_info_local_x(161), 86)
-        self.assertEqual(layout._battle_info_local_x(165), 90)
-        self.assertEqual(layout._battle_info_local_x(166), 91)
-
-    def test_item_target_focus_keeps_name_picture_and_primary_values(self) -> None:
+    def test_system_menu_fits_the_lcd(self) -> None:
         for width, height in ((240, 135), (160, 128)):
             profile = layout.build_profile(width, height, FONT)
-            focus = profile.item_use_focus
-            left = max(0, focus.x - width // 2)
-            top = max(0, focus.y - height // 2)
-
-            # Original coordinates, not a replacement layout: player names
-            # and the item picture start at x=120/125, while HP/MP values and
-            # slash chrome end around x=276.
-            self.assertLessEqual(left, 120)
-            self.assertGreaterEqual(left + width, 276)
-            self.assertEqual(top, 0)
-            self.assertEqual((focus.x, focus.y), (200, height // 2))
-
-            header = layout.emit_header(profile)
-            self.assertIn("ITEM_USE_FOCUS_X 200", header)
-            self.assertIn(
-                f"ITEM_USE_FOCUS_Y {height // 2}", header
+            self.assertEqual(
+                (profile.system_menu.x, profile.system_menu.y), (0, 0)
             )
+            self.assertGreaterEqual(profile.system_menu.visible_rows, 1)
+            self.assertLessEqual(
+                profile.system_menu.text_y +
+                (profile.system_menu.visible_rows - 1) *
+                profile.system_menu.row_height + layout.FONT_LINE_HEIGHT,
+                height,
+            )
+
+    def test_header_contains_dialog_and_menu_geometry(self) -> None:
+        header = layout.emit_header(layout.build_profile(240, 135, FONT))
+        self.assertIn("VIRTUAL_WIDTH 320u", header)
+        self.assertIn("DISPLAY_WIDTH 240u", header)
+        self.assertIn("MAP_VIEW_OFFSET_X 40u", header)
+        self.assertNotIn("SAMPLE_", header)
+        self.assertIn("DIALOG_SOURCE_LINE_CELLS 13u", header)
+        self.assertIn("DIALOG_POPUP_SINGLE_TEXT_INSET_Y 10u", header)
+        self.assertNotIn("DIALOG_POPUP_MULTI", header)
+        self.assertIn("DIALOG_UPPER_TITLE_NO_PORTRAIT_X 12", header)
+        self.assertIn("DIALOG_LOWER_TITLE_NO_PORTRAIT_X 12", header)
+        self.assertNotIn("STATUS_", header)
+        self.assertIn("SYSTEM_MENU_X 0", header)
+        self.assertIn("SYSTEM_MENU_Y 0", header)
+        self.assertIn("SYSTEM_MENU_VISIBLE_ROWS 6u", header)
+        self.assertNotIn("BATTLE_", header)
+        self.assertNotIn("ITEM_USE_FOCUS", header)
 
 
 if __name__ == "__main__":

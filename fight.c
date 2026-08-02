@@ -25,6 +25,20 @@
 //#define INVINCIBLE 1
 extern WORD g_rgPlayerPos[3][3][2];
 
+static VOID
+PAL_BattleBlitEffectAtAnchor(
+   LPCBITMAPRLE bitmap,
+   INT x,
+   INT y
+)
+{
+   PAL_POS pos = PAL_BattleRenderPosition(PAL_XY(x, y));
+
+   PAL_RLEBlitToSurface(bitmap, gpScreen,
+      PAL_XY(PAL_X(pos) - PAL_RLEGetWidth(bitmap) / 2,
+         PAL_Y(pos) - PAL_RLEGetHeight(bitmap)));
+}
+
 #define PAL_FIGHT_EFFECT_BUFFER NULL
 #define PAL_FIGHT_SUMMON_BUFFER NULL
 #define PAL_FIGHT_EFFECT_BUFFER_BYTES 0
@@ -2265,12 +2279,12 @@ PAL_BattleShowPlayerAttackAnim(
                   y = gpGlobals->g.EnemyPos.pos[j][g_Battle.wMaxEnemyIndex].y;
                   y += g_Battle.rgEnemy[j].e.wYPosOffset;
 
-                  PAL_RLEBlitToSurface(b, gpScreen, PAL_XY(x - PAL_RLEGetWidth(b) / 2, y - PAL_RLEGetHeight(b)));
+                  PAL_BattleBlitEffectAtAnchor(b, x, y);
               }
           }
       }
       else
-          PAL_RLEBlitToSurface(b, gpScreen, PAL_XY(x - PAL_RLEGetWidth(b) / 2, y - PAL_RLEGetHeight(b)));
+          PAL_BattleBlitEffectAtAnchor(b, x, y);
 
       x -= 16;
       y += 16;
@@ -2518,7 +2532,7 @@ PAL_BattleShowPlayerPreMagicAnim(
          PAL_BattleMakeScene();
          VIDEO_CopyEntireSurface(g_Battle.lpSceneBuf, gpScreen);
 
-         PAL_RLEBlitToSurface(b, gpScreen, PAL_XY(x - PAL_RLEGetWidth(b) / 2, y - PAL_RLEGetHeight(b)));
+         PAL_BattleBlitEffectAtAnchor(b, x, y);
 
          PAL_BattleUIUpdate();
 
@@ -4701,7 +4715,7 @@ PAL_BattleEnemyPerformAction(
          PAL_BattleMakeScene();
          VIDEO_CopyEntireSurface(g_Battle.lpSceneBuf, gpScreen);
 
-         PAL_RLEBlitToSurface(b, gpScreen, PAL_XY(x - PAL_RLEGetWidth(b) / 2, y - PAL_RLEGetHeight(b)));
+         PAL_BattleBlitEffectAtAnchor(b, x, y);
 
          PAL_BattleUIUpdate();
 

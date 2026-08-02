@@ -13,32 +13,37 @@ from pathlib import Path
 
 
 TOOLS_DIR = Path(__file__).resolve().parent
-PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PAL")
+PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PALSteam/PAL_DOS")
 FONT10_ARCHIVE = Path(
     os.environ.get(
         "FONT10_ARCHIVE",
-        "/tmp/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip",
+        str(
+            TOOLS_DIR.parent
+            / "third_party"
+            / "fusion-pixel-font"
+            / "fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip"
+        ),
     )
 )
-EXPECTED_CORE_BYTES = 4_376_596
+EXPECTED_CORE_BYTES = 4_310_096
 EXPECTED_TF_BYTES = 11_917_143
-EXPECTED_FULL_BYTES = 57_798_306
+EXPECTED_FULL_BYTES = 57_646_486
 EXPECTED_BUNDLE_BYTES = (
-    2_648_252,
-    2_463_512,
-    2_814_652,
-    2_851_120,
-    2_826_692,
-    2_804_272,
-    2_302_148,
-    2_776_932,
-    1_540_512,
-    2_798_712,
-    2_796_834,
-    2_803_884,
-    2_788_396,
-    2_815_164,
-    2_855_144,
+    2_648_156,
+    2_463_416,
+    2_814_556,
+    2_851_024,
+    2_826_596,
+    2_804_176,
+    2_302_052,
+    2_776_836,
+    1_519_480,
+    2_788_432,
+    2_745_670,
+    2_772_660,
+    2_788_300,
+    2_812_288,
+    2_018_868,
 )
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
@@ -113,6 +118,32 @@ class ChapterPackUnitTests(unittest.TestCase):
         corrupt[-1] ^= 1
         with self.assertRaises(ValueError):
             chapter.verify_catalog(bytes(corrupt))
+
+    def test_set_file_carries_core_hash_and_external_catalog(self) -> None:
+        scene_table = chapter.make_scene_table()
+        images = [bytes([bundle_id]) * (bundle_id + 1) for bundle_id in range(15)]
+        set_id = 0x12345678
+        catalog = chapter.build_catalog(set_id, scene_table, images)
+        core = chapter.pack.build_pack(
+            {"DATA": [chapter.pack.Chunk(b"core", chapter.pack.FORMAT_NATIVE)]},
+            set_id,
+        )
+        set_file = chapter.build_set_file(set_id, core, catalog)
+
+        chapter.verify_set_file(set_file, core)
+        self.assertEqual(set_file[:4], b"PLST")
+        self.assertEqual(struct.unpack_from("<I", set_file, 12)[0], set_id)
+        self.assertEqual(struct.unpack_from("<I", set_file, 16)[0], len(core))
+        self.assertEqual(
+            set_file[32:64],
+            hashlib.sha256(core).digest(),
+        )
+        self.assertEqual(set_file[64:], catalog)
+
+        corrupt = bytearray(set_file)
+        corrupt[-1] ^= 1
+        with self.assertRaises(ValueError):
+            chapter.verify_set_file(bytes(corrupt), core)
 
     def test_cross_scene_006d_target_is_traversed(self) -> None:
         entries = [(0, 0, 0, 0)] * 8
@@ -260,6 +291,7 @@ class ChapterPackRealDataTests(unittest.TestCase):
     def test_real_build_has_complete_fixed_partition(self) -> None:
         self.assertEqual(len(self.build.bundle_packs), 15)
         self.assertEqual(len(self.build.catalog), 932)
+        self.assertEqual(len(self.build.set_file), 996)
         self.assertEqual(len(self.build.core_pack), EXPECTED_CORE_BYTES)
         self.assertEqual(len(self.build.tf_pack), EXPECTED_TF_BYTES)
         self.assertEqual(len(self.build.full_pack), EXPECTED_FULL_BYTES)
@@ -270,6 +302,10 @@ class ChapterPackRealDataTests(unittest.TestCase):
         self.assertEqual(
             {bundle_id for bundle_id in self.build.catalog[32:332]},
             set(range(15)) | {0xFF},
+        )
+        self.assertEqual(
+            self.build.manifest["scene_partition"]["source_scene_row_count"],
+            294,
         )
         for image in (
             self.build.core_pack,
@@ -309,7 +345,15 @@ class ChapterPackRealDataTests(unittest.TestCase):
         )
         self.assertEqual(
             packs["full"]["archives"]["SSS"]["present_chunk_payload_bytes"][0],
-            171_808,
+            170_624,
+        )
+        self.assertEqual(
+            packs["core"]["archives"]["FONT"]["present_chunk_ids"],
+            [1],
+        )
+        self.assertEqual(
+            packs["full"]["archives"]["FONT"]["present_chunk_ids"],
+            [0, 1],
         )
         for bundle in packs["bundles"]:
             self.assertEqual(set(bundle["selection"]), set(chapter.OVERLAY_ARCHIVES))
@@ -372,6 +416,24 @@ class ChapterPackRealDataTests(unittest.TestCase):
                 catalog[offset + 8 : offset + 40],
                 hashlib.sha256(image).digest(),
             )
+
+    def test_external_set_file_matches_core_and_catalog(self) -> None:
+        chapter.verify_set_file(self.build.set_file, self.build.core_pack)
+        self.assertEqual(self.build.set_file[64:], self.build.catalog)
+        summary = self.build.manifest["set_file"]
+        self.assertEqual(summary["filename"], "PALSET.BIN")
+        self.assertEqual(summary["core_size"], len(self.build.core_pack))
+        self.assertEqual(
+            summary["core_sha256"],
+            hashlib.sha256(self.build.core_pack).hexdigest(),
+        )
+        self.assertEqual(
+            self.build.manifest["runtime"]["data_identity_file"],
+            "PALSET.BIN",
+        )
+        self.assertFalse(
+            self.build.manifest["runtime"]["firmware_embeds_data_hashes"]
+        )
 
 
 if __name__ == "__main__":

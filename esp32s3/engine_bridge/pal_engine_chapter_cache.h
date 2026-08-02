@@ -30,6 +30,23 @@ extern "C" {
 #define PAL_ENGINE_CACHE_DESCRIPTOR_BYTES 40u
 #define PAL_ENGINE_CACHE_MAX_BUNDLES 100u
 
+/*
+ * PALSET.BIN is the bounded TF bootstrap record.  It deliberately owns the
+ * data-set identity and hashes so the firmware image contains no generated
+ * resource digest and can boot any compatible pack set.
+ */
+#define PAL_ENGINE_CACHE_SET_MAGIC 0x54534c50u /* "PLST" */
+#define PAL_ENGINE_CACHE_SET_VERSION 1u
+#define PAL_ENGINE_CACHE_SET_HEADER_BYTES 64u
+#define PAL_ENGINE_CACHE_SET_CRC32_OFFSET 28u
+#define PAL_ENGINE_CACHE_SET_CORE_SHA256_OFFSET 32u
+#define PAL_ENGINE_CACHE_SET_MAX_BYTES \
+   (PAL_ENGINE_CACHE_SET_HEADER_BYTES + \
+      PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET + \
+      PAL_ENGINE_CACHE_MAX_BUNDLES * PAL_ENGINE_CACHE_DESCRIPTOR_BYTES)
+
+#define PAL_ENGINE_CORE_PARTITION_BYTES 0x00460000u
+
 #define PAL_ENGINE_CACHE_COMMIT_MAGIC 0x48434c50u /* "PLCH" */
 #define PAL_ENGINE_CACHE_COMMIT_VERSION 1u
 #define PAL_ENGINE_CACHE_COMMIT_BYTES 80u
@@ -49,6 +66,16 @@ typedef struct PalEngineChapterDescriptor {
    uint32_t pack_size;
    uint8_t sha256[32];
 } PalEngineChapterDescriptor;
+
+typedef struct PalEngineChapterSet {
+   const uint8_t *image;
+   uint32_t image_size;
+   uint32_t set_id;
+   uint32_t core_size;
+   const uint8_t *core_sha256;
+   PalEngineChapterCatalog catalog;
+   uint32_t crc32;
+} PalEngineChapterSet;
 
 typedef enum PalEngineChapterCacheDecision {
    PAL_ENGINE_CHAPTER_CACHE_REBUILD = 0,
@@ -70,6 +97,10 @@ void PalEngineChapterCache_Sha256(
    uint8_t digest[32]);
 bool PalEngineChapterCache_OpenCatalog(
    PalEngineChapterCatalog *catalog,
+   const uint8_t *image,
+   uint32_t image_size);
+bool PalEngineChapterCache_OpenSet(
+   PalEngineChapterSet *set,
    const uint8_t *image,
    uint32_t image_size);
 bool PalEngineChapterCache_DescribeScene(
@@ -104,6 +135,12 @@ typedef bool (*PalEngineChapterOverlayChanged)(
    void *user,
    const uint8_t *image,
    uint32_t image_size);
+
+/* Mount TF first, then call this before reading or mapping pal_core. */
+bool PalEngineChapterCache_TargetPrepareCore(
+   const uint8_t **catalog_image,
+   uint32_t *catalog_size,
+   uint32_t *set_id);
 
 bool PalEngineChapterCache_TargetInit(
    const uint8_t *catalog_image,

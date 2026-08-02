@@ -12,6 +12,9 @@ chapter overlay:
 * ``b00.pak`` through ``b14.pak`` contain sparse ABC/GOP/MAP/MGO archives.
 * ``pal_full.pak`` is a complete decoded/native TF mirror for recovery and
   future profiles.  It overlaps the runtime packs and is not runtime-indexed.
+* ``PALSET.BIN`` is the bounded boot record containing the pack-set ID, core
+  SHA-256, and complete chapter catalog.  Firmware contains none of those
+  data-specific values.
 
 Every source chunk keeps its original ID.  YJ1 and RNG decoding is delegated
 to pal_pack_build.py and therefore happens only on the host.
@@ -36,9 +39,17 @@ CATALOG_MAGIC = b"PLBC"
 CATALOG_VERSION = 1
 CATALOG_HEADER_SIZE = 32
 CATALOG_SCENE_COUNT = 300
+PAL_DOS_SOURCE_SCENE_COUNT = 294
 CATALOG_SCENE_TABLE_OFFSET = CATALOG_HEADER_SIZE
 CATALOG_BUNDLE_DESC_SIZE = 40
 CATALOG_CRC32_OFFSET = 28
+
+SET_MAGIC = b"PLST"
+SET_VERSION = 1
+SET_HEADER_SIZE = 64
+SET_CRC32_OFFSET = 28
+SET_CORE_SHA256_OFFSET = 32
+SET_FILENAME = "PALSET.BIN"
 
 SOFT_OVERLAY_CAP = 0x2BF000
 HARD_OVERLAY_PACK_CAP = 0x2CF000
@@ -172,6 +183,7 @@ class GameTables:
     scripts: tuple[tuple[int, int, int, int], ...]
     enemy_teams: bytes
     player_scene_sprites: frozenset[int]
+    source_scene_count: int | None = None
 
     @property
     def event_count(self) -> int:
@@ -180,6 +192,14 @@ class GameTables:
     @property
     def scene_count(self) -> int:
         return len(self.scenes) // 8
+
+    @property
+    def source_scene_row_count(self) -> int:
+        return (
+            self.scene_count
+            if self.source_scene_count is None
+            else self.source_scene_count
+        )
 
     @property
     def object_count(self) -> int:
@@ -235,6 +255,7 @@ class ChapterBuild:
     full_pack: bytes
     bundle_packs: tuple[bytes, ...]
     catalog: bytes
+    set_file: bytes
     manifest: dict[str, object]
 
 
@@ -247,7 +268,7 @@ def parse_game_tables(
         raise ValueError("DATA/SSS archive is missing required chunks")
 
     events = sss[0].payload
-    scenes = sss[1].payload
+    source_scenes = sss[1].payload
     objects = sss[2].payload
     script_data = sss[4].payload
     enemy_teams = data[2].payload
@@ -255,7 +276,7 @@ def parse_game_tables(
 
     for label, blob, record_size in (
         ("SSS event objects", events, 32),
-        ("SSS scenes", scenes, 8),
+        ("SSS scenes", source_scenes, 8),
         ("SSS objects", objects, 12),
         ("SSS scripts", script_data, 8),
         ("DATA enemy teams", enemy_teams, 10),
@@ -264,6 +285,20 @@ def parse_game_tables(
             raise ValueError(f"{label} size {len(blob)} is not a multiple of {record_size}")
     if len(player_roles) < 36:
         raise ValueError("short DATA player-role chunk")
+
+    source_scene_count = len(source_scenes) // 8
+    scenes = source_scenes
+    if source_scene_count == PAL_DOS_SOURCE_SCENE_COUNT:
+        last_boundary = struct.unpack_from(
+            "<H", source_scenes, (source_scene_count - 1) * 8 + 6
+        )[0]
+        if last_boundary != len(events) // 32:
+            raise ValueError(
+                "stock PAL_DOS scene sentinel does not match event count"
+            )
+        scenes += struct.pack("<HHHH", 0, 0, 0, last_boundary) * (
+            CATALOG_SCENE_COUNT - source_scene_count
+        )
 
     scripts = tuple(
         struct.unpack_from("<4H", script_data, offset)
@@ -280,6 +315,7 @@ def parse_game_tables(
         scripts,
         enemy_teams,
         player_scene_sprites,
+        source_scene_count,
     )
 
 
@@ -778,6 +814,106 @@ def verify_catalog(catalog: bytes, expected_pack_set_id: int | None = None) -> N
             raise ValueError(f"empty chapter bundle descriptor {descriptor_index}")
 
 
+def build_set_file(
+    pack_set_id: int,
+    core_pack: bytes,
+    catalog: bytes,
+) -> bytes:
+    """Build the small TF bootstrap record consumed before NOR is mapped."""
+
+    verify_catalog(catalog, pack_set_id)
+    if (
+        not core_pack
+        or len(core_pack) > CORE_SLOT_CAP
+        or len(core_pack) % 4 != 0
+    ):
+        raise ValueError("core pack does not fit the Cardputer core slot")
+    if pack.u32(core_pack, pack.PACK_SET_ID_OFFSET) != pack_set_id:
+        raise ValueError("core pack and chapter catalog set IDs differ")
+
+    total_size = SET_HEADER_SIZE + len(catalog)
+    image = bytearray(SET_HEADER_SIZE)
+    struct.pack_into(
+        "<4sHHIIIIII",
+        image,
+        0,
+        SET_MAGIC,
+        SET_VERSION,
+        SET_HEADER_SIZE,
+        total_size,
+        pack_set_id,
+        len(core_pack),
+        SET_HEADER_SIZE,
+        len(catalog),
+        0,
+    )
+    image[SET_CORE_SHA256_OFFSET:SET_HEADER_SIZE] = hashlib.sha256(
+        core_pack
+    ).digest()
+    image += catalog
+    struct.pack_into(
+        "<I",
+        image,
+        SET_CRC32_OFFSET,
+        zlib.crc32(image) & 0xFFFFFFFF,
+    )
+    verify_set_file(bytes(image), core_pack)
+    return bytes(image)
+
+
+def verify_set_file(
+    image: bytes,
+    core_pack: bytes | None = None,
+) -> None:
+    if len(image) < SET_HEADER_SIZE:
+        raise ValueError("short Cardputer data-set record")
+    (
+        magic,
+        version,
+        header_size,
+        total_size,
+        pack_set_id,
+        core_size,
+        catalog_offset,
+        catalog_size,
+        declared_crc,
+    ) = struct.unpack_from("<4sHHIIIIII", image)
+    if magic != SET_MAGIC or version != SET_VERSION:
+        raise ValueError("bad Cardputer data-set magic/version")
+    if header_size != SET_HEADER_SIZE or total_size != len(image):
+        raise ValueError("bad Cardputer data-set header/total size")
+    if (
+        pack_set_id == 0
+        or core_size == 0
+        or core_size > CORE_SLOT_CAP
+        or core_size % 4 != 0
+    ):
+        raise ValueError("bad Cardputer data-set core descriptor")
+    if catalog_offset != SET_HEADER_SIZE or (
+        catalog_size != total_size - catalog_offset
+    ):
+        raise ValueError("bad Cardputer data-set catalog span")
+    core_sha256 = image[SET_CORE_SHA256_OFFSET:SET_HEADER_SIZE]
+    if core_sha256 == b"\0" * 32:
+        raise ValueError("empty Cardputer data-set core SHA-256")
+    crc_image = bytearray(image)
+    struct.pack_into("<I", crc_image, SET_CRC32_OFFSET, 0)
+    actual_crc = zlib.crc32(crc_image) & 0xFFFFFFFF
+    if declared_crc == 0 or declared_crc != actual_crc:
+        raise ValueError("bad Cardputer data-set CRC32")
+    verify_catalog(
+        image[catalog_offset : catalog_offset + catalog_size],
+        pack_set_id,
+    )
+    if core_pack is not None:
+        if len(core_pack) != core_size:
+            raise ValueError("Cardputer data-set core size mismatch")
+        if hashlib.sha256(core_pack).digest() != core_sha256:
+            raise ValueError("Cardputer data-set core SHA-256 mismatch")
+        if pack.u32(core_pack, pack.PACK_SET_ID_OFFSET) != pack_set_id:
+            raise ValueError("Cardputer data-set core pack ID mismatch")
+
+
 def compact_pack_summary(
     filename: str,
     image: bytes,
@@ -943,10 +1079,12 @@ def build_chapter_packs(
         name: list(source[name])
         for name in CORE_FULL_ARCHIVES
     }
-    # The current no-PSRAM runtime has only 423 fixed event-object slots.
-    # Keep the full SSS source for closure analysis and pal_full.pak, but make
-    # the mapped core template match the executable's explicit compatibility
-    # window.  Scene 23+ remains fail-fast until event-state paging is wired.
+    core_base_archives["FONT"] = sparse_chunks(
+        source["FONT"], {1}, "FONT"
+    )
+    # Keep the historic 423-record core SSS prefix for the always-mapped early
+    # chapter, while EVENT.DEF/EVENT.STA provide the complete paged mutable
+    # table. The full SSS source remains in pal_full.pak for closure analysis.
     core_sss = list(core_base_archives["SSS"])
     if len(core_sss[0].payload) < CORE_EVENT_OBJECT_BYTES:
         raise ValueError(
@@ -993,6 +1131,7 @@ def build_chapter_packs(
     core_archives["CACHE"] = [pack.Chunk(catalog, pack.FORMAT_RAW)]
     core_image = pack.build_pack(core_archives, pack_set_id)
     pack.verify_pack(core_image)
+    set_file = build_set_file(pack_set_id, core_image, catalog)
     oversized = [
         (bundle_id, len(image))
         for bundle_id, image in enumerate(bundle_images)
@@ -1039,6 +1178,9 @@ def build_chapter_packs(
             "payloads_are_runtime_native": True,
             "tf_access_shape": "sequential decoded/native chunk reads",
             "overlay_shape": "one replaceable SPI-NOR bundle",
+            "data_identity_file": SET_FILENAME,
+            "core_tf_file": "pal_core.pak",
+            "firmware_embeds_data_hashes": False,
         },
         "pack_set": {
             "id": pack_set_id,
@@ -1054,7 +1196,7 @@ def build_chapter_packs(
             "catalog_scene_zero_is_reserved": True,
             "playable_scene_first": 1,
             "playable_scene_last": 299,
-            "source_scene_row_count": tables.scene_count,
+            "source_scene_row_count": tables.source_scene_row_count,
             "source_scene_row_300_is_sentinel": True,
             "intervals": [
                 {
@@ -1079,17 +1221,15 @@ def build_chapter_packs(
             "core_startup_mgo_ids": sorted(CORE_STARTUP_MGO),
         },
         "core_event_object_window": {
-            "status": "runtime-compatibility-window-event-pager-not-yet-wired",
+            "status": "full-event-pager-active",
             "record_bytes": 32,
             "core_record_count": CORE_EVENT_OBJECT_COUNT,
             "core_chunk_bytes": CORE_EVENT_OBJECT_BYTES,
             "full_source_record_count": tables.event_count,
             "full_source_chunk_bytes": len(source["SSS"][0].payload),
             "current_runtime_scene_window": "scenes 1..22",
-            "outside_window_behavior": "fail-fast",
-            "future_shape": (
-                "initialize/persist mutable event state through a pager backed "
-                "by the complete decoded SSS chunk in pal_full.pak"
+            "outside_window_behavior": (
+                "bundle cache plus EVENT.DEF/EVENT.STA paging"
             ),
         },
         "catalog": {
@@ -1108,6 +1248,19 @@ def build_chapter_packs(
             "bundle_descriptor_size": CATALOG_BUNDLE_DESC_SIZE,
             "bundle_filename_pattern": "b%02u.pak",
             "scene_zero_bundle": 0xFF,
+        },
+        "set_file": {
+            "filename": SET_FILENAME,
+            "magic": SET_MAGIC.decode("ascii"),
+            "version": SET_VERSION,
+            "header_size": SET_HEADER_SIZE,
+            "size": len(set_file),
+            "sha256": hashlib.sha256(set_file).hexdigest(),
+            "crc32": struct.unpack_from("<I", set_file, SET_CRC32_OFFSET)[0],
+            "core_size": len(core_image),
+            "core_sha256": hashlib.sha256(core_image).hexdigest(),
+            "catalog_offset": SET_HEADER_SIZE,
+            "catalog_size": len(catalog),
         },
         "source_files": pack.source_file_manifest(
             data_dir,
@@ -1152,6 +1305,7 @@ def build_chapter_packs(
         full_image,
         bundle_images,
         catalog,
+        set_file,
         manifest,
     )
 
@@ -1165,6 +1319,7 @@ def write_chapter_build(
     (out_dir / "pal_core.pak").write_bytes(build.core_pack)
     (out_dir / "pal_tf.pak").write_bytes(build.tf_pack)
     (out_dir / "pal_full.pak").write_bytes(build.full_pack)
+    (out_dir / SET_FILENAME).write_bytes(build.set_file)
     for bundle_id, image in enumerate(build.bundle_packs):
         (out_dir / f"b{bundle_id:02d}.pak").write_bytes(image)
 
@@ -1242,7 +1397,10 @@ def main() -> int:
     print_audit(build)
     if not args.audit_only:
         manifest_path = write_chapter_build(build, args.out_dir, args.manifest)
-        print(f"wrote {len(build.bundle_packs) + 3} packs and {manifest_path}")
+        print(
+            f"wrote {len(build.bundle_packs) + 3} packs, {SET_FILENAME}, "
+            f"and {manifest_path}"
+        )
     return 0
 
 

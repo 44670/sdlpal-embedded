@@ -1,0 +1,35 @@
+# 240x135 gameplay UI review SOP
+
+The reviewer is the human currently operating the SDL game. For each major
+screen, use the host WebSocket harness only to start the game and position it
+at a real, interactive gameplay state. Then stop sending simulated input,
+bring the SDL window to the foreground, tell the human what is ready to review,
+and pause. The human explores that screen and its submenus freely, reports any
+problem, and explicitly asks to continue. Do not mark a screen complete or move
+to the next screen until the human reviewer does so.
+
+A harness-positioned state proves rendering and interaction only; it does not
+prove that the natural story route reaches that state. Automated screenshots
+and input routes are preparation and diagnostic evidence; they do not replace
+the human review pause.
+
+Review the major screens in this order:
+
+- [ ] 1. Map / exploration
+- [ ] 2. Dialogue / story presentation
+- [ ] 3. Battle
+- [ ] 4. Main menu / character status
+- [ ] 5. Items / equipment
+- [ ] 6. Magic
+- [ ] 7. Shops
+- [ ] 8. System / save / load / title
+- [ ] 9. Scene transition / chapter loading / terminal screens
+
+For each major screen, check only these three general requirements before
+moving on:
+
+1. Important content is visible and uses the physical canvas sensibly.
+2. Text and numbers are crisp native 10px pixels without post-scaling.
+3. Normal input, cancellation, confirmation, and return to gameplay work.
+
+Store real gameplay screenshots and session-specific notes under `./tmp_ui/`.

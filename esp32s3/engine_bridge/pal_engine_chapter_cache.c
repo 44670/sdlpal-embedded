@@ -17,6 +17,12 @@
 #define PAL_DESCRIPTOR_SIZE_OFFSET 4u
 #define PAL_DESCRIPTOR_SHA256_OFFSET 8u
 
+#define PAL_SET_TOTAL_BYTES_OFFSET 8u
+#define PAL_SET_ID_OFFSET 12u
+#define PAL_SET_CORE_SIZE_OFFSET 16u
+#define PAL_SET_CATALOG_OFFSET 20u
+#define PAL_SET_CATALOG_SIZE_OFFSET 24u
+
 #define PAL_COMMIT_STATE_OFFSET 8u
 #define PAL_COMMIT_SET_ID_OFFSET 12u
 #define PAL_COMMIT_BUNDLE_ID_OFFSET 16u
@@ -456,6 +462,72 @@ PalEngineChapterCache_OpenCatalog(
 }
 
 bool
+PalEngineChapterCache_OpenSet(
+   PalEngineChapterSet *set,
+   const uint8_t *image,
+   uint32_t image_size
+)
+{
+   PalEngineChapterCatalog catalog;
+   uint32_t total_size;
+   uint32_t set_id;
+   uint32_t core_size;
+   uint32_t catalog_offset;
+   uint32_t catalog_size;
+   uint32_t declared_crc;
+   uint8_t nonzero_hash = 0u;
+   unsigned i;
+
+   if (set == NULL || image == NULL ||
+      image_size < PAL_ENGINE_CACHE_SET_HEADER_BYTES ||
+      read_le32(image) != PAL_ENGINE_CACHE_SET_MAGIC ||
+      read_le16(image + 4u) != PAL_ENGINE_CACHE_SET_VERSION ||
+      read_le16(image + 6u) != PAL_ENGINE_CACHE_SET_HEADER_BYTES)
+   {
+      return false;
+   }
+   total_size = read_le32(image + PAL_SET_TOTAL_BYTES_OFFSET);
+   set_id = read_le32(image + PAL_SET_ID_OFFSET);
+   core_size = read_le32(image + PAL_SET_CORE_SIZE_OFFSET);
+   catalog_offset = read_le32(image + PAL_SET_CATALOG_OFFSET);
+   catalog_size = read_le32(image + PAL_SET_CATALOG_SIZE_OFFSET);
+   declared_crc = read_le32(image + PAL_ENGINE_CACHE_SET_CRC32_OFFSET);
+   if (total_size != image_size ||
+      image_size > PAL_ENGINE_CACHE_SET_MAX_BYTES ||
+      set_id == 0u || core_size == 0u || (core_size & 3u) != 0u ||
+      core_size > PAL_ENGINE_CORE_PARTITION_BYTES ||
+      catalog_offset != PAL_ENGINE_CACHE_SET_HEADER_BYTES ||
+      catalog_size != image_size - catalog_offset ||
+      declared_crc == 0u ||
+      PalEngineChapterCache_Crc32(image, image_size,
+         PAL_ENGINE_CACHE_SET_CRC32_OFFSET, 4u) != declared_crc)
+   {
+      return false;
+   }
+   for (i = 0u; i < 32u; i++)
+   {
+      nonzero_hash |= image[PAL_ENGINE_CACHE_SET_CORE_SHA256_OFFSET + i];
+   }
+   if (nonzero_hash == 0u ||
+      !PalEngineChapterCache_OpenCatalog(&catalog,
+         image + catalog_offset, catalog_size) ||
+      catalog.set_id != set_id)
+   {
+      return false;
+   }
+
+   memset(set, 0, sizeof(*set));
+   set->image = image;
+   set->image_size = image_size;
+   set->set_id = set_id;
+   set->core_size = core_size;
+   set->core_sha256 = image + PAL_ENGINE_CACHE_SET_CORE_SHA256_OFFSET;
+   set->catalog = catalog;
+   set->crc32 = declared_crc;
+   return true;
+}
+
+bool
 PalEngineChapterCache_DescribeScene(
    const PalEngineChapterCatalog *catalog,
    uint16_t scene,
@@ -617,6 +689,10 @@ PalEngineChapterCache_Decide(
 
 #define PAL_CACHE_PARTITION_SUBTYPE 0x41u
 #define PAL_CACHE_PARTITION_LABEL "pal_cache"
+#define PAL_CORE_PARTITION_SUBTYPE 0x40u
+#define PAL_CORE_PARTITION_LABEL "pal_core"
+#define PAL_CORE_PACK_PATH "0:/pal_core.pak"
+#define PAL_SET_FILE_PATH "0:/PALSET.BIN"
 #define PAL_CACHE_BUNDLE_PATH_BYTES 11u
 #define PAL_CACHE_ERASE_STEP_BYTES 0x10000u
 #define PAL_CACHE_FIRST_ERASE_BYTES \
@@ -639,6 +715,11 @@ static const char *TAG = "pal_chapter_cache";
 static PalEngineChapterRuntime pal_chapter_runtime;
 static uint8_t pal_sram_chapter_commit_expected[
    PAL_ENGINE_CACHE_COMMIT_BYTES];
+static uint8_t pal_sram_chapter_set_image[
+   PAL_ENGINE_CACHE_SET_MAX_BYTES];
+static PalEngineChapterSet pal_chapter_set;
+static FIL pal_chapter_boot_file;
+static bool pal_chapter_boot_file_open;
 static FIL pal_chapter_bundle_file;
 static bool pal_chapter_bundle_open;
 
@@ -805,6 +886,246 @@ loading_progress(
       percent = 100u;
    }
    CardputerExtreme_ShowLoading((uint8_t)percent);
+}
+
+static bool
+close_boot_file(
+   bool success
+)
+{
+   if (pal_chapter_boot_file_open)
+   {
+      success = f_close(&pal_chapter_boot_file) == FR_OK && success;
+      pal_chapter_boot_file_open = false;
+   }
+   return success;
+}
+
+static bool
+read_set_file(
+   void
+)
+{
+   UINT bytes_read = 0u;
+   uint32_t size;
+   bool success = false;
+
+   memset(&pal_chapter_set, 0, sizeof(pal_chapter_set));
+   CardputerExtreme_PrepareTfAccess();
+   if (pal_chapter_boot_file_open ||
+      f_open(&pal_chapter_boot_file, PAL_SET_FILE_PATH,
+         FA_READ | FA_OPEN_EXISTING) != FR_OK)
+   {
+      return false;
+   }
+   pal_chapter_boot_file_open = true;
+   if ((uint64_t)f_size(&pal_chapter_boot_file) >
+         sizeof(pal_sram_chapter_set_image) ||
+      f_size(&pal_chapter_boot_file) < PAL_ENGINE_CACHE_SET_HEADER_BYTES)
+   {
+      goto done;
+   }
+   size = (uint32_t)f_size(&pal_chapter_boot_file);
+   if (f_read(&pal_chapter_boot_file,
+         pal_sram_chapter_set_image, size, &bytes_read) != FR_OK ||
+      bytes_read != size ||
+      !PalEngineChapterCache_OpenSet(&pal_chapter_set,
+         pal_sram_chapter_set_image, size))
+   {
+      goto done;
+   }
+   success = true;
+
+done:
+   return close_boot_file(success);
+}
+
+static bool
+open_core_file(
+   void
+)
+{
+   CardputerExtreme_PrepareTfAccess();
+   if (pal_chapter_boot_file_open ||
+      f_open(&pal_chapter_boot_file, PAL_CORE_PACK_PATH,
+         FA_READ | FA_OPEN_EXISTING) != FR_OK)
+   {
+      return false;
+   }
+   pal_chapter_boot_file_open = true;
+   if ((uint64_t)f_size(&pal_chapter_boot_file) !=
+      pal_chapter_set.core_size)
+   {
+      return close_boot_file(false);
+   }
+   return true;
+}
+
+static bool
+hash_core_file(
+   uint8_t digest[32]
+)
+{
+   PalChapterSha256 sha;
+   uint32_t offset = 0u;
+   bool success = false;
+
+   if (!open_core_file())
+   {
+      return false;
+   }
+   sha256_init(&sha);
+   while (offset < pal_chapter_set.core_size)
+   {
+      uint32_t amount = pal_chapter_set.core_size - offset;
+      UINT bytes_read = 0u;
+
+      if (amount > PAL_EXTREME_DISPLAY_DMA_BYTES)
+      {
+         amount = PAL_EXTREME_DISPLAY_DMA_BYTES;
+      }
+      if (f_read(&pal_chapter_boot_file,
+            pal_sram_display_dma, amount, &bytes_read) != FR_OK ||
+         bytes_read != amount)
+      {
+         goto done;
+      }
+      sha256_update(&sha, pal_sram_display_dma, amount);
+      offset += amount;
+      loading_progress((10u * offset) / pal_chapter_set.core_size);
+      if ((offset & (PAL_CACHE_ERASE_STEP_BYTES - 1u)) == 0u ||
+         offset == pal_chapter_set.core_size)
+      {
+         vTaskDelay(pdMS_TO_TICKS(1));
+      }
+   }
+   sha256_finish(&sha, digest);
+   success = true;
+
+done:
+   return close_boot_file(success);
+}
+
+static bool
+hash_core_partition(
+   const esp_partition_t *partition,
+   uint8_t digest[32],
+   bool show_progress
+)
+{
+   PalChapterSha256 sha;
+   uint32_t offset = 0u;
+
+   sha256_init(&sha);
+   while (offset < pal_chapter_set.core_size)
+   {
+      uint32_t amount = pal_chapter_set.core_size - offset;
+      if (amount > PAL_EXTREME_DISPLAY_DMA_BYTES)
+      {
+         amount = PAL_EXTREME_DISPLAY_DMA_BYTES;
+      }
+      if (esp_partition_read(partition, offset,
+            pal_sram_display_dma, amount) != ESP_OK)
+      {
+         return false;
+      }
+      sha256_update(&sha, pal_sram_display_dma, amount);
+      offset += amount;
+      if (show_progress)
+      {
+         loading_progress(80u +
+            (20u * offset) / pal_chapter_set.core_size);
+      }
+      if ((offset & (PAL_CACHE_ERASE_STEP_BYTES - 1u)) == 0u ||
+         offset == pal_chapter_set.core_size)
+      {
+         vTaskDelay(pdMS_TO_TICKS(1));
+      }
+   }
+   sha256_finish(&sha, digest);
+   return true;
+}
+
+static bool
+erase_core_partition(
+   const esp_partition_t *partition
+)
+{
+   uint32_t erase_bytes =
+      (pal_chapter_set.core_size +
+         PAL_ENGINE_CACHE_COMMIT_SECTOR_BYTES - 1u) &
+      ~(PAL_ENGINE_CACHE_COMMIT_SECTOR_BYTES - 1u);
+   uint32_t offset = 0u;
+
+   while (offset < erase_bytes)
+   {
+      uint32_t amount = erase_bytes - offset;
+      if (amount > PAL_CACHE_ERASE_STEP_BYTES)
+      {
+         amount = PAL_CACHE_ERASE_STEP_BYTES;
+      }
+      if (esp_partition_erase_range(partition, offset, amount) != ESP_OK)
+      {
+         return false;
+      }
+      offset += amount;
+      loading_progress(10u + (15u * offset) / erase_bytes);
+      vTaskDelay(pdMS_TO_TICKS(1));
+   }
+   return true;
+}
+
+static bool
+copy_core_from_tf(
+   const esp_partition_t *partition
+)
+{
+   uint32_t offset = 0u;
+   bool success = false;
+
+   if (!open_core_file())
+   {
+      return false;
+   }
+   while (offset < pal_chapter_set.core_size)
+   {
+      uint32_t amount = pal_chapter_set.core_size - offset;
+      UINT bytes_read = 0u;
+
+      if (amount > PAL_EXTREME_DISPLAY_DMA_BYTES)
+      {
+         amount = PAL_EXTREME_DISPLAY_DMA_BYTES;
+      }
+      if (f_read(&pal_chapter_boot_file,
+            pal_sram_display_dma, amount, &bytes_read) != FR_OK ||
+         bytes_read != amount ||
+         esp_partition_write(partition, offset,
+            pal_sram_display_dma, amount) != ESP_OK)
+      {
+         goto done;
+      }
+      offset += amount;
+      loading_progress(25u +
+         (55u * offset) / pal_chapter_set.core_size);
+      if ((offset & (PAL_CACHE_ERASE_STEP_BYTES - 1u)) == 0u ||
+         offset == pal_chapter_set.core_size)
+      {
+         vTaskDelay(pdMS_TO_TICKS(1));
+      }
+   }
+   success = true;
+
+done:
+   return close_boot_file(success);
+}
+
+static bool
+show_core_failure(
+   void
+)
+{
+   CardputerExtreme_ShowError("CORE FAIL", "CHECK TF / RESET");
+   return false;
 }
 
 static bool
@@ -1232,6 +1553,71 @@ done:
 }
 
 bool
+PalEngineChapterCache_TargetPrepareCore(
+   const uint8_t **catalog_image,
+   uint32_t *catalog_size,
+   uint32_t *set_id
+)
+{
+   const esp_partition_t *partition;
+   uint8_t digest[32];
+   bool matches;
+
+   if (catalog_image == NULL || catalog_size == NULL || set_id == NULL)
+   {
+      return false;
+   }
+   *catalog_image = NULL;
+   *catalog_size = 0u;
+   *set_id = 0u;
+   if (!read_set_file())
+   {
+      ESP_LOGE(TAG, "invalid or missing %s", PAL_SET_FILE_PATH);
+      return show_core_failure();
+   }
+   partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+      PAL_CORE_PARTITION_SUBTYPE, PAL_CORE_PARTITION_LABEL);
+   if (partition == NULL ||
+      partition->size != PAL_ENGINE_CORE_PARTITION_BYTES ||
+      pal_chapter_set.core_size > partition->size)
+   {
+      ESP_LOGE(TAG, "missing or mis-sized %s partition",
+         PAL_CORE_PARTITION_LABEL);
+      return show_core_failure();
+   }
+
+   matches = hash_core_partition(partition, digest, false) &&
+      digest_equal(digest, pal_chapter_set.core_sha256);
+   if (!matches)
+   {
+      ESP_LOGI(TAG, "rebuilding core (%" PRIu32 " bytes)",
+         pal_chapter_set.core_size);
+      loading_progress(0u);
+      if (!hash_core_file(digest) ||
+         !digest_equal(digest, pal_chapter_set.core_sha256) ||
+         !erase_core_partition(partition) ||
+         !copy_core_from_tf(partition) ||
+         !hash_core_partition(partition, digest, true) ||
+         !digest_equal(digest, pal_chapter_set.core_sha256))
+      {
+         ESP_LOGE(TAG, "core reconstruction failed");
+         return show_core_failure();
+      }
+      loading_progress(100u);
+      ESP_LOGI(TAG, "core SHA-256 committed from TF");
+   }
+   else
+   {
+      ESP_LOGI(TAG, "core SHA-256 verified");
+   }
+
+   *catalog_image = pal_chapter_set.catalog.image;
+   *catalog_size = pal_chapter_set.catalog.image_size;
+   *set_id = pal_chapter_set.set_id;
+   return true;
+}
+
+bool
 PalEngineChapterCache_TargetInit(
    const uint8_t *catalog_image,
    uint32_t catalog_size,
@@ -1373,6 +1759,28 @@ PalEngineChapterCache_CurrentBundle(
 }
 
 #else
+
+bool
+PalEngineChapterCache_TargetPrepareCore(
+   const uint8_t **catalog_image,
+   uint32_t *catalog_size,
+   uint32_t *set_id
+)
+{
+   if (catalog_image != NULL)
+   {
+      *catalog_image = NULL;
+   }
+   if (catalog_size != NULL)
+   {
+      *catalog_size = 0u;
+   }
+   if (set_id != NULL)
+   {
+      *set_id = 0u;
+   }
+   return false;
+}
 
 bool
 PalEngineChapterCache_TargetInit(

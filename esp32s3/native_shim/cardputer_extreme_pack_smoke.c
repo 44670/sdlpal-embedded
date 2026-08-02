@@ -159,9 +159,13 @@ main(
    mapped = NULL;
    mapped_size = 0;
    if (__wrap_PAL_MKFGetChunkSize(1, fbp) != 320 * 200 ||
+      PalEngineBridge_GetNativeChunkSize(fbp, 1) != 320 * 200 ||
       __wrap_PAL_MKFMapChunk(fbp, 1, &mapped, &mapped_size) ||
       __wrap_PAL_MKFReadChunk(tf_chunk, sizeof(tf_chunk), 1, fbp) !=
          (int)sizeof(tf_chunk) ||
+      !PalEngineBridge_ReadNativeChunkRange(fbp, 1, 12345u,
+         rng_frame, 320u) ||
+      memcmp(rng_frame, tf_chunk + 12345u, 320u) != 0 ||
       tf.calls <= toc_calls)
    {
       fprintf(stderr, "TF-owned FBP streaming failed\n");

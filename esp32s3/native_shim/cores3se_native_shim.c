@@ -10,6 +10,22 @@
 
 #include <png.h>
 
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST
+#define SDL_MAIN_HANDLED 1
+#if defined(__has_include)
+#if __has_include(<SDL2/SDL.h>)
+#define PAL_NATIVE_HAVE_REAL_SDL 1
+#include <SDL2/SDL.h>
+#endif
+#endif
+#ifndef PAL_NATIVE_HAVE_REAL_SDL
+#define PAL_NATIVE_HAVE_REAL_SDL 0
+#endif
+#if PAL_NATIVE_HAVE_REAL_SDL
+#include <dlfcn.h>
+#endif
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -30,6 +46,48 @@ static unsigned pal_native_delay_count;
 static bool pal_native_wrote_screenshot;
 static unsigned pal_native_argb_present_count;
 static png_byte pal_native_png_image[CORES3SE_LCD_WIDTH * CORES3SE_LCD_HEIGHT * 3u];
+
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST && PAL_NATIVE_HAVE_REAL_SDL
+typedef struct PalNativeDisplay {
+    void *lib;
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    SDL_Texture *texture;
+    bool tried;
+    bool ready;
+    bool quit;
+    bool mouse_down;
+    int mouse_x;
+    int mouse_y;
+    int key_dir;
+    bool key_enter;
+    bool key_escape;
+    uint16_t logical_width;
+    uint16_t logical_height;
+    int (*Init)(Uint32 flags);
+    void (*Quit)(void);
+    SDL_Window *(*CreateWindow)(const char *title, int x, int y, int w, int h, Uint32 flags);
+    void (*DestroyWindow)(SDL_Window *window);
+    SDL_Renderer *(*CreateRenderer)(SDL_Window *window, int index, Uint32 flags);
+    void (*DestroyRenderer)(SDL_Renderer *renderer);
+    SDL_Texture *(*CreateTexture)(SDL_Renderer *renderer, Uint32 format, int access, int w, int h);
+    void (*DestroyTexture)(SDL_Texture *texture);
+    int (*UpdateTexture)(SDL_Texture *texture, const SDL_Rect *rect, const void *pixels, int pitch);
+    int (*RenderClear)(SDL_Renderer *renderer);
+    int (*RenderCopy)(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_Rect *src, const SDL_Rect *dst);
+    void (*RenderPresent)(SDL_Renderer *renderer);
+    int (*PollEvent)(SDL_Event *event);
+    void (*Delay)(Uint32 ms);
+    Uint32 (*GetTicks)(void);
+    int (*SetRenderDrawColor)(SDL_Renderer *renderer, Uint8 r, Uint8 g, Uint8 b, Uint8 a);
+    int (*RenderSetLogicalSize)(SDL_Renderer *renderer, int w, int h);
+    void (*GetWindowSize)(SDL_Window *window, int *w, int *h);
+    void (*SetWindowTitle)(SDL_Window *window, const char *title);
+} PalNativeDisplay;
+
+static PalNativeDisplay pal_native_display;
+static uint32_t pal_native_display_lcd_argb[CORES3SE_LCD_WIDTH * CORES3SE_LCD_HEIGHT];
+#endif
 
 #if PAL_CORES3SE_NATIVE_ENGINE_HOST
 FILE *__real_fopen(const char *path, const char *mode);
@@ -65,6 +123,408 @@ static const char *env_or_default(const char *name, const char *fallback)
     return (value != NULL && value[0] != '\0') ? value : fallback;
 }
 
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST && PAL_NATIVE_HAVE_REAL_SDL
+static bool env_enabled(const char *name)
+{
+    const char *value = getenv(name);
+
+    return value != NULL && value[0] != '\0' &&
+           strcmp(value, "0") != 0 &&
+           strcmp(value, "false") != 0 &&
+           strcmp(value, "no") != 0;
+}
+
+static void *native_sdl_symbol(const char *name)
+{
+    void *symbol;
+
+    if (pal_native_display.lib == NULL || name == NULL) {
+        return NULL;
+    }
+    symbol = dlsym(pal_native_display.lib, name);
+    if (symbol == NULL) {
+        fprintf(stderr, "missing SDL2 symbol: %s\n", name);
+    }
+    return symbol;
+}
+
+#define PAL_NATIVE_LOAD_SDL(name) \
+    do { \
+        pal_native_display.name = native_sdl_symbol("SDL_" #name); \
+        if (pal_native_display.name == NULL) { \
+            return false; \
+        } \
+    } while (0)
+
+static bool native_display_load_sdl(void)
+{
+    pal_native_display.lib = dlopen("libSDL2-2.0.so.0", RTLD_NOW | RTLD_LOCAL);
+    if (pal_native_display.lib == NULL) {
+        pal_native_display.lib = dlopen("libSDL2.so", RTLD_NOW | RTLD_LOCAL);
+    }
+    if (pal_native_display.lib == NULL) {
+        fprintf(stderr, "failed to load SDL2 for native display: %s\n", dlerror());
+        return false;
+    }
+
+    PAL_NATIVE_LOAD_SDL(Init);
+    PAL_NATIVE_LOAD_SDL(Quit);
+    PAL_NATIVE_LOAD_SDL(CreateWindow);
+    PAL_NATIVE_LOAD_SDL(DestroyWindow);
+    PAL_NATIVE_LOAD_SDL(CreateRenderer);
+    PAL_NATIVE_LOAD_SDL(DestroyRenderer);
+    PAL_NATIVE_LOAD_SDL(CreateTexture);
+    PAL_NATIVE_LOAD_SDL(DestroyTexture);
+    PAL_NATIVE_LOAD_SDL(UpdateTexture);
+    PAL_NATIVE_LOAD_SDL(RenderClear);
+    PAL_NATIVE_LOAD_SDL(RenderCopy);
+    PAL_NATIVE_LOAD_SDL(RenderPresent);
+    PAL_NATIVE_LOAD_SDL(PollEvent);
+    PAL_NATIVE_LOAD_SDL(Delay);
+    PAL_NATIVE_LOAD_SDL(GetTicks);
+    PAL_NATIVE_LOAD_SDL(SetRenderDrawColor);
+    PAL_NATIVE_LOAD_SDL(RenderSetLogicalSize);
+    PAL_NATIVE_LOAD_SDL(GetWindowSize);
+    PAL_NATIVE_LOAD_SDL(SetWindowTitle);
+    return true;
+}
+
+#undef PAL_NATIVE_LOAD_SDL
+
+static bool native_display_init(void)
+{
+    const char *title;
+    unsigned long width;
+    unsigned long height;
+    unsigned long scale;
+
+    if (pal_native_display.tried) {
+        return pal_native_display.ready;
+    }
+    pal_native_display.tried = true;
+
+    if (!env_enabled("PAL_CORES3SE_NATIVE_DISPLAY")) {
+        return false;
+    }
+    if (!native_display_load_sdl()) {
+        return false;
+    }
+    width = strtoul(env_or_default(
+        "PAL_CORES3SE_NATIVE_DISPLAY_WIDTH", "320"), NULL, 0);
+    height = strtoul(env_or_default(
+        "PAL_CORES3SE_NATIVE_DISPLAY_HEIGHT", "240"), NULL, 0);
+    scale = strtoul(env_or_default(
+        "PAL_CORES3SE_NATIVE_DISPLAY_SCALE", "2"), NULL, 0);
+    if (width == 0 || width > CORES3SE_LCD_WIDTH ||
+        height == 0 || height > CORES3SE_LCD_HEIGHT ||
+        scale == 0 || scale > 8) {
+        fprintf(stderr, "invalid native SDL display geometry: %lux%lu scale=%lu\n",
+                width, height, scale);
+        return false;
+    }
+    pal_native_display.logical_width = (uint16_t)width;
+    pal_native_display.logical_height = (uint16_t)height;
+    title = env_or_default(
+        "PAL_CORES3SE_NATIVE_DISPLAY_TITLE", "SDLPAL native preview");
+    if (pal_native_display.Init(SDL_INIT_VIDEO) != 0) {
+        fprintf(stderr, "SDL2 init failed for native display\n");
+        return false;
+    }
+    pal_native_display.window = pal_native_display.CreateWindow(
+        title,
+        SDL_WINDOWPOS_UNDEFINED,
+        SDL_WINDOWPOS_UNDEFINED,
+        (int)(width * scale),
+        (int)(height * scale),
+        SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (pal_native_display.window == NULL) {
+        fprintf(stderr, "SDL2 window creation failed for native display\n");
+        return false;
+    }
+    /* The host SDL shim exports a no-op SDL_SetWindowTitle symbol.  Calling
+     * the explicitly loaded real-SDL function avoids ELF interposition and
+     * gives interactive preview windows a usable title. */
+    pal_native_display.SetWindowTitle(pal_native_display.window, title);
+    pal_native_display.renderer = pal_native_display.CreateRenderer(
+        pal_native_display.window,
+        -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (pal_native_display.renderer == NULL) {
+        pal_native_display.renderer = pal_native_display.CreateRenderer(pal_native_display.window, -1, 0);
+    }
+    if (pal_native_display.renderer == NULL) {
+        fprintf(stderr, "SDL2 renderer creation failed for native display\n");
+        return false;
+    }
+    (void)pal_native_display.SetRenderDrawColor(pal_native_display.renderer, 0, 0, 0, 255);
+    (void)pal_native_display.RenderSetLogicalSize(
+        pal_native_display.renderer,
+        pal_native_display.logical_width,
+        pal_native_display.logical_height);
+    pal_native_display.texture = pal_native_display.CreateTexture(
+        pal_native_display.renderer,
+        SDL_PIXELFORMAT_ARGB8888,
+        SDL_TEXTUREACCESS_STREAMING,
+        pal_native_display.logical_width,
+        pal_native_display.logical_height);
+    if (pal_native_display.texture == NULL) {
+        fprintf(stderr, "SDL2 texture creation failed for native display\n");
+        return false;
+    }
+    pal_native_display.ready = true;
+    return true;
+}
+
+static bool native_display_active(void)
+{
+    return native_display_init();
+}
+
+static int64_t native_monotonic_us(void)
+{
+    struct timespec ts;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+        return 0;
+    }
+    return (int64_t)ts.tv_sec * 1000000 + (int64_t)ts.tv_nsec / 1000;
+}
+
+static void native_display_set_key(int sym, bool down)
+{
+    int dir = pal_native_display.key_dir;
+
+    switch (sym) {
+    case SDLK_UP:
+        if (down) {
+            dir = 1;
+        } else if (dir == 1) {
+            dir = 0;
+        }
+        break;
+    case SDLK_DOWN:
+        if (down) {
+            dir = 2;
+        } else if (dir == 2) {
+            dir = 0;
+        }
+        break;
+    case SDLK_LEFT:
+        if (down) {
+            dir = 3;
+        } else if (dir == 3) {
+            dir = 0;
+        }
+        break;
+    case SDLK_RIGHT:
+        if (down) {
+            dir = 4;
+        } else if (dir == 4) {
+            dir = 0;
+        }
+        break;
+    case SDLK_RETURN:
+    case SDLK_KP_ENTER:
+    case SDLK_SPACE:
+        pal_native_display.key_enter = down;
+        break;
+    case SDLK_ESCAPE:
+        pal_native_display.key_escape = down;
+        break;
+    default:
+        break;
+    }
+
+    pal_native_display.key_dir = dir;
+}
+
+static void native_display_scale_mouse(int *x, int *y)
+{
+    int ww = pal_native_display.logical_width;
+    int wh = pal_native_display.logical_height;
+
+    if (x == NULL || y == NULL) {
+        return;
+    }
+    pal_native_display.GetWindowSize(pal_native_display.window, &ww, &wh);
+    if (ww > 0) {
+        *x = (*x * pal_native_display.logical_width) / ww;
+    }
+    if (wh > 0) {
+        *y = (*y * pal_native_display.logical_height) / wh;
+    }
+    if (*x < 0) {
+        *x = 0;
+    } else if (*x >= pal_native_display.logical_width) {
+        *x = pal_native_display.logical_width - 1;
+    }
+    if (*y < 0) {
+        *y = 0;
+    } else if (*y >= pal_native_display.logical_height) {
+        *y = pal_native_display.logical_height - 1;
+    }
+}
+
+static void native_display_poll(void)
+{
+    SDL_Event event;
+
+    if (!native_display_active()) {
+        return;
+    }
+    while (pal_native_display.PollEvent(&event)) {
+        switch (event.type) {
+        case SDL_QUIT:
+            pal_native_display.quit = true;
+            break;
+        case SDL_KEYDOWN:
+            if (event.key.repeat == 0) {
+                native_display_set_key(event.key.keysym.sym, true);
+            }
+            break;
+        case SDL_KEYUP:
+            native_display_set_key(event.key.keysym.sym, false);
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+            pal_native_display.mouse_down = true;
+            pal_native_display.mouse_x = event.button.x;
+            pal_native_display.mouse_y = event.button.y;
+            native_display_scale_mouse(&pal_native_display.mouse_x, &pal_native_display.mouse_y);
+            break;
+        case SDL_MOUSEBUTTONUP:
+            pal_native_display.mouse_down = false;
+            break;
+        case SDL_MOUSEMOTION:
+            if (pal_native_display.mouse_down) {
+                pal_native_display.mouse_x = event.motion.x;
+                pal_native_display.mouse_y = event.motion.y;
+                native_display_scale_mouse(&pal_native_display.mouse_x, &pal_native_display.mouse_y);
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    if (pal_native_display.quit) {
+        exit(0);
+    }
+}
+
+static bool native_display_touch_point(uint16_t *x, uint16_t *y)
+{
+    native_display_poll();
+    if (!native_display_active()) {
+        return false;
+    }
+
+    if (pal_native_display.key_escape) {
+        if (x != NULL) {
+            *x = CORES3SE_LCD_WIDTH / 2u;
+        }
+        if (y != NULL) {
+            *y = 0;
+        }
+        return true;
+    }
+    if (pal_native_display.key_enter) {
+        if (x != NULL) {
+            *x = CORES3SE_LCD_WIDTH / 2u;
+        }
+        if (y != NULL) {
+            *y = CORES3SE_PAL_Y_OFFSET + 205u;
+        }
+        return true;
+    }
+    if (pal_native_display.key_dir != 0) {
+        static const uint16_t points[4][2] = {
+            { CORES3SE_LCD_WIDTH / 2u, CORES3SE_PAL_Y_OFFSET + 10u },
+            { CORES3SE_LCD_WIDTH / 2u, CORES3SE_PAL_Y_OFFSET + 190u },
+            { 10u, CORES3SE_PAL_Y_OFFSET + 100u },
+            { CORES3SE_LCD_WIDTH - 10u, CORES3SE_PAL_Y_OFFSET + 100u },
+        };
+        unsigned index = (unsigned)pal_native_display.key_dir - 1u;
+        if (x != NULL) {
+            *x = points[index][0];
+        }
+        if (y != NULL) {
+            *y = points[index][1];
+        }
+        return true;
+    }
+    if (pal_native_display.mouse_down) {
+        if (x != NULL) {
+            *x = (uint16_t)(
+                (uint32_t)pal_native_display.mouse_x *
+                CORES3SE_LCD_WIDTH /
+                pal_native_display.logical_width);
+        }
+        if (y != NULL) {
+            *y = (uint16_t)(
+                (uint32_t)pal_native_display.mouse_y *
+                CORES3SE_LCD_HEIGHT /
+                pal_native_display.logical_height);
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool native_display_present_argb8888(const void *pixels, uint16_t width, uint16_t height, uint16_t pitch)
+{
+    const uint8_t *src = (const uint8_t *)pixels;
+    uint32_t copy_height;
+    uint32_t copy_y;
+
+    if (!native_display_active()) {
+        return false;
+    }
+    native_display_poll();
+    if (src == NULL || width != pal_native_display.logical_width ||
+        height == 0 || height > pal_native_display.logical_height ||
+        pitch < (uint16_t)(width * 4u)) {
+        return false;
+    }
+
+    memset(pal_native_display_lcd_argb, 0,
+           (size_t)pal_native_display.logical_width *
+           pal_native_display.logical_height * sizeof(uint32_t));
+    if (height == 200u && pal_native_display.logical_height == 240u) {
+        copy_height = 200u;
+        copy_y = CORES3SE_PAL_Y_OFFSET;
+    } else if (height <= pal_native_display.logical_height) {
+        copy_height = height;
+        copy_y = 0;
+    } else {
+        return false;
+    }
+
+    for (uint32_t y = 0; y < copy_height; y++) {
+        memcpy(
+            pal_native_display_lcd_argb +
+                (copy_y + y) * pal_native_display.logical_width,
+            src + y * pitch,
+            (size_t)width * 4u);
+    }
+
+    if (pal_native_display.UpdateTexture(
+            pal_native_display.texture,
+            NULL,
+            pal_native_display_lcd_argb,
+            pal_native_display.logical_width * 4) != 0) {
+        return false;
+    }
+    (void)pal_native_display.RenderClear(pal_native_display.renderer);
+    (void)pal_native_display.RenderCopy(pal_native_display.renderer, pal_native_display.texture, NULL, NULL);
+    pal_native_display.RenderPresent(pal_native_display.renderer);
+    return true;
+}
+#else
+static bool native_display_active(void)
+{
+    return false;
+}
+#endif
+
 const char *esp_err_to_name(esp_err_t err)
 {
     switch (err) {
@@ -81,6 +541,17 @@ const char *esp_err_to_name(esp_err_t err)
 
 int64_t esp_timer_get_time(void)
 {
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST && PAL_NATIVE_HAVE_REAL_SDL
+    static int64_t start_us;
+
+    if (native_display_active()) {
+        int64_t now = native_monotonic_us();
+        if (start_us == 0) {
+            start_us = now;
+        }
+        return now - start_us;
+    }
+#endif
     return pal_native_time_us;
 }
 
@@ -182,7 +653,7 @@ static const char *map_fatfs_path(const char *path, char *buffer, size_t buffer_
         return env_or_default("PAL_CORES3SE_NATIVE_TF_PACK", "/tmp/pal_tf_default.pak");
     }
     if (strncmp(path, "0:/", 3) == 0) {
-        save_dir = env_or_default("PAL_CORES3SE_NATIVE_SAVE_DIR", "/mnt/hgfs/deb13/PAL");
+        save_dir = env_or_default("PAL_CORES3SE_NATIVE_SAVE_DIR", "/mnt/hgfs/deb13/PALSteam/PAL_DOS");
         if (snprintf(buffer, buffer_size, "%s/%s", save_dir, path + 3) >= (int)buffer_size) {
             return NULL;
         }
@@ -474,6 +945,21 @@ bool CoreS3Se_FlushArgb8888Texture(const void *pixels, uint16_t width, uint16_t 
     unsigned max_presents = (unsigned)strtoul(env_or_default("PAL_CORES3SE_NATIVE_MAX_PRESENTS", "1200"), NULL, 0);
 
     CoreS3Se_PrepareLcdAccess();
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST && PAL_NATIVE_HAVE_REAL_SDL
+    if (native_display_active()) {
+        if (!native_display_present_argb8888(pixels, width, height, pitch)) {
+            CoreS3Se_PrepareTfAccess();
+            return false;
+        }
+        if (!pal_native_wrote_screenshot && getenv("PAL_CORES3SE_NATIVE_SCREENSHOT") != NULL &&
+            pal_native_argb_present_count >= screenshot_frame) {
+            pal_native_wrote_screenshot = write_argb8888_png(path, pixels, width, height, pitch);
+        }
+        pal_native_argb_present_count++;
+        CoreS3Se_PrepareTfAccess();
+        return true;
+    }
+#endif
     if (!pal_native_wrote_screenshot && pal_native_argb_present_count >= screenshot_frame) {
         pal_native_wrote_screenshot = write_argb8888_png(path, pixels, width, height, pitch);
         if (!pal_native_wrote_screenshot) {
@@ -496,6 +982,12 @@ bool CoreS3Se_FlushArgb8888Texture(const void *pixels, uint16_t width, uint16_t 
 bool CoreS3Se_TouchPoint(uint16_t *x, uint16_t *y)
 {
     const char *touch = getenv("PAL_CORES3SE_NATIVE_TOUCH");
+
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST && PAL_NATIVE_HAVE_REAL_SDL
+    if (native_display_touch_point(x, y)) {
+        return true;
+    }
+#endif
 
     if (touch != NULL && strcmp(touch, "bottom") == 0) {
         if (x != NULL) {
@@ -573,6 +1065,15 @@ bool CoreS3Se_NativeInitialView(uint16_t *scene_num, int *viewport_x, int *viewp
 void vTaskDelay(TickType_t ticks)
 {
     unsigned max_frames = (unsigned)strtoul(env_or_default("PAL_CORES3SE_NATIVE_FRAMES", "1"), NULL, 0);
+
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST && PAL_NATIVE_HAVE_REAL_SDL
+    if (native_display_active()) {
+        unsigned ms = ticks == 0 ? 1u : (unsigned)ticks;
+        native_display_poll();
+        pal_native_display.Delay(ms);
+        return;
+    }
+#endif
 
     pal_native_time_us += (int64_t)ticks * 1000;
     pal_native_delay_count++;

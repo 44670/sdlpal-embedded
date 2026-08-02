@@ -1,5 +1,10 @@
 # Real PAL Data Audit
 
+> Historical dataset note: this report records the former
+> `/mnt/hgfs/deb13/PAL` data set and its measurements. The active Cardputer ADV
+> extreme build now uses the stock `/mnt/hgfs/deb13/PALSteam/PAL_DOS` data set;
+> see `esp32s3/README.md` for the current build and verification commands.
+
 Data path audited:
 
 ```text

@@ -21,7 +21,7 @@ TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
 BUILDER_PATH = TOOLS_DIR / "pal_pack_build.py"
 CONTRACT_PATH = TOOLS_DIR / "embedded_contract_check.py"
-PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PAL")
+PAL_DATA_DIR = Path("/mnt/hgfs/deb13/PALSteam/PAL_DOS")
 
 sys.path.insert(0, str(TOOLS_DIR))
 from pal_ui_layout import font as font_tool  # noqa: E402
@@ -425,20 +425,20 @@ class Font10PackBuilderTests(unittest.TestCase):
                 extra_texts=builder.FONT10_UI_LABELS.values(),
             )
         )
-        self.assertEqual(len(pal), 2631)
+        self.assertEqual(len(pal), 2571)
         self.assertEqual(
             builder.FONT10_UI_LABELS,
             {"chapter_complete": "CHAPTER COMPLETE - SUZHOU NEXT"},
         )
         self.assertEqual(
             with_ui - pal,
-            {ord(ch) for ch in "HLMOPRSTUXZ"},
+            {ord(ch) for ch in " -LORSTUXZ"},
         )
-        self.assertEqual(len(with_ui), 2642)
+        self.assertEqual(len(with_ui), 2581)
         self.assertEqual(
             font_tool.FONT10_HEADER_BYTES
             + len(with_ui) * font_tool.FONT10_RECORD_BYTES,
-            42304,
+            41328,
         )
 
     @unittest.skipUnless(
@@ -463,7 +463,7 @@ class Font10PackBuilderTests(unittest.TestCase):
             135,
             pack_summary["font10"],
         )
-        self.assertEqual(len(pack_chunk.payload), 42304)
+        self.assertEqual(len(pack_chunk.payload), 41328)
         self.assertEqual(profile.font["image_bytes"], len(pack_chunk.payload))
         self.assertEqual(
             profile.font["payload_crc32"],

@@ -210,9 +210,18 @@ PAL_RLEBlitMonoColor(
 
 INT
 PAL_FBPBlitToSurface(
-   LPBYTE            lpBitmapFBP,
+   LPCBYTE           lpBitmapFBP,
    SDL_Surface      *lpDstSurface
 );
+
+#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+INT
+PAL_FBPBlitChunkToSurface(
+   FILE              *fp,
+   UINT               uiChunkNum,
+   SDL_Surface       *lpDstSurface
+);
+#endif
 
 INT
 PAL_RLEGetWidth(

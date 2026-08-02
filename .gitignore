@@ -288,3 +288,10 @@ emscripten/*.cpp
 
 # macOS Trashes
 *.DS_Store
+
+__pycache__
+
+tmp_ui
+TF_datapak
+esp32s3/native_build_ui_followup/
+unix/sdlpal-ws-test

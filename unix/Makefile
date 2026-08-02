@@ -15,7 +15,7 @@ EMBEDDED_CONTRACT_SANITIZE ?= 0
 PACK_NOR ?= /tmp/pal_nor_default.pak
 PACK_TF ?= /tmp/pal_tf_default.pak
 PACK_MANIFEST ?= /tmp/pal_pack_default_manifest.json
-PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
+PAL_DATA_DIR ?= /mnt/hgfs/deb13/PALSteam/PAL_DOS
 ifeq ($(EMBEDDED_CONTRACT_NO_AUDIO),1)
 CONTRACT_SOURCE_MANIFEST ?= embedded_contract_noaudio_sources.json
 else
@@ -142,6 +142,11 @@ else
 endif
 
 DETERMINISTIC_CFILES =
+WS_CFILES =
+ifeq ($(EMBEDDED_CONTRACT),0)
+	WS_CFILES = pal_ws_server.c
+	EMBEDDED_CCFLAGS += -DPAL_HAS_WS_SERVER=1
+endif
 ifeq ($(PAL_DETERMINISTIC),1)
 	TARGET = $(DETERMINISTIC_TARGET)
 	INTER := .deterministic$(INTER)
@@ -150,7 +155,7 @@ ifeq ($(PAL_DETERMINISTIC),1)
 	EMBEDDED_LDFLAGS += -Wl,--wrap=SDL_RenderPresent -Wl,--wrap=PAL_RunTriggerScript -Wl,--wrap=PAL_RunAutoScript -Wl,--wrap=PAL_SaveGame -Wl,--wrap=PAL_InitGameData -Wl,--wrap=PAL_ReloadInNextTick $(LIBPNG_LIBS)
 endif
 
-CFILES = $(filter-out $(CONTRACT_CFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.c))) $(MIDI_CFILES) $(CONTRACT_CFILES) $(DETERMINISTIC_CFILES)
+CFILES = $(filter-out $(CONTRACT_CFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.c))) $(MIDI_CFILES) $(CONTRACT_CFILES) $(DETERMINISTIC_CFILES) $(WS_CFILES)
 CPPFILES = $(filter-out $(CONTRACT_CPPFILE_EXCLUDES),$(foreach dir, $(SOURCES), $(wildcard $(dir)/*.cpp))) unix.cpp $(MIDI_CPPFILES) $(CONTRACT_CPPFILES)
 TOBJFILES = $(CFILES:.c=$(INTER).o) $(CPPFILES:.cpp=$(INTER).o)
 CONTRACT_SOURCE_ARGS = $(foreach src,$(CFILES) $(CPPFILES),--source-file $(src))
@@ -222,7 +227,7 @@ endif
 
 POSTCOMPILE = @mv -f $*$(INTER).Td $*$(INTER).d && touch $@
 
-.PHONY : all clean check deterministic-check deterministic-smoke deterministic-newgame-check deterministic-newgame-parity-check deterministic-newgame-noaudio-parity-check deterministic-newgame-extended-noaudio-parity-check deterministic-newgame-extended-target-parity-check deterministic-newgame-walk-target-parity-check deterministic-newgame-png-check deterministic-newgame-cores3se-png-check deterministic-route-check deterministic-trace-check contract-pack-build contract-check contract-noaudio-check contract-sanitize-check
+.PHONY : all clean check ws-check deterministic-check deterministic-smoke deterministic-newgame-check deterministic-newgame-parity-check deterministic-newgame-noaudio-parity-check deterministic-newgame-extended-noaudio-parity-check deterministic-newgame-extended-target-parity-check deterministic-newgame-walk-target-parity-check deterministic-newgame-png-check deterministic-newgame-cores3se-png-check deterministic-route-check deterministic-trace-check contract-pack-build contract-check contract-noaudio-check contract-sanitize-check
 
 all: $(TARGET)
 
@@ -266,6 +271,9 @@ check: $(TEST_TARGET)
 	@echo [EXEC] $(TEST_TARGET)
 	@chmod +x $(TEST_TARGET)
 	@exec $(TEST_TARGET)
+
+ws-check: pal_ws_server$(INTER).o
+	PYTHONPATH=../tools $(PYTHON) -B ../tools/test_ws_cli.py
 
 deterministic-check:
 	$(MAKE) PAL_DETERMINISTIC=1 USE_SDL3=0 GENERATED= $(DETERMINISTIC_TARGET)

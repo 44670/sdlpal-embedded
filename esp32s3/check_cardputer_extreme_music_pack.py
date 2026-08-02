@@ -145,6 +145,8 @@ def check_profile(
         errors.append(
             "NOR FONT chunk 1 does not match the generated FONT10 size/format"
         )
+    if common.nonempty(nor, common.ARCHIVE["FONT"]) != {1}:
+        errors.append("NOR FONT must contain only the FONT10 chunk 1")
     if common.ARCHIVE["FONT"] in tf:
         errors.append("FONT10 must be mapped from NOR, not TF")
     if common.nonempty(nor, common.ARCHIVE["MAP"]) != common.nonempty(

@@ -9,7 +9,7 @@
 #include "util.h"
 #include "video.h"
 #ifdef PAL_CARDPUTER_EXTREME
-#include "embedded/pal_native_ui.h"
+#include "cardputer_extreme_native_view.h"
 #endif
 
 #include <errno.h>
@@ -17,6 +17,12 @@
 
 #ifdef SDL_PollEvent
 #undef SDL_PollEvent
+#endif
+#ifdef SDL_GetTicks
+#undef SDL_GetTicks
+#endif
+#ifdef SDL_Delay
+#undef SDL_Delay
 #endif
 
 #define PAL_DETERMINISTIC_EVENT_CODE 0x50445250u
@@ -34,6 +40,7 @@
 
 static Uint32 pal_deterministic_ticks;
 static bool pal_deterministic_init_done;
+static bool pal_deterministic_realtime;
 static time_t pal_deterministic_epoch;
 static FILE *pal_deterministic_replay;
 static FILE *pal_deterministic_record;
@@ -197,6 +204,15 @@ pal_deterministic_init(
    pal_deterministic_last_record_keys = (DWORD)-1;
 
    replay_path = SDL_getenv("PAL_DETERMINISTIC_REPLAY");
+   /*
+    * Automated native runs deliberately advance the deterministic clock
+    * without sleeping.  A visible native SDL window, however, is operated by
+    * a human and must use the underlying host clock unless it is replaying a
+    * deterministic route.
+    */
+   pal_deterministic_realtime =
+      (replay_path == NULL || replay_path[0] == '\0') &&
+      read_env_ulong("PAL_CORES3SE_NATIVE_DISPLAY", 0) != 0;
    if (replay_path != NULL && replay_path[0] != '\0') {
       pal_deterministic_replay = fopen(replay_path, "r");
    }
@@ -335,10 +351,6 @@ pal_deterministic_write_png(
    bool locked = false;
    int png_width;
    int png_height;
-#ifdef PAL_CARDPUTER_EXTREME
-   PalNativeUiViewport native_viewport;
-#endif
-
    if (path == NULL || path[0] == '\0' || gpScreen == NULL || gpScreen->pixels == NULL ||
        gpScreen->w <= 0 || gpScreen->h <= 0 ||
        gpScreen->w > (int)PAL_DETERMINISTIC_PNG_MAX_WIDTH) {
@@ -349,12 +361,6 @@ pal_deterministic_write_png(
    if (png_width > (int)PAL_DETERMINISTIC_PNG_MAX_WIDTH) {
       return false;
    }
-#ifdef PAL_CARDPUTER_EXTREME
-   if (lcd_frame && !PalNativeUi_GetViewport(&native_viewport)) {
-      return false;
-   }
-#endif
-
    if (SDL_MUSTLOCK(gpScreen) && SDL_LockSurface(gpScreen) != 0) {
       return false;
    }
@@ -393,16 +399,14 @@ pal_deterministic_write_png(
    for (y = 0; y < png_height; y++) {
       int x;
 #ifdef PAL_CARDPUTER_EXTREME
-      int source_y = lcd_frame ? native_viewport.source_y + y : y;
+      int source_y = y;
 #else
       int source_y = lcd_frame ? y - (int)PAL_DETERMINISTIC_LCD_Y_OFFSET : y;
 #endif
       for (x = 0; x < png_width; x++) {
          int source_x = x;
 #ifdef PAL_CARDPUTER_EXTREME
-         if (lcd_frame) {
-            source_x += native_viewport.source_x;
-         }
+         (void)lcd_frame;
 #endif
          if (source_y < 0 || source_y >= gpScreen->h ||
              source_x < 0 || source_x >= gpScreen->w) {
@@ -1155,6 +1159,9 @@ PAL_DeterministicGetTicks(
 )
 {
    pal_deterministic_init();
+   if (pal_deterministic_realtime) {
+      pal_deterministic_ticks = SDL_GetTicks();
+   }
    return pal_deterministic_ticks;
 }
 
@@ -1181,6 +1188,12 @@ PAL_DeterministicDelay(
 {
    pal_deterministic_init();
    pal_deterministic_record_state();
+   if (pal_deterministic_realtime) {
+      SDL_Delay(ms);
+      pal_deterministic_ticks = SDL_GetTicks();
+      pal_deterministic_record_state();
+      return;
+   }
    if (ms == 0) {
       return;
    }

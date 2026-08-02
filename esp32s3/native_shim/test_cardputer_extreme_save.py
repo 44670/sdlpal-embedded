@@ -24,6 +24,7 @@ SAVE_EVENT_RECORD_BYTES = 32
 SAVE_EVENT_COUNT = 5369
 SAVE_EVENT_BYTES = SAVE_EVENT_COUNT * SAVE_EVENT_RECORD_BYTES
 SAVE_EVENT_STATE_OFFSET = 12
+DOS_SOURCE_EVENT_COUNT = 5332
 
 LEGACY_SAVE_VERSION = 1
 LEGACY_SAVE_HEADER_BYTES = 48
@@ -688,7 +689,7 @@ def main() -> int:
     parser.add_argument(
         "--data-dir",
         type=pathlib.Path,
-        default=pathlib.Path("/mnt/hgfs/deb13/PAL"),
+        default=pathlib.Path("/mnt/hgfs/deb13/PALSteam/PAL_DOS"),
     )
     parser.add_argument(
         "--route",
@@ -1340,10 +1341,17 @@ def main() -> int:
         legacy_results: list[tuple[str, int, int]] = []
         incompatible_legacy: list[tuple[str, int]] = []
         first_legacy: pathlib.Path | None = None
-        for legacy_name in ("1.rpg", "2.rpg"):
-            legacy_source = args.data_dir / legacy_name
-            if not legacy_source.is_file():
-                continue
+        legacy_sources = sorted(
+            (
+                path
+                for path in args.data_dir.iterdir()
+                if path.is_file()
+                and path.name.lower() in {"0.rpg", "1.rpg", "2.rpg"}
+            ),
+            key=lambda path: path.name,
+        )
+        for legacy_source in legacy_sources:
+            legacy_name = legacy_source.name
             source_data = legacy_source.read_bytes()
             fixed_bytes = int(info["fixed_bytes"])
             if (
@@ -1357,11 +1365,15 @@ def main() -> int:
             source_records = (
                 len(source_data) - fixed_bytes
             ) // SAVE_EVENT_RECORD_BYTES
-            if source_records != SAVE_EVENT_COUNT:
+            if source_records != DOS_SOURCE_EVENT_COUNT:
                 # A save from a modified resource set (for example the local
-                # 5500-record 2.rpg) cannot be losslessly imported into this
-                # pack's 5369-record identity and must not be truncated.
-                directory = temp / f"legacy-dos-incompatible-{legacy_name[0]}"
+                # former 5369-record data set) cannot be losslessly imported
+                # into the stock PAL_DOS source identity and must not be
+                # truncated.
+                directory = temp / (
+                    "legacy-dos-incompatible-"
+                    + legacy_name.replace(".", "-")
+                )
                 directory.mkdir()
                 (directory / "5.rpg").write_bytes(source_data)
                 rejected_scene, rejected_state = runner.run(
@@ -1381,7 +1393,9 @@ def main() -> int:
                 continue
             if first_legacy is None:
                 first_legacy = legacy_source
-            directory = temp / f"legacy-dos-{legacy_name[0]}"
+            directory = temp / (
+                "legacy-dos-" + legacy_name.replace(".", "-")
+            )
             directory.mkdir()
             (directory / "5.rpg").write_bytes(source_data)
             runner.run(
@@ -1398,15 +1412,19 @@ def main() -> int:
             migrated_events = bytes(migrated_info["event_data"])
             source_event_bytes = source_data[fixed_bytes:]
             if (
-                len(source_event_bytes) < SAVE_EVENT_BYTES
+                len(source_event_bytes)
+                != DOS_SOURCE_EVENT_COUNT * SAVE_EVENT_RECORD_BYTES
                 or event_record(migrated_events, out_of_prefix_event)
                 != event_record(source_event_bytes, out_of_prefix_event)
-                or event_record(migrated_events, LEGACY_SPARSE_EVENT_ID)
-                != event_record(source_event_bytes, LEGACY_SPARSE_EVENT_ID)
+                or any(
+                    migrated_events[
+                        DOS_SOURCE_EVENT_COUNT * SAVE_EVENT_RECORD_BYTES :
+                    ]
+                )
             ):
                 raise AssertionError(
-                    f"legacy DOS {legacy_name} full event range "
-                    "migrated incorrectly"
+                    f"legacy DOS {legacy_name} source events or normalized "
+                    "journal tail migrated incorrectly"
                 )
             if (directory / "5.bak").read_bytes() != source_data:
                 raise AssertionError(

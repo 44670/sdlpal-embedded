@@ -53,6 +53,26 @@ def make_scenes() -> bytes:
     return bytes(scenes)
 
 
+def make_pal_dos_scenes() -> bytes:
+    scenes = bytearray(
+        make_scenes()[: event_template.PAL_DOS_SCENE_BYTES]
+    )
+    for scene_index in range(event_template.PAL_DOS_SCENE_RECORD_COUNT):
+        boundary = min(
+            scene_index * 18,
+            event_template.PAL_DOS_EVENT_RECORD_COUNT,
+        )
+        if scene_index == event_template.PAL_DOS_SCENE_RECORD_COUNT - 1:
+            boundary = event_template.PAL_DOS_EVENT_RECORD_COUNT
+        struct.pack_into(
+            "<H",
+            scenes,
+            scene_index * event_template.SCENE_RECORD_BYTES + 6,
+            boundary,
+        )
+    return bytes(scenes)
+
+
 def make_pack(
     *,
     event_format: int = pack_builder.FORMAT_NATIVE,
@@ -224,7 +244,7 @@ class EventTemplateBuildTests(unittest.TestCase):
             event_template.build_event_template(non_native)
 
         short_events = make_pack(event_payload=self.events[:-1])
-        with self.assertRaisesRegex(ValueError, "expected 171808"):
+        with self.assertRaisesRegex(ValueError, "expected 170624 or 171808"):
             event_template.build_event_template(short_events)
 
         missing_sss = pack_builder.build_pack(
@@ -239,6 +259,51 @@ class EventTemplateBuildTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "no SSS"):
             event_template.build_event_template(missing_sss)
+
+    def test_stock_pal_dos_tables_are_padded_only_in_event_template(self) -> None:
+        source_events = self.events[: event_template.PAL_DOS_EVENT_BYTES]
+        source_scenes = make_pal_dos_scenes()
+        pack = make_pack(
+            event_payload=source_events,
+            scene_payload=source_scenes,
+        )
+        image = event_template.build_event_template(pack)
+        payload = image[event_template.TEMPLATE_PAYLOAD_OFFSET :]
+        event_pages = (
+            event_template.EVENT_PAGE_COUNT * event_template.PAGE_BYTES
+        )
+        self.assertEqual(
+            payload[: event_template.PAL_DOS_EVENT_BYTES], source_events
+        )
+        self.assertEqual(
+            payload[
+                event_template.PAL_DOS_EVENT_BYTES :
+                event_template.EVENT_BYTES
+            ],
+            bytes(
+                event_template.EVENT_BYTES
+                - event_template.PAL_DOS_EVENT_BYTES
+            ),
+        )
+        normalized_scenes = payload[
+            event_pages : event_pages + event_template.SCENE_BYTES
+        ]
+        self.assertEqual(
+            normalized_scenes[: event_template.PAL_DOS_SCENE_BYTES],
+            source_scenes,
+        )
+        for scene_index in range(
+            event_template.PAL_DOS_SCENE_RECORD_COUNT,
+            event_template.SCENE_RECORD_COUNT,
+        ):
+            self.assertEqual(
+                struct.unpack_from(
+                    "<4H",
+                    normalized_scenes,
+                    scene_index * event_template.SCENE_RECORD_BYTES,
+                ),
+                (0, 0, 0, event_template.PAL_DOS_EVENT_RECORD_COUNT),
+            )
 
     def test_rejects_scene_table_outside_two_page_cache_contract(self) -> None:
         three_pages = bytearray(self.scenes)

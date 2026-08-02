@@ -28,6 +28,10 @@
 #define PAL_EXTREME_SAVE_EVENT_BYTES \
    (PAL_EXTREME_SAVE_EVENT_RECORDS * sizeof(EVENTOBJECT))
 
+/* Stock PALSteam/PAL_DOS untagged saves use the source-table shape. */
+#define PAL_EXTREME_DOS_SOURCE_EVENT_RECORDS  5332u
+#define PAL_EXTREME_DOS_SOURCE_SCENE_RECORDS   294u
+
 /* Old "SZC2" saves stored IDs 1..423 followed by event 5334. */
 #define PAL_EXTREME_LEGACY_PROFILE_ID          0x32435a53u
 #define PAL_EXTREME_LEGACY_EVENT_RECORDS       424u
@@ -191,6 +195,40 @@ PAL_ExtremeSaveSceneTableValid(
       {
          return FALSE;
       }
+   }
+   return TRUE;
+}
+
+static BOOL
+PAL_ExtremeNormalizeDosSceneTail(
+   LPSAVEDGAME_COMMON s
+)
+{
+   UINT32 i;
+   WORD boundary;
+
+   if (s == NULL ||
+      PAL_EXTREME_DOS_SOURCE_SCENE_RECORDS == 0u ||
+      PAL_EXTREME_DOS_SOURCE_SCENE_RECORDS > MAX_SCENES)
+   {
+      return FALSE;
+   }
+   boundary = s->rgScene[
+      PAL_EXTREME_DOS_SOURCE_SCENE_RECORDS - 1u].wEventObjectIndex;
+   if (boundary != PAL_EXTREME_DOS_SOURCE_EVENT_RECORDS)
+   {
+      return FALSE;
+   }
+   for (i = PAL_EXTREME_DOS_SOURCE_SCENE_RECORDS; i < MAX_SCENES; i++)
+   {
+      if (s->rgScene[i].wMapNum != 0u ||
+         s->rgScene[i].wScriptOnEnter != 0u ||
+         s->rgScene[i].wScriptOnTeleport != 0u ||
+         s->rgScene[i].wEventObjectIndex != 0u)
+      {
+         return FALSE;
+      }
+      s->rgScene[i].wEventObjectIndex = boundary;
    }
    return TRUE;
 }
@@ -623,12 +661,12 @@ PAL_ExtremeSaveLegacyDosMeta(
    }
    source_count = payload_bytes / sizeof(EVENTOBJECT);
    /*
-    * An untagged DOS save has no resource identity.  Import only the exact
-    * 5,369-record shape used by EVENT.DEF; accepting a larger table and
-    * silently truncating its tail could bind a save from another data set to
-    * the active scene table.
+    * An untagged DOS save has no resource identity. Import only the exact
+    * 5,332-record stock PALSteam/PAL_DOS shape. EVENT.DEF appends 37
+    * unreachable zero records solely to retain the established journal
+    * geometry; they do not occur in the source save.
     */
-   if (source_count != PAL_EXTREME_SAVE_EVENT_RECORDS)
+   if (source_count != PAL_EXTREME_DOS_SOURCE_EVENT_RECORDS)
    {
       return FALSE;
    }
@@ -659,7 +697,9 @@ PAL_ExtremeSaveFilePageSource(
 
    if (source == NULL || source->fp == NULL || page == NULL ||
       source->scenes == NULL ||
-      source->source_event_count != PAL_EXTREME_SAVE_EVENT_RECORDS ||
+      (source->source_event_count != PAL_EXTREME_SAVE_EVENT_RECORDS &&
+       source->source_event_count !=
+          PAL_EXTREME_DOS_SOURCE_EVENT_RECORDS) ||
       logical_page >= PAL_EVENT_JOURNAL_PAGE_COUNT)
    {
       return false;
@@ -672,7 +712,11 @@ PAL_ExtremeSaveFilePageSource(
    }
    record_offset =
       (UINT32)logical_page * PAL_EVENT_PAGER_RECORDS_PER_PAGE;
-   records = PAL_EXTREME_SAVE_EVENT_RECORDS - record_offset;
+   if (record_offset >= source->source_event_count)
+   {
+      return true;
+   }
+   records = source->source_event_count - record_offset;
    if (records > PAL_EVENT_PAGER_RECORDS_PER_PAGE)
    {
       records = PAL_EVENT_PAGER_RECORDS_PER_PAGE;
@@ -861,6 +905,11 @@ PAL_ExtremeSaveReadFile(
    }
 
    DO_BYTESWAP(s, fixed_bytes);
+   if (meta.kind == kPalExtremeSaveKindDosLegacy &&
+      !PAL_ExtremeNormalizeDosSceneTail(s))
+   {
+      return FALSE;
+   }
    if (!PAL_ExtremeSaveStateValid(s, &meta))
    {
       return FALSE;
@@ -951,6 +1000,13 @@ PAL_ExtremeSavePathQualityInternal(
    if (valid)
    {
       DO_BYTESWAP(state, fixed_bytes);
+      if (meta.kind == kPalExtremeSaveKindDosLegacy)
+      {
+         valid = PAL_ExtremeNormalizeDosSceneTail(state);
+      }
+   }
+   if (valid)
+   {
       valid = PAL_ExtremeSaveStateValid(state, &meta);
    }
    if (fclose(fp) != 0)

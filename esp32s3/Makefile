@@ -1,5 +1,5 @@
 PYTHON ?= python3
-PAL_DATA_DIR ?= /mnt/hgfs/deb13/PAL
+PAL_DATA_DIR ?= /mnt/hgfs/deb13/PALSteam/PAL_DOS
 FONT10_ARCHIVE ?= $(abspath ../third_party/fusion-pixel-font/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip)
 PACK_NOR ?= /tmp/pal_nor_default.pak
 PACK_TF ?= /tmp/pal_tf_default.pak
@@ -20,18 +20,19 @@ CARDPUTER_EXTREME_CACHE_BUILD_DIR ?= ../build-cardputer-extreme-cache
 CARDPUTER_EXTREME_CACHE_SDKCONFIG ?= $(abspath $(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/sdkconfig)
 CARDPUTER_EXTREME_CACHE_DEFAULTS ?= $(abspath sdkconfig.cardputer_extreme_cache.defaults)
 CARDPUTER_EXTREME_CHAPTER_PACK_DIR ?= /tmp/pal_cardputer_extreme_chapters
+CARDPUTER_ADV_TF_DATAPAK ?= $(abspath TF_datapak)
 CARDPUTER_EXTREME_CHAPTER_CORE ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/pal_core.pak
 CARDPUTER_EXTREME_CHAPTER_TF ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/pal_tf.pak
 CARDPUTER_EXTREME_CHAPTER_FULL ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/pal_full.pak
 CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/EVENT.DEF
 CARDPUTER_EXTREME_CHAPTER_MANIFEST ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/chapter_manifest.json
+CARDPUTER_EXTREME_CHAPTER_SET ?= $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/PALSET.BIN
 CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES = \
 	b00.pak b01.pak b02.pak b03.pak b04.pak \
 	b05.pak b06.pak b07.pak b08.pak b09.pak \
 	b10.pak b11.pak b12.pak b13.pak b14.pak
 CARDPUTER_EXTREME_CHAPTER_BUNDLES = \
 	$(addprefix $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/,$(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES))
-CARDPUTER_EXTREME_CHAPTER_CORE_OFFSET ?= 0x0D0000
 CARDPUTER_EXTREME_LAYOUT ?= ../tools/pal_pack_layout_cardputer_extreme.json
 CARDPUTER_EXTREME_NOR ?= /tmp/pal_cardputer_extreme_nor.pak
 CARDPUTER_EXTREME_TF ?= /tmp/pal_cardputer_extreme_tf.pak
@@ -77,7 +78,7 @@ CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cardputer_e
 CARDPUTER_EXTREME_NATIVE_REFERENCE_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.reference.trace
 CARDPUTER_EXTREME_NATIVE_REFERENCE_SCRIPT_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.reference.script
 CARDPUTER_EXTREME_NATIVE_REFERENCE_EVENT_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.reference.event
-CARDPUTER_EXTREME_NATIVE_BASELINE_METADATA ?= $(abspath cardputer_extreme_320x200_baseline.json)
+CARDPUTER_EXTREME_NATIVE_BASELINE_METADATA ?= $(abspath cardputer_extreme_native_baseline.json)
 CARDPUTER_EXTREME_NATIVE_FRAMES ?= 3000
 CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_native_view_240_test
 CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_native_view_160_test
@@ -440,9 +441,18 @@ CARDPUTER_EXTREME_NATIVE_SRCS = \
 	../embedded/pal_native_ui.c \
 	engine_bridge/pal_engine_event_state.c \
 	main/cardputer_extreme_memory.c \
+	main/cardputer_extreme_native_view.c \
 	native_shim/cardputer_extreme_native_alias.c
 
-.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-cache-flash-core cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-generate cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
+# Host-only opt-in control endpoint for interactive Linux review.  This source
+# is never part of the ESP-IDF target component.
+CARDPUTER_EXTREME_NATIVE_WS ?= 0
+ifeq ($(CARDPUTER_EXTREME_NATIVE_WS),1)
+CARDPUTER_EXTREME_NATIVE_CFLAGS += -DPAL_HAS_WS_SERVER=1
+CARDPUTER_EXTREME_NATIVE_SRCS += ../unix/pal_ws_server.c
+endif
+
+.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-generate cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
 
 all: build
 
@@ -455,7 +465,7 @@ engine-host-build:
 	bash -lc 'source "$(IDF_EXPORT)" >/dev/null && if [ ! -f "$(ENGINE_HOST_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 set-target esp32s3; fi && idf.py -C . -B "$(ENGINE_HOST_BUILD_DIR)" -DPAL_CORES3SE_ENGINE_HOST=1 build'
 
 cardputer-extreme-build:
-	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(CARDPUTER_EXTREME_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON set-target esp32s3; fi; idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON build'
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(CARDPUTER_EXTREME_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_MUSIC=OFF set-target esp32s3; fi; idf.py -C . -B "$(CARDPUTER_EXTREME_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_MUSIC=OFF build'
 
 cardputer-extreme-music-build:
 	bash -lc 'set -e; \
@@ -483,8 +493,16 @@ cardputer-extreme-music-build:
 		}; \
 		if [ "$$reset_config" = 1 ]; then cp -f "$(CARDPUTER_EXTREME_MUSIC_DEFAULTS)" "$(CARDPUTER_EXTREME_MUSIC_BUILD_DIR)/.sdkconfig.defaults.applied"; fi'
 
-cardputer-extreme-chapter-cache-build: cardputer-extreme-ui-layout-generate
-	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_CACHE_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_CACHE_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_CHAPTER_CACHE=ON set-target esp32s3; fi; idf.py -C . -B "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_CACHE_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_CACHE_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_CHAPTER_CACHE=ON build'
+cardputer-extreme-chapter-cache-build:
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); if [ ! -f "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/build.ninja" ]; then idf.py -C . -B "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_CACHE_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_CACHE_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_CHAPTER_CACHE=ON -DCARDPUTER_EXTREME_MUSIC=ON set-target esp32s3; fi; idf.py -C . -B "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" -DSDKCONFIG="$(CARDPUTER_EXTREME_CACHE_SDKCONFIG)" -DSDKCONFIG_DEFAULTS="$(CARDPUTER_EXTREME_CACHE_DEFAULTS)" -DPAL_CORES3SE_ENGINE_HOST=1 -DCARDPUTER_EXTREME_NO_PSRAM=ON -DCARDPUTER_EXTREME_CHAPTER_CACHE=ON -DCARDPUTER_EXTREME_MUSIC=ON build'
+
+cardputer-adv-music-build: cardputer-extreme-chapter-cache-build
+
+cardputer-adv-music-check: cardputer-extreme-chapter-cache-check
+
+cardputer-adv-music-tf: CARDPUTER_EXTREME_CHAPTER_PACK_DIR = $(CARDPUTER_ADV_TF_DATAPAK)
+cardputer-adv-music-tf: cardputer-extreme-chapter-pack-check
+	@echo "Cardputer ADV TF datapak: $(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)"
 
 cardputer-extreme-chapter-pack-build:
 	@test -n "$(FONT10_ARCHIVE)" || { echo "set FONT10_ARCHIVE to the pinned Fusion Pixel Font release zip" >&2; exit 2; }
@@ -504,10 +522,16 @@ cardputer-extreme-chapter-pack-check: cardputer-extreme-chapter-pack-build cardp
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_FULL)"
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_MANIFEST)"
 	@test -s "$(CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE)"
+	@test -s "$(CARDPUTER_EXTREME_CHAPTER_SET)"
 	@test "$(words $(CARDPUTER_EXTREME_CHAPTER_BUNDLES))" -eq 15
 	@for pack in $(CARDPUTER_EXTREME_CHAPTER_BUNDLES); do test -s "$$pack"; done
 
-cardputer-extreme-chapter-cache-check: cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-pack-check
+cardputer-extreme-chapter-cache-check: cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-pack-check cardputer-extreme-event-pager-check cardputer-extreme-event-journal-check cardputer-extreme-music-state-check
+	$(MAKE) -C ../embedded mame-opl2-static-check
+	$(MAKE) -C ../embedded \
+		PACK_NOR="$(CARDPUTER_EXTREME_CHAPTER_CORE)" \
+		RIX_EXPECTED_TRACKS=86 \
+		rix-mame-opl2-check
 	$(PYTHON) -B check_cardputer_extreme_chapter_cache.py \
 		--build-dir "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" \
 		--pack-dir "$(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)" \
@@ -574,19 +598,19 @@ cardputer-extreme-music-pack-check: cardputer-extreme-music-pack-build $(CARDPUT
 		--manifest "$(CARDPUTER_EXTREME_MUSIC_MANIFEST)" \
 		--layout "$(CARDPUTER_EXTREME_LAYOUT)"
 
-$(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h main/generated/pal_native_ui_240x135.h ../embedded/pal_native_ui.c ../embedded/pal_native_ui.h native_shim/cardputer_extreme_native_view_test.c Makefile
+$(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h main/generated/pal_native_ui_240x135.h native_shim/cardputer_extreme_native_view_test.c Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=c99 -Wall -Wextra -Werror -I main -I ../embedded \
 		-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' \
-		../embedded/pal_native_ui.c main/cardputer_extreme_native_view.c \
+		main/cardputer_extreme_native_view.c \
 		native_shim/cardputer_extreme_native_view_test.c \
 		-o "$@"
 
-$(CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h main/generated/pal_native_ui_160x128.h ../embedded/pal_native_ui.c ../embedded/pal_native_ui.h native_shim/cardputer_extreme_native_view_test.c Makefile
+$(CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h main/generated/pal_native_ui_160x128.h native_shim/cardputer_extreme_native_view_test.c Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=c99 -Wall -Wextra -Werror -I main -I ../embedded \
 		-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' \
-		../embedded/pal_native_ui.c main/cardputer_extreme_native_view.c \
+		main/cardputer_extreme_native_view.c \
 		native_shim/cardputer_extreme_native_view_test.c \
 		-o "$@"
 
@@ -772,8 +796,8 @@ cardputer-extreme-native-smoke: cardputer-extreme-pack-build $(CARDPUTER_EXTREME
 	grep -E ' battle .*from=1 to=0 .*result=3 ' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
 	grep -E ' chapter .*from=22 to=22 .*entry=10600 ' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
 	cmp -s "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT)" "$(CARDPUTER_EXTREME_NATIVE_SCREENSHOT)"
-	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT)" 320 200 10000 32
-	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_SCREENSHOT)" 320 200 10000 32
+	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT)" 240 135 10000 32
+	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_SCREENSHOT)" 240 135 10000 32
 
 cardputer-extreme-draw-stress-check: cardputer-extreme-pack-build $(CARDPUTER_EXTREME_NATIVE_TARGET)
 	@set -eu; \
@@ -846,6 +870,9 @@ cardputer-extreme-prepare-tf: cardputer-extreme-pack-smoke
 	sync "$(TF_MOUNT)/pal_tf.pak"
 	sync "$(TF_MOUNT)/pal_full.pak"
 	sync "$(TF_MOUNT)/EVENT.DEF"
+	cmp "$(CARDPUTER_EXTREME_TF)" "$(TF_MOUNT)/pal_tf.pak"
+	cmp "$(CARDPUTER_EXTREME_TF_COMPLETE)" "$(TF_MOUNT)/pal_full.pak"
+	cmp "$(CARDPUTER_EXTREME_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
 	@ls -l "$(TF_MOUNT)/pal_tf.pak" "$(TF_MOUNT)/pal_full.pak" \
 		"$(TF_MOUNT)/EVENT.DEF"
 
@@ -868,16 +895,27 @@ cardputer-extreme-chapter-prepare-tf: cardputer-extreme-chapter-pack-check
 	@test -n "$(TF_MOUNT)" || { echo "TF_MOUNT=/media/... is required"; exit 2; }
 	@test -d "$(TF_MOUNT)" || { echo "TF_MOUNT does not exist: $(TF_MOUNT)"; exit 2; }
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_TF)" "$(TF_MOUNT)/pal_tf.pak"
+	cp -f "$(CARDPUTER_EXTREME_CHAPTER_CORE)" "$(TF_MOUNT)/pal_core.pak"
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_FULL)" "$(TF_MOUNT)/pal_full.pak"
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
+	cp -f "$(CARDPUTER_EXTREME_CHAPTER_SET)" "$(TF_MOUNT)/PALSET.BIN"
 	cp -f $(CARDPUTER_EXTREME_CHAPTER_BUNDLES) "$(TF_MOUNT)/"
 	cp -f "$(CARDPUTER_EXTREME_CHAPTER_MANIFEST)" "$(TF_MOUNT)/chapter_manifest.json"
 	sync "$(TF_MOUNT)/pal_tf.pak"
+	sync "$(TF_MOUNT)/pal_core.pak"
 	sync "$(TF_MOUNT)/pal_full.pak"
 	sync "$(TF_MOUNT)/EVENT.DEF"
+	sync "$(TF_MOUNT)/PALSET.BIN"
 	@for name in $(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES); do sync "$(TF_MOUNT)/$$name"; done
 	sync "$(TF_MOUNT)/chapter_manifest.json"
+	cmp "$(CARDPUTER_EXTREME_CHAPTER_TF)" "$(TF_MOUNT)/pal_tf.pak"
+	cmp "$(CARDPUTER_EXTREME_CHAPTER_CORE)" "$(TF_MOUNT)/pal_core.pak"
+	cmp "$(CARDPUTER_EXTREME_CHAPTER_FULL)" "$(TF_MOUNT)/pal_full.pak"
+	cmp "$(CARDPUTER_EXTREME_CHAPTER_EVENT_TEMPLATE)" "$(TF_MOUNT)/EVENT.DEF"
+	cmp "$(CARDPUTER_EXTREME_CHAPTER_SET)" "$(TF_MOUNT)/PALSET.BIN"
+	@for name in $(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES); do cmp "$(CARDPUTER_EXTREME_CHAPTER_PACK_DIR)/$$name" "$(TF_MOUNT)/$$name"; done
 	@ls -l "$(TF_MOUNT)/pal_tf.pak" "$(TF_MOUNT)/pal_full.pak" \
+		"$(TF_MOUNT)/pal_core.pak" "$(TF_MOUNT)/PALSET.BIN" \
 		"$(TF_MOUNT)/EVENT.DEF" \
 		$(addprefix "$(TF_MOUNT)/",$(CARDPUTER_EXTREME_CHAPTER_BUNDLE_NAMES))
 
@@ -1341,8 +1379,11 @@ cardputer-extreme-music-flash-all: cardputer-extreme-music-check
 cardputer-extreme-chapter-cache-flash: cardputer-extreme-chapter-cache-build
 	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); idf.py -C . -B "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)" $(if $(PORT),-p "$(PORT)",) flash'
 
-cardputer-extreme-chapter-cache-flash-core: cardputer-extreme-chapter-pack-check
-	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); python -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode dio --flash-size 8MB --flash-freq 80m $(CARDPUTER_EXTREME_CHAPTER_CORE_OFFSET) "$(CARDPUTER_EXTREME_CHAPTER_CORE)"'
+cardputer-adv-music-flash-app: cardputer-adv-music-build
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); python -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode dio --flash-size 8MB --flash-freq 80m 0x10000 "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/sdlpal_cardputer_extreme.bin"'
+
+cardputer-adv-music-provision: cardputer-adv-music-build
+	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); python -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode dio --flash-size 8MB --flash-freq 80m 0x0 "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/bootloader/bootloader.bin" 0x8000 "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/partition_table/partition-table.bin" 0x10000 "$(CARDPUTER_EXTREME_CACHE_BUILD_DIR)/sdlpal_cardputer_extreme.bin"'
 
 cardputer-extreme-flash-nor: cardputer-extreme-pack-build
 	bash -lc 'set -e; $(CARDPUTER_EXTREME_IDF_ENV); python -m esptool --chip esp32s3 -b $(BAUD) --before default-reset --after hard-reset $(if $(PORT),--port "$(PORT)",) write-flash --flash-mode dio --flash-size 8MB --flash-freq 80m 0x110000 "$(CARDPUTER_EXTREME_NOR)"'

@@ -28,32 +28,54 @@
 
 BATTLE          g_Battle;
 
+PAL_POS
+PAL_BattleRenderPosition(
+   PAL_POS pos
+)
+{
 #if defined(PAL_CARDPUTER_EXTREME)
-static VOID
-PAL_BattleNativeFocusResult(
-   VOID
-)
-{
-   PalNativeUi_FocusLogical(
-      PAL_NATIVE_UI_GENERATED_BATTLE_RESULT_FOCUS_X,
-      PAL_NATIVE_UI_GENERATED_BATTLE_RESULT_FOCUS_Y,
-      PAL_NATIVE_UI_VIEW_UI);
-}
+   int x = PAL_X(pos);
+   int y = PAL_Y(pos);
 
-static VOID
-PAL_BattleNativeFocusLevelUp(
-   VOID
-)
-{
-   PalNativeUi_FocusLogical(
-      PAL_NATIVE_UI_GENERATED_BATTLE_LEVEL_UP_FOCUS_X,
-      PAL_NATIVE_UI_GENERATED_BATTLE_LEVEL_UP_FOCUS_Y,
-      PAL_NATIVE_UI_VIEW_UI);
-}
+   /*
+    * Battle state keeps the original coordinate meanings so scripts and
+    * animations remain unchanged.  Only the final sprite/effect anchor is
+    * laid out on the native canvas.  Mapping anchors is not a framebuffer or
+    * asset resize: every RLE sprite is still composited at its native size.
+    */
+   if (x >= 0)
+   {
+      x = (x * PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH +
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH / 2) /
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH;
+   }
+   else
+   {
+      x = -((-x * PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH +
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH / 2) /
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH);
+   }
+
+   if (y >= 0)
+   {
+      y = (y * PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT +
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT / 2) /
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT;
+   }
+   else
+   {
+      y = -((-y * PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT +
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT / 2) /
+         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT);
+   }
+
+   return PAL_XY(
+      x,
+      y);
 #else
-#define PAL_BattleNativeFocusResult() ((void)0)
-#define PAL_BattleNativeFocusLevelUp() ((void)0)
+   return pos;
 #endif
+}
 
 #if (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)) && \
     !defined(PAL_EXTREME_TWO_SCREENS)
@@ -163,6 +185,7 @@ PAL_BattleDrawEnemySprites(
       pos = PAL_XY(PAL_X(pos) + RandomLong(-1, 1), PAL_Y(pos));
    }
       
+   pos = PAL_BattleRenderPosition(pos);
    pos = PAL_XY(PAL_X(pos) - PAL_RLEGetWidth(PAL_SpriteGetFrame(g_Battle.rgEnemy[wEnemyIndex].lpSprite, g_Battle.rgEnemy[wEnemyIndex].wCurrentFrame)) / 2,
       PAL_Y(pos) - PAL_RLEGetHeight(PAL_SpriteGetFrame(g_Battle.rgEnemy[wEnemyIndex].lpSprite, g_Battle.rgEnemy[wEnemyIndex].wCurrentFrame)));
 
@@ -212,8 +235,9 @@ PAL_BattleDrawPlayerSprites(
       //
       if (g_Battle.lpSummonSprite != NULL)
       {
-         pos = PAL_XY(PAL_X(g_Battle.posSummon) - PAL_RLEGetWidth(PAL_SpriteGetFrame(g_Battle.lpSummonSprite, g_Battle.iSummonFrame)) / 2,
-            PAL_Y(g_Battle.posSummon) - PAL_RLEGetHeight(PAL_SpriteGetFrame(g_Battle.lpSummonSprite, g_Battle.iSummonFrame)));
+         pos = PAL_BattleRenderPosition(g_Battle.posSummon);
+         pos = PAL_XY(PAL_X(pos) - PAL_RLEGetWidth(PAL_SpriteGetFrame(g_Battle.lpSummonSprite, g_Battle.iSummonFrame)) / 2,
+            PAL_Y(pos) - PAL_RLEGetHeight(PAL_SpriteGetFrame(g_Battle.lpSummonSprite, g_Battle.iSummonFrame)));
 
          PAL_RLEBlitToSurface(PAL_SpriteGetFrame(g_Battle.lpSummonSprite, g_Battle.iSummonFrame),
             lpDstSurface, pos);
@@ -238,6 +262,7 @@ PAL_BattleDrawPlayerSprites(
          pos = PAL_XY(PAL_X(pos), PAL_Y(pos) + RandomLong(-1, 1));
       }
 
+      pos = PAL_BattleRenderPosition(pos);
       pos = PAL_XY(PAL_X(pos) - PAL_RLEGetWidth(PAL_SpriteGetFrame(g_Battle.rgPlayer[wPlayerIndex].lpSprite, g_Battle.rgPlayer[wPlayerIndex].wCurrentFrame)) / 2,
          PAL_Y(pos) - PAL_RLEGetHeight(PAL_SpriteGetFrame(g_Battle.rgPlayer[wPlayerIndex].lpSprite, g_Battle.rgPlayer[wPlayerIndex].wCurrentFrame)));
 
@@ -280,6 +305,7 @@ PAL_BattleDrawMagicSprites(
    SHORT x, y;
    LPCBITMAPRLE lpBitmap = g_Battle.lpMagicBitmap;
 
+   pos = PAL_BattleRenderPosition(pos);
    x = PAL_X(pos);
    y = PAL_Y(pos);
 
@@ -646,15 +672,6 @@ PAL_BattleMakeScene(
    //
    PAL_BattleDrawAllSprites();
 
-#if defined(PAL_CARDPUTER_EXTREME)
-   {
-      WORD focus_player = PAL_BattleUIGetFocusPlayerIndex();
-      PalNativeUi_FocusLogical(
-         (int16_t)PAL_X(g_Battle.rgPlayer[focus_player].pos),
-         (int16_t)PAL_Y(g_Battle.rgPlayer[focus_player].pos),
-         PAL_NATIVE_UI_VIEW_BATTLE);
-   }
-#endif
 }
 
 VOID
@@ -1089,11 +1106,10 @@ PAL_LoadBattleBackground(
 
 --*/
 {
-#if defined(PAL_EXTREME_TWO_SCREENS)
-   BYTE                    *buf = (BYTE *)gpScreenBak->pixels;
-#elif defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
+#if !defined(PAL_CARDPUTER_EXTREME) && \
+    (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS))
    BYTE                    *buf = pal_psram_battle_background_static;
-#else
+#elif !defined(PAL_CARDPUTER_EXTREME)
    PAL_LARGE BYTE           buf[320 * 200];
 #endif
 
@@ -1114,7 +1130,14 @@ PAL_LoadBattleBackground(
    //
    // Load the picture
    //
-#ifdef PAL_NO_RUNTIME_DECOMPRESS
+#if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+   if (PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
+      gpGlobals->wNumBattleField, g_Battle.lpBackground) != 0)
+   {
+      TerminateOnError("PAL_LoadBattleBackground(): battle background is not native FBP data!");
+   }
+   return;
+#elif defined(PAL_NO_RUNTIME_DECOMPRESS)
    if (PAL_MKFReadChunk(buf, 320 * 200, gpGlobals->wNumBattleField, gpGlobals->f.fpFBP) != 320 * 200)
    {
       TerminateOnError("PAL_LoadBattleBackground(): battle background is not native FBP data!");
@@ -1126,8 +1149,135 @@ PAL_LoadBattleBackground(
    //
    // Draw the picture to the surface.
    //
+#if !defined(PAL_CARDPUTER_EXTREME)
    PAL_FBPBlitToSurface(buf, g_Battle.lpBackground);
+#endif
 }
+
+#if defined(PAL_CARDPUTER_EXTREME)
+static VOID
+PAL_BattleNativeDrawResult(
+   VOID
+)
+{
+   PAL_CreateBoxWithShadow(PAL_XY(28, 40), 1, 8, 1, FALSE, 0);
+   PAL_DrawText(PAL_GetWord(BATTLEWIN_GETEXP_LABEL), PAL_XY(38, 52),
+      0, FALSE, FALSE, FALSE);
+   PAL_DrawNumber(g_Battle.iExpGained, 5, PAL_XY(164, 55),
+      kNumColorYellow, kNumAlignRight);
+   PAL_DrawText(PAL_GetWord(BATTLEWIN_BEATENEMY_LABEL), PAL_XY(38, 72),
+      0, FALSE, FALSE, FALSE);
+   PAL_DrawNumber(g_Battle.iCashGained, 5, PAL_XY(126, 75),
+      kNumColorYellow, kNumAlignRight);
+   PAL_DrawText(PAL_GetWord(BATTLEWIN_DOLLAR_LABEL), PAL_XY(164, 72),
+      0, FALSE, FALSE, FALSE);
+}
+
+static VOID
+PAL_BattleNativeDrawLevelUp(
+   WORD                 wPlayerRole,
+   const PLAYERROLES   *original
+)
+{
+   static const WORD labels[8] = {
+      STATUS_LABEL_LEVEL,
+      STATUS_LABEL_HP,
+      STATUS_LABEL_MP,
+      STATUS_LABEL_ATTACKPOWER,
+      STATUS_LABEL_MAGICPOWER,
+      STATUS_LABEL_RESISTANCE,
+      STATUS_LABEL_DEXTERITY,
+      STATUS_LABEL_FLEERATE
+   };
+   DWORD old_value[8];
+   DWORD new_value[8];
+   WCHAR title[256] = L"";
+   int i;
+   int title_x;
+
+   old_value[0] = original->rgwLevel[wPlayerRole];
+   new_value[0] = gpGlobals->g.PlayerRoles.rgwLevel[wPlayerRole];
+   old_value[1] = original->rgwMaxHP[wPlayerRole];
+   new_value[1] = gpGlobals->g.PlayerRoles.rgwMaxHP[wPlayerRole];
+   old_value[2] = original->rgwMaxMP[wPlayerRole];
+   new_value[2] = gpGlobals->g.PlayerRoles.rgwMaxMP[wPlayerRole];
+   old_value[3] = original->rgwAttackStrength[wPlayerRole] +
+      PAL_GetPlayerAttackStrength(wPlayerRole) -
+      gpGlobals->g.PlayerRoles.rgwAttackStrength[wPlayerRole];
+   new_value[3] = PAL_GetPlayerAttackStrength(wPlayerRole);
+   old_value[4] = original->rgwMagicStrength[wPlayerRole] +
+      PAL_GetPlayerMagicStrength(wPlayerRole) -
+      gpGlobals->g.PlayerRoles.rgwMagicStrength[wPlayerRole];
+   new_value[4] = PAL_GetPlayerMagicStrength(wPlayerRole);
+   old_value[5] = original->rgwDefense[wPlayerRole] +
+      PAL_GetPlayerDefense(wPlayerRole) -
+      gpGlobals->g.PlayerRoles.rgwDefense[wPlayerRole];
+   new_value[5] = PAL_GetPlayerDefense(wPlayerRole);
+   old_value[6] = original->rgwDexterity[wPlayerRole] +
+      PAL_GetPlayerDexterity(wPlayerRole) -
+      gpGlobals->g.PlayerRoles.rgwDexterity[wPlayerRole];
+   new_value[6] = PAL_GetPlayerDexterity(wPlayerRole);
+   old_value[7] = original->rgwFleeRate[wPlayerRole] +
+      PAL_GetPlayerFleeRate(wPlayerRole) -
+      gpGlobals->g.PlayerRoles.rgwFleeRate[wPlayerRole];
+   new_value[7] = PAL_GetPlayerFleeRate(wPlayerRole);
+
+   PAL_CreateBoxWithShadow(PAL_XY(44, 0), 5, 6, 1, FALSE, 0);
+   PAL_swprintf(title, sizeof(title) / sizeof(WCHAR), L"%ls%ls%ls",
+      PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[wPlayerRole]),
+      PAL_GetWord(STATUS_LABEL_LEVEL),
+      PAL_GetWord(BATTLEWIN_LEVELUP_LABEL));
+   title_x = (gpScreen->w - PAL_TextWidth(title)) / 2;
+   PAL_DrawText(title, PAL_XY(title_x, 5), 0, FALSE, FALSE, FALSE);
+
+   for (i = 0; i < 8; i++)
+   {
+      int y = 23 + i * 12;
+      PAL_DrawText(PAL_GetWord(labels[i]), PAL_XY(52, y),
+         BATTLEWIN_LEVELUP_LABEL_COLOR, TRUE, FALSE, FALSE);
+      PAL_DrawNumber(old_value[i], 4, PAL_XY(98, y + 3),
+         kNumColorYellow, kNumAlignRight);
+      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ARROW),
+         gpScreen, PAL_XY(124, y + 4));
+      PAL_DrawNumber(new_value[i], 4, PAL_XY(140, y + 3),
+         kNumColorYellow, kNumAlignRight);
+   }
+}
+
+static VOID
+PAL_BattleNativeDrawGain(
+   LPCWSTR       text,
+   DWORD         amount
+)
+{
+   PAL_CreateBoxWithShadow(PAL_XY(28, 48), 0, 8, 1, FALSE, 0);
+   PAL_DrawText(text, PAL_XY(38, 60), 0, FALSE, FALSE, FALSE);
+   PAL_DrawNumber(amount, 5, PAL_XY(172, 63),
+      kNumColorYellow, kNumAlignRight);
+}
+
+static VOID
+PAL_BattleNativeDrawLearnMagic(
+   WORD          wPlayerRole,
+   WORD          wMagic
+)
+{
+   LPCWSTR name = PAL_GetWord(
+      gpGlobals->g.PlayerRoles.rgwName[wPlayerRole]);
+   LPCWSTR label = PAL_GetWord(BATTLEWIN_ADDMAGIC_LABEL);
+   LPCWSTR magic = PAL_GetWord(wMagic);
+   int total_width = PAL_TextWidth(name) + PAL_TextWidth(label) +
+      PAL_TextWidth(magic);
+   int x = (gpScreen->w - total_width) / 2;
+
+   PAL_CreateBoxWithShadow(PAL_XY(28, 48), 0, 8, 1, FALSE, 0);
+   PAL_DrawText(name, PAL_XY(x, 60), 0, FALSE, FALSE, FALSE);
+   x += PAL_TextWidth(name);
+   PAL_DrawText(label, PAL_XY(x, 60), 0, FALSE, FALSE, FALSE);
+   x += PAL_TextWidth(label);
+   PAL_DrawText(magic, PAL_XY(x, 60), 0x1B, FALSE, FALSE, FALSE);
+}
+#endif
 
 static VOID
 PAL_BattleWon(
@@ -1148,8 +1298,10 @@ PAL_BattleWon(
 
 --*/
 {
+#if !defined(PAL_CARDPUTER_EXTREME)
    const SDL_Rect   rect = {0, 60, 320, 100};
    SDL_Rect   rect1 = {80, 0, 180, 200};
+#endif
 
    int              i, j, iTotalCount;
    DWORD            dwExp;
@@ -1166,8 +1318,10 @@ PAL_BattleWon(
 
    if (g_Battle.iExpGained > 0)
    {
+#if !defined(PAL_CARDPUTER_EXTREME)
       int w1 = PAL_WordWidth(BATTLEWIN_GETEXP_LABEL) + 3;
 	  int ww1 = (w1 - 8) << 3;
+#endif
       //
       // Play the "battle win" music
       //
@@ -1176,6 +1330,10 @@ PAL_BattleWon(
       //
       // Show the message about the total number of exp. and cash gained
       //
+#if defined(PAL_CARDPUTER_EXTREME)
+      PAL_BattleNativeDrawResult();
+      VIDEO_UpdateScreen(NULL);
+#else
 	  PAL_CreateSingleLineBox(PAL_XY(83 - ww1, 60), w1, FALSE);
 	  PAL_CreateSingleLineBox(PAL_XY(65, 105), 10, FALSE);
 
@@ -1186,8 +1344,8 @@ PAL_BattleWon(
       PAL_DrawNumber(g_Battle.iExpGained, 5, PAL_XY(182 + ww1, 74), kNumColorYellow, kNumAlignRight);
       PAL_DrawNumber(g_Battle.iCashGained, 5, PAL_XY(162, 119), kNumColorYellow, kNumAlignMid);
 
-      PAL_BattleNativeFocusResult();
       VIDEO_UpdateScreen(&rect);
+#endif
       PAL_WaitForAnyKey(g_Battle.fIsBoss ? 5500 : 3000);
    }
 
@@ -1197,6 +1355,7 @@ PAL_BattleWon(
    gpGlobals->dwCash += g_Battle.iCashGained;
 
     
+#if !defined(PAL_CARDPUTER_EXTREME)
     const MENUITEM      rgFakeMenuItem[] =
     {
         // value  label                        enabled   pos
@@ -1225,6 +1384,7 @@ PAL_BattleWon(
     int offsetX = -8*propertyLength;
     rect1.x += offsetX;
     rect1.w -= 2*offsetX;
+#endif
    //
    // Add the experience points for each players
    //
@@ -1265,6 +1425,9 @@ PAL_BattleWon(
       if (fLevelUp)
       {
          VIDEO_RestoreScreen(gpScreen);
+#if defined(PAL_CARDPUTER_EXTREME)
+         PAL_BattleNativeDrawLevelUp(w, &OrigPlayerRoles);
+#else
          //
          // Player has gained a level. Show the message
          //
@@ -1353,12 +1516,16 @@ PAL_BattleWon(
             4, PAL_XY(-offsetX+133, 173), kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(PAL_GetPlayerFleeRate(w), 4, PAL_XY(-offsetX+195, 173),
             kNumColorYellow, kNumAlignRight);
+#endif
 
          //
          // Update the screen and wait for key
          //
-         PAL_BattleNativeFocusLevelUp();
+#if defined(PAL_CARDPUTER_EXTREME)
+         VIDEO_UpdateScreen(NULL);
+#else
          VIDEO_UpdateScreen(&rect1);
+#endif
          PAL_WaitForAnyKey(3000);
 
          OrigPlayerRoles = gpGlobals->g.PlayerRoles;
@@ -1379,6 +1546,43 @@ PAL_BattleWon(
 
       if (iTotalCount > 0)
       {
+#if defined(PAL_CARDPUTER_EXTREME)
+#define SHOW_HIDDEN_GAIN(statname, label)                  \
+{                                                           \
+   WCHAR buffer[256] = L"";                                \
+   PAL_swprintf(buffer, sizeof(buffer) / sizeof(WCHAR),      \
+      L"%ls%ls%ls",                                        \
+      PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[w]),     \
+      PAL_GetWord(label), PAL_GetWord(BATTLEWIN_LEVELUP_LABEL)); \
+   VIDEO_RestoreScreen(gpScreen);                           \
+   PAL_BattleNativeDrawGain(buffer,                         \
+      gpGlobals->g.PlayerRoles.statname[w] -                \
+      OrigPlayerRoles.statname[w]);                         \
+   VIDEO_UpdateScreen(NULL);                                \
+   PAL_WaitForAnyKey(3000);                                 \
+}
+#else
+#define SHOW_HIDDEN_GAIN(statname, label)                  \
+{                                                           \
+   WCHAR buffer[256] = L"";                                \
+   PAL_swprintf(buffer, sizeof(buffer) / sizeof(WCHAR),      \
+      L"%ls%ls%ls",                                        \
+      PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[w]),     \
+      PAL_GetWord(label), PAL_GetWord(BATTLEWIN_LEVELUP_LABEL)); \
+   PAL_CreateSingleLineBox(PAL_XY(offsetX + 78, 60),        \
+      maxNameWidth + maxPropertyWidth +                    \
+      PAL_TextWidth(PAL_GetWord(BATTLEWIN_LEVELUP_LABEL)) / 32 + 4, \
+      FALSE);                                               \
+   PAL_DrawText(buffer, PAL_XY(offsetX + 90, 70),           \
+      0, FALSE, FALSE, FALSE);                              \
+   PAL_DrawNumber(gpGlobals->g.PlayerRoles.statname[w] -    \
+      OrigPlayerRoles.statname[w], 5,                      \
+      PAL_XY(183 + (maxNameWidth + maxPropertyWidth - 3) * 8, 74), \
+      kNumColorYellow, kNumAlignRight);                     \
+   VIDEO_UpdateScreen(&rect);                               \
+   PAL_WaitForAnyKey(3000);                                 \
+}
+#endif
 #define CHECK_HIDDEN_EXP(expname, statname, label)          \
 {                                                           \
    dwExp = g_Battle.iExpGained;                             \
@@ -1407,14 +1611,7 @@ PAL_BattleWon(
                                                             \
    if (gpGlobals->g.PlayerRoles.statname[w] != OrigPlayerRoles.statname[w]) \
    {                                                        \
-      WCHAR buffer[256] = L""; \
-      PAL_swprintf(buffer, sizeof(buffer) / sizeof(WCHAR), L"%ls%ls%ls", PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[w]), PAL_GetWord(label), PAL_GetWord(BATTLEWIN_LEVELUP_LABEL)); \
-      PAL_CreateSingleLineBox(PAL_XY(offsetX+78, 60), maxNameWidth+maxPropertyWidth+PAL_TextWidth(PAL_GetWord(BATTLEWIN_LEVELUP_LABEL))/32+4, FALSE);    \
-      PAL_DrawText(buffer, PAL_XY(offsetX+90, 70),  0, FALSE, FALSE, FALSE); \
-      PAL_DrawNumber(gpGlobals->g.PlayerRoles.statname[w] - OrigPlayerRoles.statname[w], 5, PAL_XY(183+(maxNameWidth+maxPropertyWidth-3)*8, 74), kNumColorYellow, kNumAlignRight); \
-      PAL_BattleNativeFocusResult();                       \
-      VIDEO_UpdateScreen(&rect);                            \
-      PAL_WaitForAnyKey(3000);                              \
+      SHOW_HIDDEN_GAIN(statname, label);                    \
    }                                                        \
 }
 
@@ -1427,6 +1624,7 @@ PAL_BattleWon(
          CHECK_HIDDEN_EXP(rgFleeExp, rgwFleeRate, STATUS_LABEL_FLEERATE);
 
 #undef CHECK_HIDDEN_EXP
+#undef SHOW_HIDDEN_GAIN
 
          //
          // Avoid HP/MP out of sync with upgraded maxHP/MP
@@ -1453,6 +1651,12 @@ PAL_BattleWon(
 
          if (PAL_AddMagic(w, gpGlobals->g.lprgLevelUpMagic[j].m[w].wMagic))
          {
+#if defined(PAL_CARDPUTER_EXTREME)
+            VIDEO_RestoreScreen(gpScreen);
+            PAL_BattleNativeDrawLearnMagic(w,
+               gpGlobals->g.lprgLevelUpMagic[j].m[w].wMagic);
+            VIDEO_UpdateScreen(NULL);
+#else
             int ww;
             int w1 = (ww = PAL_WordWidth(gpGlobals->g.PlayerRoles.rgwName[w])) > 3 ? ww : 3;
 			int w2 = (ww = PAL_WordWidth(BATTLEWIN_ADDMAGIC_LABEL)) > 2 ? ww : 2;
@@ -1465,8 +1669,8 @@ PAL_BattleWon(
             PAL_DrawText(PAL_GetWord(BATTLEWIN_ADDMAGIC_LABEL), PAL_XY(75 + 16 * w1 - ww, 115), 0, FALSE, FALSE, FALSE);
             PAL_DrawText(PAL_GetWord(gpGlobals->g.lprgLevelUpMagic[j].m[w].wMagic), PAL_XY(75 + 16 * (w1 + w2) - ww, 115), 0x1B, FALSE, FALSE, FALSE);
 
-            PAL_BattleNativeFocusResult();
             VIDEO_UpdateScreen(&rect);
+#endif
             PAL_WaitForAnyKey(3000);
          }
 

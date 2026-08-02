@@ -1,0 +1,16 @@
+{
+  "baseline_id": "cardputer-extreme-pal-dos-font10-v4",
+  "description": "PAL_DOS gameplay, script, and event trace baseline for the direct 240x135 native framebuffer. The legacy 320x200 space remains only in gameplay state, while all target text uses the corpus-subsetted FONT10 payload and the NOR pack contains no legacy FONT#0 payload.",
+  "forced_events": {
+    "battle_frame": 1300,
+    "battle_team": 0,
+    "chapter_boundary_frame": 1600
+  },
+  "frames": 3000,
+  "golden_event_trace_sha256": "cf86a0020652a411c7d956db116d4eb308dd4ff3d13d6e8197f1f300645210dd",
+  "golden_script_trace_sha256": "c6df7dabac82ae159324efe27177cdb06a277c4f8297ceb878a0e0bd9244635e",
+  "golden_trace_sha256": "326e2dbe8613e8bd2c5543df29237191a792ea90ef7c00190e730665ebe4ddcf",
+  "route": "tools/deterministic_routes/newgame_walk.route",
+  "schema_version": 1,
+  "source_base_commit": "a2f8aa4"
+}

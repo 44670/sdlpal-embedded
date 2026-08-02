@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Audit the Cardputer ADV 8 MiB/no-PSRAM chapter-cache build.
+"""Audit the default Cardputer ADV music + TF-managed-cache build.
 
 This checker deliberately joins the two halves of the profile contract:
 
 * the generated ESP-IDF image really uses the dedicated 8 MiB partition
   layout and contains the cache implementation; and
-* every host-built chapter artifact agrees with its manifest and with the
-  CACHE catalog embedded in ``pal_core.pak``.
+* ``PALSET.BIN`` owns the data-set identity, core hash, and chapter catalog;
+* every TF artifact agrees with that external record and with its manifest;
+* the linked application contains RIX/OPL2 music but no SFX or decoder; and
+* neither the application nor its checker needs a generated resource hash.
 
 It does not regenerate packs or claim that the full story route is playable.
-In particular, the manifest must retain the current event-object paging
-limitation instead of silently presenting the resource closure as a finished
-full-game port.
+Resource coverage, bounded state paging, and a naturally exercised story route
+remain distinct acceptance claims.
 """
 
 from __future__ import annotations
@@ -51,9 +52,6 @@ CACHE_PAYLOAD_HARD_BYTES = 0x2CF000
 CACHE_PACK_SOFT_BYTES = 0x2BF000
 ACTIVE_TF_TOC_BYTES = 2048
 BUNDLE_COUNT = 15
-GENERATED_UI_HEADER = (
-    ESP32S3_DIR / "main" / "generated" / "pal_native_ui_240x135.h"
-)
 MAX_DRAM_BSS = 212 * 1024
 MAX_DRAM_DATA = 16 * 1024
 MAX_DIRAM_STATIC = 264 * 1024
@@ -86,11 +84,20 @@ REQUIRED_CACHE_SYMBOLS = {
     "PalEngineChapterCache_Decide",
     "PalEngineChapterCache_DescribeScene",
     "PalEngineChapterCache_OpenCatalog",
+    "PalEngineChapterCache_OpenSet",
     "PalEngineChapterCache_PrepareScene",
     "PalEngineChapterCache_SceneNeedsBundle",
     "PalEngineChapterCache_TargetInit",
+    "PalEngineChapterCache_TargetPrepareCore",
     "PalFont10_Open",
-    "PalNativeUi_Font10IdentityMatches",
+    "AUDIO_PlayMusic",
+    "AUDIO_PlaySound",
+    "CardputerExtremeAudio_Begin",
+    "CardputerExtremeAudio_LogTelemetry",
+    "CardputerExtremeAudio_PollTelemetry",
+    "PalMameOpl2_Init",
+    "PalMameOpl2_Render",
+    "PalMusic_MapMus",
     "sha256_finish",
     "sha256_transform",
     "sha256_update",
@@ -148,6 +155,7 @@ class PackMetrics:
     full_bytes: int = 0
     tf_toc_bytes: int = 0
     catalog_bytes: int = 0
+    set_bytes: int = 0
     largest_bundle_bytes: int = 0
 
 
@@ -461,16 +469,10 @@ def section_sizes(objdump_output: str) -> dict[str, int]:
 
 
 def check_stack_usage(
-    build_dir: Path,
-    expected_reports: int,
+    objects: list[Path],
     errors: list[str],
 ) -> int:
-    stack_dir = build_dir / "esp-idf" / "main"
-    reports = sorted(stack_dir.rglob("*.su"))
-    if len(reports) != expected_reports:
-        errors.append(
-            f"project stack reports {len(reports)}, expected {expected_reports}"
-        )
+    reports = [path.with_suffix(".su") for path in objects]
 
     maximum = 0
     maximum_name = "none"
@@ -507,18 +509,10 @@ def check_stack_usage(
 
 
 def check_project_object_calls(
-    build_dir: Path,
+    objects: list[Path],
     nm: Path,
-    expected_objects: int,
     errors: list[str],
 ) -> None:
-    objects = sorted(
-        (build_dir / "esp-idf" / "main").rglob("*.obj")
-    )
-    if len(objects) != expected_objects:
-        errors.append(
-            f"project objects {len(objects)}, expected {expected_objects}"
-        )
     if not objects:
         return
 
@@ -554,9 +548,37 @@ def is_root_project_source(path: Path, build_dir: Path) -> bool:
         return True
 
 
+def project_object_paths(
+    entries: list[dict[str, object]],
+    build_dir: Path,
+    errors: list[str],
+) -> list[Path]:
+    result: list[Path] = []
+    for entry in entries:
+        raw_output = entry.get("output")
+        if not isinstance(raw_output, str) or not raw_output:
+            errors.append(f"{entry.get('file')}: missing object output path")
+            continue
+        output = Path(raw_output)
+        if not output.is_absolute():
+            directory = entry.get("directory")
+            output = (
+                Path(directory) / output
+                if isinstance(directory, str)
+                else build_dir / output
+            )
+        output = output.resolve()
+        if not output.is_file():
+            errors.append(f"missing project object: {output}")
+            continue
+        result.append(output)
+    return result
+
+
 def check_cmake_sources(errors: list[str]) -> None:
     top_path = ESP32S3_DIR / "CMakeLists.txt"
     main_path = ESP32S3_DIR / "main" / "CMakeLists.txt"
+    make_path = ESP32S3_DIR / "Makefile"
     cache_path = (
         ESP32S3_DIR / "engine_bridge" / "pal_engine_chapter_cache.c"
     )
@@ -566,6 +588,7 @@ def check_cmake_sources(errors: list[str]) -> None:
     try:
         top = top_path.read_text(encoding="utf-8", errors="replace")
         main = main_path.read_text(encoding="utf-8", errors="replace")
+        make = make_path.read_text(encoding="utf-8", errors="replace")
         cache = cache_path.read_text(encoding="utf-8", errors="replace")
         target_packs = target_packs_path.read_text(
             encoding="utf-8", errors="replace"
@@ -577,6 +600,8 @@ def check_cmake_sources(errors: list[str]) -> None:
     top_tokens = (
         "CARDPUTER_EXTREME_CHAPTER_CACHE",
         "CARDPUTER_EXTREME_CHAPTER_CACHE requires CARDPUTER_EXTREME_NO_PSRAM=ON",
+        "CARDPUTER_EXTREME_MUSIC",
+        "set(_CARDPUTER_EXTREME_MUSIC_DEFAULT ON)",
     )
     main_tokens = (
         "if(CARDPUTER_EXTREME_CHAPTER_CACHE)",
@@ -591,16 +616,38 @@ def check_cmake_sources(errors: list[str]) -> None:
             errors.append(f"{main_path}: missing chapter-cache gate {token!r}")
 
     for token in (
+        "cardputer-adv-music-build: cardputer-extreme-chapter-cache-build",
+        "cardputer-adv-music-check: cardputer-extreme-chapter-cache-check",
+        "CARDPUTER_ADV_TF_DATAPAK ?= $(abspath TF_datapak)",
+        "cardputer-adv-music-tf: CARDPUTER_EXTREME_CHAPTER_PACK_DIR = $(CARDPUTER_ADV_TF_DATAPAK)",
+        "cardputer-adv-music-tf: cardputer-extreme-chapter-pack-check",
+        "cardputer-adv-music-flash-app: cardputer-adv-music-build",
+        "cardputer-adv-music-provision: cardputer-adv-music-build",
+    ):
+        if token not in make:
+            errors.append(f"{make_path}: missing default workflow target {token!r}")
+    if "cardputer-extreme-chapter-cache-flash-core" in make:
+        errors.append(f"{make_path}: obsolete host core-flash target remains")
+
+    for token in (
+        "PalEngineChapterCache_TargetPrepareCore(",
         "PalFont10_Open(&core_pack, &font10)",
-        "PalNativeUi_Font10IdentityMatches(",
+        "font10.cell_width != 10u || font10.cell_height != 10u",
+        "memcmp(core_catalog_span.data, catalog_image, catalog_size)",
     ):
         if token not in target_packs:
             errors.append(
-                f"{target_packs_path}: missing chapter FONT10 gate {token!r}"
+                f"{target_packs_path}: missing external-set startup gate {token!r}"
             )
 
     for token in (
+        'PAL_CORE_PACK_PATH "0:/pal_core.pak"',
+        'PAL_SET_FILE_PATH "0:/PALSET.BIN"',
+        "static FIL pal_chapter_boot_file;",
         "static FIL pal_chapter_bundle_file;",
+        "pal_chapter_runtime.current_bundle",
+        "esp_partition_erase_range(",
+        "esp_partition_write(",
         "f_open(",
         "f_read(",
         "f_close(",
@@ -664,6 +711,7 @@ def check_build(
         "PAL_CORES3SE_ENGINE_HOST",
         "CARDPUTER_EXTREME_NO_PSRAM",
         "CARDPUTER_EXTREME_CHAPTER_CACHE",
+        "CARDPUTER_EXTREME_MUSIC",
     ):
         if not cmake_truth(cmake_cache.get(key)):
             errors.append(f"CMake cache did not enable {key}")
@@ -683,10 +731,11 @@ def check_build(
         and isinstance(entry.get("file"), str)
         and is_root_project_source(Path(entry["file"]), build_dir)
     ]
+    project_objects = project_object_paths(project_entries, build_dir, errors)
     inventory = read_json(
-        ESP32S3_DIR / "cardputer_extreme_sources.json",
+        ESP32S3_DIR / "cardputer_extreme_music_sources.json",
         errors,
-        "Cardputer extreme source inventory",
+        "Cardputer ADV music source inventory",
     )
     inventory_sources = (
         inventory.get("sources")
@@ -696,9 +745,13 @@ def check_build(
     if not isinstance(inventory_sources, list) or not all(
         isinstance(item, str) for item in inventory_sources
     ):
-        errors.append("Cardputer extreme source inventory is malformed")
+        errors.append("Cardputer ADV music source inventory is malformed")
         expected_sources: set[str] = set()
     else:
+        if inventory_sources != sorted(inventory_sources):
+            errors.append("Cardputer ADV music source inventory is not sorted")
+        if len(inventory_sources) != len(set(inventory_sources)):
+            errors.append("Cardputer ADV music source inventory has duplicates")
         expected_sources = set(inventory_sources)
         expected_sources.add(
             "esp32s3/engine_bridge/pal_engine_chapter_cache.c"
@@ -727,6 +780,9 @@ def check_build(
     compile_tokens = (
         "-DPAL_CARDPUTER_EXTREME=1",
         "-DPAL_EXTREME_CHAPTER_CACHE=1",
+        "-DPAL_EXTREME_RIX_MUSIC=1",
+        "-DPAL_CONTRACT_NO_SFX=1",
+        "-DPAL_ESP_CORES3SE_NO_SFX=1",
         "-DPAL_NO_RUNTIME_DECOMPRESS=1",
         "-DPAL_NO_RUNTIME_HEAP=1",
         "-DPAL_ENGINE_TF_TOC_BYTES=2048u",
@@ -745,6 +801,14 @@ def check_build(
         for token in compile_tokens:
             if token not in words:
                 errors.append(f"{source}: compile command is missing {token}")
+        for token in (
+            "-DPAL_CONTRACT_NO_AUDIO=1",
+            "-DPAL_ESP_CORES3SE_NO_AUDIO=1",
+        ):
+            if token in words:
+                errors.append(
+                    f"{source}: music compile command contains {token}"
+                )
 
     ninja = (build_dir / "build.ninja").read_text(
         encoding="utf-8", errors="replace"
@@ -753,6 +817,11 @@ def check_build(
         "pal_engine_chapter_cache.c.obj",
         "cardputer_extreme_board.c.obj",
         "cardputer_extreme_memory.c.obj",
+        "cardputer_extreme_audio.c.obj",
+        "pal_engine_target_music.cpp.obj",
+        "pal_mame_opl2_static.cpp.obj",
+        "pal_music_cache.c.obj",
+        "rix.cpp.obj",
     ):
         if token not in ninja:
             errors.append(f"build graph is missing {token}")
@@ -760,6 +829,9 @@ def check_build(
         "cores3se_board.c.obj",
         "cores3se_memory.c.obj",
         "pal_engine_psram.lf",
+        "contract_noaudio.c.obj",
+        "pal_audio_static.c.obj",
+        "pal_sfx_cache.c.obj",
     ):
         if token in ninja:
             errors.append(f"no-PSRAM cache build graph contains {token}")
@@ -785,12 +857,14 @@ def check_build(
             errors,
             "target nm",
         )
-        check_project_object_calls(
-            build_dir, nm, len(project_entries), errors
-        )
+        check_project_object_calls(project_objects, nm, errors)
     symbols = symbol_names(nm_output)
     for name in sorted(REQUIRED_CACHE_SYMBOLS - symbols):
         errors.append(f"required cache symbol is missing: {name}")
+    if "PalNativeUi_Font10IdentityMatches" in symbols:
+        errors.append(
+            "default app still links a data-specific FONT10 identity gate"
+        )
     decoder_hits = sorted(
         name
         for name in symbols
@@ -832,7 +906,7 @@ def check_build(
         errors.append(
             f"DIRAM static use {diram_static} exceeds {MAX_DIRAM_STATIC}"
         )
-    max_stack = check_stack_usage(build_dir, len(project_entries), errors)
+    max_stack = check_stack_usage(project_objects, errors)
 
     return BuildMetrics(
         app_size,
@@ -883,41 +957,12 @@ def pack_chunk(
     return None
 
 
-def parse_generated_font10_identity(
-    path: Path,
-    errors: list[str],
-) -> tuple[int, int, int] | None:
-    try:
-        source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        errors.append(f"{path}: generated UI header cannot be read: {exc}")
-        return None
-
-    values: list[int] = []
-    for name in (
-        "PAL_NATIVE_UI_GENERATED_FONT_GLYPH_COUNT",
-        "PAL_NATIVE_UI_GENERATED_FONT_IMAGE_BYTES",
-        "PAL_NATIVE_UI_GENERATED_FONT_PAYLOAD_CRC32",
-    ):
-        match = re.search(
-            rf"^#define\s+{name}\s+(0[xX][0-9a-fA-F]+|[0-9]+)u$",
-            source,
-            re.MULTILINE,
-        )
-        if match is None:
-            errors.append(f"{path}: missing generated define {name}")
-            return None
-        values.append(int(match.group(1), 0))
-    return values[0], values[1], values[2]
-
-
 def check_font10_contract(
     manifest: dict[str, object],
     core_data: bytes,
     full_path: Path,
     errors: list[str],
 ) -> None:
-    identity = parse_generated_font10_identity(GENERATED_UI_HEADER, errors)
     raw_font10 = manifest.get("font10")
     if not isinstance(raw_font10, dict):
         errors.append("chapter manifest is missing mandatory FONT10 metadata")
@@ -926,12 +971,11 @@ def check_font10_contract(
     summary = raw_font10.get("font10")
     if not isinstance(summary, dict):
         errors.append("chapter manifest FONT10 summary is not an object")
-    elif identity is not None and (
-        summary.get("glyph_count"),
-        summary.get("bytes"),
-        summary.get("payload_crc32"),
-    ) != identity:
-        errors.append("chapter FONT10 identity differs from generated UI header")
+    elif not isinstance(summary.get("metrics"), dict) or (
+        summary["metrics"].get("cell_width"),
+        summary["metrics"].get("cell_height"),
+    ) != (10, 10):
+        errors.append("chapter FONT10 must use native 10x10 cells")
 
     archive = raw_font10.get("archive")
     archive_path = (
@@ -975,6 +1019,12 @@ def check_font10_contract(
             errors.append(
                 f"{label} FONT#1 differs from the standard host-generated FONT10"
             )
+    core_font16 = pack_chunk(core_data, pack.ARCHIVE_IDS["FONT"], 0)
+    if core_font16 is None or core_font16[0] != b"":
+        errors.append("pal_core.pak must omit the original 16px FONT chunk 0")
+    full_font16 = pack_chunk(full_data, pack.ARCHIVE_IDS["FONT"], 0)
+    if full_font16 is None or full_font16[0] == b"":
+        errors.append("pal_full.pak must retain the offline 16px FONT chunk 0")
 
 
 def inspect_pack(
@@ -1174,6 +1224,9 @@ def check_manifest_contract(manifest: dict[str, object], errors: list[str]) -> N
             "runtime_decompression_required": False,
             "payloads_are_runtime_native": True,
             "overlay_shape": "one replaceable SPI-NOR bundle",
+            "data_identity_file": chapter.SET_FILENAME,
+            "core_tf_file": "pal_core.pak",
+            "firmware_embeds_data_hashes": False,
         }
         for key, value in required_runtime.items():
             if runtime.get(key) != value:
@@ -1184,12 +1237,14 @@ def check_manifest_contract(manifest: dict[str, object], errors: list[str]) -> N
         errors.append("manifest does not disclose the event-object paging limit")
     else:
         expected = {
-            "status": "runtime-compatibility-window-event-pager-not-yet-wired",
+            "status": "full-event-pager-active",
             "record_bytes": 32,
             "core_record_count": chapter.CORE_EVENT_OBJECT_COUNT,
             "core_chunk_bytes": chapter.CORE_EVENT_OBJECT_BYTES,
             "current_runtime_scene_window": "scenes 1..22",
-            "outside_window_behavior": "fail-fast",
+            "outside_window_behavior": (
+                "bundle cache plus EVENT.DEF/EVENT.STA paging"
+            ),
         }
         for key, value in expected.items():
             if window.get(key) != value:
@@ -1208,6 +1263,7 @@ def check_pack_constants(errors: list[str]) -> None:
         "SOFT_OVERLAY_CAP": CACHE_PACK_SOFT_BYTES,
         "CATALOG_SCENE_COUNT": 300,
         "CATALOG_BUNDLE_DESC_SIZE": 40,
+        "SET_HEADER_SIZE": 64,
     }
     for name, expected in independent.items():
         actual = getattr(chapter, name, None)
@@ -1225,6 +1281,12 @@ def check_pack_constants(errors: list[str]) -> None:
         "PAL_ENGINE_CACHE_PACK_SOFT_BYTES": CACHE_PACK_SOFT_BYTES,
         "PAL_ENGINE_CACHE_CATALOG_SCENES": 300,
         "PAL_ENGINE_CACHE_DESCRIPTOR_BYTES": 40,
+        "PAL_ENGINE_CACHE_SET_MAGIC": int.from_bytes(b"PLST", "little"),
+        "PAL_ENGINE_CACHE_SET_VERSION": 1,
+        "PAL_ENGINE_CACHE_SET_HEADER_BYTES": 64,
+        "PAL_ENGINE_CACHE_SET_CRC32_OFFSET": 28,
+        "PAL_ENGINE_CACHE_SET_CORE_SHA256_OFFSET": 32,
+        "PAL_ENGINE_CORE_PARTITION_BYTES": CORE_SLOT_BYTES,
     }
     for name, expected in expected_defines.items():
         actual = defines.get(name)
@@ -1251,8 +1313,9 @@ def check_packs(
         "tf": pack_dir / "pal_tf.pak",
         "full": pack_dir / "pal_full.pak",
     }
+    set_path = pack_dir / chapter.SET_FILENAME
     bundle_paths = [pack_dir / f"b{bundle_id:02d}.pak" for bundle_id in range(BUNDLE_COUNT)]
-    required = [*paths.values(), *bundle_paths]
+    required = [*paths.values(), set_path, *bundle_paths]
     missing = [path for path in required if not path.is_file()]
     if missing:
         errors.extend(f"missing chapter artifact: {path}" for path in missing)
@@ -1282,6 +1345,12 @@ def check_packs(
     if set(metadata) != set(paths) or len(bundle_meta) != BUNDLE_COUNT:
         return PackMetrics()
 
+    try:
+        set_data = set_path.read_bytes()
+    except OSError as exc:
+        errors.append(f"{set_path}: cannot read data-set record: {exc}")
+        return PackMetrics()
+
     core_meta = metadata["core"]
     tf_meta = metadata["tf"]
     full_meta = metadata["full"]
@@ -1298,6 +1367,30 @@ def check_packs(
         chapter.FULL_MIRROR_ARCHIVES,
         errors,
     )
+    if core_data is not None:
+        mus_chunks = next(
+            (
+                chunks
+                for archive_id, chunks in iter_pack_archives(core_data)
+                if archive_id == pack.ARCHIVE_IDS["MUS"]
+            ),
+            [],
+        )
+        if len(mus_chunks) != 88:
+            errors.append(f"pal_core.pak MUS has {len(mus_chunks)} slots, expected 88")
+        else:
+            actual_nonempty = {
+                chunk_id
+                for chunk_id, (_offset, size, fmt, flags)
+                in enumerate(mus_chunks)
+                if size != 0 and fmt == pack.FORMAT_NATIVE and flags == 0
+            }
+            expected_nonempty = set(range(88)) - {0, 29}
+            if actual_nonempty != expected_nonempty:
+                errors.append(
+                    "pal_core.pak MUS must retain exactly 86 native RIX tracks "
+                    "with source slots 0 and 29 empty"
+                )
     for bundle_id, meta in enumerate(bundle_meta):
         check_archive_ids(
             f"b{bundle_id:02d}.pak",
@@ -1305,6 +1398,15 @@ def check_packs(
             chapter.OVERLAY_ARCHIVES,
             errors,
         )
+
+    try:
+        chapter.verify_set_file(set_data, core_data)
+        set_id = struct.unpack_from("<I", set_data, 12)[0]
+        set_catalog = set_data[chapter.SET_HEADER_SIZE:]
+    except (ValueError, struct.error) as exc:
+        errors.append(f"{set_path}: invalid data-set record: {exc}")
+        set_id = 0
+        set_catalog = b""
 
     pack_set = manifest.get("pack_set")
     if not isinstance(pack_set, dict):
@@ -1319,11 +1421,40 @@ def check_packs(
             errors.append("manifest pack_set.id_hex differs from integer ID")
     all_meta = [core_meta, tf_meta, full_meta, *bundle_meta]
     actual_set_ids = {meta.set_id for meta in all_meta}
+    actual_set_ids.add(set_id)
     if actual_set_ids != {manifest_set_id} or manifest_set_id == 0:
         errors.append(
             f"pack-set IDs are zero/inconsistent: manifest={manifest_set_id:#x}, "
             f"artifacts={sorted(actual_set_ids)!r}"
         )
+
+    set_summary = manifest.get("set_file")
+    if not isinstance(set_summary, dict):
+        errors.append("manifest has no set_file object")
+    else:
+        expected = {
+            "filename": chapter.SET_FILENAME,
+            "magic": chapter.SET_MAGIC.decode("ascii"),
+            "version": chapter.SET_VERSION,
+            "header_size": chapter.SET_HEADER_SIZE,
+            "size": len(set_data),
+            "sha256": sha256_bytes(set_data),
+            "crc32": (
+                struct.unpack_from("<I", set_data, chapter.SET_CRC32_OFFSET)[0]
+                if len(set_data) >= chapter.SET_HEADER_SIZE
+                else 0
+            ),
+            "core_size": core_meta.size,
+            "core_sha256": core_meta.sha256,
+            "catalog_offset": chapter.SET_HEADER_SIZE,
+            "catalog_size": len(set_catalog),
+        }
+        for key, value in expected.items():
+            if set_summary.get(key) != value:
+                errors.append(
+                    f"manifest set_file.{key}={set_summary.get(key)!r}, "
+                    f"artifact has {value!r}"
+                )
 
     packs_summary = manifest.get("packs")
     if not isinstance(packs_summary, dict):
@@ -1420,7 +1551,7 @@ def check_packs(
 
     if core_data is None:
         errors.append("cannot inspect CACHE catalog in pal_core.pak")
-        catalog = b""
+        core_catalog = b""
     else:
         check_font10_contract(
             manifest,
@@ -1435,9 +1566,9 @@ def check_packs(
         )
         if catalog_chunk is None:
             errors.append("pal_core.pak has no CACHE#0 catalog")
-            catalog = b""
+            core_catalog = b""
         else:
-            catalog, catalog_format = catalog_chunk
+            core_catalog, catalog_format = catalog_chunk
             if catalog_format != pack.FORMAT_RAW:
                 errors.append("pal_core.pak CACHE#0 is not RAW")
 
@@ -1468,9 +1599,13 @@ def check_packs(
         and isinstance(scene_partition.get("intervals"), list)
         else []
     )
-    if catalog:
+    if set_catalog and core_catalog != set_catalog:
+        errors.append(
+            "PALSET.BIN catalog differs from pal_core.pak CACHE#0"
+        )
+    if set_catalog:
         check_catalog(
-            catalog,
+            set_catalog,
             manifest.get("catalog"),
             manifest_set_id,
             bundle_meta,
@@ -1484,9 +1619,47 @@ def check_packs(
         tf_meta.size,
         full_meta.size,
         tf_meta.toc_bytes,
-        len(catalog),
+        len(set_catalog),
+        len(set_data),
         largest,
     )
+
+
+def check_app_data_independence(
+    build_dir: Path,
+    pack_dir: Path,
+    errors: list[str],
+) -> None:
+    app_path = build_dir / "sdlpal_cardputer_extreme.bin"
+    set_path = pack_dir / chapter.SET_FILENAME
+    try:
+        app_data = app_path.read_bytes()
+        set_data = set_path.read_bytes()
+        chapter.verify_set_file(set_data)
+    except (OSError, ValueError) as exc:
+        errors.append(f"cannot audit app/data hash separation: {exc}")
+        return
+
+    catalog = set_data[chapter.SET_HEADER_SIZE:]
+    descriptor_offset = struct.unpack_from("<I", catalog, 20)[0]
+    bundle_count = struct.unpack_from("<H", catalog, 14)[0]
+    hashes = [
+        ("core", set_data[chapter.SET_CORE_SHA256_OFFSET:chapter.SET_HEADER_SIZE])
+    ]
+    for bundle_id in range(bundle_count):
+        offset = (
+            descriptor_offset
+            + bundle_id * chapter.CATALOG_BUNDLE_DESC_SIZE
+            + 8
+        )
+        hashes.append(
+            (f"bundle {bundle_id}", catalog[offset : offset + 32])
+        )
+    for label, digest in hashes:
+        if len(digest) != 32:
+            errors.append(f"short {label} hash in {chapter.SET_FILENAME}")
+        elif digest in app_data:
+            errors.append(f"application embeds data-specific {label} SHA-256")
 
 
 def main() -> int:
@@ -1541,8 +1714,9 @@ def main() -> int:
     )
     build_metrics = check_build(build_dir, errors)
     pack_metrics = check_packs(pack_dir, manifest_path, errors)
+    check_app_data_independence(build_dir, pack_dir, errors)
 
-    print("Cardputer ADV chapter-cache contract")
+    print("Cardputer ADV default music/cache contract")
     print(
         f"  flash={FLASH_BYTES} bytes, app={build_metrics.app_bytes}/{APP_BYTES}, "
         f"core-slot={pack_metrics.core_bytes}/{CORE_SLOT_BYTES}"
@@ -1560,7 +1734,8 @@ def main() -> int:
     )
     print(
         f"  pack_set_id=0x{pack_metrics.set_id:08x}, "
-        f"bundles={BUNDLE_COUNT}, catalog={pack_metrics.catalog_bytes}, "
+        f"bundles={BUNDLE_COUNT}, PALSET={pack_metrics.set_bytes}, "
+        f"catalog={pack_metrics.catalog_bytes}, "
         f"project_sources={build_metrics.project_sources}"
     )
     print(
@@ -1573,8 +1748,8 @@ def main() -> int:
             print(f"ERROR: {error}")
         return 1
     print(
-        "PASS: exact 8MiB/no-PSRAM cache image and all chapter "
-        "artifacts/catalog descriptors agree"
+        "PASS: exact 8MiB/no-PSRAM music/cache image and all TF "
+        "artifacts/PALSET descriptors agree"
     )
     return 0
 

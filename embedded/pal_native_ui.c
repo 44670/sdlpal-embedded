@@ -1,109 +1,19 @@
 #include "pal_native_ui.h"
 
-#include <limits.h>
-
-typedef struct PalNativeUiState {
-    uint16_t source_x;
-    uint16_t source_y;
-    uint8_t kind;
-    bool initialized;
-} PalNativeUiState;
-
-/* Six bytes of named state; all geometry remains generated read-only data. */
-static PalNativeUiState pal_ui_native_viewport;
-
 static uint16_t read_le16(const uint8_t *p)
 {
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
 }
 
-static int32_t clamp_i32(int32_t value, int32_t low, int32_t high)
-{
-    if (value < low) {
-        return low;
-    }
-    if (value > high) {
-        return high;
-    }
-    return value;
-}
-
-static void set_world_origin(uint8_t kind)
-{
-    pal_ui_native_viewport.source_x =
-        PAL_NATIVE_UI_GENERATED_WORLD_ORIGIN_X;
-    pal_ui_native_viewport.source_y =
-        PAL_NATIVE_UI_GENERATED_WORLD_ORIGIN_Y;
-    pal_ui_native_viewport.kind = kind;
-    pal_ui_native_viewport.initialized = true;
-}
-
-void PalNativeUi_SetWorldView(void)
-{
-    set_world_origin(PAL_NATIVE_UI_VIEW_WORLD);
-}
-
-void PalNativeUi_SetDialogView(void)
-{
-    set_world_origin(PAL_NATIVE_UI_VIEW_DIALOG);
-}
-
-void PalNativeUi_FocusLogical(
-    int16_t logical_x,
-    int16_t logical_y,
-    PalNativeUiViewKind kind)
-{
-    int32_t max_x = (int32_t)PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH -
-        PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH;
-    int32_t max_y = (int32_t)PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT -
-        PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT;
-    int32_t desired_x = (int32_t)logical_x -
-        PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH / 2;
-    int32_t desired_y = (int32_t)logical_y -
-        PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT / 2;
-
-    pal_ui_native_viewport.source_x = (uint16_t)clamp_i32(
-        desired_x, 0, max_x);
-    pal_ui_native_viewport.source_y = (uint16_t)clamp_i32(
-        desired_y, 0, max_y);
-    pal_ui_native_viewport.kind = (uint8_t)kind;
-    pal_ui_native_viewport.initialized = true;
-}
-
-bool PalNativeUi_GetViewport(PalNativeUiViewport *out)
-{
-    if (out == NULL) {
-        return false;
-    }
-    if (!pal_ui_native_viewport.initialized) {
-        PalNativeUi_SetWorldView();
-    }
-    if ((uint32_t)pal_ui_native_viewport.source_x +
-            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH >
-            PAL_NATIVE_UI_GENERATED_LOGICAL_WIDTH ||
-        (uint32_t)pal_ui_native_viewport.source_y +
-            PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT >
-            PAL_NATIVE_UI_GENERATED_LOGICAL_HEIGHT) {
-        return false;
-    }
-    out->source_x = pal_ui_native_viewport.source_x;
-    out->source_y = pal_ui_native_viewport.source_y;
-    out->width = PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH;
-    out->height = PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT;
-    out->kind = pal_ui_native_viewport.kind;
-    return true;
-}
-
-static PalNativeUiRect local_to_logical(
-    PalNativeUiViewport viewport,
+static PalNativeUiRect local_rect(
     int16_t x,
     int16_t y,
     uint16_t width,
     uint16_t height)
 {
     PalNativeUiRect result;
-    result.x = (int16_t)(viewport.source_x + x);
-    result.y = (int16_t)(viewport.source_y + y);
+    result.x = x;
+    result.y = y;
     result.width = width;
     result.height = height;
     return result;
@@ -114,74 +24,56 @@ bool PalNativeUi_GetDialogLayout(
     bool has_portrait,
     PalNativeUiDialogLayout *out)
 {
-    PalNativeUiViewport viewport;
-
-    if (out == NULL || !PalNativeUi_GetViewport(&viewport)) {
+    if (out == NULL) {
         return false;
-    }
-    if (viewport.kind != PAL_NATIVE_UI_VIEW_DIALOG) {
-        PalNativeUi_SetDialogView();
-        if (!PalNativeUi_GetViewport(&viewport)) {
-            return false;
-        }
     }
 
     if (lower) {
-        out->portrait = local_to_logical(
-            viewport,
+        out->portrait = local_rect(
             PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_X,
             PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_Y,
             PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_WIDTH,
             PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_HEIGHT);
         if (has_portrait) {
-            out->text = local_to_logical(
-                viewport,
+            out->text = local_rect(
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_X,
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_Y,
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_WIDTH,
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_HEIGHT);
         } else {
-            out->text = local_to_logical(
-                viewport,
+            out->text = local_rect(
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_X,
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_Y,
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_WIDTH,
                 PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_HEIGHT);
         }
-        out->title_x = (int16_t)(viewport.source_x +
-            (has_portrait ?
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X :
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X));
-        out->title_y = (int16_t)(viewport.source_y +
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_Y);
+        out->title_x = (int16_t)(has_portrait ?
+            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X :
+            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X);
+        out->title_y = PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_Y;
     } else {
-        out->portrait = local_to_logical(
-            viewport,
+        out->portrait = local_rect(
             PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_X,
             PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_Y,
             PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_WIDTH,
             PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_HEIGHT);
         if (has_portrait) {
-            out->text = local_to_logical(
-                viewport,
+            out->text = local_rect(
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_X,
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_Y,
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_WIDTH,
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_HEIGHT);
         } else {
-            out->text = local_to_logical(
-                viewport,
+            out->text = local_rect(
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_X,
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_Y,
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_WIDTH,
                 PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_HEIGHT);
         }
-        out->title_x = (int16_t)(viewport.source_x +
-            (has_portrait ?
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_X :
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X));
-        out->title_y = (int16_t)(viewport.source_y +
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_Y);
+        out->title_x = (int16_t)(has_portrait ?
+            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_X :
+            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X);
+        out->title_y = PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_Y;
     }
     out->line_height = PAL_NATIVE_UI_GENERATED_DIALOG_LINE_HEIGHT;
     out->page_lines = PAL_NATIVE_UI_GENERATED_DIALOG_PAGE_LINES;
@@ -191,18 +83,11 @@ bool PalNativeUi_GetDialogLayout(
 bool PalNativeUi_GetCenterDialogLayout(
     PalNativeUiDialogLayout *out)
 {
-    PalNativeUiViewport viewport;
-
     if (out == NULL) {
         return false;
     }
-    PalNativeUi_SetDialogView();
-    if (!PalNativeUi_GetViewport(&viewport)) {
-        return false;
-    }
-    out->portrait = local_to_logical(viewport, 0, 0, 1u, 1u);
-    out->text = local_to_logical(
-        viewport,
+    out->portrait = local_rect(0, 0, 1u, 1u);
+    out->text = local_rect(
         PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_X,
         PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_Y,
         PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_WIDTH,
@@ -270,6 +155,36 @@ bool PalNativeUi_DrawFont10Glyph(
     return true;
 }
 
+static int16_t map_virtual_coordinate(
+    int32_t value,
+    uint16_t physical_extent,
+    uint16_t virtual_extent)
+{
+    int32_t product = value * physical_extent;
+
+    if (product >= 0) {
+        return (int16_t)((product + virtual_extent / 2u) / virtual_extent);
+    }
+    return (int16_t)-(((-product) + virtual_extent / 2u) /
+        virtual_extent);
+}
+
+int16_t PalNativeUi_MapVirtualX(int16_t x)
+{
+    return map_virtual_coordinate(
+        x,
+        PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+        PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH);
+}
+
+int16_t PalNativeUi_MapVirtualY(int16_t y)
+{
+    return map_virtual_coordinate(
+        y,
+        PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
+        PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT);
+}
+
 static bool rect_fits_surface(
     PalNativeUiRect rect,
     uint16_t surface_width,
@@ -279,6 +194,35 @@ static bool rect_fits_surface(
         rect.x >= 0 && rect.y >= 0 &&
         (uint32_t)rect.x + rect.width <= surface_width &&
         (uint32_t)rect.y + rect.height <= surface_height;
+}
+
+static bool rle_geometry(
+    const uint8_t *rle,
+    size_t rle_bytes,
+    size_t *header_offset,
+    uint16_t *source_width,
+    uint16_t *source_height)
+{
+    size_t offset = 0u;
+
+    if (rle == NULL || header_offset == NULL || source_width == NULL ||
+        source_height == NULL) {
+        return false;
+    }
+    if (rle_bytes >= 4u && rle[0] == 0x02u &&
+        rle[1] == 0u && rle[2] == 0u && rle[3] == 0u) {
+        offset = 4u;
+    }
+    if (rle_bytes < offset + 4u) {
+        return false;
+    }
+    *source_width = read_le16(rle + offset);
+    *source_height = read_le16(rle + offset + 2u);
+    if (*source_width == 0u || *source_height == 0u) {
+        return false;
+    }
+    *header_offset = offset;
+    return true;
 }
 
 static bool fit_extent(
@@ -344,65 +288,38 @@ static uint32_t nearest_source_index(
     return source_y * source_width + source_x;
 }
 
-bool PalNativeUi_BlitRleFitIndexed(
+static bool blit_rle_scaled_indexed(
     const uint8_t *rle,
     size_t rle_bytes,
     uint8_t *pixels,
     uint16_t pitch,
     uint16_t surface_width,
     uint16_t surface_height,
-    PalNativeUiRect box,
+    PalNativeUiRect destination,
     PalNativeUiRect *drawn)
 {
     const uint8_t *cursor;
     const uint8_t *end;
-    size_t header_offset = 0u;
+    size_t header_offset;
     uint16_t source_width;
     uint16_t source_height;
-    uint16_t destination_width;
-    uint16_t destination_height;
     uint16_t destination_x = 0u;
     uint16_t destination_y = 0u;
     uint32_t source_area;
     uint32_t source_cursor = 0u;
     uint32_t next_sample;
-    PalNativeUiRect destination;
 
-    if (rle == NULL || pixels == NULL || pitch < surface_width ||
-        !rect_fits_surface(box, surface_width, surface_height)) {
-        return false;
-    }
-    if (rle_bytes >= 4u && rle[0] == 0x02u &&
-        rle[1] == 0u && rle[2] == 0u && rle[3] == 0u) {
-        header_offset = 4u;
-    }
-    if (rle_bytes < header_offset + 4u) {
-        return false;
-    }
-    source_width = read_le16(rle + header_offset);
-    source_height = read_le16(rle + header_offset + 2u);
-    if (!fit_extent(source_width, source_height, box.width, box.height,
-            &destination_width, &destination_height)) {
+    if (pixels == NULL || pitch < surface_width ||
+        destination.width == 0u || destination.height == 0u ||
+        !rle_geometry(rle, rle_bytes, &header_offset,
+            &source_width, &source_height)) {
         return false;
     }
     source_area = (uint32_t)source_width * source_height;
-    if (source_area == 0u) {
-        return false;
-    }
-    destination.x = (int16_t)(box.x +
-        (int32_t)(box.width - destination_width) / 2);
-    destination.y = (int16_t)(box.y +
-        (int32_t)(box.height - destination_height) / 2);
-    destination.width = destination_width;
-    destination.height = destination_height;
-    if (!rect_fits_surface(destination, surface_width, surface_height)) {
-        return false;
-    }
-
     cursor = rle + header_offset + 4u;
     end = rle + rle_bytes;
     next_sample = nearest_source_index(
-        0u, 0u, destination_width, destination_height,
+        0u, 0u, destination.width, destination.height,
         source_width, source_height);
     while (source_cursor < source_area) {
         uint8_t token;
@@ -424,26 +341,29 @@ bool PalNativeUi_BlitRleFitIndexed(
         }
         literal = transparent ? NULL : cursor;
         source_end = source_cursor + count;
-        while (destination_y < destination_height &&
+        while (destination_y < destination.height &&
                next_sample < source_end) {
             if (next_sample < source_cursor) {
                 return false;
             }
             if (literal != NULL) {
-                size_t offset =
-                    (size_t)(destination.y + destination_y) * pitch +
-                    (uint16_t)(destination.x + destination_x);
-                pixels[offset] = literal[next_sample - source_cursor];
+                int32_t x = (int32_t)destination.x + destination_x;
+                int32_t y = (int32_t)destination.y + destination_y;
+                if (x >= 0 && x < surface_width &&
+                    y >= 0 && y < surface_height) {
+                    pixels[(size_t)y * pitch + (size_t)x] =
+                        literal[next_sample - source_cursor];
+                }
             }
             destination_x++;
-            if (destination_x == destination_width) {
+            if (destination_x == destination.width) {
                 destination_x = 0u;
                 destination_y++;
             }
-            if (destination_y < destination_height) {
+            if (destination_y < destination.height) {
                 next_sample = nearest_source_index(
                     destination_x, destination_y,
-                    destination_width, destination_height,
+                    destination.width, destination.height,
                     source_width, source_height);
             }
         }
@@ -452,11 +372,100 @@ bool PalNativeUi_BlitRleFitIndexed(
         }
         source_cursor = source_end;
     }
-    if (destination_y != destination_height) {
+    if (destination_y != destination.height) {
         return false;
     }
     if (drawn != NULL) {
         *drawn = destination;
     }
     return true;
+}
+
+bool PalNativeUi_BlitRleMappedIndexed(
+    const uint8_t *rle,
+    size_t rle_bytes,
+    uint8_t *pixels,
+    uint16_t pitch,
+    uint16_t surface_width,
+    uint16_t surface_height,
+    int16_t virtual_x,
+    int16_t virtual_y,
+    PalNativeUiRect *drawn)
+{
+    size_t header_offset;
+    uint16_t source_width;
+    uint16_t source_height;
+    int16_t left;
+    int16_t top;
+    int16_t right;
+    int16_t bottom;
+    PalNativeUiRect destination;
+
+    if (surface_width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH ||
+        surface_height != PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT ||
+        !rle_geometry(rle, rle_bytes, &header_offset,
+            &source_width, &source_height)) {
+        return false;
+    }
+    (void)header_offset;
+    left = PalNativeUi_MapVirtualX(virtual_x);
+    top = PalNativeUi_MapVirtualY(virtual_y);
+    right = map_virtual_coordinate(
+        (int32_t)virtual_x + source_width,
+        PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+        PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH);
+    bottom = map_virtual_coordinate(
+        (int32_t)virtual_y + source_height,
+        PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
+        PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT);
+    if (right <= left) {
+        right = (int16_t)(left + 1);
+    }
+    if (bottom <= top) {
+        bottom = (int16_t)(top + 1);
+    }
+    destination.x = left;
+    destination.y = top;
+    destination.width = (uint16_t)(right - left);
+    destination.height = (uint16_t)(bottom - top);
+    return blit_rle_scaled_indexed(
+        rle, rle_bytes, pixels, pitch, surface_width, surface_height,
+        destination, drawn);
+}
+
+bool PalNativeUi_BlitRleFitIndexed(
+    const uint8_t *rle,
+    size_t rle_bytes,
+    uint8_t *pixels,
+    uint16_t pitch,
+    uint16_t surface_width,
+    uint16_t surface_height,
+    PalNativeUiRect box,
+    PalNativeUiRect *drawn)
+{
+    size_t header_offset;
+    uint16_t source_width;
+    uint16_t source_height;
+    uint16_t destination_width;
+    uint16_t destination_height;
+    PalNativeUiRect destination;
+
+    if (pixels == NULL || pitch < surface_width ||
+        !rect_fits_surface(box, surface_width, surface_height) ||
+        !rle_geometry(rle, rle_bytes, &header_offset,
+            &source_width, &source_height) ||
+        !fit_extent(source_width, source_height, box.width, box.height,
+            &destination_width, &destination_height)) {
+        return false;
+    }
+    (void)header_offset;
+    destination.x = (int16_t)(box.x +
+        (int32_t)(box.width - destination_width) / 2);
+    destination.y = (int16_t)(box.y +
+        (int32_t)(box.height - destination_height) / 2);
+    destination.width = destination_width;
+    destination.height = destination_height;
+    return blit_rle_scaled_indexed(
+        rle, rle_bytes, pixels, pitch, surface_width, surface_height,
+        destination, drawn);
 }

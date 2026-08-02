@@ -168,16 +168,6 @@ PAL_ShowDialogText(
    LPCWSTR    lpszText
 );
 
-#ifdef PAL_CARDPUTER_EXTREME
-/* Draw the original PAL popup chrome and FONT10 text in the current battle
- * viewport.  Presentation only; this does not wait, page, or mutate battle
- * state. */
-VOID
-PAL_DrawNativeBattleMessage(
-   LPCWSTR    lpszText
-);
-#endif
-
 VOID
 PAL_ClearDialog(
    BOOL         fWaitForKey

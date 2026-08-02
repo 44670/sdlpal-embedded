@@ -20,9 +20,6 @@
 //
 
 #include "main.h"
-#ifdef PAL_CARDPUTER_EXTREME
-#include "embedded/pal_native_ui.h"
-#endif
 
 static struct MAGICITEM
 {
@@ -54,18 +51,22 @@ PAL_MagicSelectionMenuUpdate(
 
 --*/
 {
-   int         i, j, k, line, item_delta;
+   int         i, j, k, line, item_delta, item_x, item_y;
    BYTE        bColor;
    WORD        wScript;
+#if defined(PAL_CARDPUTER_EXTREME)
+   const int   iItemsPerLine = 2;
+   const int   iItemTextWidth = 112;
+   const int   iLinesPerPage = 4;
+   const int   iCursorXOffset = 5;
+#else
    const int   iItemsPerLine = 32 / gConfig.dwWordLength;
    const int   iItemTextWidth = 8 * gConfig.dwWordLength + 7;
    const int   iLinesPerPage = 5 - gConfig.ScreenLayout.ExtraMagicDescLines;
    const int   iBoxYOffset = gConfig.ScreenLayout.ExtraMagicDescLines * 16;
    const int   iCursorXOffset = gConfig.dwWordLength * 5 / 2;
-   const int   iPageLineOffset = iLinesPerPage / 2;
-#ifdef PAL_CARDPUTER_EXTREME
-   PAL_POS     cursorPos = PAL_XY(35 + iCursorXOffset, 64 + iBoxYOffset);
 #endif
+   const int   iPageLineOffset = iLinesPerPage / 2;
 
    //
    // Check for inputs
@@ -124,7 +125,13 @@ PAL_MagicSelectionMenuUpdate(
    //
    // Create the box.
    //
-   PAL_CreateBoxWithShadow(PAL_XY(10, 42 + iBoxYOffset), iLinesPerPage - 1, 16, 1, FALSE, 0);
+#if defined(PAL_CARDPUTER_EXTREME)
+   PAL_CreateBoxWithShadow(PAL_XY(2, 41), iLinesPerPage - 1, 12, 1,
+      FALSE, 0);
+#else
+   PAL_CreateBoxWithShadow(PAL_XY(10, 42 + iBoxYOffset),
+      iLinesPerPage - 1, 16, 1, FALSE, 0);
+#endif
 
    if (!gConfig.fIsWIN95)
    {
@@ -140,12 +147,22 @@ PAL_MagicSelectionMenuUpdate(
          //
          // Draw the MP of the selected magic.
          //
+#if defined(PAL_CARDPUTER_EXTREME)
+         PAL_CreateSingleLineBox(PAL_XY(138, 0), 5, FALSE);
+         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
+            gpScreen, PAL_XY(183, 14));
+         PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4, PAL_XY(153, 14),
+            kNumColorYellow, kNumAlignRight);
+         PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(188, 14),
+            kNumColorCyan, kNumAlignRight);
+#else
          PAL_CreateSingleLineBox(PAL_XY(215, 0), 5, FALSE);
          PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
             gpScreen, PAL_XY(260, 14));
          PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4, PAL_XY(230, 14),
             kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(265, 14), kNumColorCyan, kNumAlignRight);
+#endif
       }
       else
       {
@@ -169,8 +186,15 @@ PAL_MagicSelectionMenuUpdate(
                   *next++ = '\0';
                }
 
-               PAL_DrawText(d, PAL_XY(102, k), DESCTEXT_COLOR, TRUE, FALSE, FALSE);
+#if defined(PAL_CARDPUTER_EXTREME)
+               PAL_DrawText(d, PAL_XY(102, k), DESCTEXT_COLOR,
+                  TRUE, FALSE, FALSE);
+               k += 11;
+#else
+               PAL_DrawText(d, PAL_XY(102, k), DESCTEXT_COLOR,
+                  TRUE, FALSE, FALSE);
                k += 16;
+#endif
 
                if (next == NULL)
                {
@@ -265,32 +289,28 @@ PAL_MagicSelectionMenuUpdate(
          //
          // Draw the text
          //
-         PAL_DrawText(PAL_GetWord(rgMagicItem[i].wMagic), PAL_XY(35 + k * iItemTextWidth, 54 + j * 18 + iBoxYOffset), bColor, TRUE, FALSE, FALSE);
+#if defined(PAL_CARDPUTER_EXTREME)
+         item_x = 8 + k * iItemTextWidth;
+         item_y = 53 + j * 18;
+#else
+         item_x = 35 + k * iItemTextWidth;
+         item_y = 54 + j * 18 + iBoxYOffset;
+#endif
+         PAL_DrawText(PAL_GetWord(rgMagicItem[i].wMagic),
+            PAL_XY(item_x, item_y), bColor, TRUE, FALSE, FALSE);
 
          //
          // Draw the cursor on the current selected item
          //
          if (i == g_iCurrentItem)
          {
-#ifdef PAL_CARDPUTER_EXTREME
-            cursorPos = PAL_XY(
-               35 + iCursorXOffset + k * iItemTextWidth,
-               64 + j * 18 + iBoxYOffset);
-#endif
             PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR),
-               gpScreen, PAL_XY(35 + iCursorXOffset + k * iItemTextWidth, 64 + j * 18 + iBoxYOffset));
+               gpScreen, PAL_XY(item_x + iCursorXOffset, item_y + 10));
          }
 
          i++;
       }
    }
-
-#ifdef PAL_CARDPUTER_EXTREME
-   PalNativeUi_FocusLogical(
-      (int16_t)PAL_X(cursorPos),
-      (int16_t)PAL_Y(cursorPos),
-      PAL_NATIVE_UI_VIEW_UI);
-#endif
 
    if (g_InputState.dwKeyPress & kKeySearch)
    {
@@ -299,8 +319,13 @@ PAL_MagicSelectionMenuUpdate(
          j = g_iCurrentItem % iItemsPerLine;
          k = (g_iCurrentItem < iItemsPerLine * iPageLineOffset) ? (g_iCurrentItem / iItemsPerLine) : iPageLineOffset;
 
+#if defined(PAL_CARDPUTER_EXTREME)
+         j = 8 + j * iItemTextWidth;
+         k = 53 + k * 18;
+#else
          j = 35 + j * iItemTextWidth;
          k = 54 + k * 18 + iBoxYOffset;
+#endif
 
          PAL_DrawText(PAL_GetWord(rgMagicItem[g_iCurrentItem].wMagic), PAL_XY(j, k), MENUITEM_COLOR_CONFIRMED, FALSE, TRUE, FALSE);
 

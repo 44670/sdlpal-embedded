@@ -11,9 +11,8 @@ extern "C" {
 /*
  * M5Stack Cardputer ADV (K132-Adv), not the original Cardputer.
  *
- * The generated 240x135 profile owns the LCD and native PAL viewport.  The
- * board copies a 1:1 crop of the indexed 320x200 source without a whole-frame
- * scaler or an RGB565 framebuffer.
+ * The generated 240x135 profile owns the LCD and native PAL framebuffer. The
+ * board converts it 1:1 without a whole-frame scaler or RGB565 framebuffer.
  */
 #ifndef PAL_NATIVE_UI_GENERATED_HEADER
 #define PAL_NATIVE_UI_GENERATED_HEADER "generated/pal_native_ui_240x135.h"
@@ -109,7 +108,7 @@ uint64_t CardputerExtreme_PhysicalKeyMask(void);
 
 /*
  * palette_rgba is the SDL_Color byte layout used by the fixed SDL shim:
- * 256 consecutive { r, g, b, a } entries.  A 1:1 native crop is converted a
+ * 256 consecutive { r, g, b, a } entries. The native framebuffer is converted a
  * strip at a time in the 4KB DMA buffer.
  */
 bool CardputerExtreme_FlushIndexedFramebuffer(

@@ -20,9 +20,6 @@
 //
 
 #include "main.h"
-#ifdef PAL_CARDPUTER_EXTREME
-#include "embedded/pal_native_ui.h"
-#endif
 
 static int     g_iNumInventory = 0;
 static WORD    g_wItemFlags = 0;
@@ -47,20 +44,29 @@ PAL_ItemSelectMenuUpdate(
 
 --*/
 {
-   int                i, j, k, line, item_delta;
+   int                i, j, k, line, item_delta, item_x, item_y;
    WORD               wObject, wScript;
    BYTE               bColor;
 #if !defined(PAL_CARDPUTER_EXTREME)
    static BYTE        bufImage[2048];
 #endif
+#if defined(PAL_CARDPUTER_EXTREME)
+   const int          iItemsPerLine = 2;
+   const int          iItemTextWidth = 112;
+   const int          iLinesPerPage = 2;
+   const int          iCursorXOffset = 5;
+   const int          iAmountXOffset = iItemTextWidth - 12;
+   const int          iPictureYOffset = 0;
+#else
    const int          iItemsPerLine = 32 / gConfig.dwWordLength;
    const int          iItemTextWidth = 8 * gConfig.dwWordLength + 20;
    const int          iLinesPerPage = 7 - gConfig.ScreenLayout.ExtraItemDescLines;
    const int          iCursorXOffset = gConfig.dwWordLength * 5 / 2;
    const int          iAmountXOffset = gConfig.dwWordLength * 8 + 1;
-   const int          iPageLineOffset = (iLinesPerPage + 1) / 2;
    const int          iPictureYOffset = (gConfig.ScreenLayout.ExtraItemDescLines > 1) ? (gConfig.ScreenLayout.ExtraItemDescLines - 1) * 16 : 0;
-   PAL_POS            cursorPos = PAL_XY(15 + iCursorXOffset, 22);;
+#endif
+   const int          iPageLineOffset = (iLinesPerPage + 1) / 2;
+   PAL_POS            cursorPos = PAL_XY(8 + iCursorXOffset, 20);
 
    //
    // Process input
@@ -119,7 +125,13 @@ PAL_ItemSelectMenuUpdate(
    //
    // Redraw the box
    //
-   PAL_CreateBoxWithShadow(PAL_XY(2, 0), iLinesPerPage - 1, 17, 1, FALSE, 0);
+#if defined(PAL_CARDPUTER_EXTREME)
+   PAL_CreateBoxWithShadow(PAL_XY(2, 0), iLinesPerPage - 1, 12, 1,
+      FALSE, 0);
+#else
+   PAL_CreateBoxWithShadow(PAL_XY(2, 0), iLinesPerPage - 1, 17, 1,
+      FALSE, 0);
+#endif
 
    //
    // Draw the texts in the current page
@@ -130,7 +142,11 @@ PAL_ItemSelectMenuUpdate(
       i = 0;
    }
 
+#if defined(PAL_CARDPUTER_EXTREME)
+   const int xBase = 2, yBase = 70;
+#else
    const int xBase = 0, yBase = 140;
+#endif
 
    for (j = 0; j < iLinesPerPage; j++)
    {
@@ -186,20 +202,31 @@ PAL_ItemSelectMenuUpdate(
             bColor = MENUITEM_COLOR_EQUIPPEDITEM;
          }
 
+#if defined(PAL_CARDPUTER_EXTREME)
+         item_x = 8 + k * iItemTextWidth;
+         item_y = 10 + j * 18;
+#else
+         item_x = 15 + k * iItemTextWidth;
+         item_y = 12 + j * 18;
+#endif
+
          //
          // Draw the text
          //
-         PAL_DrawText(PAL_GetWord(wObject), PAL_XY(15 + k * iItemTextWidth, 12 + j * 18), bColor, TRUE, FALSE, FALSE);
+         PAL_DrawText(PAL_GetWord(wObject), PAL_XY(item_x, item_y),
+            bColor, TRUE, FALSE, FALSE);
 
          if (i == gpGlobals->iCurInvMenuItem)
          {
-            cursorPos = PAL_XY(15 + iCursorXOffset + k * iItemTextWidth, 22 + j * 18);
+            cursorPos = PAL_XY(item_x + iCursorXOffset, item_y + 10);
 
             //
             // Draw the picture of current selected item
             //
+#if !defined(PAL_CARDPUTER_EXTREME)
             PAL_RLEBlitToSurfaceWithShadow(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ITEMBOX), gpScreen,
                PAL_XY(xBase + 5, yBase + 5 - iPictureYOffset), TRUE);
+#endif
             PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ITEMBOX), gpScreen,
                PAL_XY(xBase, yBase - iPictureYOffset));
 
@@ -212,7 +239,7 @@ PAL_ItemSelectMenuUpdate(
                   uiImageSize > 0)
                {
                   PAL_RLEBlitToSurface(lpImage, gpScreen,
-                     PAL_XY(xBase + 8, yBase + 7 - iPictureYOffset));
+                     PAL_XY(xBase + 8, yBase + 7));
                }
             }
 #else
@@ -230,7 +257,8 @@ PAL_ItemSelectMenuUpdate(
          if ((SHORT)gpGlobals->rgInventory[i].nAmount - (SHORT)gpGlobals->rgInventory[i].nAmountInUse > 1)
          {
             PAL_DrawNumber(gpGlobals->rgInventory[i].nAmount - gpGlobals->rgInventory[i].nAmountInUse,
-               2, PAL_XY(15 + iAmountXOffset + k * iItemTextWidth, 17 + j * 18), kNumColorCyan, kNumAlignRight);
+               2, PAL_XY(item_x + iAmountXOffset, item_y + 5),
+               kNumColorCyan, kNumAlignRight);
          }
 
          i++;
@@ -241,13 +269,6 @@ PAL_ItemSelectMenuUpdate(
    // Draw the cursor on the current selected item
    //
    PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR), gpScreen, cursorPos);
-#ifdef PAL_CARDPUTER_EXTREME
-   PalNativeUi_FocusLogical(
-      (int16_t)PAL_X(cursorPos),
-      (int16_t)PAL_Y(cursorPos),
-      PAL_NATIVE_UI_VIEW_UI);
-#endif
-
    wObject = gpGlobals->rgInventory[gpGlobals->iCurInvMenuItem].wItem;
 
    //
@@ -262,7 +283,11 @@ PAL_ItemSelectMenuUpdate(
 
          if (d != NULL)
          {
+#if defined(PAL_CARDPUTER_EXTREME)
+            k = 72;
+#else
             k = 150 - gConfig.ScreenLayout.ExtraItemDescLines * 16;
+#endif
             wcscpy(szDesc, d);
             d = szDesc;
 
@@ -274,8 +299,15 @@ PAL_ItemSelectMenuUpdate(
                   *next++ = '\0';
                }
 
-               PAL_DrawText(d, PAL_XY(75, k), DESCTEXT_COLOR, TRUE, FALSE, FALSE);
+#if defined(PAL_CARDPUTER_EXTREME)
+               PAL_DrawText(d, PAL_XY(72, k), DESCTEXT_COLOR,
+                  TRUE, FALSE, FALSE);
+               k += 11;
+#else
+               PAL_DrawText(d, PAL_XY(75, k), DESCTEXT_COLOR,
+                  TRUE, FALSE, FALSE);
                k += 16;
+#endif
 
                if (next == NULL)
                {
@@ -320,7 +352,15 @@ PAL_ItemSelectMenuUpdate(
             j = (gpGlobals->iCurInvMenuItem < iItemsPerLine * iPageLineOffset) ? (gpGlobals->iCurInvMenuItem / iItemsPerLine) : iPageLineOffset;
             k = gpGlobals->iCurInvMenuItem % iItemsPerLine;
 
-            PAL_DrawText(PAL_GetWord(wObject), PAL_XY(15 + k * iItemTextWidth, 12 + j * 18), MENUITEM_COLOR_CONFIRMED, FALSE, FALSE, FALSE);
+#if defined(PAL_CARDPUTER_EXTREME)
+            item_x = 8 + k * iItemTextWidth;
+            item_y = 10 + j * 18;
+#else
+            item_x = 15 + k * iItemTextWidth;
+            item_y = 12 + j * 18;
+#endif
+            PAL_DrawText(PAL_GetWord(wObject), PAL_XY(item_x, item_y),
+               MENUITEM_COLOR_CONFIRMED, FALSE, FALSE, FALSE);
 
             //
             // Draw the cursor on the current selected item

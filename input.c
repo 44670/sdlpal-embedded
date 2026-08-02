@@ -22,11 +22,18 @@
 #include "main.h"
 #include <math.h>
 
+#if defined(PAL_HAS_WS_SERVER)
+#include "unix/pal_ws_server.h"
+#endif
+
 #if defined(PAL_CARDPUTER_EXTREME) && defined(PAL_EXTREME_RIX_MUSIC)
 #include "cardputer_extreme_audio.h"
 #endif
 
 volatile PALINPUTSTATE   g_InputState;
+#if defined(PAL_HAS_WS_SERVER)
+static DWORD             g_dwWsTapRelease;
+#endif
 #if PAL_HAS_JOYSTICKS
 static SDL_Joystick     *g_pJoy = NULL;
 #endif
@@ -1230,6 +1237,9 @@ PAL_InitInput(
 --*/
 {
    memset((void *)&g_InputState, 0, sizeof(g_InputState));
+#if defined(PAL_HAS_WS_SERVER)
+   g_dwWsTapRelease = 0;
+#endif
    g_InputState.dir = kDirUnknown;
    g_InputState.prevdir = kDirUnknown;
 
@@ -1242,6 +1252,9 @@ PAL_InitInput(
 #endif
 
    input_init_filter();
+#if defined(PAL_HAS_WS_SERVER)
+   PAL_WsServer_Init();
+#endif
 }
 
 VOID
@@ -1263,6 +1276,9 @@ PAL_ShutdownInput(
 
 --*/
 {
+#if defined(PAL_HAS_WS_SERVER)
+   PAL_WsServer_Shutdown();
+#endif
 #if PAL_HAS_JOYSTICKS
    if (g_pJoy != NULL)
    {
@@ -1327,6 +1343,13 @@ PAL_ProcessEvent(
 
 --*/
 {
+#if defined(PAL_HAS_WS_SERVER)
+   if (g_dwWsTapRelease != 0)
+   {
+      PAL_KeyUp(g_dwWsTapRelease);
+      g_dwWsTapRelease = 0;
+   }
+#endif
 #if defined(PAL_CARDPUTER_EXTREME)
    /*
     * PAL_ProcessEvent is the cooperative yield point shared by the normal
@@ -1354,7 +1377,33 @@ PAL_ProcessEvent(
 #if PAL_HAS_TOUCH
    PAL_TouchRepeatCheck();
 #endif
+#if defined(PAL_HAS_WS_SERVER)
+   PAL_WsServer_Poll();
+#endif
 }
+
+#if defined(PAL_HAS_WS_SERVER)
+VOID
+PAL_WsInputKey(
+   DWORD key,
+   INT action
+)
+{
+   if (action == PAL_WS_KEY_UP)
+   {
+      g_dwWsTapRelease &= ~key;
+      PAL_KeyUp(key);
+   }
+   else
+   {
+      PAL_KeyDown(key, FALSE);
+      if (action == PAL_WS_KEY_TAP)
+      {
+         g_dwWsTapRelease |= key;
+      }
+   }
+}
+#endif
 
 VOID
 PAL_RegisterInputFilter(

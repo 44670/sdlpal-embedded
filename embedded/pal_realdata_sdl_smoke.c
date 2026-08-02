@@ -181,9 +181,9 @@ static int sweep_mapped_archive(const PalPack *pack, const ArchiveSweepExpectati
 static int sweep_all_nor_payloads_mapped(const PalPack *nor)
 {
     static const ArchiveSweepExpectation archives[] = {
-        { PAL_PACK_ARCHIVE_ABC, 160u, PAL_PACK_FORMAT_NATIVE, 2154538u, 59516u },
+        { PAL_PACK_ARCHIVE_ABC, 154u, PAL_PACK_FORMAT_NATIVE, 1983974u, 46030u },
         { PAL_PACK_ARCHIVE_BALL, 231u, PAL_PACK_FORMAT_NATIVE, 133776u, 1876u },
-        { PAL_PACK_ARCHIVE_DATA, 15u, PAL_PACK_FORMAT_NATIVE, 70784u, 25532u },
+        { PAL_PACK_ARCHIVE_DATA, 15u, PAL_PACK_FORMAT_NATIVE, 69944u, 25532u },
         { PAL_PACK_ARCHIVE_F, 19u, PAL_PACK_FORMAT_NATIVE, 329624u, 58116u },
         { PAL_PACK_ARCHIVE_FIRE, 55u, PAL_PACK_FORMAT_NATIVE, 1909992u, 65502u },
         { PAL_PACK_ARCHIVE_MGO, 637u, PAL_PACK_FORMAT_NATIVE, 3363230u, 59516u },
@@ -191,9 +191,9 @@ static int sweep_all_nor_payloads_mapped(const PalPack *nor)
         { PAL_PACK_ARCHIVE_MUS, 88u, PAL_PACK_FORMAT_NATIVE, 330928u, 10108u },
         { PAL_PACK_ARCHIVE_PAT, 9u, PAL_PACK_FORMAT_NATIVE, 8448u, 1536u },
         { PAL_PACK_ARCHIVE_RGM, 92u, PAL_PACK_FORMAT_NATIVE, 452830u, 8024u },
-        { PAL_PACK_ARCHIVE_SSS, 5u, PAL_PACK_FORMAT_NATIVE, 563212u, 339952u },
-        { PAL_PACK_ARCHIVE_TEXT, 1u, PAL_PACK_FORMAT_TEXT_UTF16, 254762u, 254762u },
-        { PAL_PACK_ARCHIVE_FONT, 1u, PAL_PACK_FORMAT_FONT_GLYPHS, 88432u, 88432u },
+        { PAL_PACK_ARCHIVE_SSS, 5u, PAL_PACK_FORMAT_NATIVE, 569616u, 338336u },
+        { PAL_PACK_ARCHIVE_TEXT, 1u, PAL_PACK_FORMAT_TEXT_UTF16, 270922u, 270922u },
+        { PAL_PACK_ARCHIVE_FONT, 1u, PAL_PACK_FORMAT_FONT_GLYPHS, 86528u, 86528u },
     };
     uint16_t i;
 
@@ -1156,19 +1156,19 @@ static int check_global_cache(const PalPack *nor)
     if (!PalGlobal_LoadDefault(nor, &cache)) {
         return 1;
     }
-    if (cache == 0 || cache->mutable_bytes != 182176u) {
+    if (cache == 0 || cache->mutable_bytes != 180656u) {
         return 2;
     }
-    if (cache->event_objects.data != pal_psram_save_state || cache->event_objects.count != 5369u) {
+    if (cache->event_objects.data != pal_psram_save_state || cache->event_objects.count != 5332u) {
         return 3;
     }
-    if (cache->scenes.count != 300u || cache->objects_dos.count != 589u || cache->player_roles.size != PAL_GLOBAL_PLAYER_ROLES_BYTES) {
+    if (cache->scenes.count != 294u || cache->objects_dos.count != 565u || cache->player_roles.size != PAL_GLOBAL_PLAYER_ROLES_BYTES) {
         return 4;
     }
-    if (cache->script_entries.count != 42494u || cache->stores.count != 21u || cache->enemies.count != 350u) {
+    if (cache->script_entries.count != 42292u || cache->stores.count != 21u || cache->enemies.count != 154u) {
         return 5;
     }
-    if (cache->enemy_teams.count != 390u || cache->magics.count != 114u || cache->battlefields.count != 130u) {
+    if (cache->enemy_teams.count != 380u || cache->magics.count != 104u || cache->battlefields.count != 130u) {
         return 6;
     }
     if (cache->levelup_magics.count != 50u || cache->battle_effect_index.size != 40u ||
@@ -1191,8 +1191,8 @@ static int check_global_cache(const PalPack *nor)
         cache->player_roles.data != 0) {
         return 10;
     }
-    if (cache->script_entries.count != 42494u || cache->stores.count != 21u || cache->enemies.count != 350u ||
-        cache->enemy_teams.count != 390u || cache->magics.count != 114u || cache->battlefields.count != 130u) {
+    if (cache->script_entries.count != 42292u || cache->stores.count != 21u || cache->enemies.count != 154u ||
+        cache->enemy_teams.count != 380u || cache->magics.count != 104u || cache->battlefields.count != 130u) {
         return 11;
     }
     if (save_checksum != checksum32(pal_psram_save_state, PAL_PSRAM_SAVE_STATE_BYTES)) {
@@ -1214,7 +1214,7 @@ static int check_script_static(const PalPack *nor)
     if (!PalScript_OpenFromGlobal(global, &view)) {
         return 2;
     }
-    if (view.data != global->script_entries.data || view.count != 42494u || view.size != 339952u) {
+    if (view.data != global->script_entries.data || view.count != 42292u || view.size != 338336u) {
         return 3;
     }
     if (!PalScript_Read(&view, 2u, &entry) ||
@@ -1237,7 +1237,7 @@ static int check_script_static(const PalPack *nor)
         trace.terminator_entry != 4u) {
         return 6;
     }
-    if (PalScript_Read(&view, 42494u, &entry)) {
+    if (PalScript_Read(&view, 42292u, &entry)) {
         return 7;
     }
     return 0;
@@ -1252,7 +1252,7 @@ static int check_text_cache(const PalPack *nor)
     if (!PalText_Open(nor, &cache)) {
         return 1;
     }
-    if (cache.word_count != 589u || cache.message_count != 10495u || cache.text_size != 210386u) {
+    if (cache.word_count != 565u || cache.message_count != 12880u || cache.text_size != 217102u) {
         return 2;
     }
     if (!PalText_GetWord(&cache, 2, &text, &size) || size != 6u || checksum32(text, size) == 0) {
@@ -1261,7 +1261,7 @@ static int check_text_cache(const PalPack *nor)
     if (!PalText_GetMessage(&cache, 0, &text, &size) || size != 10u || checksum32(text, size) == 0) {
         return 4;
     }
-    if (!PalText_GetMessage(&cache, 10494, &text, &size) || size != 38u || checksum32(text, size) == 0) {
+    if (!PalText_GetMessage(&cache, 12879, &text, &size) || size != 22u || checksum32(text, size) == 0) {
         return 5;
     }
     return 0;
@@ -1276,7 +1276,7 @@ static int check_font_cache(const PalPack *nor)
     if (!PalFont_Open(nor, &cache)) {
         return 1;
     }
-    if (cache.glyph_count != 2600u || cache.glyph_bytes != PAL_FONT_GLYPH_BYTES || cache.glyph_data_size != 83200u) {
+    if (cache.glyph_count != 2544u || cache.glyph_bytes != PAL_FONT_GLYPH_BYTES || cache.glyph_data_size != 81408u) {
         return 2;
     }
     if (!PalFont_FindGlyph(&cache, 0x7d93u, &glyph, &glyph_bytes) || glyph_bytes != PAL_FONT_GLYPH_BYTES || checksum32(glyph, glyph_bytes) == 0) {
@@ -1329,12 +1329,10 @@ static int check_save_cache(const char *data_dir)
     PalSaveSlot roundtrip;
     uint32_t checksum;
 
-    if (check_save_file(data_dir, "1.rpg", 184672u, 1u, 1u, 0u) != 0 ||
-        check_save_file(data_dir, "2.rpg", 188864u, 8u, 17u, 580u) != 0 ||
-        check_save_file(data_dir, "4.RPG", 183488u, 1u, 1u, 899999u) != 0) {
+    if (check_save_file(data_dir, "0.RPG", 183488u, 4u, 1u, 0u) != 0) {
         return 1;
     }
-    if (make_data_path(data_dir, "2.rpg") != 0 || !PalSave_ReadFile(pal_save_path, &slot)) {
+    if (make_data_path(data_dir, "0.RPG") != 0 || !PalSave_ReadFile(pal_save_path, &slot)) {
         return 2;
     }
     checksum = slot.checksum;
@@ -1347,8 +1345,8 @@ static int check_save_cache(const char *data_dir)
         return 4;
     }
     unlink(roundtrip_path);
-    if (roundtrip.size != 188864u || roundtrip.checksum != checksum ||
-        roundtrip.saved_times != 8u || roundtrip.scene_num != 17u || roundtrip.cash != 580u) {
+    if (roundtrip.size != 183488u || roundtrip.checksum != checksum ||
+        roundtrip.saved_times != 4u || roundtrip.scene_num != 1u || roundtrip.cash != 0u) {
         return 5;
     }
     return 0;
@@ -1710,7 +1708,7 @@ int main(int argc, char **argv)
 
     rc =
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_MGO, 637) ||
-        expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_ABC, 160) ||
+        expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_ABC, 154) ||
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_FIRE, 55) ||
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_TEXT, 1) ||
         expect_chunk_count(&nor.pack, PAL_PACK_ARCHIVE_FONT, 1) ||
@@ -1764,13 +1762,13 @@ int main(int argc, char **argv)
         rc =
             check_battle(&nor.pack, &tf.pack, 156, 3, 1) ||
             check_battle(&nor.pack, &tf.pack, 342, 3, 2) ||
-            check_battle(&nor.pack, &tf.pack, 385, 3, 1);
+            check_battle(&nor.pack, &tf.pack, 346, 3, 2);
     }
     if (rc == 0) {
         rc =
             check_battle_readat(argv[2], &nor.pack, 156, 3, 1) ||
             check_battle_readat(argv[2], &nor.pack, 342, 3, 2) ||
-            check_battle_readat(argv[2], &nor.pack, 385, 3, 1);
+            check_battle_readat(argv[2], &nor.pack, 346, 3, 2);
     }
     if (rc == 0) {
         rc =
@@ -1809,7 +1807,7 @@ int main(int argc, char **argv)
         rc = check_save_cache(argv[3]);
     }
     if (rc == 0) {
-        rc = check_scene_save_readat(argv[2], &nor.pack, argv[3], "2.rpg", 17);
+        rc = check_scene_save_readat(argv[2], &nor.pack, argv[3], "0.RPG", 1);
     }
     if (rc == 0) {
         rc = check_music_cache(&nor.pack);
