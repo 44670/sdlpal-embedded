@@ -51,8 +51,9 @@ opens the selected real `PAL_BuyMenu()` after drawing the current field scene;
 it does not invent shop data or bypass the ordinary menu/input loop, but it
 does bypass the NPC trigger script and therefore does not show the
 shopkeeper's preceding dialogue. Use `script` when that dialogue-to-shop
-sequence is under review. `status` reports field and battle UI state so
-automation can wait for a real interaction state without guessing frames.
+sequence is under review. `status` reports field, dialogue, and battle UI
+state so automation can wait for a real interaction state without guessing
+frames.
 `event` reads one live event-object record through the same public event-state
 API used by the engine, so it also observes the Cardputer extreme pager rather
 than a desktop-only resident array.
@@ -65,6 +66,9 @@ requested `./tmp_ui/` directory. It waits for the interactive battle UI and
 leaves that battle running for human review. The pinned DOS-data default runs
 real script entry 9551 before the item-list capture so the list is not empty;
 pass `--inventory-script 0` for a data set where that entry is not applicable.
+It first advances any dialogue active in the loaded save and waits for a
+stable field interval, so menus are not nested inside a trigger dialogue and
+the map image does not retain a stale dialogue overlay.
 
 The Cardputer native Linux host can compile the same server with
 `CARDPUTER_EXTREME_NATIVE_WS=1`. Select its logical framebuffer at launch with
