@@ -30,15 +30,6 @@ popcount32(
     return count;
 }
 
-static uint64_t
-now_us(
-    PalEventPager *pager)
-{
-    return pager->io.now_us != NULL
-        ? pager->io.now_us(pager->io.user)
-        : 0u;
-}
-
 static int
 find_page(
     const PalEventPager *pager,
@@ -83,69 +74,37 @@ choose_victim(
 }
 
 static bool
-write_selected(
+write_slot(
     PalEventPager *pager,
-    const uint8_t *slot_indices,
-    uint8_t slot_count,
-    PalEventPagerWriteReason reason)
+    uint8_t slot_index)
 {
-    PalEventPagerPageWrite writes[PAL_EVENT_PAGER_SLOT_COUNT];
+    PalEventPagerSlot *slot = &pager->slots[slot_index];
     PalEventPagerIoResult result;
-    uint64_t logical_bytes = 0;
-    uint8_t i;
+    uint64_t logical_bytes = 0u;
+    uint8_t word;
 
-    if (slot_count == 0u) {
-        return true;
-    }
-    if (pager->io.write_pages == NULL) {
+    if (pager->io.write_page == NULL) {
         pager->metrics.io_failure_count++;
         return false;
     }
-
+    for (word = 0u; word < PAL_EVENT_PAGER_DIRTY_WORDS; word++) {
+        logical_bytes +=
+            (uint64_t)popcount32(slot->dirty_records[word]) *
+            PAL_EVENT_PAGER_RECORD_BYTES;
+    }
     memset(&result, 0, sizeof(result));
-    for (i = 0; i < slot_count; i++) {
-        PalEventPagerSlot *slot = &pager->slots[slot_indices[i]];
-        uint8_t word;
-
-        writes[i].page = slot->page;
-        writes[i].data = pager->storage[slot_indices[i]];
-        writes[i].first_dirty_us = slot->first_dirty_us;
-        for (word = 0; word < PAL_EVENT_PAGER_DIRTY_WORDS; word++) {
-            writes[i].dirty_records[word] = slot->dirty_records[word];
-            logical_bytes +=
-                (uint64_t)popcount32(slot->dirty_records[word]) *
-                PAL_EVENT_PAGER_RECORD_BYTES;
-        }
-    }
-
-    if (!pager->io.write_pages(
-            pager->io.user, writes, slot_count, reason, &result)) {
+    if (!pager->io.write_page(
+            pager->io.user, slot->page, pager->storage[slot_index],
+            &result)) {
         pager->metrics.io_failure_count++;
         return false;
     }
-
-    pager->metrics.write_transaction_count++;
-    pager->metrics.page_write_count += slot_count;
+    pager->metrics.page_write_count++;
     pager->metrics.logical_dirty_bytes += logical_bytes;
     pager->metrics.storage_write_bytes += result.storage_bytes;
-    pager->metrics.storage_sync_count += result.sync_count;
     pager->metrics.write_elapsed_us += result.elapsed_us;
-    for (i = 0; i < slot_count; i++) {
-        PalEventPagerSlot *slot = &pager->slots[slot_indices[i]];
-
-        memset(slot->dirty_records, 0, sizeof(slot->dirty_records));
-        slot->first_dirty_us = 0u;
-    }
+    memset(slot->dirty_records, 0, sizeof(slot->dirty_records));
     return true;
-}
-
-static bool
-write_one(
-    PalEventPager *pager,
-    uint8_t slot_index,
-    PalEventPagerWriteReason reason)
-{
-    return write_selected(pager, &slot_index, 1u, reason);
 }
 
 static int
@@ -180,8 +139,7 @@ ensure_page(
         pager->metrics.eviction_count++;
         if (slot_dirty(slot)) {
             pager->metrics.dirty_eviction_count++;
-            if (!write_one(
-                    pager, (uint8_t)slot_index, PAL_EVENT_WRITE_EVICT)) {
+            if (!write_slot(pager, (uint8_t)slot_index)) {
                 return -1;
             }
         }
@@ -225,7 +183,8 @@ void
 PalEventPager_Init(
     PalEventPager *pager,
     uint8_t storage[PAL_EVENT_PAGER_SLOT_COUNT][PAL_EVENT_PAGER_PAGE_BYTES],
-    const PalEventPagerIo *io)
+    const PalEventPagerIo *io,
+    uint16_t record_count)
 {
     uint8_t i;
 
@@ -242,9 +201,23 @@ PalEventPager_Init(
     }
     pager->scene_first_page = PAL_EVENT_PAGER_INVALID_PAGE;
     pager->scene_last_page = PAL_EVENT_PAGER_INVALID_PAGE;
+    pager->record_count = record_count;
+    pager->page_count = (uint16_t)(
+        ((uint32_t)record_count + PAL_EVENT_PAGER_RECORDS_PER_PAGE - 1u) /
+        PAL_EVENT_PAGER_RECORDS_PER_PAGE);
     pager->initialized = storage != NULL &&
         pager->io.read_page != NULL &&
-        pager->io.write_pages != NULL;
+        pager->io.write_page != NULL &&
+        record_count != 0u &&
+        record_count <= PAL_EVENT_PAGER_RECORD_CAPACITY &&
+        pager->page_count <= PAL_EVENT_PAGER_PAGE_CAPACITY;
+}
+
+uint16_t
+PalEventPager_GetRecordCount(
+    const PalEventPager *pager)
+{
+    return pager != NULL && pager->initialized ? pager->record_count : 0u;
 }
 
 bool
@@ -261,7 +234,7 @@ PalEventPager_Acquire(
     int slot_index;
 
     if (pager == NULL || !pager->initialized || handle == NULL ||
-        event_id == 0u || event_id > PAL_EVENT_PAGER_RECORD_COUNT) {
+        event_id == 0u || event_id > pager->record_count) {
         return false;
     }
     memset(handle, 0, sizeof(*handle));
@@ -322,9 +295,6 @@ PalEventPager_Release(
             (uint16_t)(record_index % PAL_EVENT_PAGER_RECORDS_PER_PAGE);
         word = (uint8_t)(record_in_page / 32u);
         bit = (uint8_t)(record_in_page % 32u);
-        if (!slot_dirty(slot)) {
-            slot->first_dirty_us = now_us(pager);
-        }
         slot->dirty_records[word] |= (uint32_t)1u << bit;
     }
     slot->transient_pins--;
@@ -332,26 +302,6 @@ PalEventPager_Release(
     memset(handle, 0, sizeof(*handle));
     handle->slot = UINT8_MAX;
     return valid_change;
-}
-
-bool
-PalEventPager_Flush(
-    PalEventPager *pager,
-    PalEventPagerWriteReason reason)
-{
-    uint8_t dirty_slots[PAL_EVENT_PAGER_SLOT_COUNT];
-    uint8_t dirty_count = 0;
-    uint8_t i;
-
-    if (pager == NULL || !pager->initialized) {
-        return false;
-    }
-    for (i = 0; i < PAL_EVENT_PAGER_SLOT_COUNT; i++) {
-        if (pager->slots[i].valid && slot_dirty(&pager->slots[i])) {
-            dirty_slots[dirty_count++] = i;
-        }
-    }
-    return write_selected(pager, dirty_slots, dirty_count, reason);
 }
 
 bool
@@ -383,8 +333,7 @@ PalEventPager_PinScene(
     uint8_t i;
 
     if (pager == NULL || !pager->initialized ||
-        (uint32_t)event_start + event_count >
-            PAL_EVENT_PAGER_RECORD_COUNT ||
+        (uint32_t)event_start + event_count > pager->record_count ||
         PalEventPager_HasOutstandingHandles(pager)) {
         return false;
     }
@@ -404,9 +353,6 @@ PalEventPager_PinScene(
         pager->scene_first_page == first_page &&
         pager->scene_last_page == last_page) {
         return true;
-    }
-    if (!PalEventPager_Flush(pager, PAL_EVENT_WRITE_SCENE)) {
-        return false;
     }
     pager->scene_first_page = PAL_EVENT_PAGER_INVALID_PAGE;
     pager->scene_last_page = PAL_EVENT_PAGER_INVALID_PAGE;

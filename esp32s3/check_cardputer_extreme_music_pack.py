@@ -153,8 +153,14 @@ def check_profile(
         nor, common.ARCHIVE["GOP"]
     ):
         errors.append("MAP/GOP chapter selections differ")
-    if nor.get(common.ARCHIVE["SSS"], {}).get(0, (0, 0))[0] != 423 * 32:
-        errors.append("SSS event-object prefix is not exactly 423 records")
+    event_bytes = nor.get(common.ARCHIVE["SSS"], {}).get(0, (0, 0))[0]
+    if (
+        event_bytes <= 0
+        or event_bytes % common.EVENT_RECORD_BYTES != 0
+        or event_bytes
+        > common.EVENT_RECORD_CAPACITY * common.EVENT_RECORD_BYTES
+    ):
+        errors.append("SSS event-object chunk has invalid bounded geometry")
     for archive_id in set(nor) & set(tf):
         overlap = common.nonempty(nor, archive_id) & common.nonempty(
             tf, archive_id

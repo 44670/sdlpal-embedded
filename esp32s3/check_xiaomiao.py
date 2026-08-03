@@ -23,7 +23,7 @@ CHUNK_ENTRY_BYTES = 16
 PACK_FORMAT_RNG_FRAMES = 2
 PACK_FORMAT_NATIVE = 1
 PACK_FORMAT_FONT10 = 6
-CORE_MAX_BYTES = 1536 * 1024
+RESIDENT_MAX_BYTES = 2048 * 1024
 TF_TOC_MAX_BYTES = 40 * 1024
 TRANSIENT_CHUNK_BYTES = 64 * 1024
 RNG_INPUT_WINDOW_BYTES = 160 * 128
@@ -42,7 +42,6 @@ MAIN_TASK_STACK_BYTES = 16 * 1024
 MIN_LINKER_DRAM_RESERVE = 80 * 1024
 MIN_POST_MAIN_STACK_RESERVE = 64 * 1024
 MAX_STATIC_STACK_BYTES = 2048
-EVENT_TEMPLATE_BYTES = 512 + 43 * 4096
 
 ARCHIVE_IDS = {
     "ABC": 1,
@@ -64,7 +63,7 @@ ARCHIVE_IDS = {
     "FONT": 18,
     "SFX": 19,
 }
-CORE_ARCHIVES = {"DATA", "PAT", "RGM", "SSS", "TEXT", "FONT"}
+RESIDENT_ARCHIVES = {"DATA", "PAT", "RGM", "SSS", "TEXT", "FONT", "MUS"}
 FULL_ARCHIVES = set(ARCHIVE_IDS)
 DIRECT_STAGED_ARCHIVES = {
     "ABC", "BALL", "F", "FIRE", "GOP", "MAP", "MGO",
@@ -73,7 +72,7 @@ DIRECT_STAGED_ARCHIVES = {
 PSRAM_SYMBOLS = {
     "pal_sram_framebuffer": 160 * 128,
     "pal_sram_aux_framebuffer": 160 * 128,
-    "pal_mem_level2_core_pack": CORE_MAX_BYTES,
+    "pal_mem_level2_resident_pack": RESIDENT_MAX_BYTES,
     "pal_mem_level2_tf_toc": TF_TOC_MAX_BYTES,
     "pal_mem_level2_transient_chunk": TRANSIENT_CHUNK_BYTES,
     "pal_mem_level2_scene_arena": SCENE_ARENA_BYTES,
@@ -81,10 +80,11 @@ PSRAM_SYMBOLS = {
     "pal_mem_level2_battle_arena": BATTLE_ARENA_BYTES,
     "pal_mem_level2_fight_effect": FIGHT_EFFECT_BYTES,
     "pal_mem_level2_fight_summon": FIGHT_SUMMON_BYTES,
-    "pal_sram_extreme_res_state": 36,
-    "pal_sram_extreme_res_event_sprite_ptrs": 160 * 4,
-    "pal_sram_extreme_savegame_static": 14096,
-    "pal_sram_extreme_global_magics": 3648,
+    "pal_psram_global_event_objects": 176000,
+    "pal_psram_global_magics": 3648,
+    "pal_psram_res_state": 36,
+    "pal_psram_res_event_sprite_ptrs": 22000,
+    "pal_psram_savegame_static": 190064,
 }
 SRAM_SYMBOLS = {
     "pal_sram_display_dma": 4 * 1024,
@@ -322,37 +322,6 @@ def generated_define(path: Path, name: str, errors: list[str]) -> int | None:
     return int(match.group(1), 0)
 
 
-def validate_event_template(path: Path, set_id: int, errors: list[str]) -> None:
-    data = path.read_bytes()
-    if len(data) != EVENT_TEMPLATE_BYTES:
-        errors.append(f"{path}: size {len(data)} != {EVENT_TEMPLATE_BYTES}")
-        return
-    if data[:8] != b"PALEVT1\0" or struct.unpack_from("<HH", data, 8) != (1, 512):
-        errors.append(f"{path}: invalid EVENT.DEF header")
-    if struct.unpack_from("<I", data, 12)[0] != set_id:
-        errors.append(f"{path}: pack-set ID does not match the resource packs")
-    header = bytearray(data[:512])
-    declared_header_crc = struct.unpack_from("<I", header, 508)[0]
-    struct.pack_into("<I", header, 508, 0)
-    if declared_header_crc != (zlib.crc32(header) & 0xFFFFFFFF):
-        errors.append(f"{path}: header CRC32 mismatch")
-    payload = data[512:]
-    if struct.unpack_from("<I", data, 48)[0] != (zlib.crc32(payload) & 0xFFFFFFFF):
-        errors.append(f"{path}: payload CRC32 mismatch")
-    expected = (32, 5369, 8, 300, 4096, 42, 43)
-    actual = (
-        struct.unpack_from("<H", data, 16)[0],
-        struct.unpack_from("<H", data, 18)[0],
-        struct.unpack_from("<H", data, 20)[0],
-        struct.unpack_from("<H", data, 22)[0],
-        struct.unpack_from("<I", data, 24)[0],
-        struct.unpack_from("<H", data, 28)[0],
-        struct.unpack_from("<H", data, 30)[0],
-    )
-    if actual != expected:
-        errors.append(f"{path}: event/scene geometry {actual} != {expected}")
-
-
 def aligned_total(sizes: list[int]) -> int:
     used = 0
     for size in sizes:
@@ -361,25 +330,45 @@ def aligned_total(sizes: list[int]) -> int:
     return used
 
 
+def resident_pack_bytes(full: Pack, errors: list[str]) -> int:
+    """Size of the fixed PSRAM pack reconstructed from pal_full.pak."""
+    archive_ids = sorted(ARCHIVE_IDS[name] for name in RESIDENT_ARCHIVES)
+    missing = [archive_id for archive_id in archive_ids if archive_id not in full.archives]
+    if missing:
+        errors.append(f"pal_full.pak lacks resident archives {missing}")
+        return 0
+    used = PACK_HEADER_BYTES + len(archive_ids) * ARCHIVE_ENTRY_BYTES
+    used += sum(
+        len(full.archives[archive_id]) * CHUNK_ENTRY_BYTES
+        for archive_id in archive_ids
+    )
+    used = (used + 3) & ~3
+    for archive_id in archive_ids:
+        for chunk_id, chunk in enumerate(full.archives[archive_id]):
+            if archive_id == ARCHIVE_IDS["FONT"] and chunk_id != 1:
+                continue
+            used = (used + 3) & ~3
+            used += chunk.size
+    return used
+
+
 def audit_sprite_arenas(
-    core_path: Path,
-    core: Pack,
     full: Pack,
+    full_image: bytes,
     errors: list[str],
 ) -> tuple[int, int, int]:
     """Prove scoped resource arenas against the shipped DOS data and scripts."""
-    core_image = core_path.read_bytes()
     mgo = full.archives.get(ARCHIVE_IDS["MGO"], [])
     maps = full.archives.get(ARCHIVE_IDS["MAP"], [])
     gop = full.archives.get(ARCHIVE_IDS["GOP"], [])
     abc = full.archives.get(ARCHIVE_IDS["ABC"], [])
     player_f = full.archives.get(ARCHIVE_IDS["F"], [])
     fire = full.archives.get(ARCHIVE_IDS["FIRE"], [])
-    sss = core.archives.get(ARCHIVE_IDS["SSS"], [])
-    data = core.archives.get(ARCHIVE_IDS["DATA"], [])
+    sss = full.archives.get(ARCHIVE_IDS["SSS"], [])
+    data = full.archives.get(ARCHIVE_IDS["DATA"], [])
 
     def payload(chunk: Chunk) -> bytes:
-        return core_image[chunk.offset : chunk.offset + chunk.size]
+        return full_image[chunk.offset : chunk.offset + chunk.size]
 
     if len(sss) <= 4 or len(data) <= 3 or len(mgo) < 6:
         errors.append("packs are missing sprite-arena audit inputs")
@@ -520,18 +509,14 @@ def audit_sprite_arenas(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", required=True, type=Path)
-    parser.add_argument("--core-pack", required=True, type=Path)
     parser.add_argument("--full-pack", required=True, type=Path)
-    parser.add_argument("--event-template", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--expected-compiler", required=True, type=Path)
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent
     build = args.build_dir.resolve()
-    core_path = args.core_pack.resolve()
     full_path = args.full_pack.resolve()
-    event_path = args.event_template.resolve()
     manifest_path = args.manifest.resolve()
     elf = build / "sdlpal_xiaomiao.elf"
     app_bin = build / "sdlpal_xiaomiao.bin"
@@ -544,6 +529,10 @@ def main() -> int:
     main_archive = build / "esp-idf/main/libmain.a"
     ui_header = root / "esp32s3/main/generated/pal_native_ui_160x128.h"
     board_source = root / "esp32s3/main/xiaomiao_board.c"
+    audio_source = root / "esp32s3/main/xiaomiao_audio.c"
+    fatfs_stdio_source = (
+        root / "esp32s3/engine_bridge/pal_engine_fatfs_stdio.c"
+    )
     ending_source = root / "ending.c"
     palcommon_source = root / "palcommon.c"
     rngplay_source = root / "rngplay.c"
@@ -574,7 +563,8 @@ def main() -> int:
     required = (
         elf, app_bin, map_path, sdkconfig_path, project_path,
         compile_commands_path, flasher_path, partition_bin, main_archive,
-        core_path, full_path, event_path, manifest_path, ui_header, board_source,
+        full_path, manifest_path, ui_header, board_source,
+        audio_source, fatfs_stdio_source,
         ending_source, palcommon_source, rngplay_source, pack_provider_source,
         target_packs_source, contract_stubs_source, fullscreen_stretch_header,
         fullscreen_rendering_doc,
@@ -638,7 +628,7 @@ def main() -> int:
         "-DPAL_TARGET_XIAOMIAO=1", "-DPAL_STORAGE_SD_ONLY=1",
         "pal_native_ui_160x128.h",
         "-DPAL_NO_RUNTIME_HEAP=1", "-DPAL_NO_RUNTIME_DECOMPRESS=1",
-        "-DPAL_CONTRACT_NO_AUDIO=1",
+        "-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_NO_SFX=1",
     ):
         if token not in joined_commands:
             errors.append(f"Xiaomiao compile contract is missing {token}")
@@ -648,6 +638,8 @@ def main() -> int:
         errors.append("Xiaomiao unexpectedly enables MEM_LEVEL1")
     if "-DPAL_CARDPUTER_EXTREME=1" in joined_commands:
         errors.append("Xiaomiao still defines retired PAL_CARDPUTER_EXTREME")
+    if "-DPAL_CONTRACT_NO_AUDIO=1" in joined_commands:
+        errors.append("Xiaomiao unexpectedly compiles the no-audio contract")
 
     board_text = board_source.read_text(encoding="utf-8", errors="replace")
     board_contract = {
@@ -676,6 +668,35 @@ def main() -> int:
     if reset_pos < 0 or bus_pos < 0 or reset_pos > bus_pos:
         errors.append("LCD reset on GPIO19 must finish before SPI initializes it as SD MISO")
 
+    audio_text = audio_source.read_text(encoding="utf-8", errors="replace")
+    audio_contract = {
+        "11-bit LEDC PWM": "AUDIO_PWM_DUTY_BITS = 11",
+        "passive-buzzer 3x output gain": "AUDIO_OUTPUT_GAIN = 3",
+        "sample-rate GPTimer": "audio_sample_alarm(",
+        "fixed four-tick ring": "AUDIO_RING_TICKS = 4",
+        "passive buzzer GPIO14": "PIN_BUZZER_AUDIO = GPIO_NUM_14",
+        "PCM midpoint duty": "AUDIO_PWM_DUTY_MIDPOINT",
+        "no allocator-backed sample queue": "pal_sram_audio_ring",
+    }
+    for label, snippet in audio_contract.items():
+        if snippet not in audio_text:
+            errors.append(f"Xiaomiao audio source is missing {label}: {snippet}")
+
+    fatfs_stdio_text = fatfs_stdio_source.read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for label, snippet in {
+        "classic-ESP32 Level2-only workaround": (
+            "defined(CONFIG_IDF_TARGET_ESP32) && defined(MEM_LEVEL2)"
+        ),
+        "bounded save-write chunks": "PAL_ENGINE_FATFS_WRITE_CHUNK_BYTES 4096u",
+        "internal DMA save staging": "pal_engine_fatfs_write_chunk",
+    }.items():
+        if snippet not in fatfs_stdio_text:
+            errors.append(
+                f"Xiaomiao FatFS stdio source is missing {label}: {snippet}"
+            )
+
     ending_text = ending_source.read_text(encoding="utf-8", errors="replace")
     if "#define pal_psram_ending_fbp_static pal_sram_aux_framebuffer" in ending_text:
         errors.append(
@@ -692,7 +713,8 @@ def main() -> int:
     target_packs_text = target_packs_source.read_text(encoding="utf-8")
     contract_stubs_text = contract_stubs_source.read_text(encoding="utf-8")
     if (
-        "#if defined(MEM_LEVEL1)\n#define PAL_ENGINE_STRICT_PACK_VALIDATION 1"
+        "#if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)\n"
+        "#define PAL_ENGINE_STRICT_PACK_VALIDATION 1"
         not in provider_text
         or "defined(MEM_LEVEL1) || defined(PAL_STORAGE_SD_ONLY)"
         in provider_text
@@ -701,8 +723,9 @@ def main() -> int:
             "SD-only packs must not enable whole-pack payload CRC validation"
         )
     for token in (
-        '#define PAL_ENGINE_CORE_PACK_PATH "0:/pal_l2.pak"',
         '#define PAL_ENGINE_TF_PACK_PATH "0:/pal_full.pak"',
+        "sd_only_build_resident_pack(",
+        "pal_mem_level2_resident_pack",
     ):
         if token not in target_packs_text:
             errors.append(f"Xiaomiao portable-pack path is missing {token!r}")
@@ -803,6 +826,15 @@ def main() -> int:
             errors.append(
                 f"Xiaomiao app retains data-binding/hash symbol: {forbidden}"
             )
+    for prefix in ("PalEngineEventState_", "PalEventPager_", "PalEventJournal_"):
+        linked = sorted(name for name in symbols if name.startswith(prefix))
+        if linked:
+            errors.append(
+                f"LEVEL2 app unexpectedly links {prefix} session-pager code: "
+                + ", ".join(linked)
+            )
+    if b"EVENT.WRK" in elf.read_bytes():
+        errors.append("LEVEL2 app unexpectedly contains the LEVEL1 work-file path")
     for name in ("memcpy", "memset"):
         actual = symbol_addresses.get(name)
         if actual is None:
@@ -820,6 +852,9 @@ def main() -> int:
     for name in (
         "PalEngineBridge_OpenNativeRngFrame",
         "PalEngineBridge_ReadNativeRngFrameRange",
+        "PalTargetAudio_Begin",
+        "gptimer_new_timer",
+        "ledc_timer_config",
     ):
         if name not in symbols:
             errors.append(f"required linked symbol missing: {name}")
@@ -890,55 +925,43 @@ def main() -> int:
             f"{max_static_stack_function}"
         )
 
-    core = parse_pack(core_path, errors)
     full = parse_pack(full_path, errors)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if core is not None and full is not None:
-        if core.set_id != full.set_id:
-            errors.append("Level2 cache and portable pack have different pack-set IDs")
-        if core.size > CORE_MAX_BYTES:
-            errors.append(f"Level2 cache {core.size} exceeds {CORE_MAX_BYTES}")
+    resident_bytes = 0
+    if full is not None:
         if full.toc_bytes > TF_TOC_MAX_BYTES:
             errors.append(
                 f"portable pack TOC {full.toc_bytes} exceeds {TF_TOC_MAX_BYTES}"
             )
-        core_ids = {ARCHIVE_IDS[name] for name in CORE_ARCHIVES}
         full_ids = {ARCHIVE_IDS[name] for name in FULL_ARCHIVES}
-        if set(core.archives) != core_ids:
-            errors.append(f"cache archive IDs {set(core.archives)} != {core_ids}")
         if set(full.archives) != full_ids:
             errors.append(
                 f"portable pack archive IDs {set(full.archives)} != {full_ids}"
             )
-        core_image = core_path.read_bytes()
         full_image = full_path.read_bytes()
-        for archive_id, cache_chunks in core.archives.items():
-            portable_chunks = full.archives.get(archive_id, [])
-            for chunk_id, cache_chunk in enumerate(cache_chunks):
-                if cache_chunk.size == 0:
-                    continue
-                if chunk_id >= len(portable_chunks):
-                    errors.append(
-                        f"cache chunk {archive_id}/{chunk_id} is absent from pal_full.pak"
-                    )
-                    continue
-                portable_chunk = portable_chunks[chunk_id]
-                cache_payload = core_image[
-                    cache_chunk.offset : cache_chunk.offset + cache_chunk.size
-                ]
-                portable_payload = full_image[
-                    portable_chunk.offset : portable_chunk.offset + portable_chunk.size
-                ]
-                if (
-                    cache_chunk.fmt != portable_chunk.fmt
-                    or cache_payload != portable_payload
-                ):
-                    errors.append(
-                        f"cache chunk {archive_id}/{chunk_id} differs from pal_full.pak"
-                    )
-        font_chunks = core.archives.get(ARCHIVE_IDS["FONT"], [])
+        resident_bytes = resident_pack_bytes(full, errors)
+        if resident_bytes > RESIDENT_MAX_BYTES:
+            errors.append(
+                f"runtime resident image {resident_bytes} exceeds "
+                f"{RESIDENT_MAX_BYTES}"
+            )
+        font_chunks = full.archives.get(ARCHIVE_IDS["FONT"], [])
         if len(font_chunks) <= 1 or font_chunks[1].fmt != PACK_FORMAT_FONT10:
-            errors.append("Level2 cache is missing FONT10 chunk 1")
+            errors.append("pal_full.pak is missing FONT10 chunk 1")
+        mus_chunks = full.archives.get(ARCHIVE_IDS["MUS"], [])
+        if len(mus_chunks) != 88:
+            errors.append(f"pal_full.pak has {len(mus_chunks)} MUS slots, expected 88")
+        else:
+            for chunk_id, chunk in enumerate(mus_chunks):
+                if chunk_id in (0, 29):
+                    if chunk.size != 0:
+                        errors.append(f"reserved MUS slot {chunk_id} is not empty")
+                elif (
+                    chunk.fmt != PACK_FORMAT_NATIVE
+                    or chunk.size < 16
+                    or full_image[chunk.offset:chunk.offset + 2] != b"\xaa\x55"
+                ):
+                    errors.append(f"MUS slot {chunk_id} is not a native RIX track")
         for name in DIRECT_STAGED_ARCHIVES:
             chunks = full.archives.get(ARCHIVE_IDS[name], [])
             maximum = max((chunk.size for chunk in chunks), default=0)
@@ -959,12 +982,11 @@ def main() -> int:
         max_rng_frame, rng_frame_count = audit_rng_frames(
             full_path, full, errors
         )
-        validate_event_template(event_path, core.set_id, errors)
         (
             max_event_sprites,
             max_player_sprites,
             max_battle_sprites,
-        ) = audit_sprite_arenas(core_path, core, full, errors)
+        ) = audit_sprite_arenas(full, full_image, errors)
 
     font_manifest = manifest.get("font10", {}).get("font10", {})
     font_defines = {
@@ -990,8 +1012,8 @@ def main() -> int:
                 f"FONT10 metric {manifest_name}={metrics.get(manifest_name)} "
                 f"!= generated header {generated}"
             )
-    if core is not None:
-        font_chunks = core.archives.get(ARCHIVE_IDS["FONT"], [])
+    if full is not None:
+        font_chunks = full.archives.get(ARCHIVE_IDS["FONT"], [])
         if len(font_chunks) > 1 and font_chunks[1].size != font_manifest.get("bytes"):
             errors.append("packed FONT10 byte count differs from its manifest")
 
@@ -1000,10 +1022,10 @@ def main() -> int:
         "heap_required": False,
         "payloads_are_runtime_native": True,
         "runtime_decompression_required": False,
-        "level2_core_cache_tf_file": "pal_l2.pak",
         "portable_complete_tf_file": "pal_full.pak",
+        "level2_resident_source": "runtime-derived from pal_full.pak",
         "tf_directory_contract": (
-            "one portable complete pack plus optional target cache packs"
+            "one complete pack plus Cardputer NOR cache sources"
         ),
     }
     if not isinstance(runtime, dict) or any(
@@ -1011,26 +1033,45 @@ def main() -> int:
     ):
         errors.append("manifest runtime contract is not the unified Level2 set")
     pack_set = manifest.get("pack_set", {})
-    if core is not None and pack_set.get("id") != core.set_id:
-        errors.append("manifest data identity differs from the Level2 packs")
+    if full is not None and pack_set.get("id") != full.set_id:
+        errors.append("manifest data identity differs from pal_full.pak")
     if (
         pack_set.get("scope") != "portable-complete-data"
         or pack_set.get("cache_layout_affects_id") is not False
     ):
         errors.append("pack-set identity is not independent of target caches")
-    for key, path, pack in (
-        ("level2_core", core_path, core),
-        ("full", full_path, full),
+    packs_manifest = manifest.get("packs", {})
+    full_item = packs_manifest.get("full", {})
+    if (
+        full_item.get("size") != full_path.stat().st_size
+        or full_item.get("sha256") != sha256_file(full_path)
     ):
-        item = manifest.get("packs", {}).get(key, {})
-        if item.get("size") != path.stat().st_size or item.get("sha256") != sha256_file(path):
-            errors.append(f"manifest identity mismatch for {key} pack")
-        if pack is not None and item.get("toc_bytes") != pack.toc_bytes:
-            errors.append(f"manifest TOC size mismatch for {key} pack")
-        if pack is not None and (
-            item.get("pack_set_id") != pack.set_id or item.get("crc32") != pack.crc32
-        ):
-            errors.append(f"manifest header identity mismatch for {key} pack")
+        errors.append("manifest identity mismatch for pal_full.pak")
+    if full is not None and (
+        full_item.get("toc_bytes") != full.toc_bytes
+        or full_item.get("pack_set_id") != full.set_id
+        or full_item.get("crc32") != full.crc32
+    ):
+        errors.append("manifest header identity mismatch for pal_full.pak")
+    for obsolete in ("tf", "level2_core"):
+        if obsolete in packs_manifest:
+            errors.append(f"manifest retains obsolete packs.{obsolete}")
+    resident_summary = packs_manifest.get("level2_resident", {})
+    if (
+        resident_summary.get("materialization")
+        != "runtime-derived-in-fixed-psram"
+        or resident_summary.get("source") != "pal_full.pak"
+        or resident_summary.get("size") != resident_bytes
+        or resident_summary.get("pack_set_id")
+        != (full.set_id if full is not None else None)
+    ):
+        errors.append("manifest Level2 resident-view summary is invalid")
+    resident_archives = resident_summary.get("archives", {})
+    if (
+        not isinstance(resident_archives, dict)
+        or set(resident_archives) != RESIDENT_ARCHIVES
+    ):
+        errors.append("manifest Level2 resident archive selection is invalid")
     full_summary = manifest.get("packs", {}).get("full", {})
     if (
         full_summary.get("portable_complete") is not True
@@ -1052,15 +1093,15 @@ def main() -> int:
                 or item.get("present_chunk_ids") != list(range(chunk_count))
             ):
                 errors.append(f"pal_full.pak manifest is sparse for {name}")
-    level2_layout = manifest.get("level2_cache_policy", {})
+    level2_layout = manifest.get("level2_resident_policy", {})
     layout_path = root / "tools/pal_pack_layout_xiaomiao.json"
     if (
         not isinstance(level2_layout, dict)
         or level2_layout.get("sha256") != sha256_file(layout_path)
-        or level2_layout.get("core_max_bytes") != CORE_MAX_BYTES
+        or level2_layout.get("resident_max_bytes") != RESIDENT_MAX_BYTES
         or level2_layout.get("storage") != "SD-only"
     ):
-        errors.append("manifest Level2 cache policy identity/limit is invalid")
+        errors.append("manifest Level2 resident policy identity/limit is invalid")
 
     data_dir = Path(manifest.get("data_dir", ""))
     source_files = manifest.get("source_files", [])
@@ -1101,7 +1142,10 @@ def main() -> int:
         f"player {max_player_sprites}/{PLAYER_ARENA_BYTES}, "
         f"battle {max_battle_sprites}/{BATTLE_ARENA_BYTES} bytes"
     )
-    print(f"  Level2 cache: {core_path.stat().st_size} / {CORE_MAX_BYTES} bytes")
+    print(
+        f"  runtime-derived resident view: {resident_bytes} / "
+        f"{RESIDENT_MAX_BYTES} bytes"
+    )
     print(
         f"  portable full pack: {full_path.stat().st_size} bytes; "
         f"TOC {full.toc_bytes} / {TF_TOC_MAX_BYTES}"
@@ -1110,7 +1154,6 @@ def main() -> int:
         f"  RNG frames: max {max_rng_frame} bytes across {rng_frame_count} "
         f"frames; bounded input window {RNG_INPUT_WINDOW_BYTES} bytes"
     )
-    print(f"  EVENT.DEF: {event_path.stat().st_size} bytes")
     return 0
 
 

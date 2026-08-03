@@ -1153,6 +1153,8 @@ static int check_global_cache(const PalPack *nor)
     const PalGlobalCache *cache = 0;
     uint32_t save_checksum;
 
+    /* Exact counts below identify the pinned PALSteam/PAL_DOS fixture. */
+
     if (!PalGlobal_LoadDefault(nor, &cache)) {
         return 1;
     }

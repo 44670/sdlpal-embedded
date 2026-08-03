@@ -5,15 +5,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#define PINNED_FIXTURE_RECORD_COUNT 5332u
+#define TEST_SMALL_RECORD_COUNT 423u
+
 typedef struct TestBackend {
-    uint8_t pages[PAL_EVENT_PAGER_PAGE_COUNT][PAL_EVENT_PAGER_PAGE_BYTES];
+    uint8_t pages[PAL_EVENT_PAGER_PAGE_CAPACITY][PAL_EVENT_PAGER_PAGE_BYTES];
     uint64_t now_us;
     uint32_t reads;
-    uint32_t transactions;
     uint32_t writes;
-    uint32_t last_page_count;
-    uint16_t last_pages[PAL_EVENT_PAGER_SLOT_COUNT];
-    PalEventPagerWriteReason last_reason;
+    uint16_t last_page;
     bool fail_read;
     bool partial_read;
     bool fail_write;
@@ -49,7 +49,7 @@ test_read_page(
     TestBackend *backend = (TestBackend *)user;
 
     if (backend == NULL || dst == NULL || result == NULL ||
-        page >= PAL_EVENT_PAGER_PAGE_COUNT || backend->fail_read) {
+        page >= PAL_EVENT_PAGER_PAGE_CAPACITY || backend->fail_read) {
         return false;
     }
     if (backend->partial_read) {
@@ -64,59 +64,29 @@ test_read_page(
     backend->now_us += 100u;
     result->elapsed_us = 100u;
     result->storage_bytes = PAL_EVENT_PAGER_PAGE_BYTES;
-    result->sync_count = 0u;
     return true;
 }
 
 static bool
-test_write_pages(
+test_write_page(
     void *user,
-    const PalEventPagerPageWrite *pages,
-    uint8_t page_count,
-    PalEventPagerWriteReason reason,
+    uint16_t page,
+    const uint8_t *data,
     PalEventPagerIoResult *result)
 {
     TestBackend *backend = (TestBackend *)user;
-    uint8_t i;
 
-    if (backend == NULL || pages == NULL || page_count == 0u ||
-        page_count > PAL_EVENT_PAGER_SLOT_COUNT || result == NULL ||
-        backend->fail_write) {
+    if (backend == NULL || data == NULL || result == NULL ||
+        page >= PAL_EVENT_PAGER_PAGE_CAPACITY || backend->fail_write) {
         return false;
     }
-    backend->transactions++;
-    backend->last_page_count = page_count;
-    backend->last_reason = reason;
-    for (i = 0; i < page_count; i++) {
-        if (pages[i].page >= PAL_EVENT_PAGER_PAGE_COUNT ||
-            pages[i].data == NULL) {
-            return false;
-        }
-        memcpy(
-            backend->pages[pages[i].page],
-            pages[i].data,
-            PAL_EVENT_PAGER_PAGE_BYTES);
-        backend->last_pages[i] = pages[i].page;
-        backend->writes++;
-    }
-    backend->now_us += (uint64_t)page_count * 250u;
-    result->elapsed_us = (uint64_t)page_count * 250u;
-    /*
-     * Model one 4,608-byte A/B page record per logical page plus one
-     * 512-byte generation commit sector.
-     */
-    result->storage_bytes = (uint64_t)page_count * 4608u + 512u;
-    result->sync_count = 2u;
+    memcpy(backend->pages[page], data, PAL_EVENT_PAGER_PAGE_BYTES);
+    backend->last_page = page;
+    backend->writes++;
+    backend->now_us += 250u;
+    result->elapsed_us = 250u;
+    result->storage_bytes = PAL_EVENT_PAGER_PAGE_BYTES;
     return true;
-}
-
-static uint64_t
-test_now_us(
-    void *user)
-{
-    TestBackend *backend = (TestBackend *)user;
-
-    return backend != NULL ? backend->now_us : 0u;
 }
 
 static void
@@ -126,7 +96,7 @@ seed_backend(
     uint16_t page;
 
     memset(backend, 0, sizeof(*backend));
-    for (page = 0; page < PAL_EVENT_PAGER_PAGE_COUNT; page++) {
+    for (page = 0; page < PAL_EVENT_PAGER_PAGE_CAPACITY; page++) {
         uint16_t record;
 
         for (record = 0; record < PAL_EVENT_PAGER_RECORDS_PER_PAGE; record++) {
@@ -135,7 +105,7 @@ seed_backend(
             uint8_t *dst = backend->pages[page] +
                 (uint32_t)record * PAL_EVENT_PAGER_RECORD_BYTES;
 
-            if (event_index < PAL_EVENT_PAGER_RECORD_COUNT) {
+            if (event_index < PINNED_FIXTURE_RECORD_COUNT) {
                 dst[0] = (uint8_t)(event_index + 1u);
                 dst[1] = (uint8_t)((event_index + 1u) >> 8);
             } else {
@@ -175,10 +145,26 @@ main(
     memset(test_cache, 0xa5, sizeof(test_cache));
     memset(&io, 0, sizeof(io));
     io.read_page = test_read_page;
-    io.write_pages = test_write_pages;
-    io.now_us = test_now_us;
+    io.write_page = test_write_page;
     io.user = &test_backend;
-    PalEventPager_Init(&test_pager, test_cache, &io);
+    PalEventPager_Init(
+        &test_pager, test_cache, &io, TEST_SMALL_RECORD_COUNT);
+    CHECK(PalEventPager_GetRecordCount(&test_pager) ==
+          TEST_SMALL_RECORD_COUNT,
+        "runtime record count was not retained");
+    CHECK(PalEventPager_Acquire(
+          &test_pager, TEST_SMALL_RECORD_COUNT, false, &held),
+        "cannot acquire final record in smaller data set");
+    CHECK(PalEventPager_Release(&test_pager, &held, false),
+        "cannot release final record in smaller data set");
+    CHECK(!PalEventPager_Acquire(
+          &test_pager, TEST_SMALL_RECORD_COUNT + 1u, false, &held),
+        "smaller data set accepted an out-of-range record");
+
+    seed_backend(&test_backend);
+    memset(test_cache, 0xa5, sizeof(test_cache));
+    PalEventPager_Init(
+        &test_pager, test_cache, &io, PINNED_FIXTURE_RECORD_COUNT);
 
     /* scene 59 owns event IDs 984..1125 and spans pages 7 and 8. */
     CHECK(PalEventPager_PinScene(&test_pager, 983u, 142u),
@@ -197,19 +183,20 @@ main(
     CHECK(PalEventPager_Release(&test_pager, &held, false),
         "cannot release current-scene event");
 
-    /* event 5334 is page 41, record 85 and is outside the current scene. */
-    CHECK(touch_event(&test_pager, 5334u, 0x5au),
-        "cannot dirty sparse event 5334");
+    /* The final stock event is page 41, record 83, outside this scene. */
+    CHECK(touch_event(&test_pager, PINNED_FIXTURE_RECORD_COUNT, 0x5au),
+        "cannot dirty final fixture event");
     CHECK(test_pager.slots[2].page == 41u ||
           test_pager.slots[1].page == 41u ||
           test_pager.slots[0].page == 41u,
-        "event 5334 did not map to page 41");
+        "final fixture event did not map to page 41");
 
     /*
      * Both scene pages are fixed and the foreign page is transient-pinned:
      * another miss must fail immediately instead of evicting a live pointer.
      */
-    CHECK(PalEventPager_Acquire(&test_pager, 5334u, false, &held),
+    CHECK(PalEventPager_Acquire(
+          &test_pager, PINNED_FIXTURE_RECORD_COUNT, false, &held),
         "cannot pin foreign event");
     CHECK(!PalEventPager_Acquire(&test_pager, 1u, false, &other),
         "all-pinned cache unexpectedly found a victim");
@@ -218,21 +205,21 @@ main(
 
     /*
      * Loading page 0 now evicts dirty page 41.  The eviction is its own
-     * durable transaction and must update the backing model.
+     * only permitted work-file write and must update the backing model.
      */
     CHECK(PalEventPager_Acquire(&test_pager, 1u, false, &held),
         "cannot acquire after releasing foreign pin");
     CHECK(PalEventPager_Release(&test_pager, &held, false),
         "cannot release page-zero event");
-    CHECK(test_backend.transactions == 1u &&
-          test_backend.last_reason == PAL_EVENT_WRITE_EVICT &&
-          test_backend.pages[41][85u * PAL_EVENT_PAGER_RECORD_BYTES + 2u] ==
+    CHECK(test_backend.writes == 1u && test_backend.last_page == 41u &&
+          test_backend.pages[41][83u * PAL_EVENT_PAGER_RECORD_BYTES + 2u] ==
               0x5au,
-        "dirty LRU eviction was not committed");
+        "dirty LRU eviction was not written");
 
     /*
      * scene 156 owns IDs 2616..2745 and spans pages 20 and 21.  Dirty one
-     * record in each fixed page and verify one two-page transaction.
+     * record in each fixed page.  Changing the pinned scene must not flush
+     * either page; only later eviction may write it.
      */
     CHECK(PalEventPager_PinScene(&test_pager, 2615u, 130u),
         "cannot switch to scene 156");
@@ -241,45 +228,39 @@ main(
     CHECK(touch_event(&test_pager, 2745u, 0x62u),
         "cannot dirty scene 156 second page");
     writes_before = test_backend.writes;
-    CHECK(PalEventPager_Flush(&test_pager, PAL_EVENT_WRITE_SAVE),
-        "cannot batch-flush two dirty scene pages");
-    CHECK(test_backend.last_page_count == 2u &&
-          test_backend.last_reason == PAL_EVENT_WRITE_SAVE &&
-          test_backend.writes == writes_before + 2u,
-        "two-page flush was not one transaction");
+    CHECK(PalEventPager_PinScene(&test_pager, 0u, 32u),
+        "cannot switch to one-page scene");
+    CHECK(test_backend.writes == writes_before,
+        "scene pin change unexpectedly flushed dirty pages");
 
-    /* A failed transaction must retain the dirty record for retry. */
-    CHECK(touch_event(&test_pager, 2616u, 0x63u),
-        "cannot redirty event before failure test");
+    /* A failed dirty eviction must retain the page for a later retry. */
     test_backend.fail_write = true;
-    CHECK(!PalEventPager_Flush(&test_pager, PAL_EVENT_WRITE_SYNC),
-        "injected write failure unexpectedly succeeded");
+    CHECK(!PalEventPager_Acquire(&test_pager, 385u, false, &held),
+        "injected eviction write failure unexpectedly succeeded");
     test_backend.fail_write = false;
-    CHECK(PalEventPager_Flush(&test_pager, PAL_EVENT_WRITE_SYNC),
-        "dirty page was not retryable after write failure");
-    CHECK(test_backend.pages[20][55u * PAL_EVENT_PAGER_RECORD_BYTES + 2u] ==
-          0x63u,
-        "retry did not persist dirty event");
+    CHECK(PalEventPager_Acquire(&test_pager, 385u, false, &held),
+        "dirty eviction was not retryable after write failure");
+    CHECK(PalEventPager_Release(&test_pager, &held, false),
+        "cannot release event after eviction retry");
+    CHECK(test_backend.writes == writes_before + 1u,
+        "retry did not write exactly one evicted page");
 
     /*
      * Opcode 009A has a real cross-page range 889..898.  Sequential
      * acquire/release must work with a single non-scene LRU slot.
      */
-    CHECK(PalEventPager_PinScene(&test_pager, 0u, 32u),
-        "cannot switch to one-page scene");
     for (event_id = 889u; event_id <= 898u; event_id++) {
         CHECK(touch_event(&test_pager, event_id, (uint8_t)event_id),
             "cross-page 009A-style write failed");
     }
-    CHECK(PalEventPager_Flush(&test_pager, PAL_EVENT_WRITE_SYNC),
-        "cannot flush 009A-style writes");
-
-    /* The final record is an orphan/global event on page 41, record 120. */
-    CHECK(PalEventPager_Acquire(&test_pager, 5369u, false, &held),
-        "cannot acquire orphan event 5369");
-    CHECK(held.record[0] == (uint8_t)5369u &&
-          held.record[1] == (uint8_t)(5369u >> 8),
-        "event 5369 page/record mapping mismatch");
+    /* The final record remains addressable and uses the stock count. */
+    CHECK(PalEventPager_Acquire(
+          &test_pager, PINNED_FIXTURE_RECORD_COUNT, false, &held),
+        "cannot acquire final fixture event");
+    CHECK(held.record[0] == (uint8_t)PINNED_FIXTURE_RECORD_COUNT &&
+          held.record[1] ==
+              (uint8_t)(PINNED_FIXTURE_RECORD_COUNT >> 8),
+        "final fixture event page/record mapping mismatch");
     CHECK(!PalEventPager_Invalidate(&test_pager),
         "invalidate ignored outstanding handle");
     CHECK(PalEventPager_Release(&test_pager, &held, false),
@@ -309,20 +290,18 @@ main(
           metrics->no_victim_count == 1u &&
           metrics->dirty_eviction_count > 0u &&
           metrics->logical_dirty_bytes > 0u &&
-          metrics->storage_write_bytes > metrics->logical_dirty_bytes &&
-          metrics->storage_sync_count > 0u,
+          metrics->storage_write_bytes > metrics->logical_dirty_bytes,
         "pager metrics did not capture cache/write pressure");
 
     printf(
         "event pager logic: ok sizeof=%zu cache=%u hits=%llu misses=%llu "
-        "writes=%llu logical=%llu storage=%llu syncs=%llu\n",
+        "writes=%llu logical=%llu storage=%llu\n",
         sizeof(test_pager),
         (unsigned)sizeof(test_cache),
         (unsigned long long)metrics->hit_count,
         (unsigned long long)metrics->miss_count,
         (unsigned long long)metrics->page_write_count,
         (unsigned long long)metrics->logical_dirty_bytes,
-        (unsigned long long)metrics->storage_write_bytes,
-        (unsigned long long)metrics->storage_sync_count);
+        (unsigned long long)metrics->storage_write_bytes);
     return 0;
 }

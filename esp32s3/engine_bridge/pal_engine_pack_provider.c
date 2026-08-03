@@ -23,19 +23,21 @@
 #define PAL_ENGINE_PACK_SIZE_OFFSET 24u
 #define PAL_ENGINE_PACK_CRC32_OFFSET 28u
 #define PAL_ENGINE_PACK_ARCHIVE_ENTRY_SIZE 12u
+#define PAL_ENGINE_FULL_TOC_CACHE_CHUNK 1u
+#define PAL_ENGINE_FULL_TOC_CACHE_MAX_BYTES (40u * 1024u)
 /*
  * A chapter-cache build already authenticates every NOR-backed core/overlay
  * payload with the SHA-256 stored in PALSET.BIN.  In that profile the pack
  * provider owns only structural/routing validation; repeating a whole-pack
  * CRC here would scan the same NOR bytes again and would also force a full
- * pal_tf.pak read at every boot.  Legacy Level1 layouts have no cache-level
+ * pal_full.pak read at every boot.  Legacy Level1 layouts have no cache-level
  * SHA owner, so they retain strict provider CRC validation.
  */
 #if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)
 #define PAL_ENGINE_STRICT_PACK_VALIDATION 1
 #endif
 #ifndef PAL_ENGINE_TF_TOC_BYTES
-#define PAL_ENGINE_TF_TOC_BYTES (32u * 1024u)
+#define PAL_ENGINE_TF_TOC_BYTES (40u * 1024u)
 #endif
 #define PAL_ENGINE_LEVEL2_TF_MAP_BYTES (2176u * 1024u)
 #if defined(PAL_STORAGE_SD_ONLY)
@@ -84,6 +86,9 @@ static uint32_t pal_engine_tf_map_size;
 #if defined(PAL_STORAGE_SD_ONLY)
 #define PAL_ENGINE_TF_TOC_STORAGE pal_mem_level2_tf_toc
 #define PAL_ENGINE_TF_MAP_STORAGE pal_mem_level2_transient_chunk
+#elif defined(MEM_LEVEL1) && defined(PAL_EXTREME_CHAPTER_CACHE)
+static uint8_t pal_sram_extreme_engine_tf_header[
+   PAL_ENGINE_PACK_HEADER_SIZE] PAL_ENGINE_PSRAM;
 #elif defined(MEM_LEVEL1)
 static uint8_t pal_sram_extreme_engine_tf_toc[PAL_ENGINE_TF_TOC_BYTES] PAL_ENGINE_PSRAM;
 #define PAL_ENGINE_TF_TOC_STORAGE pal_sram_extreme_engine_tf_toc
@@ -235,51 +240,6 @@ const_packs_overlap(
    return false;
 }
 
-static bool
-const_pack_toc_overlap(
-   const PalPack *pack,
-   const PalPackToc *toc
-)
-{
-   uint16_t archive_index;
-
-   if (pack == NULL || toc == NULL ||
-      pack->base == NULL || toc->base == NULL)
-   {
-      return false;
-   }
-
-   for (archive_index = 0;
-      archive_index < pack->archive_count;
-      archive_index++)
-   {
-      const uint8_t *archive = pack->base + pack->archive_table_offset +
-         (uint32_t)archive_index * PAL_ENGINE_PACK_ARCHIVE_ENTRY_SIZE;
-      uint16_t archive_id = read_le16(archive);
-      uint16_t chunk_count;
-      uint16_t chunk_id;
-
-      if (!PalPack_GetChunkCount(pack, archive_id, &chunk_count))
-      {
-         continue;
-      }
-      for (chunk_id = 0; chunk_id < chunk_count; chunk_id++)
-      {
-         PalPackSpan span;
-         PalPackChunkInfo info;
-
-         if (PalPack_MapConst(pack, archive_id, chunk_id, &span) &&
-            span.size != 0 &&
-            PalPackToc_GetChunkInfo(toc, archive_id, chunk_id, &info) &&
-            info.size != 0)
-         {
-            return true;
-         }
-      }
-   }
-   return false;
-}
-
 static void
 ensure_default_packs(
    void
@@ -386,31 +346,15 @@ find_chunk_store(
          archive_id, chunk_id, &core_span);
    bool in_tf = pal_engine_tf_ready &&
       PalPackToc_GetChunkInfo(&pal_engine_tf_toc, archive_id, chunk_id, info);
-   unsigned int nonempty_count =
-      (in_overlay && overlay_span.size != 0 ? 1u : 0u) +
-      (in_core && core_span.size != 0 ? 1u : 0u) +
-      (in_tf && info->size != 0 ? 1u : 0u);
-
    /*
-    * Layout-v2 packs preserve source chunk numbers with zero-sized holes.
-    * Normally one concrete non-empty chunk has exactly one owner.  The
-    * SD-only Level2 profile is the narrow exception: its small resident cache
-    * duplicates long-lived chunks from the portable complete TF pack, and
-    * the resident copy wins.
+    * pal_full.pak is the single complete TF source.  NOR core/overlay chunks
+    * deliberately duplicate it and win lookup.  A chunk must still never
+    * have two mutable cache owners.
     */
-   if (nonempty_count > 1u)
+   if ((in_overlay && overlay_span.size != 0) &&
+      (in_core && core_span.size != 0))
    {
-#if defined(PAL_STORAGE_SD_ONLY)
-      if (nonempty_count != 2u ||
-         !(in_core && core_span.size != 0) ||
-         !(in_tf && info->size != 0) ||
-         (in_overlay && overlay_span.size != 0))
-      {
-         return PAL_ENGINE_ARCHIVE_STORE_NONE;
-      }
-#else
       return PAL_ENGINE_ARCHIVE_STORE_NONE;
-#endif
    }
    if (in_overlay && overlay_span.size != 0)
    {
@@ -499,12 +443,7 @@ PalEngineBridge_SetNorPackConst(
    {
       return false;
    }
-   if (pal_engine_tf_ready &&
-      (pack_set_id != pal_engine_tf_set_id
-#if !defined(PAL_STORAGE_SD_ONLY)
-         || const_pack_toc_overlap(&candidate, &pal_engine_tf_toc)
-#endif
-      ))
+   if (pal_engine_tf_ready && pack_set_id != pal_engine_tf_set_id)
    {
       return false;
    }
@@ -567,9 +506,7 @@ PalEngineBridge_SetOverlayPackConst(
    {
       return false;
    }
-   if (pal_engine_tf_ready &&
-      (pack_set_id != pal_engine_tf_set_id ||
-         const_pack_toc_overlap(&candidate, &pal_engine_tf_toc)))
+   if (pal_engine_tf_ready && pack_set_id != pal_engine_tf_set_id)
    {
       return false;
    }
@@ -619,6 +556,9 @@ PalEngineBridge_SetTfPackReadAt(
 )
 {
    uint32_t tf_set_id;
+#if defined(MEM_LEVEL1) && defined(PAL_EXTREME_CHAPTER_CACHE)
+   PalPackSpan cached_toc;
+#endif
 #if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    uint32_t declared_crc;
    uint32_t actual_crc;
@@ -632,6 +572,26 @@ PalEngineBridge_SetTfPackReadAt(
 
    pal_engine_tf_read_at = read_at;
    pal_engine_tf_user = user;
+#if defined(MEM_LEVEL1) && defined(PAL_EXTREME_CHAPTER_CACHE)
+   if (!pal_engine_nor_ready ||
+      !PalPack_MapConst(&pal_engine_nor_pack,
+         PAL_PACK_ARCHIVE_CACHE,
+         PAL_ENGINE_FULL_TOC_CACHE_CHUNK,
+         &cached_toc) ||
+      cached_toc.format != PAL_PACK_FORMAT_RAW ||
+      cached_toc.size < PAL_ENGINE_PACK_HEADER_SIZE ||
+      cached_toc.size > PAL_ENGINE_FULL_TOC_CACHE_MAX_BYTES ||
+      !read_at(user, 0u, pal_sram_extreme_engine_tf_header,
+         PAL_ENGINE_PACK_HEADER_SIZE) ||
+      memcmp(pal_sram_extreme_engine_tf_header,
+         cached_toc.data, PAL_ENGINE_PACK_HEADER_SIZE) != 0 ||
+      !PalPack_OpenTocConst(&pal_engine_tf_toc,
+         cached_toc.data, cached_toc.size, pack_size))
+   {
+      clear_tf_pack();
+      return false;
+   }
+#else
 #if defined(PAL_ENGINE_STRICT_PACK_VALIDATION)
    if (!pal_engine_nor_ready ||
       !read_at(user, 0, PAL_ENGINE_TF_TOC_STORAGE,
@@ -663,20 +623,13 @@ PalEngineBridge_SetTfPackReadAt(
       clear_tf_pack();
       return false;
    }
+#endif
    tf_set_id = read_le32(
-      PAL_ENGINE_TF_TOC_STORAGE + PAL_ENGINE_PACK_SET_ID_OFFSET);
+      pal_engine_tf_toc.base + PAL_ENGINE_PACK_SET_ID_OFFSET);
    if (tf_set_id == 0u ||
       (pal_engine_nor_ready && tf_set_id != pal_engine_nor_set_id) ||
       (pal_engine_overlay_ready &&
-         tf_set_id != pal_engine_overlay_set_id) ||
-#if !defined(PAL_STORAGE_SD_ONLY)
-      (pal_engine_nor_ready &&
-         const_pack_toc_overlap(&pal_engine_nor_pack,
-            &pal_engine_tf_toc)) ||
-#endif
-      (pal_engine_overlay_ready &&
-         const_pack_toc_overlap(&pal_engine_overlay_pack,
-            &pal_engine_tf_toc)))
+         tf_set_id != pal_engine_overlay_set_id))
    {
       clear_tf_pack();
       return false;

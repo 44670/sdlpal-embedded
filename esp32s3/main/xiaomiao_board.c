@@ -386,29 +386,6 @@ Xiaomiao_PrepareTfAccess(
     /* GPIO19 becomes SD MISO permanently after the one boot-time LCD reset. */
 }
 
-bool
-Xiaomiao_SaveUnlink(
-    const char *path,
-    bool missing_ok)
-{
-    FRESULT result;
-
-    if (path == NULL) {
-        return false;
-    }
-    result = f_unlink(path);
-    return result == FR_OK || (missing_ok && result == FR_NO_FILE);
-}
-
-bool
-Xiaomiao_SaveRename(
-    const char *old_path,
-    const char *new_path)
-{
-    return old_path != NULL && new_path != NULL &&
-        f_rename(old_path, new_path) == FR_OK;
-}
-
 static void
 scan_keys(
     void)

@@ -133,7 +133,7 @@ PAL_Init(
    if (e != 0)
    {
       PalTarget_ShowError("MUSIC FAIL", "CHECK USB LOG");
-      TerminateOnError("Could not initialize Cardputer music: %d.\n", e);
+      TerminateOnError("Could not initialize target music: %d.\n", e);
    }
 #else
    AUDIO_OpenDevice();

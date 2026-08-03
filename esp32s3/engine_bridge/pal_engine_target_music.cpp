@@ -3,7 +3,7 @@
  * Copyright (c) 2011-2026, SDLPAL development team.
  * All rights reserved.
  *
- * Cardputer ADV fixed-memory MUS/RIX background-music path.
+ * Fixed-memory embedded MUS/RIX background-music path.
  */
 
 #include "../../audio.h"
@@ -11,7 +11,7 @@
 #include "../../adplug/rix.h"
 #include "../../embedded/pal_mame_opl2_static.h"
 #include "../../embedded/pal_music_cache.h"
-#include "../main/cardputer_extreme_audio.h"
+#include "../main/pal_target_audio.h"
 #include "pal_engine_pack_provider.h"
 
 #include <esp_log.h>
@@ -25,8 +25,8 @@
 namespace
 {
 
-constexpr uint32_t kSampleRate = CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE;
-constexpr size_t kTickSamples = CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES;
+constexpr uint32_t kSampleRate = PAL_TARGET_AUDIO_SAMPLE_RATE;
+constexpr size_t kTickSamples = PAL_TARGET_AUDIO_TICK_SAMPLES;
 constexpr unsigned kCommandCount = 8;
 constexpr int32_t kQ15One = 1 << 15;
 constexpr uint32_t kFadePhaseOne = UINT32_C(1) << 31;
@@ -36,10 +36,10 @@ constexpr uint16_t kEmptyMusTrackA = 0u;
 constexpr uint16_t kEmptyMusTrackB = 29u;
 
 static_assert(
-    CARDPUTER_EXTREME_AUDIO_TICK_HZ == 70u &&
-        kSampleRate % CARDPUTER_EXTREME_AUDIO_TICK_HZ == 0u &&
+    PAL_TARGET_AUDIO_TICK_HZ == 70u &&
+        kSampleRate % PAL_TARGET_AUDIO_TICK_HZ == 0u &&
         kTickSamples ==
-            kSampleRate / CARDPUTER_EXTREME_AUDIO_TICK_HZ,
+            kSampleRate / PAL_TARGET_AUDIO_TICK_HZ,
     "each RIX 70 Hz update must render one complete PCM tick");
 static_assert(
     kSampleRate == PAL_MAME_OPL2_SAMPLE_RATE,
@@ -516,7 +516,7 @@ music_start_pending()
             state.mapped_track.size))
     {
         state.missing_tracks++;
-        CardputerExtremeAudio_RecordSourceFault(track_number);
+        PalTargetAudio_RecordSourceFault(track_number);
         music_stop_now();
         return false;
     }
@@ -783,7 +783,7 @@ AUDIO_OpenDevice(VOID)
     gAudioDevice.spec.channels = 1;
 #if !SDL_VERSION_ATLEAST(3, 0, 0)
     gAudioDevice.spec.samples =
-        static_cast<Uint16>(CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES);
+        static_cast<Uint16>(PAL_TARGET_AUDIO_TICK_SAMPLES);
 #endif
     gAudioDevice.iMusicVolume = music_sdl_volume();
     gAudioDevice.iSoundVolume = 0;
@@ -812,9 +812,9 @@ AUDIO_OpenDevice(VOID)
         return -2;
     }
 
-    if (!CardputerExtremeAudio_Begin(music_render, nullptr))
+    if (!PalTargetAudio_Begin(music_render, nullptr))
     {
-        ESP_LOGE(kTag, "Cardputer audio backend failed");
+        ESP_LOGE(kTag, "target audio backend failed");
         music_stop_now();
         pal_music_command_queue = nullptr;
         return -3;
@@ -847,12 +847,12 @@ AUDIO_CloseDevice(VOID)
         return;
     }
 
-    if (!CardputerExtremeAudio_Stop())
+    if (!PalTargetAudio_Stop())
     {
         ESP_LOGE(kTag, "audio close deferred: task is still active");
         return;
     }
-    CardputerExtremeAudio_LogTelemetry("close");
+    PalTargetAudio_LogTelemetry("close");
     ESP_LOGI(
         kTag,
         "RIX stats: ticks=%u loops=%u missing=%u coalesced=%u",

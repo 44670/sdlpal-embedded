@@ -50,7 +50,7 @@ CACHE_PARTITION_BYTES = 0x2D0000
 CACHE_COMMIT_BYTES = 0x1000
 CACHE_PAYLOAD_HARD_BYTES = 0x2CF000
 CACHE_PACK_SOFT_BYTES = 0x2BF000
-ACTIVE_TF_TOC_BYTES = 2048
+ACTIVE_TF_TOC_BYTES = 40 * 1024
 BUNDLE_COUNT = 15
 MAX_DRAM_BSS = 212 * 1024
 MAX_DRAM_DATA = 16 * 1024
@@ -98,6 +98,10 @@ REQUIRED_CACHE_SYMBOLS = {
     "PalMameOpl2_Init",
     "PalMameOpl2_Render",
     "PalMusic_MapMus",
+    "PalEngineEventState_ResetDefaults",
+    "PalEngineEventState_ReplaceFromFile",
+    "PalEventPager_Acquire",
+    "PalEventPager_Invalidate",
     "sha256_finish",
     "sha256_transform",
     "sha256_update",
@@ -151,9 +155,8 @@ class BuildMetrics:
 class PackMetrics:
     set_id: int = 0
     core_bytes: int = 0
-    tf_bytes: int = 0
     full_bytes: int = 0
-    tf_toc_bytes: int = 0
+    full_toc_bytes: int = 0
     catalog_bytes: int = 0
     set_bytes: int = 0
     largest_bundle_bytes: int = 0
@@ -891,6 +894,18 @@ def check_build(
         errors.append(
             f"chapter-cache provider still links a whole-pack CRC scan: {name}"
         )
+    for name in sorted(
+        symbol for symbol in symbols if symbol.startswith("PalEventJournal_")
+    ):
+        errors.append(f"retired event-journal symbol is linked: {name}")
+    elf_image = elf_path.read_bytes()
+    if b"EVENT.WRK" not in elf_image:
+        errors.append("LEVEL1 app has no session work-file path")
+    for retired_path in (b"EVENT.DEF", b"EVENT.STA", b"EVENT.TMP", b"EVENT.BAD"):
+        if retired_path in elf_image:
+            errors.append(
+                f"LEVEL1 app still contains retired path {retired_path.decode()}"
+            )
     decoder_hits = sorted(
         name
         for name in symbols
@@ -901,6 +916,10 @@ def check_build(
         errors.append(f"forbidden runtime decoder symbol is linked: {name}")
     for name in sorted(symbol for symbol in symbols if symbol.startswith("pal_psram_")):
         errors.append(f"PSRAM storage symbol is linked: {name}")
+    if "pal_sram_extreme_engine_tf_toc" in symbols:
+        errors.append("full pal_full.pak TOC is still copied into SRAM")
+    if "pal_sram_extreme_engine_tf_header" not in symbols:
+        errors.append("32-byte TF header comparison owner is missing")
 
     sections: dict[str, int] = {}
     if not objdump.is_file():
@@ -1249,37 +1268,53 @@ def check_manifest_contract(manifest: dict[str, object], errors: list[str]) -> N
             "heap_required": False,
             "runtime_decompression_required": False,
             "payloads_are_runtime_native": True,
+            "tf_access_shape": (
+                "NOR-mapped full-pack TOC with direct bounded payload reads"
+            ),
             "overlay_shape": "one replaceable SPI-NOR bundle",
             "data_identity_file": chapter.SET_FILENAME,
             "core_tf_file": "pal_core.pak",
+            "portable_complete_tf_file": "pal_full.pak",
+            "level2_resident_source": "runtime-derived from pal_full.pak",
+            "tf_directory_contract": (
+                "one complete pack plus Cardputer NOR cache sources"
+            ),
             "firmware_embeds_data_hashes": False,
         }
         for key, value in required_runtime.items():
             if runtime.get(key) != value:
                 errors.append(f"manifest runtime.{key} must be {value!r}")
 
-    window = manifest.get("core_event_object_window")
-    if not isinstance(window, dict):
-        errors.append("manifest does not disclose the event-object paging limit")
+    event_state = manifest.get("event_state")
+    if not isinstance(event_state, dict):
+        errors.append("manifest does not disclose the event-state contract")
     else:
         expected = {
-            "status": "full-event-pager-active",
-            "record_bytes": 32,
-            "core_record_count": chapter.CORE_EVENT_OBJECT_COUNT,
-            "core_chunk_bytes": chapter.CORE_EVENT_OBJECT_BYTES,
-            "current_runtime_scene_window": "scenes 1..22",
-            "outside_window_behavior": (
-                "bundle cache plus EVENT.DEF/EVENT.STA paging"
-            ),
+            "status": "standard-rpg-only-persistence",
+            "record_bytes": chapter.EVENT_OBJECT_RECORD_BYTES,
+            "record_capacity": chapter.EVENT_OBJECT_RECORD_CAPACITY,
+            "durable_state": "standard N.rpg save slots only",
+            "level1_runtime": "three-page LRU over session-only EVENT.WRK",
+            "level1_work_writes": "initialization and dirty eviction only",
+            "level2_runtime": "complete resident PSRAM array",
         }
         for key, value in expected.items():
-            if window.get(key) != value:
+            if event_state.get(key) != value:
                 errors.append(
-                    f"manifest core_event_object_window.{key} must be {value!r}"
+                    f"manifest event_state.{key} must be {value!r}"
                 )
-        full_bytes = window.get("full_source_chunk_bytes")
-        if not isinstance(full_bytes, int) or full_bytes <= chapter.CORE_EVENT_OBJECT_BYTES:
-            errors.append("manifest full SSS event chunk is not larger than core window")
+        record_count = event_state.get("record_count")
+        chunk_bytes = event_state.get("core_chunk_bytes")
+        if (
+            not isinstance(record_count, int)
+            or record_count <= 0
+            or record_count > chapter.EVENT_OBJECT_RECORD_CAPACITY
+            or chunk_bytes
+            != record_count * chapter.EVENT_OBJECT_RECORD_BYTES
+        ):
+            errors.append(
+                "manifest event-state cardinality is invalid or exceeds capacity"
+            )
 
 
 def check_pack_constants(errors: list[str]) -> None:
@@ -1287,6 +1322,7 @@ def check_pack_constants(errors: list[str]) -> None:
         "CORE_SLOT_CAP": CORE_SLOT_BYTES,
         "HARD_OVERLAY_PACK_CAP": CACHE_PAYLOAD_HARD_BYTES,
         "SOFT_OVERLAY_CAP": CACHE_PACK_SOFT_BYTES,
+        "FULL_TOC_CACHE_CAP": ACTIVE_TF_TOC_BYTES,
         "CATALOG_SCENE_COUNT": 300,
         "CATALOG_BUNDLE_DESC_SIZE": 40,
         "SET_HEADER_SIZE": 64,
@@ -1336,7 +1372,6 @@ def check_packs(
 
     paths = {
         "core": pack_dir / "pal_core.pak",
-        "tf": pack_dir / "pal_tf.pak",
         "full": pack_dir / "pal_full.pak",
     }
     set_path = pack_dir / chapter.SET_FILENAME
@@ -1346,6 +1381,9 @@ def check_packs(
     if missing:
         errors.extend(f"missing chapter artifact: {path}" for path in missing)
         return PackMetrics()
+    for obsolete in (pack_dir / "pal_tf.pak", pack_dir / "pal_l2.pak"):
+        if obsolete.exists():
+            errors.append(f"obsolete duplicate pack remains: {obsolete}")
     extra_bundles = sorted(
         path.name
         for path in pack_dir.glob("b*.pak")
@@ -1356,12 +1394,15 @@ def check_packs(
 
     metadata: dict[str, PackMeta] = {}
     core_data: bytes | None = None
+    full_data: bytes | None = None
     for label, path in paths.items():
         meta, data = inspect_pack(path, errors)
         if meta is not None:
             metadata[label] = meta
         if label == "core":
             core_data = data
+        elif label == "full":
+            full_data = data
 
     bundle_meta: list[PackMeta] = []
     for path in bundle_paths:
@@ -1378,7 +1419,6 @@ def check_packs(
         return PackMetrics()
 
     core_meta = metadata["core"]
-    tf_meta = metadata["tf"]
     full_meta = metadata["full"]
     check_archive_ids(
         "pal_core.pak",
@@ -1386,7 +1426,6 @@ def check_packs(
         (*chapter.CORE_FULL_ARCHIVES, "MGO", "CACHE"),
         errors,
     )
-    check_archive_ids("pal_tf.pak", tf_meta, chapter.TF_ARCHIVES, errors)
     check_archive_ids(
         "pal_full.pak",
         full_meta,
@@ -1445,7 +1484,7 @@ def check_packs(
             manifest_set_id = 0
         if pack_set.get("id_hex") != f"0x{manifest_set_id:08x}":
             errors.append("manifest pack_set.id_hex differs from integer ID")
-    all_meta = [core_meta, tf_meta, full_meta, *bundle_meta]
+    all_meta = [core_meta, full_meta, *bundle_meta]
     actual_set_ids = {meta.set_id for meta in all_meta}
     actual_set_ids.add(set_id)
     if actual_set_ids != {manifest_set_id} or manifest_set_id == 0:
@@ -1487,8 +1526,10 @@ def check_packs(
         errors.append("manifest has no packs object")
         packs_summary = {}
     check_summary("core", packs_summary.get("core"), core_meta, errors)
-    check_summary("tf", packs_summary.get("tf"), tf_meta, errors)
     check_summary("full", packs_summary.get("full"), full_meta, errors)
+    for obsolete in ("tf", "level2_core"):
+        if obsolete in packs_summary:
+            errors.append(f"manifest retains obsolete packs.{obsolete}")
 
     bundle_summaries = packs_summary.get("bundles")
     if not isinstance(bundle_summaries, list) or len(bundle_summaries) != BUNDLE_COUNT:
@@ -1523,9 +1564,10 @@ def check_packs(
         errors.append(
             f"pal_core.pak {core_meta.size} exceeds core slot {CORE_SLOT_BYTES}"
         )
-    if tf_meta.toc_bytes > ACTIVE_TF_TOC_BYTES:
+    if full_meta.toc_bytes > ACTIVE_TF_TOC_BYTES:
         errors.append(
-            f"pal_tf.pak TOC {tf_meta.toc_bytes} exceeds {ACTIVE_TF_TOC_BYTES}"
+            f"pal_full.pak TOC {full_meta.toc_bytes} exceeds "
+            f"{ACTIVE_TF_TOC_BYTES}"
         )
     for bundle_id, meta in enumerate(bundle_meta):
         if meta.size > CACHE_PAYLOAD_HARD_BYTES:
@@ -1598,25 +1640,53 @@ def check_packs(
             if catalog_format != pack.FORMAT_RAW:
                 errors.append("pal_core.pak CACHE#0 is not RAW")
 
-        window = manifest.get("core_event_object_window")
-        if isinstance(window, dict):
+        toc_chunk = pack_chunk(
+            core_data,
+            pack.ARCHIVE_IDS["CACHE"],
+            1,
+        )
+        expected_toc = (
+            full_data[:full_meta.toc_bytes]
+            if full_data is not None
+            else b""
+        )
+        if toc_chunk is None:
+            errors.append("pal_core.pak has no CACHE#1 full-pack TOC")
+        else:
+            core_toc, toc_format = toc_chunk
+            if toc_format != pack.FORMAT_RAW:
+                errors.append("pal_core.pak CACHE#1 is not RAW")
+            if core_toc != expected_toc:
+                errors.append(
+                    "pal_core.pak CACHE#1 differs from pal_full.pak TOC"
+                )
+            expected_summary = {
+                "archive": "CACHE",
+                "archive_id": pack.ARCHIVE_IDS["CACHE"],
+                "chunk_id": 1,
+                "format": "RAW",
+                "size": len(expected_toc),
+                "sha256": sha256_bytes(expected_toc),
+                "source": "pal_full.pak[0:data_offset]",
+                "cardputer_storage": "pal_core.pak mapped from SPI NOR",
+                "cardputer_sram_copy_bytes": 0,
+            }
+            if manifest.get("full_toc_cache") != expected_summary:
+                errors.append("manifest full_toc_cache summary differs")
+
+        event_state = manifest.get("event_state")
+        if isinstance(event_state, dict):
             core_sss = pack_chunk(core_data, pack.ARCHIVE_IDS["SSS"], 0)
-            full_path = paths["full"]
-            try:
-                full_data = full_path.read_bytes()
-            except OSError:
-                full_data = b""
             full_sss = (
                 pack_chunk(full_data, pack.ARCHIVE_IDS["SSS"], 0)
                 if full_data
                 else None
             )
-            if core_sss is None or len(core_sss[0]) != window.get("core_chunk_bytes"):
-                errors.append("core SSS#0 size differs from event-window manifest")
-            if full_sss is None or len(full_sss[0]) != window.get(
-                "full_source_chunk_bytes"
-            ):
-                errors.append("full-mirror SSS#0 size differs from event manifest")
+            expected_bytes = event_state.get("core_chunk_bytes")
+            if core_sss is None or len(core_sss[0]) != expected_bytes:
+                errors.append("core SSS#0 size differs from event-state manifest")
+            if full_sss is None or len(full_sss[0]) != expected_bytes:
+                errors.append("full-mirror SSS#0 size differs from event-state manifest")
 
     scene_partition = manifest.get("scene_partition")
     intervals = (
@@ -1642,9 +1712,8 @@ def check_packs(
     return PackMetrics(
         manifest_set_id,
         core_meta.size,
-        tf_meta.size,
         full_meta.size,
-        tf_meta.toc_bytes,
+        full_meta.toc_bytes,
         len(set_catalog),
         len(set_data),
         largest,
@@ -1754,9 +1823,8 @@ def main() -> int:
         f"(soft {CACHE_PACK_SOFT_BYTES})"
     )
     print(
-        f"  TF={pack_metrics.tf_bytes}, "
-        f"TOC={pack_metrics.tf_toc_bytes}/{ACTIVE_TF_TOC_BYTES}, "
-        f"full-mirror={pack_metrics.full_bytes}"
+        f"  pal_full.pak={pack_metrics.full_bytes}, "
+        f"NOR full-TOC={pack_metrics.full_toc_bytes}/{ACTIVE_TF_TOC_BYTES}"
     )
     print(
         f"  pack_set_id=0x{pack_metrics.set_id:08x}, "

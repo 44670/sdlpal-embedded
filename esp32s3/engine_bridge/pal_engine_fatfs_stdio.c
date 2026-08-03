@@ -4,6 +4,10 @@
 
 #include "ff.h"
 
+#if defined(ESP_PLATFORM)
+#include "sdkconfig.h"
+#endif
+
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -14,12 +18,14 @@
 #include <string.h>
 
 #define PAL_ENGINE_FATFS_STDIO_MAGIC 0x50465346u
-/*
- * EVENT.STA stays open for the lifetime of the engine.  A third slot is only
- * needed while an old SZC2 save and EVENT.DEF are read together for one
- * atomic migration.
- */
-#define PAL_ENGINE_FATFS_STDIO_SLOTS 3
+/* LEVEL1 may hold EVENT.WRK and one ordinary N.rpg open at the same time. */
+#define PAL_ENGINE_FATFS_STDIO_SLOTS 2
+#if defined(CONFIG_IDF_TARGET_ESP32) && defined(MEM_LEVEL2)
+#define PAL_ENGINE_FATFS_PSRAM_WRITE_WORKAROUND 1
+#define PAL_ENGINE_FATFS_WRITE_CHUNK_BYTES 4096u
+#else
+#define PAL_ENGINE_FATFS_PSRAM_WRITE_WORKAROUND 0
+#endif
 
 typedef struct PalEngineFatfsFile {
    uint32_t magic;
@@ -29,6 +35,15 @@ typedef struct PalEngineFatfsFile {
 } PalEngineFatfsFile;
 
 static PalEngineFatfsFile pal_engine_fatfs_stdio_slots[PAL_ENGINE_FATFS_STDIO_SLOTS];
+#if PAL_ENGINE_FATFS_PSRAM_WRITE_WORKAROUND
+#if defined(__GNUC__)
+static uint8_t pal_engine_fatfs_write_chunk[
+   PAL_ENGINE_FATFS_WRITE_CHUNK_BYTES] __attribute__((aligned(4)));
+#else
+static uint8_t pal_engine_fatfs_write_chunk[
+   PAL_ENGINE_FATFS_WRITE_CHUNK_BYTES];
+#endif
+#endif
 
 FILE *__real_fopen(const char *path, const char *mode);
 int __real_fclose(FILE *stream);
@@ -360,7 +375,11 @@ __wrap_fwrite(
    PalEngineFatfsFile *slot = fatfs_slot_from_file(stream);
    UINT bytes_written = 0;
    UINT bytes_requested;
+#if PAL_ENGINE_FATFS_PSRAM_WRITE_WORKAROUND
+   const uint8_t *source = (const uint8_t *)ptr;
+#else
    FRESULT result;
+#endif
 
    if (slot == NULL)
    {
@@ -378,6 +397,41 @@ __wrap_fwrite(
       return 0;
    }
 
+#if PAL_ENGINE_FATFS_PSRAM_WRITE_WORKAROUND
+   /*
+    * Level2 save images live in classic-ESP32 PSRAM.  The SPI DMA engine
+    * cannot transmit that memory directly: passing the whole image to FatFS
+    * makes the SDSPI driver request an impossible DMA+SPIRAM bounce buffer,
+    * and a failed multi-block write can leave the card busy until reinsertion.
+    * Bound every write through one fixed internal-DMA staging buffer.
+    */
+   PalTarget_PrepareTfAccess();
+   while (bytes_written < bytes_requested)
+   {
+      const UINT remaining = bytes_requested - bytes_written;
+      const UINT amount = remaining > PAL_ENGINE_FATFS_WRITE_CHUNK_BYTES
+         ? PAL_ENGINE_FATFS_WRITE_CHUNK_BYTES : remaining;
+      UINT chunk_written = 0;
+      FRESULT result;
+
+      memcpy(pal_engine_fatfs_write_chunk, source + bytes_written, amount);
+      result = f_write(&slot->file, pal_engine_fatfs_write_chunk,
+         amount, &chunk_written);
+      bytes_written += chunk_written;
+      if (result != FR_OK)
+      {
+         errno = errno_from_fresult(result);
+         slot->error = true;
+         break;
+      }
+      if (chunk_written != amount)
+      {
+         errno = EIO;
+         slot->error = true;
+         break;
+      }
+   }
+#else
    PalTarget_PrepareTfAccess();
    result = f_write(&slot->file, ptr, bytes_requested, &bytes_written);
    if (result != FR_OK)
@@ -391,6 +445,7 @@ __wrap_fwrite(
       errno = EIO;
       slot->error = true;
    }
+#endif
    return bytes_written / size;
 }
 

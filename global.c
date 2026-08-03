@@ -23,21 +23,23 @@
 #include "resampler.h"
 #include "palcfg.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #if defined(ESP_PLATFORM) && defined(MEM_LEVEL2)
 #include <esp_attr.h>
 #endif
-
-/* Tagged target saves must never be mistaken for a legacy DOS/WIN save. */
-#ifndef PAL_EXTREME_SAVE_MAGIC
-#define PAL_EXTREME_SAVE_MAGIC "PALXSAVE"
+#if defined(PAL_TARGET_XIAOMIAO)
+#include <esp_log.h>
+#define PAL_SAVE_LOGI(...) ESP_LOGI("pal_save", __VA_ARGS__)
+#define PAL_SAVE_LOGE(...) ESP_LOGE("pal_save", __VA_ARGS__)
+#else
+#define PAL_SAVE_LOGI(...) do { } while (0)
+#define PAL_SAVE_LOGE(...) do { } while (0)
 #endif
 
 #if defined(PAL_PAGED_EVENT_STATE)
 #include "pal_engine_event_state.h"
-#include "pal_engine_pack_provider.h"
-#include "pal_target_board.h"
 #endif
 
 static GLOBALVARS _gGlobals;
@@ -141,37 +143,6 @@ PAL_EventObjectPinScene(
 }
 
 BOOL
-PAL_EventStateFlush(
-   INT reason
-)
-{
-#if defined(PAL_PAGED_EVENT_STATE)
-   if (reason < PAL_EVENT_WRITE_EVICT ||
-      reason > PAL_EVENT_WRITE_SHUTDOWN)
-   {
-      return FALSE;
-   }
-   return PalEngineEventState_Flush(
-      (PalEventPagerWriteReason)reason);
-#else
-   (void)reason;
-   return TRUE;
-#endif
-}
-
-BOOL
-PAL_EventStateCheckpoint(
-   VOID
-)
-{
-#if defined(PAL_PAGED_EVENT_STATE)
-   return PalEngineEventState_Checkpoint();
-#else
-   return TRUE;
-#endif
-}
-
-BOOL
 PAL_SceneMarkDirty(
    WORD scene_index
 )
@@ -180,11 +151,7 @@ PAL_SceneMarkDirty(
    {
       return FALSE;
    }
-#if defined(PAL_PAGED_EVENT_STATE)
-   return PalEngineEventState_MarkSceneDirty(scene_index);
-#else
    return TRUE;
-#endif
 }
 
 #if !defined(PAL_PAGED_EVENT_STATE)
@@ -551,7 +518,8 @@ PAL_InitGlobalGameData(
 #define PAL_DOALLOCATE_STATIC(fp, num, type, lptype, ptr, n, storage)            \
    {                                                                             \
       len = PAL_MKFGetChunkSize(num, fp);                                        \
-      if (len < 0 || (size_t)len > sizeof(storage))                              \
+      if (len <= 0 || (len % (int)sizeof(type)) != 0 ||                          \
+         (size_t)len > sizeof(storage))                                          \
       {                                                                          \
          TerminateOnError("PAL_InitGlobalGameData(): Static buffer too small!"); \
       }                                                                          \
@@ -597,14 +565,17 @@ PAL_InitGlobalGameData(
    {
 #ifdef PAL_NO_RUNTIME_HEAP
 #if defined(PAL_PAGED_EVENT_STATE)
-      if (!PalEngineEventState_Init())
+      len = PAL_MKFGetChunkSize(0, gpGlobals->f.fpSSS);
+      if (len <= 0 || (len % (int)sizeof(EVENTOBJECT)) != 0 ||
+         len / (int)sizeof(EVENTOBJECT) > MAX_EVENT_OBJECTS ||
+         !PalEngineEventState_Init(
+            (uint16_t)(len / (int)sizeof(EVENTOBJECT))))
       {
          TerminateOnError(
-            "PAL_InitGlobalGameData(): TF event state initialization failed");
+            "PAL_InitGlobalGameData(): invalid paged event table");
       }
       gpGlobals->g.lprgEventObject = NULL;
-      gpGlobals->g.nEventObject =
-         PAL_ENGINE_EVENT_STATE_RECORD_COUNT;
+      gpGlobals->g.nEventObject = len / sizeof(EVENTOBJECT);
 #else
       PAL_DOALLOCATE_STATIC(gpGlobals->f.fpSSS, 0, EVENTOBJECT, LPEVENTOBJECT,
          gpGlobals->g.lprgEventObject, gpGlobals->g.nEventObject,
@@ -694,12 +665,36 @@ PAL_LoadDefaultGame(
    // Load the default data from the game data files.
    //
 #if defined(PAL_PAGED_EVENT_STATE)
-   if (!PalEngineEventState_ResetDefaults(
-         p->rgScene, sizeof(p->rgScene)))
    {
-      TerminateOnError(
-         "PAL_LoadDefaultGame(): invalid or unreadable TF event template");
+      LPCBYTE events = NULL;
+      UINT event_bytes = 0u;
+      int scene_bytes;
+
+      if (!PAL_MKFMapChunk(
+            gpGlobals->f.fpSSS, 0, &events, &event_bytes) ||
+         event_bytes !=
+            (UINT)gpGlobals->g.nEventObject * sizeof(EVENTOBJECT) ||
+         !PalEngineEventState_ResetDefaults(events, event_bytes))
+      {
+         TerminateOnError(
+            "PAL_LoadDefaultGame(): invalid paged event defaults");
+      }
+      scene_bytes = PAL_MKFGetChunkSize(1, gpGlobals->f.fpSSS);
+      if (scene_bytes <= 0 || scene_bytes > (int)sizeof(p->rgScene) ||
+         (scene_bytes % (int)sizeof(SCENE)) != 0)
+      {
+         TerminateOnError(
+            "PAL_LoadDefaultGame(): invalid scene defaults");
+      }
+      memset(p->rgScene, 0, sizeof(p->rgScene));
+      if (PAL_MKFReadChunk((LPBYTE)(p->rgScene), (UINT)scene_bytes, 1,
+            gpGlobals->f.fpSSS) != scene_bytes)
+      {
+         TerminateOnError(
+            "PAL_LoadDefaultGame(): unreadable scene defaults");
+      }
    }
+   DO_BYTESWAP(p->rgScene, sizeof(p->rgScene));
 #else
    LOAD_DATA(p->lprgEventObject, p->nEventObject * sizeof(EVENTOBJECT),
       0, gpGlobals->f.fpSSS);
@@ -849,7 +844,7 @@ typedef struct tagSAVEDGAME_DOS
 	SCENE            rgScene[MAX_SCENES];
 	OBJECT_DOS       rgObject[MAX_OBJECTS];
 #if defined(PAL_PAGED_EVENT_STATE)
-	EVENTOBJECT      rgEventObject[1]; /* streamed after the fixed header */
+	EVENTOBJECT      rgEventObject[1]; /* standard payload is streamed */
 #else
 	EVENTOBJECT      rgEventObject[MAX_EVENT_OBJECTS];
 #endif
@@ -884,7 +879,7 @@ typedef struct tagSAVEDGAME_WIN
 	SCENE            rgScene[MAX_SCENES];
 	OBJECT           rgObject[MAX_OBJECTS];
 #if defined(PAL_PAGED_EVENT_STATE)
-	EVENTOBJECT      rgEventObject[1]; /* streamed after the fixed header */
+	EVENTOBJECT      rgEventObject[1]; /* standard payload is streamed */
 #else
 	EVENTOBJECT      rgEventObject[MAX_EVENT_OBJECTS];
 #endif
@@ -892,11 +887,11 @@ typedef struct tagSAVEDGAME_WIN
 
 #ifdef PAL_NO_RUNTIME_HEAP
 #if defined(PAL_PAGED_EVENT_STATE)
-#define PAL_EXTREME_SAVE_DOS_BYTES offsetof(SAVEDGAME_DOS, rgEventObject)
-#define PAL_EXTREME_SAVE_WIN_BYTES offsetof(SAVEDGAME_WIN, rgEventObject)
 static uint8_t pal_sram_extreme_savegame_static[
-   ((PAL_EXTREME_SAVE_WIN_BYTES > PAL_EXTREME_SAVE_DOS_BYTES) ?
-      PAL_EXTREME_SAVE_WIN_BYTES : PAL_EXTREME_SAVE_DOS_BYTES)
+   ((offsetof(SAVEDGAME_WIN, rgEventObject) >
+      offsetof(SAVEDGAME_DOS, rgEventObject)) ?
+      offsetof(SAVEDGAME_WIN, rgEventObject) :
+      offsetof(SAVEDGAME_DOS, rgEventObject))
    + sizeof(EVENTOBJECT)
 ] PAL_GLOBAL_PSRAM;
 #define PAL_SAVEGAME_STATIC pal_sram_extreme_savegame_static
@@ -909,7 +904,7 @@ static uint8_t pal_psram_savegame_static[
 #endif
 
 #if defined(PAL_PAGED_EVENT_STATE)
-#include "esp32s3/engine_bridge/pal_engine_extreme_save.inc"
+#include "esp32s3/engine_bridge/pal_engine_paged_save.inc"
 #endif
 
 WORD
@@ -917,25 +912,6 @@ PAL_GetSavedTimes(
    int iSaveSlot
 )
 {
-#if defined(PAL_PAGED_EVENT_STATE)
-   char final_path[PAL_EXTREME_SAVE_PATH_BYTES];
-   char backup_path[PAL_EXTREME_SAVE_PATH_BYTES];
-   WORD saved_times = 0;
-
-   if (!PAL_ExtremeSaveBuildPath(iSaveSlot, "rpg", final_path,
-         sizeof(final_path)) ||
-      !PAL_ExtremeSaveBuildPath(iSaveSlot, "bak", backup_path,
-         sizeof(backup_path)))
-   {
-      return 0;
-   }
-   if (PAL_ExtremeReadSavedTimesAtPath(final_path, &saved_times) ||
-      PAL_ExtremeReadSavedTimesAtPath(backup_path, &saved_times))
-   {
-      return saved_times;
-   }
-   return 0;
-#else
    FILE *fp = UTIL_OpenFileAtPath(gConfig.pszSavePath,
       PAL_va(0, "%d.rpg", iSaveSlot));
    WORD saved_times = 0;
@@ -951,9 +927,14 @@ PAL_GetSavedTimes(
          saved_times = 0;
       }
       fclose(fp);
+      PAL_SAVE_LOGI("probe slot=%d count=%u", iSaveSlot,
+         (unsigned int)saved_times);
+   }
+   else
+   {
+      PAL_SAVE_LOGI("probe slot=%d missing errno=%d", iSaveSlot, errno);
    }
    return saved_times;
-#endif
 }
 
 static BOOL
@@ -964,54 +945,17 @@ PAL_LoadGame_Common(
 )
 {
 #if defined(PAL_PAGED_EVENT_STATE)
-	char final_path[PAL_EXTREME_SAVE_PATH_BYTES];
-	char backup_path[PAL_EXTREME_SAVE_PATH_BYTES];
-	WORD format = gConfig.fIsWIN95 ?
-		PAL_EXTREME_SAVE_FORMAT_WIN95 : PAL_EXTREME_SAVE_FORMAT_DOS;
-	BOOL loaded = FALSE;
-	FILE *fp = NULL;
+	FILE *fp = UTIL_OpenFileAtPath(gConfig.pszSavePath,
+		PAL_va(1, "%d.rpg", iSaveSlot));
+	size_t n = fp ? fread(s, 1, size, fp) : 0;
+	BOOL loaded = n == size && PAL_PagedSaveReadEvents(fp);
 
-	if (!PAL_ExtremeSaveBuildPath(iSaveSlot, "rpg", final_path,
-			sizeof(final_path)) ||
-		!PAL_ExtremeSaveBuildPath(iSaveSlot, "bak", backup_path,
-			sizeof(backup_path)))
+	if (fp != NULL && fclose(fp) != 0)
 	{
-		return FALSE;
+		loaded = FALSE;
 	}
-
-	fp = fopen(final_path, "rb");
-	if (fp != NULL)
-	{
-		loaded = PAL_ExtremeSaveReadFile(fp, s, size, format);
-		if (fclose(fp) != 0)
-		{
-			loaded = FALSE;
-		}
-	}
-
 	if (!loaded)
 	{
-		fp = fopen(backup_path, "rb");
-		if (fp != NULL)
-		{
-			loaded = PAL_ExtremeSaveReadFile(fp, s, size, format);
-			if (fclose(fp) != 0)
-			{
-				loaded = FALSE;
-			}
-			if (loaded)
-			{
-				UTIL_LogOutput(LOGLEVEL_WARNING,
-					"Recovered extreme save slot %d from backup\n", iSaveSlot);
-			}
-		}
-	}
-
-	if (!loaded)
-	{
-		UTIL_LogOutput(LOGLEVEL_WARNING,
-			"Rejected missing, corrupt, incompatible, or out-of-profile "
-			"extreme save slot %d\n", iSaveSlot);
 		return FALSE;
 	}
 #else
@@ -1029,8 +973,7 @@ PAL_LoadGame_Common(
 		fclose(fp);
 	}
 
-	if (n < size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS ||
-		(n >= 8 && memcmp(s, PAL_EXTREME_SAVE_MAGIC, 8) == 0))
+	if (n < size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS)
 	{
 		return FALSE;
 	}
@@ -1123,7 +1066,7 @@ PAL_LoadGame_DOS(
    //
    if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s,
 #if defined(PAL_PAGED_EVENT_STATE)
-      PAL_EXTREME_SAVE_DOS_BYTES
+      PAL_PAGED_SAVE_DOS_BYTES
 #else
       sizeof(SAVEDGAME_DOS)
 #endif
@@ -1188,7 +1131,7 @@ PAL_LoadGame_WIN(
    //
    if (!PAL_LoadGame_Common(iSaveSlot, (LPSAVEDGAME_COMMON)s,
 #if defined(PAL_PAGED_EVENT_STATE)
-      PAL_EXTREME_SAVE_WIN_BYTES
+      PAL_PAGED_SAVE_WIN_BYTES
 #else
       sizeof(SAVEDGAME_WIN)
 #endif
@@ -1280,34 +1223,75 @@ PAL_SaveGame_Common(
 #endif
 
 #if defined(PAL_PAGED_EVENT_STATE)
-	BOOL result = PAL_ExtremeSaveWriteFile(iSaveSlot,
-		gConfig.fIsWIN95 ? PAL_EXTREME_SAVE_FORMAT_WIN95 :
-			PAL_EXTREME_SAVE_FORMAT_DOS,
-		s, size);
+	BOOL result = PAL_PagedSaveWriteFile(iSaveSlot, s, size);
 	if (!result)
 	{
 		UTIL_LogOutput(LOGLEVEL_ERROR,
-			"Failed to write, verify, or atomically replace extreme save "
-			"slot %d\n", iSaveSlot);
+			"Failed to write standard save slot %d\n", iSaveSlot);
 	}
 	return result;
 #else
 	//
 	// Try writing to file
 	//
+	PAL_SAVE_LOGI("begin slot=%d count=%u", iSaveSlot,
+		(unsigned int)wSavedTimes);
 	if ((fp = UTIL_OpenFileAtPathForMode(gConfig.pszSavePath, PAL_va(1, "%d.rpg", iSaveSlot), "wb")) == NULL)
 	{
+		PAL_SAVE_LOGE("open slot=%d failed errno=%d", iSaveSlot, errno);
+		UTIL_LogOutput(LOGLEVEL_ERROR,
+			"Failed to open standard save slot %d for writing (errno=%d)\n",
+			iSaveSlot, errno);
 		return FALSE;
 	}
 
 	i = PAL_MKFGetChunkSize(0, gpGlobals->f.fpSSS);
 	i += size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS;
+	PAL_SAVE_LOGI("write slot=%d bytes=%u source=%p", iSaveSlot,
+		(unsigned int)i, (void *)s);
 
 	{
-		BOOL result = fwrite(s, i, 1, fp) == 1;
+		size_t written = fwrite(s, 1, i, fp);
+		BOOL result = written == i;
+		if (!result)
+		{
+			PAL_SAVE_LOGE("write slot=%d short=%u/%u errno=%d",
+				iSaveSlot, (unsigned int)written, (unsigned int)i, errno);
+			UTIL_LogOutput(LOGLEVEL_ERROR,
+				"Failed to write standard save slot %d: %u/%u bytes (errno=%d)\n",
+				iSaveSlot, (unsigned int)written, (unsigned int)i, errno);
+		}
 		if (fclose(fp) != 0)
 		{
+			PAL_SAVE_LOGE("close slot=%d failed errno=%d", iSaveSlot, errno);
+			UTIL_LogOutput(LOGLEVEL_ERROR,
+				"Failed to close standard save slot %d (errno=%d)\n",
+				iSaveSlot, errno);
 			result = FALSE;
+		}
+		if (result)
+		{
+			WORD persisted = PAL_GetSavedTimes(iSaveSlot);
+			if (persisted != wSavedTimes)
+			{
+				PAL_SAVE_LOGE("verify slot=%d expected=%u got=%u",
+					iSaveSlot, (unsigned int)wSavedTimes,
+					(unsigned int)persisted);
+				UTIL_LogOutput(LOGLEVEL_ERROR,
+					"Standard save slot %d verification failed: expected %u, got %u\n",
+					iSaveSlot, (unsigned int)wSavedTimes,
+					(unsigned int)persisted);
+				result = FALSE;
+			}
+			else
+			{
+				PAL_SAVE_LOGI("complete slot=%d bytes=%u count=%u",
+					iSaveSlot, (unsigned int)i, (unsigned int)persisted);
+				UTIL_LogOutput(LOGLEVEL_INFO,
+					"Saved slot %d: %u bytes, count %u\n",
+					iSaveSlot, (unsigned int)i,
+					(unsigned int)persisted);
+			}
 		}
 		return result;
 	}
@@ -1343,7 +1327,7 @@ PAL_SaveGame_DOS(
    BOOL                      result;
 
 #if defined(PAL_PAGED_EVENT_STATE)
-   memset(s, 0, PAL_EXTREME_SAVE_DOS_BYTES);
+   memset(s, 0, PAL_PAGED_SAVE_DOS_BYTES);
 #endif
    //
    // Convert the WIN-style data structure to DOS-style data structure
@@ -1362,7 +1346,7 @@ PAL_SaveGame_DOS(
    //
    result = PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s,
 #if defined(PAL_PAGED_EVENT_STATE)
-      PAL_EXTREME_SAVE_DOS_BYTES
+      PAL_PAGED_SAVE_DOS_BYTES
 #else
       sizeof(SAVEDGAME_DOS)
 #endif
@@ -1401,7 +1385,7 @@ PAL_SaveGame_WIN(
    BOOL result;
 
 #if defined(PAL_PAGED_EVENT_STATE)
-   memset(s, 0, PAL_EXTREME_SAVE_WIN_BYTES);
+   memset(s, 0, PAL_PAGED_SAVE_WIN_BYTES);
 #endif
    //
    // Put all the data to the saved game struct.
@@ -1413,7 +1397,7 @@ PAL_SaveGame_WIN(
 
    result = PAL_SaveGame_Common(iSaveSlot, wSavedTimes, (LPSAVEDGAME_COMMON)s,
 #if defined(PAL_PAGED_EVENT_STATE)
-      PAL_EXTREME_SAVE_WIN_BYTES
+      PAL_PAGED_SAVE_WIN_BYTES
 #else
       sizeof(SAVEDGAME_WIN)
 #endif

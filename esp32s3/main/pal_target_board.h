@@ -11,8 +11,6 @@
 #define PalTarget_MountTf Xiaomiao_MountTf
 #define PalTarget_PrepareTfAccess Xiaomiao_PrepareTfAccess
 #define PalTarget_ShowError Xiaomiao_ShowError
-#define PalTarget_SaveUnlink Xiaomiao_SaveUnlink
-#define PalTarget_SaveRename Xiaomiao_SaveRename
 #define PalTarget_PollKey Xiaomiao_PollKey
 #define PalTarget_FlushIndexedFramebuffer Xiaomiao_FlushIndexedFramebuffer
 
@@ -26,8 +24,6 @@
 #define PalTarget_MountTf CardputerExtreme_MountTf
 #define PalTarget_PrepareTfAccess CardputerExtreme_PrepareTfAccess
 #define PalTarget_ShowError CardputerExtreme_ShowError
-#define PalTarget_SaveUnlink CardputerExtreme_SaveUnlink
-#define PalTarget_SaveRename CardputerExtreme_SaveRename
 #define PalTarget_PollKey CardputerExtreme_PollKey
 #define PalTarget_FlushIndexedFramebuffer CardputerExtreme_FlushIndexedFramebuffer
 

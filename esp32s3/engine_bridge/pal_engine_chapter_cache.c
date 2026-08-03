@@ -676,7 +676,7 @@ PalEngineChapterCache_Decide(
 #if defined(PAL_TARGET_CARDPUTER_ADV) && \
    defined(PAL_EXTREME_CHAPTER_CACHE) && defined(ESP_PLATFORM)
 
-#include "../main/cardputer_extreme_audio.h"
+#include "../main/pal_target_audio.h"
 #include "../main/cardputer_extreme_board.h"
 #include "../main/cardputer_extreme_memory.h"
 
@@ -1144,11 +1144,11 @@ pause_music(
 {
    *paused = false;
 #if defined(PAL_EXTREME_RIX_MUSIC)
-   if (CardputerExtremeAudio_Started())
+   if (PalTargetAudio_Started())
    {
       unsigned attempt;
 
-      if (!CardputerExtremeAudio_SetPaused(true))
+      if (!PalTargetAudio_SetPaused(true))
       {
          ESP_LOGE(TAG, "cannot pause music for flash programming");
          return false;
@@ -1161,8 +1161,8 @@ pause_music(
       *paused = true;
       for (attempt = 0; attempt < 100u; attempt++)
       {
-         CardputerExtremeAudioTelemetry telemetry;
-         CardputerExtremeAudio_GetTelemetry(&telemetry);
+         PalTargetAudioTelemetry telemetry;
+         PalTargetAudio_GetTelemetry(&telemetry);
          if (telemetry.paused)
          {
             return true;
@@ -1189,7 +1189,7 @@ resume_music(
 
       for (attempt = 0; attempt < 100u && !queued; attempt++)
       {
-         queued = CardputerExtremeAudio_SetPaused(false);
+         queued = PalTargetAudio_SetPaused(false);
          if (!queued)
          {
             vTaskDelay(pdMS_TO_TICKS(1));

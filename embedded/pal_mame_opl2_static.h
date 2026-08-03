@@ -32,8 +32,8 @@ extern "C" {
 #define PAL_MAME_OPL2_SAMPLE_RATE 22050u
 
 /*
- * This backend deliberately owns exactly one YM3812 instance. The Cardputer
- * extreme music task is its sole caller, so a context allocator and chip
+ * This backend deliberately owns exactly one YM3812 instance. Each embedded
+ * target has exactly one music task, so a context allocator and chip
  * duplication API would only add RAM and invalid concurrency states.
  */
 void PalMameOpl2_Init(void);

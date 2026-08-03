@@ -28,6 +28,8 @@ NOR_OFFSET = 0x110000
 NOR_BYTES = 0x6F0000
 FLASH_BYTES = 8 * 1024 * 1024
 TF_TOC_BYTES = 2048
+EVENT_RECORD_BYTES = 32
+EVENT_RECORD_CAPACITY = 5500
 NATIVE_SCREEN_BYTES = 240 * 135
 MAX_DRAM_BSS = 210 * 1024
 MAX_DRAM_DATA = 16 * 1024
@@ -38,7 +40,9 @@ MAIN_TASK_STACK = 16 * 1024
 MIN_POST_MAIN_STACK_RESERVE = 64 * 1024
 MAX_STATIC_STACK = 2048
 MUSIC_MAX_APP_BYTES = 512 * 1024
-MUSIC_MIN_NOR_RESERVE = 128 * 1024
+# The complete stock SSS event table is now present in the legacy music pack;
+# keep one 64 KiB erase-block of explicit partition headroom.
+MUSIC_MIN_NOR_RESERVE = 64 * 1024
 MUSIC_MAX_NOR_BYTES = NOR_BYTES - MUSIC_MIN_NOR_RESERVE
 MUSIC_MAX_DRAM_BSS = 220 * 1024
 MUSIC_MAX_DIRAM_STATIC = 264 * 1024
@@ -837,13 +841,10 @@ def main() -> int:
         "pal_sram_aux_framebuffer": NATIVE_SCREEN_BYTES,
         "pal_sram_display_dma": 4096,
         "pal_sram_fbp_scanline": 320,
-        # The old 424-record chapter array occupied 13,568 bytes.  The full
-        # 5,369-record TF pager must fit entirely inside that same envelope.
+        # Pager metadata sizes may change as validated runtime cardinalities
+        # are retained.  The combined fixed owner must stay in the former
+        # chapter-array SRAM envelope below.
         "pal_sram_extreme_event_pages": 3 * 4096,
-        "pal_sram_extreme_event_pager": 312,
-        "pal_sram_extreme_event_journal": 328,
-        "pal_sram_extreme_event_sector": 512,
-        "pal_sram_extreme_event_bookkeeping": 120,
         "pal_sram_extreme_engine_tf_toc": TF_TOC_BYTES,
         "g_rgSpriteToDraw": 512 * 12,
         "internal_buffer": 5 * 256,
@@ -859,13 +860,17 @@ def main() -> int:
         actual = symbols.get(name, (-1, ""))[0]
         if actual != expected:
             errors.append(f"{name}: expected {expected} bytes, got {actual}")
+    for name in (
+        "pal_sram_extreme_event_pager",
+        "pal_sram_extreme_event_bookkeeping",
+    ):
+        if symbols.get(name, (0, ""))[0] <= 0:
+            errors.append(f"{name}: missing fixed SRAM owner")
     event_pager_sram = sum(
         symbols.get(name, (0, ""))[0]
         for name in (
             "pal_sram_extreme_event_pages",
             "pal_sram_extreme_event_pager",
-            "pal_sram_extreme_event_journal",
-            "pal_sram_extreme_event_sector",
             "pal_sram_extreme_event_bookkeeping",
         )
     )
@@ -1144,8 +1149,13 @@ def main() -> int:
         errors.append("FONT10 must be mapped from NOR, not TF")
     if nonempty(nor, ARCHIVE["MAP"]) != nonempty(nor, ARCHIVE["GOP"]):
         errors.append("MAP/GOP chapter selections differ")
-    if nor.get(ARCHIVE["SSS"], {}).get(0, (0, 0))[0] != 423 * 32:
-        errors.append("SSS event-object prefix is not exactly 423 records")
+    event_bytes = nor.get(ARCHIVE["SSS"], {}).get(0, (0, 0))[0]
+    if (
+        event_bytes <= 0
+        or event_bytes % EVENT_RECORD_BYTES != 0
+        or event_bytes > EVENT_RECORD_CAPACITY * EVENT_RECORD_BYTES
+    ):
+        errors.append("SSS event-object chunk has invalid bounded geometry")
     for archive_id in set(nor) & set(tf):
         overlap = nonempty(nor, archive_id) & nonempty(tf, archive_id)
         if overlap:

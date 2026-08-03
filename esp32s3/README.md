@@ -27,16 +27,13 @@ python3 -B tools/pal_chapter_pack_build.py /path/to/PAL \
   --manifest esp32s3/TF_datapak/chapter_manifest.json \
   --font10-archive \
     third_party/fusion-pixel-font/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip
-
-python3 -B tools/pal_event_template_build.py \
-  --full-pack esp32s3/TF_datapak/pal_full.pak \
-  --out esp32s3/TF_datapak/EVENT.DEF
 ```
 
-These commands generate data only; they do not compile C code and do not need
-ESP-IDF. The output includes `PALSET.BIN`, `EVENT.DEF`,
-`chapter_manifest.json`, `pal_core.pak`, `pal_tf.pak`, the complete portable
-`pal_full.pak`, `pal_l2.pak`, and `b00.pak` through `b14.pak`.
+This command generates data only; it does not compile C code and does not need
+ESP-IDF. The output includes `PALSET.BIN`,
+`chapter_manifest.json`, `pal_core.pak`, the complete portable
+`pal_full.pak`, and `b00.pak` through `b14.pak`. Obsolete `pal_tf.pak` and
+`pal_l2.pak` files are removed from the output directory.
 
 The audited default input is `/mnt/hgfs/deb13/PALSteam/PAL_DOS`. Do not mix its
 scripts, text, or saves with the former `/mnt/hgfs/deb13/PAL` data set. The
@@ -47,7 +44,7 @@ following is therefore the local default equivalent of `/path/to/PAL`:
 ```
 
 `make -C esp32s3 tf-datapack` remains a generation-plus-verification shortcut;
-unlike the two Python commands above, its verification dependencies compile
+unlike the Python command above, its verification dependencies compile
 and run small host-side C tests. Current checker output, generated manifests,
 and ELF/map files are authoritative for sizes; prose measurements are
 intentionally omitted.
@@ -68,12 +65,11 @@ board or memory-profile name. The retired `PAL_CARDPUTER_EXTREME` resource
 policy macro must not be restored.
 
 Every port uses the shared `esp32s3/TF_datapak/` directory generated above.
-`pal_full.pak` is the complete portable host-decoded/native resource file.
-Other packs in the directory are optional, target-specific cache images with
-the same pack-set ID; they may duplicate full-pack chunks but may not become a
-second source of data completeness. Small-memory targets can index those
-bounded caches while still shipping the complete file on TF. The pack-set ID
-is derived only from the complete data, so changing a cache layout does not
+`pal_full.pak` is the only TF payload pack and the complete portable
+host-decoded/native resource source. `pal_core.pak` and `bNN.pak` are
+Cardputer TF-to-NOR cache sources with the same pack-set ID; they may duplicate
+full-pack chunks but never define data completeness. The pack-set ID is
+derived only from the complete data, so changing NOR placement does not
 change `pal_full.pak`.
 
 The `cardputer-adv-music-tf` and `xiaomiao-tf` make targets remain compatibility
@@ -101,7 +97,7 @@ Cardputer:
 
 ### Build, data, and install
 
-Generate the complete ready-to-copy directory with the two Python commands at
+Generate the complete ready-to-copy directory with the Python command at
 the start of this document. Copy one complete generated set to the TF card;
 do not assemble files from different generation runs.
 
@@ -119,19 +115,25 @@ The application contains no data-set hash. At boot it reads `PALSET.BIN`,
 validates the core NOR cache, and displays a native `LOADING` progress screen
 while copying `pal_core.pak` when needed. Scene transitions similarly validate
 and install the required `bNN.pak`; the commit record is written last.
-The chapter-cache layer is the sole full-payload integrity owner: it retains
+The chapter-cache layer is the sole NOR-cache payload integrity owner: it retains
 the TF-to-NOR SHA-256 checks and NOR readback checks for core and bundles. Once
 those pass, the pack provider performs only structural, bounds, ownership, and
 pack-set checks; it does not repeat a whole-pack CRC over core, an overlay, or
-`pal_tf.pak`. The CRC fields remain part of the pack and are checked by the
+`pal_full.pak`. The CRC fields remain part of the pack and are checked by the
 host generation/provisioning gates.
-The Cardputer profile does not index the large `pal_full.pak` TOC; it uses the
-bounded derived packs. The complete file remains on TF for portability and is
-not swap.
+The Cardputer maps the bounded `pal_full.pak` TOC stored as CACHE#1 inside the
+SHA-verified `pal_core.pak` in SPI NOR. At boot it reads only the 32-byte
+`pal_full.pak` header and requires it to match the cached TOC header; it neither
+copies the full TOC into SRAM nor scans the 55MB payload. NOR core/overlay
+chunks take precedence over their duplicates, while FBP/RNG and any uncached
+chunk stream directly from the complete pack. This is not swap.
 
-Event and scene state use the bounded TF journal described in `AGENTS.md`;
-three event pages are resident, and `PAL_TFIO` records retain write-pressure
-telemetry.
+Only standard `N.rpg` slots are durable game state. The LEVEL1 runtime keeps
+three event pages over session-only `EVENT.WRK`; startup ignores stale work,
+New Game or Load Game overwrites the logical image, and dirty pages reach it
+only through normal LRU eviction. Save streams live records directly into
+`N.rpg`, and shutdown does not flush the work file. See
+[`../embedded/EVENT_STATE.md`](../embedded/EVENT_STATE.md).
 
 Run the primary gate with:
 
@@ -155,22 +157,35 @@ This target is the classic ESP32-WROVER-B Xiaomiao, not ESP32-S3:
 - ST7735 native landscape 160x128 LCD;
 - LCD and SD share VSPI; GPIO19 is LCD reset during initialization and then SD
   MISO, while GPIO34/35 remain input-only keys;
-- audio disabled in the initial profile.
+- fixed RIX/OPL2 music produces 22.05kHz mono PCM16; a saturating 3x output
+  gain compensates for the quiet passive buzzer, and an 11-bit LEDC PWM
+  channel drives it on GPIO14 while GPTimer updates its duty
+  once per sample from a fixed four-tick ring. MIDI, VOC, and SFX remain
+  excluded.
 
 Xiaomiao uses the same `esp32s3/TF_datapak/` directory as the Cardputer target.
-It indexes `pal_full.pak` directly and copies the
-optional overlapping `pal_l2.pak` resident-view cache once into its fixed
-PSRAM owner. Gameplay resources remain bounded SD reads into their lifecycle
-owners; no PAL data is stored in internal flash.
+It indexes `pal_full.pak` directly and reconstructs its selected long-lived
+resident view from that file into a fixed 2MB PSRAM owner at boot. No second
+payload pack is stored on TF. The resident view includes the complete MUS
+archive so the audio task never reads SD; other gameplay resources remain
+bounded SD reads into their lifecycle owners. No PAL data is stored in
+internal flash.
 
 The Xiaomiao application is data-set agnostic: TF is its only PAL-data source,
 and no generated data-set digest is compiled into or compared by the firmware.
-Boot validates pack version, size, TOC bounds, 10px-font geometry, and agreement
-between the two files' data-provided pack-set IDs; it does not hash or scan the
-`pal_full.pak` payload. A different compatible pack set generated together can
-therefore replace both TF files without rebuilding the application. Host-side
-generation and the `xiaomiao-prepare-tf` copy/compare step own full-file
-integrity verification.
+Boot validates the pack structure, bounded TOC, and 10px-font geometry; it
+does not hash or scan the `pal_full.pak` payload. A different structurally
+compatible complete pack can therefore replace it without rebuilding the
+application. Host-side generation and the `xiaomiao-prepare-tf` copy/compare
+step own full-file integrity verification.
+
+Its complete mutable event table is resident in fixed PSRAM. It never opens
+`EVENT.WRK`; New Game and Load Game populate the array directly, and standard
+`N.rpg` remains portable between compatible LEVEL1 and LEVEL2 builds. Save
+writes use a narrowly guarded classic-ESP32-plus-`MEM_LEVEL2` workaround: one
+fixed 4KB internal-DMA staging buffer because that SPI DMA engine cannot
+transmit the Level2 PSRAM save image directly. ESP32-S3 and Level1 builds keep
+the normal direct FatFS path.
 
 ```sh
 make -C esp32s3 xiaomiao-check
@@ -184,10 +199,11 @@ install its pinned version with `python $IDF_PATH/tools/idf_tools.py install
 xtensa-esp-elf`. The gate also verifies that cache-off flash initialization
 cannot call flash-resident `memcpy` or `memset`.
 
-`xiaomiao-check` builds the ESP32 artifact and captures real host map/battle
-frames at 160x128. It does not prove physical LCD orientation, shared-bus
-stability, keys, save/reload, or a natural full-story route; those remain
-hardware acceptance work.
+`xiaomiao-check` builds the ESP32 artifact, captures real host map/battle
+frames at 160x128, and audits the compiled LEDC/GPTimer path. It does not prove
+physical LCD orientation, shared-bus stability, keys, save/reload, passive-
+buzzer sound quality, or a natural full-story route; those remain hardware
+acceptance work.
 
 ## CoreS3 SE
 

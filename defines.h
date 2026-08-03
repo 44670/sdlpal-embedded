@@ -34,12 +34,8 @@
 #error "PAL_PAGED_EVENT_STATE is derived; do not define it in a build profile"
 #endif
 
-/*
- * The SRAM-only profile and the current SD-only Level2 profile persist the
- * complete event/scene state through the bounded TF pager.  CoreS3 SE remains
- * a Level2 resident-state target.
- */
-#if defined(MEM_LEVEL1) || defined(PAL_STORAGE_SD_ONLY)
+/* Only MEM_LEVEL1 needs TF-backed session paging.  MEM_LEVEL2 is resident. */
+#if defined(MEM_LEVEL1)
 #define PAL_PAGED_EVENT_STATE 1
 #endif
 

@@ -392,6 +392,46 @@ PAL_UIGameBlitMappedRle(
       (uint16_t)gpScreen->h,
       PAL_X(position), PAL_Y(position), NULL) ? TRUE : FALSE;
 }
+
+static INT
+PAL_UIGameNativeToVirtualX(
+   INT            x
+)
+{
+   return (x * PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH + gpScreen->w / 2) /
+      gpScreen->w;
+}
+
+static INT
+PAL_UIGameNativeToVirtualY(
+   INT            y
+)
+{
+   return (y * PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT + gpScreen->h / 2) /
+      gpScreen->h;
+}
+
+static BOOL
+PAL_UIGameBlitMappedSpriteFrame(
+   UINT           frame,
+   PAL_POS        position
+)
+{
+   LPCBITMAPRLE rle = PAL_SpriteGetFrame(gpSpriteUI, frame);
+   LPCBITMAPRLE next = PAL_SpriteGetFrame(gpSpriteUI, frame + 1);
+
+   if (rle == NULL || next == NULL || next <= rle)
+   {
+      return FALSE;
+   }
+   return PalNativeUi_BlitRleMappedIndexed(
+      rle, (size_t)(next - rle),
+      (LPBYTE)gpScreen->pixels,
+      (uint16_t)gpScreen->pitch,
+      (uint16_t)gpScreen->w,
+      (uint16_t)gpScreen->h,
+      PAL_X(position), PAL_Y(position), NULL) ? TRUE : FALSE;
+}
 #endif
 
 static PAL_POS
@@ -497,6 +537,24 @@ PAL_OpeningMenu(
       {  1,      MAINMENU_LABEL_LOADGAME,  TRUE,     PAL_XY(125 - (w[1] > 4 ? (w[1] - 4) * 8 : 0), 112) }
    };
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   {
+      const INT gap = 6;
+      const INT height = PAL_FontHeight();
+      const INT top = (gpScreen->h - (height * 2 + gap)) / 2;
+      INT i;
+
+      for (i = 0; i < 2; i++)
+      {
+         const INT width = PAL_TextWidth(
+            PAL_UnescapeText(PAL_GetWord(rgMainMenuItem[i].wNumWord)));
+         rgMainMenuItem[i].pos = PAL_XY(
+            (gpScreen->w - width) / 2,
+            top + i * (height + gap));
+      }
+   }
+#endif
+
    //
    // Play the background music
    //
@@ -573,6 +631,90 @@ PAL_SaveSlotMenu(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+   enum { PAL_SAVE_SLOT_COUNT = 5 };
+   const INT margin = 2;
+   const INT number_width = 4 * 6;
+   LPCBITMAPRLE left = PAL_SpriteGetFrame(
+      gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_LEFT_FRAME);
+   LPCBITMAPRLE middle = PAL_SpriteGetFrame(
+      gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_MIDDLE_FRAME);
+   LPCBITMAPRLE right = PAL_SpriteGetFrame(
+      gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_RIGHT_FRAME);
+   INT left_width = PAL_RLEGetWidth(left);
+   INT middle_width = PAL_RLEGetWidth(middle);
+   INT right_width = PAL_RLEGetWidth(right);
+   INT box_height = PalNativeUi_MapVirtualY(PAL_RLEGetHeight(left));
+   INT row_step = (gpScreen->h - margin * 2) / PAL_SAVE_SLOT_COUNT;
+   INT label_width = 0;
+   INT middle_count = 1;
+   INT box_width;
+   INT box_x;
+   INT i;
+   WORD wItemSelected;
+   MENUITEM rgMenuItem[PAL_SAVE_SLOT_COUNT];
+   const SDL_Rect rect = { 0, 0, gpScreen->w, gpScreen->h };
+
+   for (i = 0; i < PAL_SAVE_SLOT_COUNT; i++)
+   {
+      INT width = PAL_TextWidth(PAL_UnescapeText(
+         PAL_GetWord(LOADMENU_LABEL_SLOT_FIRST + i)));
+      if (width > label_width)
+      {
+         label_width = width;
+      }
+   }
+   while (PalNativeUi_MapVirtualX(
+             left_width + middle_count * middle_width + right_width) <
+          label_width + number_width + 16)
+   {
+      middle_count++;
+   }
+   box_width = PalNativeUi_MapVirtualX(
+      left_width + middle_count * middle_width + right_width);
+   box_x = gpScreen->w - margin - box_width;
+
+   VIDEO_BackupScreen(gpScreen);
+   for (i = 0; i < PAL_SAVE_SLOT_COUNT; i++)
+   {
+      INT j;
+      INT row_y = margin + i * row_step + (row_step - box_height) / 2;
+      INT virtual_x = PAL_UIGameNativeToVirtualX(box_x);
+      INT virtual_y = PAL_UIGameNativeToVirtualY(row_y);
+
+      (void)PAL_UIGameBlitMappedSpriteFrame(
+         PAL_NATIVE_UI_GENERATED_SINGLE_LINE_LEFT_FRAME,
+         PAL_XY(virtual_x, virtual_y));
+      virtual_x += left_width;
+      for (j = 0; j < middle_count; j++)
+      {
+         (void)PAL_UIGameBlitMappedSpriteFrame(
+            PAL_NATIVE_UI_GENERATED_SINGLE_LINE_MIDDLE_FRAME,
+            PAL_XY(virtual_x, virtual_y));
+         virtual_x += middle_width;
+      }
+      (void)PAL_UIGameBlitMappedSpriteFrame(
+         PAL_NATIVE_UI_GENERATED_SINGLE_LINE_RIGHT_FRAME,
+         PAL_XY(virtual_x, virtual_y));
+
+      rgMenuItem[i].wValue = i + 1;
+      rgMenuItem[i].fEnabled = TRUE;
+      rgMenuItem[i].wNumWord = LOADMENU_LABEL_SLOT_FIRST + i;
+      rgMenuItem[i].pos = PAL_XY(
+         box_x + 4,
+         row_y + (box_height - PAL_FontHeight()) / 2);
+      PAL_DrawNumber((UINT)PAL_GetSavedTimes(i + 1), 4,
+         PAL_XY(box_x + box_width - number_width - 4,
+            row_y + (box_height - 8) / 2),
+         kNumColorYellow, kNumAlignRight);
+   }
+
+   wItemSelected = PAL_ReadMenu(NULL, rgMenuItem, PAL_SAVE_SLOT_COUNT,
+      wDefaultSlot - 1, MENUITEM_COLOR);
+   VIDEO_RestoreScreen(gpScreen);
+   VIDEO_UpdateScreen(&rect);
+   return wItemSelected;
+#else
    LPBOX           rgpBox[5];
    int             i, w = PAL_WordMaxWidth(LOADMENU_LABEL_SLOT_FIRST, 5);
    int             dx = (w > 4) ? (w - 4) * 16 : 0;
@@ -637,6 +779,7 @@ PAL_SaveSlotMenu(
    VIDEO_UpdateScreen(&rect);
 
    return wItemSelected;
+#endif
 }
 
 static

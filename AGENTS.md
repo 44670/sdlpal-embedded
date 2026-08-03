@@ -95,26 +95,32 @@ enforced default-profile limits live in
   bus is initialized, then becomes SD MISO; do not apply the CoreS3 SE GPIO35
   D/C/MISO handoff or the Cardputer ADV independent-bus assumption.
 - All decoded/native game data comes from the shared `0:/pal_full.pak`.
-  `0:/pal_l2.pak` is only a duplicate resident-view cache copied into its
-  fixed mapped-PSRAM owner at boot; gameplay chunks remain streamed from the
-  complete pack.
+  At boot the target derives its selected resident view directly from that
+  file into its fixed mapped-PSRAM owner; no second TF payload pack exists.
+  The resident view keeps all RIX tracks stable for the audio task, while
+  other gameplay chunks remain streamed from the complete pack.
 - TF is the only PAL-data source. The app contains no data-set digest and the
   SD-only provider must not hash or scan the `pal_full.pak` payload at boot;
-  it accepts any structurally compatible pair with matching data-provided
-  pack-set IDs.
+  it accepts any structurally compatible complete pack.
+- Standard save writes use a fixed 4KB internal-DMA staging workaround only
+  under classic `CONFIG_IDF_TARGET_ESP32` plus `MEM_LEVEL2`; ESP32-S3 and
+  Level1 builds retain the direct FatFS write path.
 - Source of truth: `esp32s3/main/xiaomiao_*`,
   `tools/pal_pack_layout_xiaomiao.json`, and `esp32s3/check_xiaomiao.py`.
 - Build/data gate: `make -C esp32s3 xiaomiao-check`; shared card generation:
   `make -C esp32s3 tf-datapack`. The gate drives the SD-only provider through
   real 160x128 map and forced-battle gameplay captures under `tmp_ui/`; the
   forced battle proves integration, not natural story-route reachability.
-- Audio is disabled in the initial profile; real hardware acceptance remains
-  required before claiming LCD/SD/input or complete-story support.
+- RIX/OPL2 music renders as 22.05kHz mono PCM16. An 11-bit LEDC PWM channel
+  drives the built-in passive buzzer at GPIO14 while GPTimer updates its duty
+  once per sample from a fixed four-tick ring. MIDI, VOC, and SFX remain out.
+  Buzzer sound quality and timing require physical acceptance.
 
 Useful hardware references:
 
 - `/home/john/work/CardPuterADV/esp-walkie-talkie`
 - `/home/john/work/CoreS3SE`
+- `/home/john/work/xueersi-xiaomiao`
 - `/home/john/esp-idf/examples/storage/sd_card/sdspi`
 
 ## Non-negotiable embedded contract
@@ -147,8 +153,8 @@ Useful hardware references:
   capability for those independent choices. Use normal named buffers and typed
   `const` views outside the three Level2 arenas.
 - Keep FatFS LFN heap support and dynamic FatFS buffers disabled. Runtime
-  filenames must stay short (`0:/pal_full.pak`, `0:/pal_tf.pak`,
-  `0:/EVENT.STA`, `0:/b00.pak`, and similar).
+  filenames must stay short (`0:/pal_full.pak`, `0:/EVENT.WRK`, `0:/b00.pak`,
+  and similar).
 - Existing PAL resources, scripts, saves, collision tests, and battle
   animations retain their legacy coordinate meanings. A 320x200 compatibility
   coordinate is not the physical display architecture; presentation transforms
@@ -170,6 +176,14 @@ Do not mix resources, scripts, text tables, or saves from the former
 `/mnt/hgfs/deb13/PAL` data set with this one. In particular, the stock
 `PAL_DOS` `SSS.MKF` restores event-object 113's Lin carpenter trigger script;
 copying only an event pointer or only `SSS.MKF` across data sets is invalid.
+
+Resource cardinalities belong to the selected PAL data set. Runtime code must
+derive counts from validated native chunk lengths or generated metadata; it
+must not require audited sample counts such as 5,332 event objects. Fixed
+arrays, pagers, and arenas define explicit capacities only: validate nonzero
+size, record alignment, cross-table bounds, and capacity before use, then keep
+the derived count for gameplay and save I/O. Tests may assert exact counts only
+when they explicitly identify a pinned fixture data set.
 
 Small-screen dialogue uses the 10px monospaced Traditional Chinese Fusion
 Pixel Font release locked in `tools/pal_ui_layout/font.py`:
@@ -197,33 +211,31 @@ string. Missing glyphs or a wrong archive must fail the build.
 `esp32s3/TF_datapak/` is the single generated TF directory for every port.
 `pal_full.pak` is the complete host-decoded, runtime-native resource source;
 it is portable across target profiles and must not omit data merely because a
-particular board does not use it. Target-specific files beside it are optional
-caches with the same pack-set ID: Cardputer uses `pal_core.pak` and `bNN.pak`
-as replaceable NOR contents, while Xiaomiao copies `pal_l2.pak` into PSRAM.
-They may overlap `pal_full.pak` and never define data completeness. A
-constrained target may index derived bounded packs instead of the full TOC,
-but its TF card still carries the complete pack. This is neither block-device
-swap nor permission to add a generic cache framework. The pack-set ID is
-derived only from the complete native data; changing cache placement must not
-change `pal_full.pak` or invalidate otherwise compatible state.
+particular board does not use it. Cardputer-specific files beside it are NOR
+cache sources with the same pack-set ID: `pal_core.pak` and `bNN.pak` are
+copied into replaceable NOR contents and may overlap the complete pack. They
+never define data completeness. Xiaomiao derives its bounded resident PSRAM
+view from `pal_full.pak` at boot. This is neither block-device swap nor
+permission to add a generic cache framework. The pack-set ID is derived only
+from the complete native data; changing cache placement must not change
+`pal_full.pak` or invalidate otherwise compatible state.
 
 ### Default Cardputer ADV music/cache packs
 
 `tools/pal_chapter_pack_build.py` produces:
 
 - TF source `pal_core.pak`, copied to the core SPI-NOR cache on demand;
-- active `pal_tf.pak`;
-- portable complete `pal_full.pak`;
-- optional Level2 resident-view cache `pal_l2.pak`;
+- the sole complete TF payload `pal_full.pak`;
 - 15 conservative bundles `b00.pak` through `b14.pak`;
 - `PALSET.BIN`, containing the external pack-set ID, core SHA-256, and chapter
   catalog;
-- `chapter_manifest.json`;
-- `EVENT.DEF`.
+- `chapter_manifest.json`.
 
-The Cardputer firmware does not index the larger `pal_full.pak` TOC; it uses
-the bounded core, chapter, and TF packs described by `PALSET.BIN`. Xiaomiao
-indexes that same complete file directly. `pal_full.pak` is not swap.
+The Cardputer maps the bounded `pal_full.pak` TOC from `pal_core.pak` CACHE#1
+in SPI NOR; only the 32-byte TF header is read and compared at boot, and no
+full TOC copy lives in SRAM. Validated NOR core/overlay chunks take precedence
+over duplicate TF chunks. Xiaomiao indexes that same complete file from PSRAM
+and derives its fixed resident view from it. `pal_full.pak` is not swap.
 
 At boot, the target validates the core cache against `PALSET.BIN`; a mismatch
 enters a native 240x135 `LOADING` screen and verifies/copies/verifies
@@ -231,10 +243,10 @@ enters a native 240x135 `LOADING` screen and verifies/copies/verifies
 the same pattern applies to `bNN.pak`; the commit record is written last. The
 global current-bundle state skips repeated hashes while scenes remain in the
 same verified bundle. The chapter-cache SHA layer is the only target-side
-full-payload integrity owner: the provider must not repeat whole-pack CRC scans
-of core, overlays, or `pal_tf.pak`. It still validates pack structure, bounds,
-ownership, and pack-set identity; host generation/provisioning retains the
-pack CRC checks. No data-set hash is compiled into the default app. The
+NOR-cache payload integrity owner: the provider must not repeat whole-pack CRC
+scans of core, overlays, or `pal_full.pak`. It still validates pack structure,
+bounds, ownership, and pack-set identity; host generation/provisioning retains
+the pack CRC checks. No data-set hash is compiled into the default app. The
 implementation is in:
 
 - `esp32s3/engine_bridge/pal_engine_chapter_cache.[ch]`
@@ -261,33 +273,14 @@ The first command writes the complete ready-to-copy card contents under
 the bootloader/partition table/app once; ordinary updates are app-only. Neither
 flashing command host-flashes a data pack.
 
-### TF-backed event/scene state
+### Event state and saves
 
-Event state is not fully resident in SRAM and is not a block-device swap:
-
-- the stock data supplies 5,332 32-byte event records; the established
-  42-page journal keeps 37 zero, unreachable compatibility records at its
-  tail so existing on-card journal geometry does not change;
-- exactly three 4KB event pages are resident;
-- current-scene pages are pinned and other pages use bounded recency-based
-  replacement;
-- all 300 scene records share the same durable journal transaction model;
-- `EVENT.DEF` is the immutable template;
-- `EVENT.STA` is the live journal, with `EVENT.TMP`/`EVENT.BAD` used for
-  atomic replacement and recovery.
-
-Source of truth:
-
-- `embedded/pal_event_pager.[ch]`
-- `embedded/pal_event_journal.[ch]`
-- `esp32s3/engine_bridge/pal_engine_event_state.[ch]`
-- `esp32s3/engine_bridge/pal_engine_extreme_save.inc`
-
-Writes emit structured `PAL_TFIO v=1` records containing reason, dirty bytes,
-storage/API bytes, calls, syncs, elapsed time, hit/miss counts, and software
-write amplification. These counters do not expose the card controller's
-internal NAND writes or wear. Keep the instrumentation when changing
-persistence behavior.
+The only durable mutable state is a standard `N.rpg` save. `MEM_LEVEL1` uses
+three resident pages over session-only `0:/EVENT.WRK`; New Game or Load Game
+overwrites its logical image, normal dirty LRU eviction is its only write-back
+path, and startup/shutdown never recover or flush it. `MEM_LEVEL2` keeps the
+complete event table in fixed PSRAM and never accesses the work file. Scene
+records remain resident in both profiles. See `embedded/EVENT_STATE.md`.
 
 ## Responsive small-screen presentation
 
@@ -382,7 +375,6 @@ Useful narrow checks:
 ```sh
 make -C esp32s3 cardputer-extreme-chapter-cache-logic-check
 make -C esp32s3 cardputer-extreme-event-pager-check
-make -C esp32s3 cardputer-extreme-event-journal-check
 make -C embedded fullscreen-stretch-check
 make -C esp32s3 cardputer-extreme-rng-decoder-check
 make -C esp32s3 FONT10_ARCHIVE="$FONT10_ARCHIVE" \
@@ -395,7 +387,10 @@ TF preparation and flashing are external mutations. Use the exact targets in
 `esp32s3/README.md`; keep every installed TF file from one generated manifest,
 and require an explicit user request before flashing or replacing card
 contents. Default hardware port is normally `/dev/ttyACM0`, but discover it
-rather than assuming.
+rather than assuming. Flashing may operate only on an existing `/dev/tty*`
+device. If no matching TTY device is present, stop and tell the user; never
+reset, rebind, detach, or otherwise manipulate a USB bus or USB device in an
+attempt to make a flashing port appear.
 
 ### CoreS3 SE and general contract
 

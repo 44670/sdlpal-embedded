@@ -74,15 +74,6 @@ bool CardputerExtreme_TfMounted(void);
  * is required before FatFS access.
  */
 void CardputerExtreme_PrepareTfAccess(void);
-/*
- * Same-volume save transaction primitives.  Unlink optionally treats a
- * missing short-name file as success; rename never replaces an existing
- * destination.  The implementation is FatFS on target and an isolated
- * save-directory adapter in the deterministic host.
- */
-bool CardputerExtreme_SaveUnlink(const char *path, bool missing_ok);
-bool CardputerExtreme_SaveRename(const char *old_path, const char *new_path);
-
 bool CardputerExtreme_KeyboardReady(void);
 bool CardputerExtreme_PollKeyboard(void);
 /*

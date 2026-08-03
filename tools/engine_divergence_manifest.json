@@ -1,10 +1,11 @@
 {
   "version": 2,
-  "baseline_id": "cardputer-extreme-v1",
-  "reviewed_against_commit": "7cd28ad01ccb2161cdec0b752decea486192b806",
-  "description": "Post-review engine baseline for the board-independent MEM_LEVEL1/MEM_LEVEL2 resource profiles and responsive embedded presentation. Cardputer ADV and Xiaomiao remain mechanically verified candidates; complete natural-story hardware routes have not yet been proven.",
+  "baseline_id": "standard-save-event-state-v1",
+  "reviewed_against_commit": "23177627e619731188591288215dc2a61d884ae7",
+  "description": "Reviewed engine baseline for board-independent MEM_LEVEL1/MEM_LEVEL2 resources, standard N.rpg persistence, and responsive embedded presentation. Cardputer ADV and Xiaomiao remain mechanically verified candidates; complete natural-story hardware routes have not yet been proven.",
   "verification": [
-    "make -C esp32s3 CARDPUTER_EXTREME_BUILD_DIR=/tmp/sdlpal-cardputer-release-build cardputer-extreme-check",
+    "make -C esp32s3 cardputer-adv-music-check",
+    "make -C esp32s3 xiaomiao-check",
     "make -C embedded contract-check",
     "make -C unix EMBEDDED_CONTRACT=1 contract-check"
   ],
@@ -23,15 +24,15 @@
     },
     {
       "path": "res.c",
-      "sha256": "c3a433cf1f7e813c2719bdcb17e7c0c7aa054d2ffe6c56521bc53a9bb6e19dc0",
+      "sha256": "37d3e2f8cdc2b88632dcaea4f173888b1ada1a681afcfbffd61d5df1588067a2",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed MEM_LEVEL1 pack views, lifecycle-scoped MEM_LEVEL2 scene/player arenas, sprite deduplication, event paging, and cache-safe teardown"
+      "reason": "reviewed fixed MEM_LEVEL1 pack views, lifecycle-scoped MEM_LEVEL2 scene/player arenas, sprite deduplication, runtime-sized bounded event paging, and cache transitions without persistence flushes"
     },
     {
       "path": "global.c",
-      "sha256": "d9e5bd8f0133617a95ca6fd42be1bae13604272823016c65e6d07ec600c2347c",
+      "sha256": "265f2a999fe81fd9232368e1e19047f44e00fb190bb7e71ae078fbe24e9306d8",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed profile-owned global storage, derived paged event/scene state, fail-closed tagged atomic saves, CRC validation, and legacy-save rejection"
+      "reason": "reviewed fixed profile-owned global storage, LEVEL1 flat session paging, LEVEL2 resident event state, and cross-profile standard N.rpg save/load streaming"
     },
     {
       "path": "uigame.c",
@@ -71,9 +72,9 @@
     },
     {
       "path": "input.c",
-      "sha256": "06882eb5ee863ab0760790250bcf75f7c9b4cb9af85583c8082272fb9fe70dcb",
+      "sha256": "5b4955d6b2771c7c19534062e984fe3f2e2b68849574f17cf24a0cfcd83410b0",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed host-only WebSocket input polling plus independently gated paged-state checkpoints and fixed-music telemetry at the normal cooperative input seam"
+      "reason": "reviewed host-only WebSocket input polling and board-neutral fixed-music telemetry at the normal cooperative input seam; no persistence checkpoint runs there"
     },
     {
       "path": "game.c",
@@ -107,9 +108,9 @@
     },
     {
       "path": "main.c",
-      "sha256": "f33439c8cacbec1d7436d9594e3e0108c184280ea8610af97cbb7ca964555b68",
+      "sha256": "bdc45ce3f838300191545436cd2680d7f4df562add7c2db9c3e4ed2b0248b39a",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed two-screen embedded startup, fixed RIX music initialization, and explicit omission of unsupported trademark/title sequences"
+      "reason": "reviewed two-screen embedded startup, board-neutral fixed RIX music initialization, and explicit omission of unsupported trademark/title sequences"
     },
     {
       "path": "palcommon.c",
@@ -161,9 +162,9 @@
     },
     {
       "path": "global.h",
-      "sha256": "4a4a72dc779a31ee90380207ac12d428ee2e5dafdcfb03f0bc04764b560cb1d8",
+      "sha256": "e30d385837e62cd1f85525fa67bd079bea854f4ad6425d601d55dedf5269e319",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed fixed profile-owned save-state declarations plus bounded resident-or-paged event/scene persistence interfaces"
+      "reason": "reviewed fixed profile-owned save-state declarations plus bounded event read/write/pin interfaces without engine-level checkpoint or flush APIs"
     },
     {
       "path": "map.h",

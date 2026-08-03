@@ -25,10 +25,9 @@ FONT10_ARCHIVE = Path(
         ),
     )
 )
-EXPECTED_CORE_BYTES = 4_310_096
-EXPECTED_TF_BYTES = 11_917_143
+EXPECTED_CORE_BYTES = 4_502_776
 EXPECTED_FULL_BYTES = 57_646_486
-EXPECTED_LEVEL2_CORE_BYTES = 1_415_292
+EXPECTED_LEVEL2_RESIDENT_BYTES = 1_747_720
 EXPECTED_BUNDLE_BYTES = (
     2_648_156,
     2_463_416,
@@ -269,10 +268,10 @@ class ChapterPackRealDataTests(unittest.TestCase):
         self.assertEqual(len(self.build.catalog), 932)
         self.assertEqual(len(self.build.set_file), 996)
         self.assertEqual(len(self.build.core_pack), EXPECTED_CORE_BYTES)
-        self.assertEqual(len(self.build.tf_pack), EXPECTED_TF_BYTES)
         self.assertEqual(len(self.build.full_pack), EXPECTED_FULL_BYTES)
         self.assertEqual(
-            len(self.build.level2_core_pack), EXPECTED_LEVEL2_CORE_BYTES
+            len(self.build.level2_resident_image),
+            EXPECTED_LEVEL2_RESIDENT_BYTES,
         )
         self.assertEqual(
             tuple(map(len, self.build.bundle_packs)),
@@ -288,9 +287,8 @@ class ChapterPackRealDataTests(unittest.TestCase):
         )
         for image in (
             self.build.core_pack,
-            self.build.tf_pack,
             self.build.full_pack,
-            self.build.level2_core_pack,
+            self.build.level2_resident_image,
             *self.build.bundle_packs,
         ):
             chapter.pack.verify_pack(image)
@@ -299,13 +297,12 @@ class ChapterPackRealDataTests(unittest.TestCase):
                 self.build.manifest["pack_set"]["id"],
             )
 
-    def test_core_tf_and_overlay_archive_contract(self) -> None:
+    def test_core_full_and_overlay_archive_contract(self) -> None:
         packs = self.build.manifest["packs"]
         self.assertEqual(
             set(packs["core"]["archives"]),
             set(chapter.CORE_FULL_ARCHIVES) | {"MGO", "CACHE"},
         )
-        self.assertEqual(set(packs["tf"]["archives"]), {"FBP", "RNG"})
         self.assertEqual(
             set(packs["full"]["archives"]),
             set(chapter.FULL_MIRROR_ARCHIVES),
@@ -314,16 +311,25 @@ class ChapterPackRealDataTests(unittest.TestCase):
         self.assertTrue(packs["full"]["all_chunks"])
         self.assertTrue(packs["full"]["allow_cache_overlap"])
         self.assertEqual(
-            set(packs["level2_core"]["archives"]),
-            {"DATA", "PAT", "RGM", "SSS", "TEXT", "FONT"},
+            set(packs["level2_resident"]["archives"]),
+            {"DATA", "PAT", "RGM", "SSS", "TEXT", "FONT", "MUS"},
         )
         self.assertTrue(
-            set(packs["level2_core"]["archives"])
+            set(packs["level2_resident"]["archives"])
             <= set(packs["full"]["archives"])
         )
         self.assertEqual(
             self.build.manifest["runtime"]["portable_complete_tf_file"],
             "pal_full.pak",
+        )
+        self.assertNotIn("level2_core_cache_tf_file", self.build.manifest["runtime"])
+        self.assertEqual(
+            self.build.manifest["runtime"]["level2_resident_source"],
+            "runtime-derived from pal_full.pak",
+        )
+        self.assertEqual(
+            self.build.manifest["runtime"]["tf_access_shape"],
+            "NOR-mapped full-pack TOC with direct bounded payload reads",
         )
         self.assertEqual(
             self.build.manifest["pack_set"]["scope"],
@@ -338,15 +344,50 @@ class ChapterPackRealDataTests(unittest.TestCase):
         )
         self.assertEqual(
             packs["core"]["archives"]["CACHE"]["present_chunk_ids"],
-            [0],
+            [0, 1],
+        )
+        full_toc = self.build.full_pack[
+            : chapter.pack.u32(self.build.full_pack, 16)
+        ]
+        self.assertEqual(
+            packed_chunk(self.build.core_pack, "CACHE", 1),
+            chapter.pack.Chunk(full_toc, chapter.pack.FORMAT_RAW),
+        )
+        self.assertEqual(
+            self.build.manifest["full_toc_cache"],
+            {
+                "archive": "CACHE",
+                "archive_id": chapter.pack.ARCHIVE_IDS["CACHE"],
+                "chunk_id": 1,
+                "format": "RAW",
+                "size": len(full_toc),
+                "sha256": hashlib.sha256(full_toc).hexdigest(),
+                "source": "pal_full.pak[0:data_offset]",
+                "cardputer_storage": "pal_core.pak mapped from SPI NOR",
+                "cardputer_sram_copy_bytes": 0,
+            },
         )
         self.assertEqual(
             packs["core"]["archives"]["SSS"]["present_chunk_payload_bytes"][0],
-            423 * 32,
+            170_624,
         )
         self.assertEqual(
             packs["full"]["archives"]["SSS"]["present_chunk_payload_bytes"][0],
             170_624,
+        )
+        self.assertEqual(
+            self.build.manifest["event_state"],
+            {
+                "status": "standard-rpg-only-persistence",
+                "record_bytes": 32,
+                "record_count": 5332,
+                "record_capacity": 5500,
+                "core_chunk_bytes": 170_624,
+                "durable_state": "standard N.rpg save slots only",
+                "level1_runtime": "three-page LRU over session-only EVENT.WRK",
+                "level1_work_writes": "initialization and dirty eviction only",
+                "level2_runtime": "complete resident PSRAM array",
+            },
         )
         self.assertEqual(
             packs["core"]["archives"]["FONT"]["present_chunk_ids"],
@@ -377,18 +418,20 @@ class ChapterPackRealDataTests(unittest.TestCase):
             expected,
         )
         self.assertEqual(
-            packed_chunk(self.build.level2_core_pack, "FONT", 1),
+            packed_chunk(self.build.level2_resident_image, "FONT", 1),
             expected,
         )
         self.assertEqual(self.build.manifest["font10"], summary)
 
-    def test_level2_cache_payloads_are_exact_full_pack_duplicates(self) -> None:
-        cache_archives = self.build.manifest["packs"]["level2_core"]["archives"]
-        for archive_name, summary in cache_archives.items():
+    def test_level2_resident_payloads_derive_exactly_from_full_pack(self) -> None:
+        resident_archives = self.build.manifest["packs"]["level2_resident"]["archives"]
+        for archive_name, summary in resident_archives.items():
             for chunk_id in summary["present_chunk_ids"]:
                 self.assertEqual(
                     packed_chunk(
-                        self.build.level2_core_pack, archive_name, chunk_id
+                        self.build.level2_resident_image,
+                        archive_name,
+                        chunk_id,
                     ),
                     packed_chunk(self.build.full_pack, archive_name, chunk_id),
                     f"{archive_name}#{chunk_id}",

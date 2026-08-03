@@ -253,6 +253,50 @@ bool PalPack_OpenTocRead(
     return true;
 }
 
+bool PalPack_OpenTocConst(
+    PalPackToc *toc,
+    const uint8_t *toc_image,
+    uint32_t toc_size,
+    uint32_t pack_size)
+{
+    uint16_t version;
+    uint16_t header_size;
+    uint16_t archive_count;
+    uint32_t archive_table_offset;
+    uint32_t data_offset;
+    uint32_t declared_pack_size;
+
+    if (toc == NULL || toc_image == NULL ||
+        toc_size < PAL_PACK_HEADER_SIZE || pack_size < toc_size ||
+        read_le32(toc_image) != PAL_PACK_MAGIC) {
+        return false;
+    }
+
+    version = read_le16(toc_image + 4);
+    header_size = read_le16(toc_image + 6);
+    archive_count = read_le16(toc_image + 8);
+    archive_table_offset = read_le32(toc_image + 12);
+    data_offset = read_le32(toc_image + 16);
+    declared_pack_size = read_le32(toc_image + 24);
+
+    if (version != PAL_PACK_VERSION ||
+        header_size != PAL_PACK_HEADER_SIZE ||
+        data_offset != toc_size || declared_pack_size != pack_size ||
+        !checked_range(
+            archive_table_offset,
+            (uint32_t)archive_count * PAL_PACK_ARCHIVE_ENTRY_SIZE,
+            toc_size)) {
+        return false;
+    }
+
+    toc->base = toc_image;
+    toc->toc_size = toc_size;
+    toc->pack_size = pack_size;
+    toc->archive_count = archive_count;
+    toc->archive_table_offset = archive_table_offset;
+    return true;
+}
+
 static bool find_toc_archive(const PalPackToc *toc, uint16_t archive_id, const uint8_t **entry)
 {
     uint16_t i;

@@ -1,7 +1,7 @@
 {
   "schema": "sdlpal-embedded-pack-layout",
   "version": 2,
-  "description": "Cardputer ADV 8MB/no-PSRAM chapter candidate profile for the stock PALSteam/PAL_DOS data set. The active NOR/pal_tf.pak pair keeps the scene/map/sprite and conservative battle set for scenes 1..20 plus 22, puts sequential FBP/RNG payloads on TF, keeps only the corpus-subsetted 10px font in NOR, excludes audio and the DOS splash unless an explicit profile adds it, and preserves source chunk numbering with zero-sized absent entries. The shared pal_full.pak contains every host-decoded/runtime-converted archive and is portable to other profiles; only the current Cardputer firmware declines to index its larger TOC. This layout is not a proof of a complete story-route closure.",
+  "description": "Cardputer ADV 8MB/no-PSRAM legacy sparse-layout audit for the stock PALSteam/PAL_DOS data set. The shared pal_full.pak is the sole complete TF payload. Current chapter-cache firmware maps its bounded TOC from the SHA-verified NOR core and gives validated NOR core/overlay chunks precedence over duplicates. The sparse archive selections below remain regression inputs and closure documentation, not a second TF payload architecture or proof of a complete story route.",
   "range_semantics": "All chunk ranges are inclusive [first, last].",
   "packs": {
     "nor": [
@@ -398,12 +398,7 @@
         "all": true
       },
       "SSS": {
-        "all": true,
-        "transforms": {
-          "0": {
-            "prefix_bytes": 13536
-          }
-        }
+        "all": true
       },
       "TEXT": {
         "all": true
@@ -478,7 +473,6 @@
         20,
         22
       ],
-      "event_object_records": 423,
       "map_chunks": [
         1,
         2,

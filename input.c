@@ -27,7 +27,7 @@
 #endif
 
 #if defined(PAL_EXTREME_RIX_MUSIC)
-#include "cardputer_extreme_audio.h"
+#include "pal_target_audio.h"
 #endif
 
 volatile PALINPUTSTATE   g_InputState;
@@ -1350,19 +1350,8 @@ PAL_ProcessEvent(
       g_dwWsTapRelease = 0;
    }
 #endif
-#if defined(PAL_PAGED_EVENT_STATE)
-   /*
-    * PAL_ProcessEvent is the cooperative yield point shared by the normal
-    * game, battle, scripted delays and menus, so it also enforces the dirty
-    * event-state age bound outside the main scene loop.
-    */
-   if (!PAL_EventStateCheckpoint())
-   {
-      TerminateOnError("TF event-state checkpoint failed");
-   }
-#endif
 #if defined(PAL_EXTREME_RIX_MUSIC)
-   CardputerExtremeAudio_PollTelemetry();
+   PalTargetAudio_PollTelemetry();
 #endif
 #if PAL_HAS_JOYSTICKS
    g_InputState.joystickNeedUpdate = FALSE;

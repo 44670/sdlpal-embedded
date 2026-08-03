@@ -25,8 +25,6 @@ bool Xiaomiao_Begin(void);
 bool Xiaomiao_MountTf(void);
 bool Xiaomiao_TfMounted(void);
 void Xiaomiao_PrepareTfAccess(void);
-bool Xiaomiao_SaveUnlink(const char *path, bool missing_ok);
-bool Xiaomiao_SaveRename(const char *old_path, const char *new_path);
 bool Xiaomiao_PollKey(uint8_t *ascii, bool *pressed);
 bool Xiaomiao_FlushIndexedFramebuffer(
     const uint8_t *pixels,

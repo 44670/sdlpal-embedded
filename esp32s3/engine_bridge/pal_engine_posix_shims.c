@@ -5,7 +5,7 @@
 #endif
 
 int
-access(
+__wrap_access(
    const char *path,
    int mode
 )

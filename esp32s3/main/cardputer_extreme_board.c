@@ -895,33 +895,6 @@ CardputerExtreme_PrepareTfAccess(void)
 }
 
 bool
-CardputerExtreme_SaveUnlink(
-    const char *path,
-    bool missing_ok)
-{
-    FRESULT result;
-
-    if (path == NULL) {
-        return false;
-    }
-    CardputerExtreme_PrepareTfAccess();
-    result = f_unlink(path);
-    return result == FR_OK || (missing_ok && result == FR_NO_FILE);
-}
-
-bool
-CardputerExtreme_SaveRename(
-    const char *old_path,
-    const char *new_path)
-{
-    if (old_path == NULL || new_path == NULL) {
-        return false;
-    }
-    CardputerExtreme_PrepareTfAccess();
-    return f_rename(old_path, new_path) == FR_OK;
-}
-
-bool
 CardputerExtreme_KeyboardReady(void)
 {
     return keyboard_ready;

@@ -84,6 +84,7 @@ bool PalPack_MapConst(const PalPack *pack, uint16_t archive_id, uint16_t chunk_i
 bool PalPack_CopyRaw(const PalPack *pack, uint16_t archive_id, uint16_t chunk_id, uint8_t *dst, uint32_t dst_capacity, uint32_t *out_size);
 bool PalPack_OpenTocCopy(PalPackToc *toc, const uint8_t *pack_image, uint32_t pack_size, uint8_t *toc_buffer, uint32_t toc_capacity);
 bool PalPack_OpenTocRead(PalPackToc *toc, PalPackReadAt read_at, void *user, uint32_t pack_size, uint8_t *toc_buffer, uint32_t toc_capacity);
+bool PalPack_OpenTocConst(PalPackToc *toc, const uint8_t *toc_image, uint32_t toc_size, uint32_t pack_size);
 bool PalPackToc_GetChunkCount(const PalPackToc *toc, uint16_t archive_id, uint16_t *chunk_count);
 bool PalPackToc_GetChunkInfo(const PalPackToc *toc, uint16_t archive_id, uint16_t chunk_id, PalPackChunkInfo *info);
 bool PalPackToc_CopyRawFromImage(const PalPackToc *toc, const uint8_t *pack_image, uint16_t archive_id, uint16_t chunk_id, uint8_t *dst, uint32_t dst_capacity, uint32_t *out_size);

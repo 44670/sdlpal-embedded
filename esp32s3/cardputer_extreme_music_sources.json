@@ -5,7 +5,6 @@
     "adplug/player.cpp",
     "adplug/rix.cpp",
     "battle.c",
-    "embedded/pal_event_journal.c",
     "embedded/pal_event_pager.c",
     "embedded/pal_font10_cache.c",
     "embedded/pal_font_cache.c",

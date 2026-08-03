@@ -1,7 +1,7 @@
 {
   "schema": "sdlpal-embedded-pack-layout",
   "version": 2,
-  "description": "MEM_LEVEL2 cache policy for the shared ESP32 TF datapak. pal_full.pak remains the complete portable source; pal_l2.pak duplicates only the long-lived pointer views that Xiaomiao copies once into mapped PSRAM. The tf classification records resources left solely in pal_full.pak and does not produce a second gameplay pack.",
+  "description": "MEM_LEVEL2 resident-view policy for the shared ESP32 TF datapak. pal_full.pak is the only TF payload pack. Xiaomiao reconstructs the selected long-lived pointer views in fixed mapped PSRAM at boot; the tf classification remains streamed or lifecycle-staged directly from pal_full.pak.",
   "packs": {
     "nor": [
       "DATA",
@@ -9,7 +9,8 @@
       "RGM",
       "SSS",
       "TEXT",
-      "FONT"
+      "FONT",
+      "MUS"
     ],
     "tf": [
       "ABC",
@@ -21,7 +22,6 @@
       "MAP",
       "MGO",
       "MIDI",
-      "MUS",
       "RNG",
       "SFX"
     ]
@@ -33,7 +33,8 @@
       "RGM": { "all": true },
       "SSS": { "all": true },
       "TEXT": { "all": true },
-      "FONT": { "chunks": [1] }
+      "FONT": { "chunks": [1] },
+      "MUS": { "all": true }
     },
     "tf": {
       "ABC": { "all": true },
@@ -45,12 +46,11 @@
       "MAP": { "all": true },
       "MGO": { "all": true },
       "MIDI": { "all": true },
-      "MUS": { "all": true },
       "RNG": { "all": true },
       "SFX": { "all": true }
     }
   },
   "pack_limits": {
-    "nor": { "max_bytes": 1572864 }
+    "nor": { "max_bytes": 2097152 }
   }
 }

@@ -57,16 +57,16 @@ extern uint8_t pal_mem_level2_fight_summon[
    PAL_MEM_LEVEL2_FIGHT_SUMMON_BYTES];
 
 #if defined(PAL_STORAGE_SD_ONLY)
-#define PAL_MEM_LEVEL2_CORE_PACK_BYTES          (1536u * 1024u)
+#define PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES      (2048u * 1024u)
 #define PAL_MEM_LEVEL2_TF_TOC_BYTES             (40u * 1024u)
 #define PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES    (64u * 1024u)
 #define PAL_MEM_LEVEL2_SD_STORAGE_BYTES ( \
-   PAL_MEM_LEVEL2_CORE_PACK_BYTES + \
+   PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES + \
    PAL_MEM_LEVEL2_TF_TOC_BYTES + \
    PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES)
 
-extern uint8_t pal_mem_level2_core_pack[
-   PAL_MEM_LEVEL2_CORE_PACK_BYTES];
+extern uint8_t pal_mem_level2_resident_pack[
+   PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES];
 extern uint8_t pal_mem_level2_tf_toc[
    PAL_MEM_LEVEL2_TF_TOC_BYTES];
 extern uint8_t pal_mem_level2_transient_chunk[

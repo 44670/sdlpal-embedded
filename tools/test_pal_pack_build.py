@@ -515,10 +515,10 @@ class CardputerExtremeClosureTests(unittest.TestCase):
         self.assertTrue(scripted_scene_sprites <= mgo_selected)
         self.assertTrue({71, 73}.isdisjoint(mgo_selected))
 
-    def test_event_prefix_matches_scene_closure(self) -> None:
+    def test_full_event_table_is_not_cut_to_scene_closure(self) -> None:
         transforms = dict(self.layout.chunk_rules["nor"]["SSS"].prefix_bytes)
-        self.assertEqual(transforms, {0: 423 * 32})
-        self.assertLess(transforms[0], len(self.events))
+        self.assertEqual(transforms, {})
+        self.assertEqual(len(self.events), 5332 * 32)
 
         scene_spans = []
         for scene_id in self.scene_ids:

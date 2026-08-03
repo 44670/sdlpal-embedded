@@ -191,7 +191,9 @@ main(
    static const uint8_t core0[] = "core0";
    static const uint8_t overlay1[] = "overlay1";
    static const uint8_t overlay1b[] = "overlay1b";
+   static const uint8_t overlay2[] = "overlay2";
    static const uint8_t overlay3[] = "overlay3";
+   static const uint8_t tf_core0[] = "tf-core0";
    static const uint8_t tf2[] = "tf2";
    static const uint8_t tf4[] = "tf4";
    const uint8_t *core_chunks[TEST_MAX_CHUNKS] = {
@@ -216,13 +218,19 @@ main(
       core0, NULL, NULL, NULL, NULL
    };
    const uint8_t *overlay_tf_duplicate_chunks[TEST_MAX_CHUNKS] = {
-      NULL, NULL, tf2, NULL, NULL
+      NULL, NULL, overlay2, NULL, NULL
+   };
+   const uint8_t *tf_core_duplicate_chunks[TEST_MAX_CHUNKS] = {
+      tf_core0, NULL, NULL, NULL, NULL
    };
    const uint32_t duplicate_sizes[TEST_MAX_CHUNKS] = {
       sizeof(core0) - 1u, 0, 0, 0, 0
    };
    const uint32_t tf_duplicate_sizes[TEST_MAX_CHUNKS] = {
-      0, 0, sizeof(tf2) - 1u, 0, 0
+      0, 0, sizeof(overlay2) - 1u, 0, 0
+   };
+   const uint32_t tf_core_duplicate_sizes[TEST_MAX_CHUNKS] = {
+      sizeof(tf_core0) - 1u, 0, 0, 0, 0
    };
    const uint8_t *tf_chunks[TEST_MAX_CHUNKS] = {
       NULL, NULL, tf2, NULL, tf4
@@ -260,7 +268,8 @@ main(
    tf_size = build_pack(tf_image, 5, TEST_PACK_SET_ID,
       tf_chunks, tf_sizes);
    tf_core_duplicate_size = build_pack(tf_core_duplicate_image, 5,
-      TEST_PACK_SET_ID, overlay_core_duplicate_chunks, duplicate_sizes);
+      TEST_PACK_SET_ID, tf_core_duplicate_chunks,
+      tf_core_duplicate_sizes);
    if (core_size == 0 || core_mismatch_size == 0 ||
       overlay_size == 0 || overlay_replacement_size == 0 ||
       overlay_core_duplicate_size == 0 ||
@@ -313,22 +322,24 @@ main(
          core_mismatch_size) ||
       PalEngineBridge_SetOverlayPackConst(overlay_core_duplicate_image,
          overlay_core_duplicate_size) ||
-      PalEngineBridge_SetOverlayPackConst(overlay_tf_duplicate_image,
-         overlay_tf_duplicate_size) ||
       !expect_chunk(archive, 0, "core0") ||
       !expect_chunk(archive, 1, "overlay1"))
    {
-      fprintf(stderr, "set-id or duplicate rejection failed\n");
+      fprintf(stderr, "set-id or core/overlay duplicate rejection failed\n");
       return 2;
    }
 
-   if (PalEngineBridge_SetTfPackReadAt(tf_core_duplicate_size,
+   if (!PalEngineBridge_SetOverlayPackConst(overlay_tf_duplicate_image,
+         overlay_tf_duplicate_size) ||
+      !expect_chunk(archive, 2, "overlay2") ||
+      !PalEngineBridge_SetOverlayPackConst(overlay_image, overlay_size) ||
+      !PalEngineBridge_SetTfPackReadAt(tf_core_duplicate_size,
          read_at, &tf_core_duplicate) ||
       !expect_chunk(archive, 0, "core0") ||
       !expect_chunk(archive, 1, "overlay1") ||
       !PalEngineBridge_SetTfPackReadAt(tf_size, read_at, &tf))
    {
-      fprintf(stderr, "duplicate TF rejection or recovery failed\n");
+      fprintf(stderr, "TF duplicate precedence or recovery failed\n");
       return 2;
    }
 

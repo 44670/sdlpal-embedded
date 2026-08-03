@@ -9,6 +9,7 @@
 
 #define TEST_HEADER_BYTES 32u
 #define TEST_TOC_BYTES 44u
+#define TEST_CORE_BYTES 128u
 #define TEST_VIRTUAL_PACK_BYTES (64u * 1024u * 1024u)
 
 typedef struct ReadAtContext {
@@ -66,6 +67,43 @@ build_toc(
    write_le32(image + TEST_HEADER_BYTES + 4u, TEST_TOC_BYTES);
 }
 
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+static uint32_t
+build_core_with_cached_toc(
+   uint8_t *image,
+   const uint8_t *full_toc,
+   uint32_t pack_set_id
+)
+{
+   const uint32_t archive_offset = TEST_HEADER_BYTES;
+   const uint32_t chunk_table_offset =
+      archive_offset + 12u;
+   const uint32_t data_offset = chunk_table_offset + 2u * 16u;
+   const uint32_t pack_size = data_offset + TEST_TOC_BYTES;
+
+   memset(image, 0, TEST_CORE_BYTES);
+   write_le32(image, PAL_PACK_MAGIC);
+   write_le16(image + 4u, PAL_PACK_VERSION);
+   write_le16(image + 6u, TEST_HEADER_BYTES);
+   write_le16(image + 8u, 1u);
+   write_le32(image + 12u, archive_offset);
+   write_le32(image + 16u, data_offset);
+   write_le32(image + 20u, pack_set_id);
+   write_le32(image + 24u, pack_size);
+
+   write_le16(image + archive_offset, PAL_PACK_ARCHIVE_CACHE);
+   write_le16(image + archive_offset + 2u, 2u);
+   write_le32(image + archive_offset + 4u, chunk_table_offset);
+   write_le32(image + chunk_table_offset, data_offset);
+   write_le16(image + chunk_table_offset + 8u, PAL_PACK_FORMAT_RAW);
+   write_le32(image + chunk_table_offset + 16u, data_offset);
+   write_le32(image + chunk_table_offset + 20u, TEST_TOC_BYTES);
+   write_le16(image + chunk_table_offset + 24u, PAL_PACK_FORMAT_RAW);
+   memcpy(image + data_offset, full_toc, TEST_TOC_BYTES);
+   return pack_size;
+}
+#endif
+
 static bool
 read_at(
    void *user,
@@ -92,20 +130,27 @@ open_pack_set(
    uint32_t pack_set_id
 )
 {
-   uint8_t core[TEST_TOC_BYTES];
+   uint8_t core[TEST_CORE_BYTES];
+   uint32_t core_size;
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
    uint8_t overlay[TEST_TOC_BYTES];
 #endif
    ReadAtContext full = { { 0u }, 0u, 0u };
    uint32_t active_set_id = 0u;
 
-   build_toc(core, sizeof(core), pack_set_id);
+   build_toc(full.toc, TEST_VIRTUAL_PACK_BYTES, pack_set_id);
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+   core_size = build_core_with_cached_toc(
+      core, full.toc, pack_set_id);
+#else
+   core_size = TEST_TOC_BYTES;
+   build_toc(core, core_size, pack_set_id);
+#endif
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
    build_toc(overlay, sizeof(overlay), pack_set_id);
 #endif
-   build_toc(full.toc, TEST_VIRTUAL_PACK_BYTES, pack_set_id);
    PalEngineBridge_ClearPacks();
-   if (!PalEngineBridge_SetCorePackConst(core, sizeof(core)) ||
+   if (!PalEngineBridge_SetCorePackConst(core, core_size) ||
       !PalEngineBridge_SetTfPackReadAt(
          TEST_VIRTUAL_PACK_BYTES, read_at, &full) ||
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
@@ -117,9 +162,13 @@ open_pack_set(
       return false;
    }
 
-   /* OpenTocRead reads the 32-byte header, then the bounded TOC only. */
+   /* Chapter builds compare only the TF header with the NOR-mapped TOC. */
+#if defined(PAL_EXTREME_CHAPTER_CACHE)
+   return full.calls == 1u && full.bytes == TEST_HEADER_BYTES;
+#else
    return full.calls == 2u &&
       full.bytes == TEST_HEADER_BYTES + TEST_TOC_BYTES;
+#endif
 }
 
 int
@@ -135,6 +184,6 @@ main(
       return 2;
    }
    printf("pack_provider_bounded_open_smoke: "
-      "arbitrary pack sets opened from bounded TOCs\n");
+      "arbitrary pack sets opened without payload scans\n");
    return 0;
 }

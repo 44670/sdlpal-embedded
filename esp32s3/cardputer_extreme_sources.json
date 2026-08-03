@@ -3,7 +3,6 @@
   "description": "Exact ESP-IDF main-component source inventory for the Cardputer ADV 8MB/no-PSRAM extreme profile.",
   "sources": [
     "battle.c",
-    "embedded/pal_event_journal.c",
     "embedded/pal_event_pager.c",
     "embedded/pal_font10_cache.c",
     "embedded/pal_font_cache.c",

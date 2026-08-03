@@ -36,8 +36,6 @@
 #define PAL_DETERMINISTIC_LCD_HEIGHT 240u
 #define PAL_DETERMINISTIC_LCD_Y_OFFSET 20u
 #endif
-#define PAL_DETERMINISTIC_EVENT_OBJECT_COUNT 5369u
-
 static Uint32 pal_deterministic_ticks;
 static bool pal_deterministic_init_done;
 static bool pal_deterministic_realtime;
@@ -127,8 +125,9 @@ pal_deterministic_event_id_env(
    unsigned long event_id =
       read_env_ulong("PAL_DETERMINISTIC_EVENT_ID", 0);
 
-   if (event_id == 0 ||
-      event_id > PAL_DETERMINISTIC_EVENT_OBJECT_COUNT) {
+   if (event_id == 0 || event_id > MAX_EVENT_OBJECTS ||
+      (gpGlobals->g.nEventObject > 0 &&
+       event_id > (unsigned long)gpGlobals->g.nEventObject)) {
       return 0;
    }
    return (WORD)event_id;
@@ -462,15 +461,9 @@ pal_deterministic_maybe_save_game(
    unsigned long frame;
    int slot;
    WORD saved_times;
-   const char *sparse_state_text;
    const char *generic_state_text;
    WORD generic_event_id;
    EVENTOBJECT generic_event;
-#if defined(PAL_PAGED_EVENT_STATE)
-   EVENTOBJECT sparse_event;
-#else
-   LPEVENTOBJECT sparse_event;
-#endif
 
    if (pal_deterministic_save_written) {
       return;
@@ -490,26 +483,6 @@ pal_deterministic_maybe_save_game(
       slot = 5;
    }
    saved_times = (WORD)read_env_ulong("PAL_DETERMINISTIC_SAVE_TIMES", 1);
-   sparse_state_text = SDL_getenv("PAL_DETERMINISTIC_SPARSE_EVENT_5334_STATE");
-#if defined(PAL_PAGED_EVENT_STATE)
-   if (sparse_state_text != NULL && sparse_state_text[0] != '\0') {
-      if (!PAL_EventObjectRead(5334, &sparse_event)) {
-         TerminateOnError(
-            "deterministic save: event-object 5334 read failed");
-      }
-      sparse_event.sState = (SHORT)strtol(sparse_state_text, NULL, 0);
-      if (!PAL_EventObjectWrite(5334, &sparse_event)) {
-         TerminateOnError(
-            "deterministic save: event-object 5334 write failed");
-      }
-   }
-#else
-   sparse_event = PAL_GetEventObjectByID(5334);
-   if (sparse_state_text != NULL && sparse_state_text[0] != '\0' &&
-      sparse_event != NULL) {
-      sparse_event->sState = (SHORT)strtol(sparse_state_text, NULL, 0);
-   }
-#endif
    generic_event_id = pal_deterministic_event_id_env();
    generic_state_text = SDL_getenv("PAL_DETERMINISTIC_EVENT_STATE");
    if (generic_event_id != 0 &&
@@ -759,7 +732,7 @@ pal_deterministic_event_object_crc(
       WORD event_object_id;
 
       for (event_object_id = 1;
-           event_object_id <= (WORD)PAL_DETERMINISTIC_EVENT_OBJECT_COUNT;
+           event_object_id <= (WORD)gpGlobals->g.nEventObject;
            event_object_id++) {
          if (!PAL_EventObjectRead(event_object_id, &event_object)) {
             return 0;
@@ -919,12 +892,6 @@ pal_deterministic_emit_save_event(
    uint32_t save_size = 0;
    uint32_t save_hash;
    WORD menu_saved_times;
-#if defined(PAL_PAGED_EVENT_STATE)
-   EVENTOBJECT sparse_event;
-#else
-   LPEVENTOBJECT sparse_event;
-#endif
-   int sparse_state;
    WORD generic_event_id;
    EVENTOBJECT generic_event;
    int generic_state;
@@ -934,13 +901,6 @@ pal_deterministic_emit_save_event(
    path = PAL_CombinePath(0, gConfig.pszSavePath, PAL_va(1, "%d.rpg", slot));
    save_hash = pal_deterministic_hash_file(path, &save_size);
    menu_saved_times = PAL_GetSavedTimes(slot);
-#if defined(PAL_PAGED_EVENT_STATE)
-   sparse_state =
-      PAL_EventObjectRead(5334, &sparse_event) ? sparse_event.sState : 0;
-#else
-   sparse_event = PAL_GetEventObjectByID(5334);
-   sparse_state = sparse_event != NULL ? sparse_event->sState : 0;
-#endif
    generic_event_id = pal_deterministic_event_id_env();
    generic_state = 0;
    if (generic_event_id != 0 &&
@@ -948,12 +908,11 @@ pal_deterministic_emit_save_event(
       generic_state = generic_event.sState;
    }
    snprintf(detail, sizeof(detail),
-      "slot=%d saved_times=%u menu_saved_times=%u sparse5334=%d "
+      "slot=%d saved_times=%u menu_saved_times=%u "
       "generic_id=%u generic_state=%d save_size=%lu save=%08x",
       slot,
       (unsigned)saved_times,
       (unsigned)menu_saved_times,
-      sparse_state,
       (unsigned)generic_event_id,
       generic_state,
       (unsigned long)save_size,

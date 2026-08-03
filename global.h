@@ -581,16 +581,6 @@ PAL_EventObjectPinScene(
 );
 
 BOOL
-PAL_EventStateFlush(
-   INT reason
-);
-
-BOOL
-PAL_EventStateCheckpoint(
-   VOID
-);
-
-BOOL
 PAL_SceneMarkDirty(
    WORD scene_index
 );

@@ -86,7 +86,7 @@ static LPRESOURCES gpResources = NULL;
 #endif
 #if defined(PAL_PAGED_EVENT_STATE)
 /*
- * The complete 5,369-object data set peaks at 142 objects in one scene.
+ * The stock 5,332-object data set peaks at 142 objects in one scene.
  * Round that audited maximum up to 160 so the fixed table also tolerates
  * modest save/script variations without reserving MAX_EVENT_OBJECTS pointers.
  */
@@ -369,11 +369,6 @@ PAL_LoadResources(
          {
             PAL_FreePlayerSprites();
             gpResources->bLoadFlags |= kLoadPlayerSprite;
-         }
-         if (!PAL_EventStateFlush(PAL_EVENT_WRITE_SCENE))
-         {
-            TerminateOnError(
-               "Event-state flush failed before chapter cache prepare");
          }
          if (!PalEngineChapterCache_PrepareScene(
                gpGlobals->wNumScene, force_verify))

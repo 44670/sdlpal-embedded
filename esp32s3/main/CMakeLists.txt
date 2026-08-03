@@ -24,12 +24,14 @@ idf_component_register(
         "../../embedded"
     REQUIRES
         esp_driver_gpio
+        esp_driver_gptimer
         esp_driver_i2c
         # ESP-IDF's early component-dependency scan does not import the
-        # project-only CARDPUTER_EXTREME_MUSIC cache option, so it enters this
-        # registration branch even for the music build.  Keep the conditional
-        # engine branch's I2S dependency in this discovery superset.
+        # project-only music/board cache options, so it enters this
+        # registration branch even for an embedded RIX build. Keep I2S in
+        # this discovery superset for both hardware sinks.
         esp_driver_i2s
+        esp_driver_ledc
         esp_driver_sdspi
         esp_driver_spi
         esp_lcd
@@ -59,13 +61,18 @@ if(XIAOMIAO_WROVER)
     endif()
     set(PAL_TARGET_BOARD_SOURCES
         "xiaomiao_board.c"
+        "xiaomiao_audio.c"
         "xiaomiao_memory.c"
         "cardputer_extreme_native_view.c"
         "../../embedded/pal_font10_cache.c"
         "../../embedded/pal_native_ui.c"
     )
     set(PAL_TARGET_AUDIO_SOURCES
-        "../../unix/contract_noaudio.c"
+        "../../adplug/player.cpp"
+        "../../adplug/rix.cpp"
+        "../../embedded/pal_mame_opl2_static.cpp"
+        "../../embedded/pal_music_cache.c"
+        "../engine_bridge/pal_engine_target_music.cpp"
     )
     set(PAL_ENGINE_LDFRAGMENT_ARGS)
 elseif(CARDPUTER_EXTREME_NO_PSRAM)
@@ -121,6 +128,12 @@ set(PAL_ENGINE_REQUIRED_COMPONENTS
     fatfs
     sdmmc
 )
+if(XIAOMIAO_WROVER)
+    list(APPEND PAL_ENGINE_REQUIRED_COMPONENTS
+        esp_driver_gptimer
+        esp_driver_ledc
+    )
+endif()
 set(PAL_ENGINE_HOST_SOURCES
     "../../battle.c"
     "../../ending.c"
@@ -172,9 +185,8 @@ if(CARDPUTER_EXTREME_CHAPTER_CACHE)
     )
 endif()
 
-if(CARDPUTER_EXTREME_NO_PSRAM OR XIAOMIAO_WROVER)
+if(CARDPUTER_EXTREME_NO_PSRAM)
     list(APPEND PAL_ENGINE_HOST_SOURCES
-        "../../embedded/pal_event_journal.c"
         "../../embedded/pal_event_pager.c"
         "../engine_bridge/pal_engine_event_state.c"
     )
@@ -231,8 +243,8 @@ if(XIAOMIAO_WROVER)
         PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1
         PAL_ENGINE_TF_TOC_BYTES=40960u
         PAL_LOG_BUFFER_SIZE=1024
-        PAL_CONTRACT_NO_AUDIO=1
-        PAL_ESP_CORES3SE_NO_AUDIO=1
+        PAL_EXTREME_RIX_MUSIC=1
+        PAL_CONTRACT_NO_SFX=1
         SHIM_MAX_SURFACES=6
         SHIM_MAX_PALETTES=1
         SHIM_MAX_TEXTURES=1
@@ -247,7 +259,6 @@ elseif(CARDPUTER_EXTREME_NO_PSRAM)
         PAL_TARGET_CARDPUTER_ADV=1
         PAL_NATIVE_UI_GENERATED_HEADER=\"generated/pal_native_ui_240x135.h\"
         PAL_EXTREME_TWO_SCREENS=1
-        PAL_EXTREME_CHAPTER_EVENT_OBJECTS=423
         PAL_EXTREME_SPRITES_TO_DRAW=512
         PAL_GLOBAL_BUFFER_SIZE=256
         PAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1
@@ -305,6 +316,7 @@ target_link_options(${COMPONENT_LIB} INTERFACE
     "-Wl,--wrap=PAL_MKFGetChunkSize"
     "-Wl,--wrap=PAL_MKFReadChunk"
     "-Wl,--wrap=fopen"
+    "-Wl,--wrap=access"
     "-Wl,--wrap=fclose"
     "-Wl,--wrap=fread"
     "-Wl,--wrap=fwrite"

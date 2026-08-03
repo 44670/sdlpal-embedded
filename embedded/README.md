@@ -8,6 +8,8 @@ Use these documents as the current source of truth:
   rendering, map viewports, text, and per-element UI rules.
 - [`FULLSCREEN_ASSET_RENDERING.md`](FULLSCREEN_ASSET_RENDERING.md): the narrow
   FBP/RNG full-canvas transform and its memory-safe streaming paths.
+- [`EVENT_STATE.md`](EVENT_STATE.md): standard saves plus the LEVEL1 session
+  pager and LEVEL2 resident event-state contracts.
 - [`UI_REVIEW_SOP.md`](UI_REVIEW_SOP.md): human review order and visual
   acceptance rules.
 - [`../unix/WEBSOCKET_HARNESS.md`](../unix/WEBSOCKET_HARNESS.md): repeatable
