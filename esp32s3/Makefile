@@ -40,8 +40,6 @@ CARDPUTER_EXTREME_NOR ?= /tmp/pal_cardputer_extreme_nor.pak
 CARDPUTER_EXTREME_TF ?= /tmp/pal_cardputer_extreme_tf.pak
 CARDPUTER_EXTREME_TF_COMPLETE ?= /tmp/pal_cardputer_extreme_full.pak
 CARDPUTER_EXTREME_MANIFEST ?= /tmp/pal_cardputer_extreme_manifest.json
-CARDPUTER_EXTREME_UI_LAYOUT_OUT ?= ../tmp_ui/layout
-CARDPUTER_EXTREME_UI_GENERATED_DIR ?= main/generated
 CARDPUTER_EXTREME_MUSIC_PROFILE ?= rix-music
 CARDPUTER_EXTREME_MUSIC_NOR ?= /tmp/pal_cardputer_extreme_music_nor.pak
 CARDPUTER_EXTREME_MUSIC_TF ?= /tmp/pal_cardputer_extreme_music_tf.pak
@@ -83,8 +81,6 @@ CARDPUTER_EXTREME_PACK_SMOKE_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_pac
 CARDPUTER_EXTREME_NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_engine_host
 CARDPUTER_EXTREME_NATIVE_BUILD_DIR ?= $(NATIVE_BUILD_DIR)/cardputer-extreme-host-objects
 CARDPUTER_EXTREME_NATIVE_OBJECTS ?= $(CARDPUTER_EXTREME_NATIVE_BUILD_DIR)/objects.list
-CARDPUTER_EXTREME_NATIVE_UI_PROFILE ?= 240x135
-CARDPUTER_EXTREME_NATIVE_UI_HEADER ?= generated/pal_native_ui_$(CARDPUTER_EXTREME_NATIVE_UI_PROFILE).h
 CARDPUTER_EXTREME_NATIVE_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.png
 CARDPUTER_EXTREME_NATIVE_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.trace
 CARDPUTER_EXTREME_NATIVE_SCRIPT_TRACE ?= $(NATIVE_BUILD_DIR)/cardputer_extreme.script
@@ -454,7 +450,6 @@ CARDPUTER_EXTREME_NATIVE_CFLAGS = \
 	-DPAL_GLOBAL_BUFFER_SIZE=256 \
 	-DPAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1 \
 	-DPAL_ENGINE_TF_TOC_BYTES=2048u \
-	-DPAL_NATIVE_UI_GENERATED_HEADER='"$(CARDPUTER_EXTREME_NATIVE_UI_HEADER)"' \
 	-DPAL_LOG_BUFFER_SIZE=1024 \
 	-DSHIM_MAX_SURFACES=6 \
 	-DSHIM_MAX_PALETTES=1 \
@@ -478,7 +473,6 @@ XIAOMIAO_NATIVE_CFLAGS = \
 	-DPAL_GLOBAL_BUFFER_SIZE=256 \
 	-DPAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1 \
 	-DPAL_ENGINE_TF_TOC_BYTES=40960u \
-	-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' \
 	-DPAL_LOG_BUFFER_SIZE=1024 \
 	-DSHIM_MAX_SURFACES=6 \
 	-DSHIM_MAX_PALETTES=1 \
@@ -499,7 +493,7 @@ CARDPUTER_EXTREME_NATIVE_CFLAGS += -DPAL_HAS_WS_SERVER=1
 CARDPUTER_EXTREME_NATIVE_SRCS += ../unix/pal_ws_server.c
 endif
 
-.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check tf-datapack xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf unified-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-prepare-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-generate cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke native-pack-provider-sd-only-open-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
+.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check tf-datapack xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf unified-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-prepare-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke native-pack-provider-sd-only-open-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
 .PHONY: native-pack-provider-chapter-open-smoke
 
 all: build
@@ -539,7 +533,7 @@ xiaomiao-pack-check: xiaomiao-tf
 	@test -s "$(XIAOMIAO_FULL_PACK)"
 	@test -s "$(XIAOMIAO_MANIFEST)"
 
-$(XIAOMIAO_NATIVE_TARGET): $(XIAOMIAO_NATIVE_SRCS) ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h ../embedded/pal_fullscreen_stretch.h main/generated/pal_native_ui_160x128.h main/xiaomiao_memory.h main/pal_target_memory.h engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
+$(XIAOMIAO_NATIVE_TARGET): $(XIAOMIAO_NATIVE_SRCS) ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h ../embedded/pal_fullscreen_stretch.h main/xiaomiao_memory.h main/pal_target_memory.h engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
 	mkdir -p "$(XIAOMIAO_NATIVE_BUILD_DIR)"
 	: >"$(XIAOMIAO_NATIVE_OBJECTS)"
 	@set -e; for src in $(XIAOMIAO_NATIVE_SRCS); do \
@@ -736,14 +730,13 @@ cardputer-extreme-music-pack-build:
 		--out-tf-complete "$(CARDPUTER_EXTREME_MUSIC_TF_COMPLETE)" \
 		--manifest "$(CARDPUTER_EXTREME_MUSIC_MANIFEST)" $(CARDPUTER_EXTREME_FONT10_ARG)
 
-$(CARDPUTER_EXTREME_PACK_SMOKE_TARGET): native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_memory_profile.h ../embedded/pal_font10_cache.c ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.c ../embedded/pal_native_ui.h main/generated/pal_native_ui_240x135.h main/cardputer_extreme_memory.h engine_bridge/pal_engine_pack_provider.h Makefile
+$(CARDPUTER_EXTREME_PACK_SMOKE_TARGET): native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_memory_profile.h ../embedded/pal_font10_cache.c ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.c ../embedded/pal_native_ui.h main/cardputer_extreme_memory.h engine_bridge/pal_engine_pack_provider.h Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=gnu99 -Wall -Wextra -O2 \
 		-DMEM_LEVEL1=1 -DPAL_TARGET_CARDPUTER_ADV=1 \
 		-DPAL_EXTREME_TWO_SCREENS=1 \
 		-DPAL_NO_RUNTIME_HEAP=1 -DPAL_NO_RUNTIME_DECOMPRESS=1 \
 		-DPAL_ENGINE_TF_TOC_BYTES=2048u \
-		-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' \
 		-I main -I engine_bridge -I engine_bridge/include -I native_engine_shim/include -I .. -I ../embedded -I ../sdl_compat \
 		native_shim/cardputer_extreme_pack_smoke.c engine_bridge/pal_engine_pack_provider.c ../embedded/pal_pack.c ../embedded/pal_font10_cache.c ../embedded/pal_native_ui.c \
 		-o "$@" -Wl,--wrap=fclose
@@ -773,40 +766,21 @@ cardputer-extreme-music-pack-check: cardputer-extreme-music-pack-build $(CARDPUT
 		--manifest "$(CARDPUTER_EXTREME_MUSIC_MANIFEST)" \
 		--layout "$(CARDPUTER_EXTREME_LAYOUT)"
 
-$(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h main/generated/pal_native_ui_240x135.h native_shim/cardputer_extreme_native_view_test.c Makefile
+$(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h native_shim/cardputer_extreme_native_view_test.c Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=c99 -Wall -Wextra -Werror -I main -I ../embedded \
-		-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' \
+		-DPAL_NATIVE_VIEW_TEST_WIDTH=240u -DPAL_NATIVE_VIEW_TEST_HEIGHT=135u \
 		main/cardputer_extreme_native_view.c \
 		native_shim/cardputer_extreme_native_view_test.c \
 		-o "$@"
 
-$(CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h main/generated/pal_native_ui_160x128.h native_shim/cardputer_extreme_native_view_test.c Makefile
+$(CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET): main/cardputer_extreme_native_view.c main/cardputer_extreme_native_view.h native_shim/cardputer_extreme_native_view_test.c Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"
 	$(CC) -std=c99 -Wall -Wextra -Werror -I main -I ../embedded \
-		-DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' \
+		-DPAL_NATIVE_VIEW_TEST_WIDTH=160u -DPAL_NATIVE_VIEW_TEST_HEIGHT=128u \
 		main/cardputer_extreme_native_view.c \
 		native_shim/cardputer_extreme_native_view_test.c \
 		-o "$@"
-
-cardputer-extreme-ui-layout-generate:
-	@test -n "$(FONT10_ARCHIVE)" || { echo "set FONT10_ARCHIVE to the pinned Fusion Pixel Font release zip" >&2; exit 2; }
-	$(PYTHON) -B ../tools/pal_native_ui_layout.py \
-		--data-dir "$(PAL_DATA_DIR)" \
-		--font10-archive "$(FONT10_ARCHIVE)" \
-		--output-dir "$(CARDPUTER_EXTREME_UI_LAYOUT_OUT)" \
-		--header-dir "$(CARDPUTER_EXTREME_UI_GENERATED_DIR)"
-
-cardputer-extreme-ui-layout-check:
-	@test -n "$(FONT10_ARCHIVE)" || { echo "set FONT10_ARCHIVE to the pinned Fusion Pixel Font release zip" >&2; exit 2; }
-	PYTHONPATH=../tools $(PYTHON) -B ../tools/test_pal_native_ui_layout.py
-	$(PYTHON) -B ../tools/pal_native_ui_layout.py \
-		--data-dir "$(PAL_DATA_DIR)" \
-		--font10-archive "$(FONT10_ARCHIVE)" \
-		--output-dir "$(CARDPUTER_EXTREME_UI_LAYOUT_OUT)" \
-		--header-dir "$(CARDPUTER_EXTREME_UI_GENERATED_DIR)" \
-		--check
-	$(MAKE) -C ../embedded native-ui-check
 
 cardputer-extreme-native-view-check: $(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET) $(CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET)
 	"$(CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET)"
@@ -890,7 +864,7 @@ cardputer-extreme-music-state-check: $(CARDPUTER_EXTREME_MUSIC_STATE_TARGET) $(C
 cardputer-extreme-contract-unit-check: cardputer-extreme-event-pager-check
 	$(PYTHON) -B test_check_cardputer_extreme.py
 
-$(CARDPUTER_EXTREME_NATIVE_TARGET): $(CARDPUTER_EXTREME_NATIVE_SRCS) engine_bridge/pal_engine_event_state.h engine_bridge/pal_engine_paged_save.inc ../embedded/pal_event_pager.h ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h ../embedded/pal_fullscreen_stretch.h main/$(CARDPUTER_EXTREME_NATIVE_UI_HEADER) main/pal_target_memory.h engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
+$(CARDPUTER_EXTREME_NATIVE_TARGET): $(CARDPUTER_EXTREME_NATIVE_SRCS) engine_bridge/pal_engine_event_state.h engine_bridge/pal_engine_paged_save.inc ../embedded/pal_event_pager.h ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h ../embedded/pal_fullscreen_stretch.h main/pal_target_memory.h engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
 	mkdir -p "$(CARDPUTER_EXTREME_NATIVE_BUILD_DIR)"
 	: >"$(CARDPUTER_EXTREME_NATIVE_OBJECTS)"
 	@set -e; for src in $(CARDPUTER_EXTREME_NATIVE_SRCS); do \
@@ -1011,7 +985,7 @@ cardputer-extreme-music-save-check: cardputer-extreme-music-pack-build $(CARDPUT
 		--data-dir "$(PAL_DATA_DIR)" \
 		--route "$(NATIVE_ENGINE_BRIDGE_ROUTE)"
 
-cardputer-extreme-check: cardputer-extreme-build cardputer-extreme-pack-smoke cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check
+cardputer-extreme-check: cardputer-extreme-build cardputer-extreme-pack-smoke cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check
 	$(PYTHON) -B ../tools/test_pal_pack_build.py
 	$(PYTHON) -B check_cardputer_extreme.py \
 		--root .. \
@@ -1022,7 +996,7 @@ cardputer-extreme-check: cardputer-extreme-build cardputer-extreme-pack-smoke ca
 		--expected-compiler "$(CARDPUTER_EXTREME_TOOLCHAIN_BIN)/xtensa-esp32s3-elf-gcc" \
 		--source-inventory "$(CARDPUTER_EXTREME_SOURCE_INVENTORY)"
 
-cardputer-extreme-music-check: cardputer-extreme-music-build cardputer-extreme-music-pack-check cardputer-extreme-ui-layout-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check cardputer-extreme-contract-unit-check cardputer-extreme-music-state-check cardputer-extreme-music-save-check
+cardputer-extreme-music-check: cardputer-extreme-music-build cardputer-extreme-music-pack-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check cardputer-extreme-contract-unit-check cardputer-extreme-music-state-check cardputer-extreme-music-save-check
 	$(MAKE) -C ../embedded mame-opl2-static-check
 	$(MAKE) -C ../embedded \
 		PACK_NOR="$(CARDPUTER_EXTREME_MUSIC_NOR)" \

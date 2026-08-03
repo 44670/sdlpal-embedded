@@ -30,6 +30,42 @@ extern WORD g_rgPlayerPos[3][3][2];
 static int g_iCurMiscMenuItem = 0;
 static int g_iCurSubMenuItem = 0;
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+PAL_POS
+PAL_PlayerInfoBoxPosition(
+   INT             iPlayerIndex,
+   INT             iPlayerCount
+)
+{
+   const INT boxWidth = 77;
+   const INT boxHeight = 35;
+   INT columns = max(1, min(iPlayerCount, gpScreen->w / boxWidth));
+   INT bottomCount = min(columns, iPlayerCount);
+   INT rowFromBottom;
+   INT rowIndex;
+   INT rowCount;
+
+   if (iPlayerIndex < bottomCount)
+   {
+      rowFromBottom = 0;
+      rowIndex = iPlayerIndex;
+      rowCount = bottomCount;
+   }
+   else
+   {
+      INT upperIndex = iPlayerIndex - bottomCount;
+      rowFromBottom = upperIndex / columns + 1;
+      rowIndex = upperIndex % columns;
+      rowCount = min(columns,
+         iPlayerCount - bottomCount - (rowFromBottom - 1) * columns);
+   }
+   return PAL_XY(
+      max(0, (gpScreen->w - rowCount * boxWidth) / 2) +
+         rowIndex * boxWidth,
+      max(0, gpScreen->h - (rowFromBottom + 1) * boxHeight));
+}
+#endif
+
 VOID
 PAL_PlayerInfoBox(
    PAL_POS         pos,
@@ -411,7 +447,12 @@ PAL_BattleUIDrawMiscMenu(
    // Draw the box
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   PAL_CreateBoxWithShadow(PAL_XY(2, 0), 2,
+   for (i = 0; i < 5; i++)
+   {
+      rgMenuItem[i].pos = PAL_XY(12,
+         8 + i * (PAL_FontHeight() + 2));
+   }
+   PAL_CreateBoxWithShadow(PAL_XY(2, 0), 4,
       PAL_MenuTextMaxWidth(rgMenuItem,
          sizeof(rgMenuItem) / sizeof(MENUITEM)) - 1,
       0, FALSE, 0);
@@ -518,6 +559,9 @@ PAL_BattleUIMiscItemSubMenuUpdate(
 {
    int             i;
    BYTE            bColor;
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   int             boxX;
+#endif
 
    MENUITEM rgMenuItem[] = {
       // value   label                      enabled   position
@@ -539,8 +583,33 @@ PAL_BattleUIMiscItemSubMenuUpdate(
    PAL_BattleUIDrawMiscMenu(0, TRUE);
 #endif
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   PAL_CreateBoxWithShadow(PAL_XY(72, 0), 0,
-      PAL_MenuTextMaxWidth(rgMenuItem, 2) - 1, 0, FALSE, 0);
+   {
+      int columns = PAL_MenuTextMaxWidth(rgMenuItem, 2) - 1;
+      int middleWidth = PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 1));
+      int boxWidth = PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 0)) +
+         PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 2)) +
+         max(1, columns) * middleWidth;
+      MENUITEM mainItems[5] = {
+         {0, BATTLEUI_LABEL_ITEM, TRUE, PAL_XY(0, 0)},
+         {0, BATTLEUI_LABEL_DEFEND, TRUE, PAL_XY(0, 0)},
+         {0, BATTLEUI_LABEL_AUTO, TRUE, PAL_XY(0, 0)},
+         {0, BATTLEUI_LABEL_FLEE, TRUE, PAL_XY(0, 0)},
+         {0, BATTLEUI_LABEL_STATUS, TRUE, PAL_XY(0, 0)}
+      };
+      int mainColumns = PAL_MenuTextMaxWidth(mainItems, 5) - 1;
+      int mainWidth = PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 0)) +
+         PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 2)) +
+         max(1, mainColumns) * middleWidth;
+
+      boxX = min(max(2, mainWidth + 2), max(0, gpScreen->w - boxWidth));
+      for (i = 0; i < 2; i++)
+      {
+         rgMenuItem[i].pos = PAL_XY(boxX + 10,
+            8 + i * (PAL_FontHeight() + 2));
+      }
+      PAL_CreateBoxWithShadow(PAL_XY(boxX, 0), 1,
+         columns, 0, FALSE, 0);
+   }
 #else
    PAL_CreateBox(PAL_XY(30, 50), 1, PAL_MenuTextMaxWidth(rgMenuItem, 2) - 1, 0, FALSE);
 #endif
@@ -845,10 +914,11 @@ PAL_BattleUIUpdate(
    static int       s_iFrame = 0;
 #if defined(PAL_EXTREME_TWO_SCREENS)
    const int        iPartyCount = gpGlobals->wMaxPartyMemberIndex + 1;
-   const int        iActionTop = gpScreen->h -
-      (iPartyCount >= 3 ? 95 : 60);
-   const int        iPlayerInfoLeft = iPartyCount >= 3 ?
-      (gpScreen->w - 77 * iPartyCount) / 2 : 84;
+   const int        iInfoColumns = max(1, gpScreen->w / 77);
+   const int        iInfoRows =
+      (iPartyCount + iInfoColumns - 1) / iInfoColumns;
+   const int        iActionTop = max(0,
+      gpScreen->h - iInfoRows * 35 - 60);
 #endif
 
    struct {
@@ -985,8 +1055,8 @@ PAL_BattleUIUpdate(
          }
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-         PAL_PlayerInfoBox(PAL_XY(iPlayerInfoLeft + 77 * i,
-            gpScreen->h - 35), wPlayerRole,
+         PAL_PlayerInfoBox(PAL_PlayerInfoBoxPosition(i, iPartyCount),
+            wPlayerRole,
             w, j, FALSE);
 #else
          PAL_PlayerInfoBox(PAL_XY(91 + 77 * i, 165), wPlayerRole,

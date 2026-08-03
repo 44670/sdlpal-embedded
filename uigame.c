@@ -26,15 +26,53 @@
 static BOOL __buymenu_firsttime_render;
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-#define PAL_BUYMENU_NATIVE_LIST_X          100
-#define PAL_BUYMENU_NATIVE_LIST_Y          0
-#define PAL_BUYMENU_NATIVE_LIST_ROWS       6
-#define PAL_BUYMENU_NATIVE_NAME_X          110
-#define PAL_BUYMENU_NATIVE_NAME_Y          13
-#define PAL_BUYMENU_NATIVE_PRICE_X         196
-#define PAL_BUYMENU_NATIVE_PRICE_Y         18
-#define PAL_BUYMENU_NATIVE_ROW_HEIGHT      18
-#define PAL_BUYMENU_NATIVE_INFO_WIDTH      100
+typedef struct tagPAL_BUYMENU_NATIVE_LAYOUT
+{
+   INT info_width;
+   INT list_x;
+   INT list_columns;
+   INT visible_rows;
+   INT row_height;
+   INT name_x;
+   INT name_y;
+   INT price_x;
+   INT price_y;
+} PAL_BUYMENU_NATIVE_LAYOUT;
+
+static PAL_BUYMENU_NATIVE_LAYOUT
+PAL_BuyMenuNativeLayout(
+   VOID
+)
+{
+   PAL_BUYMENU_NATIVE_LAYOUT layout;
+   LPCBITMAPRLE left = PAL_SpriteGetFrame(gpSpriteUI, 9);
+   LPCBITMAPRLE middle = PAL_SpriteGetFrame(gpSpriteUI, 10);
+   LPCBITMAPRLE right = PAL_SpriteGetFrame(gpSpriteUI, 11);
+   INT list_width;
+   INT interior_width;
+   INT middle_width;
+
+   layout.info_width = gpScreen->w * 2 / 5;
+   layout.info_width = max(72, min(100, layout.info_width));
+   if (gpScreen->w - layout.info_width < 64)
+   {
+      layout.info_width = max(0, gpScreen->w - 64);
+   }
+   layout.list_x = layout.info_width;
+   list_width = gpScreen->w - layout.list_x;
+   interior_width = list_width - PAL_RLEGetWidth(left) -
+      PAL_RLEGetWidth(right);
+   middle_width = max(1, PAL_RLEGetWidth(middle));
+   layout.list_columns = max(1, interior_width / middle_width);
+   layout.row_height = PAL_FontHeight() + 8;
+   layout.visible_rows = max(1, gpScreen->h / layout.row_height);
+   layout.name_x = layout.list_x + 7;
+   layout.name_y = (layout.row_height - PAL_FontHeight()) / 2;
+   layout.price_x = layout.list_x + PAL_RLEGetWidth(left) +
+      layout.list_columns * middle_width - 34;
+   layout.price_y = (layout.row_height - 8) / 2;
+   return layout;
+}
 
 static VOID PAL_BuyMenu_OnItemChange(WORD wCurrentItem);
 
@@ -46,37 +84,30 @@ PAL_BuyMenuNativeDrawPage(
    INT            iFirstItem
 )
 {
+   const PAL_BUYMENU_NATIVE_LAYOUT layout = PAL_BuyMenuNativeLayout();
    int row;
 
-   /*
-    * PALGBA keeps the original shop composition but uses a narrow information
-    * column and a six-row list.  The DOS style-1 box assets fit 240x135
-    * exactly as a 6-column by 5-interior-row panel when their shadow is
-    * omitted.  FONT10 and number sprites are always drawn at native size.
-    */
    PAL_CreateBoxWithShadow(
-      PAL_XY(PAL_BUYMENU_NATIVE_LIST_X, PAL_BUYMENU_NATIVE_LIST_Y),
-      PAL_BUYMENU_NATIVE_LIST_ROWS - 1, 6, 1, FALSE, 0);
+      PAL_XY(layout.list_x, 0),
+      layout.visible_rows - 1, layout.list_columns, 1, FALSE, 0);
 
    for (row = 0;
-        row < PAL_BUYMENU_NATIVE_LIST_ROWS && iFirstItem + row < nMenuItem;
+        row < layout.visible_rows && iFirstItem + row < nMenuItem;
         row++)
    {
       int index = iFirstItem + row;
-      int y = PAL_BUYMENU_NATIVE_NAME_Y +
-         row * PAL_BUYMENU_NATIVE_ROW_HEIGHT;
+      int y = layout.name_y + row * layout.row_height;
       BYTE color = index == iCurrentItem ?
          MENUITEM_COLOR_SELECTED : MENUITEM_COLOR;
       WORD price = gpGlobals->g.rgObject[
          rgMenuItem[index].wValue].item.wPrice;
 
       PAL_DrawText(PAL_GetWord(rgMenuItem[index].wNumWord),
-         PAL_XY(PAL_BUYMENU_NATIVE_NAME_X, y),
+         PAL_XY(layout.name_x, y),
          color, TRUE, FALSE, FALSE);
       PAL_DrawNumber(price, 6,
-         PAL_XY(PAL_BUYMENU_NATIVE_PRICE_X,
-            PAL_BUYMENU_NATIVE_PRICE_Y +
-               row * PAL_BUYMENU_NATIVE_ROW_HEIGHT),
+         PAL_XY(layout.price_x,
+            layout.price_y + row * layout.row_height),
          kNumColorYellow, kNumAlignRight);
    }
    VIDEO_UpdateScreen(NULL);
@@ -89,6 +120,7 @@ PAL_BuyMenuNativeRead(
    WORD           wDefaultItem
 )
 {
+   const PAL_BUYMENU_NATIVE_LAYOUT layout = PAL_BuyMenuNativeLayout();
    int current;
    int first;
 
@@ -97,8 +129,8 @@ PAL_BuyMenuNativeRead(
       return MENUITEM_VALUE_CANCELLED;
    }
    current = wDefaultItem < nMenuItem ? wDefaultItem : 0;
-   first = current < PAL_BUYMENU_NATIVE_LIST_ROWS ? 0 :
-      current - PAL_BUYMENU_NATIVE_LIST_ROWS + 1;
+   first = current < layout.visible_rows ? 0 :
+      current - layout.visible_rows + 1;
    PAL_BuyMenuNativeDrawPage(
       rgMenuItem, nMenuItem, current, first);
    PAL_BuyMenu_OnItemChange(rgMenuItem[current].wValue);
@@ -110,9 +142,8 @@ PAL_BuyMenuNativeRead(
 
       PAL_ClearKeyState();
       PAL_DrawText(PAL_GetWord(rgMenuItem[current].wNumWord),
-         PAL_XY(PAL_BUYMENU_NATIVE_NAME_X,
-            PAL_BUYMENU_NATIVE_NAME_Y +
-               (current - first) * PAL_BUYMENU_NATIVE_ROW_HEIGHT),
+         PAL_XY(layout.name_x,
+            layout.name_y + (current - first) * layout.row_height),
          MENUITEM_COLOR_SELECTED, FALSE, TRUE, FALSE);
       PAL_ProcessEvent();
 
@@ -131,18 +162,16 @@ PAL_BuyMenuNativeRead(
       else if (g_InputState.dwKeyPress & kKeyMenu)
       {
          PAL_DrawText(PAL_GetWord(rgMenuItem[current].wNumWord),
-            PAL_XY(PAL_BUYMENU_NATIVE_NAME_X,
-               PAL_BUYMENU_NATIVE_NAME_Y +
-                  (current - first) * PAL_BUYMENU_NATIVE_ROW_HEIGHT),
+            PAL_XY(layout.name_x,
+               layout.name_y + (current - first) * layout.row_height),
             MENUITEM_COLOR, FALSE, TRUE, FALSE);
          return MENUITEM_VALUE_CANCELLED;
       }
       else if (g_InputState.dwKeyPress & kKeySearch)
       {
          PAL_DrawText(PAL_GetWord(rgMenuItem[current].wNumWord),
-            PAL_XY(PAL_BUYMENU_NATIVE_NAME_X,
-               PAL_BUYMENU_NATIVE_NAME_Y +
-                  (current - first) * PAL_BUYMENU_NATIVE_ROW_HEIGHT),
+            PAL_XY(layout.name_x,
+               layout.name_y + (current - first) * layout.row_height),
             MENUITEM_COLOR_CONFIRMED, FALSE, TRUE, FALSE);
          return rgMenuItem[current].wValue;
       }
@@ -153,9 +182,9 @@ PAL_BuyMenuNativeRead(
          {
             next_first = next;
          }
-         else if (next >= next_first + PAL_BUYMENU_NATIVE_LIST_ROWS)
+         else if (next >= next_first + layout.visible_rows)
          {
-            next_first = next - PAL_BUYMENU_NATIVE_LIST_ROWS + 1;
+            next_first = next - layout.visible_rows + 1;
          }
 
          if (next_first != first)
@@ -168,15 +197,13 @@ PAL_BuyMenuNativeRead(
          else
          {
             PAL_DrawText(PAL_GetWord(rgMenuItem[current].wNumWord),
-               PAL_XY(PAL_BUYMENU_NATIVE_NAME_X,
-                  PAL_BUYMENU_NATIVE_NAME_Y +
-                     (current - first) * PAL_BUYMENU_NATIVE_ROW_HEIGHT),
+               PAL_XY(layout.name_x,
+                  layout.name_y + (current - first) * layout.row_height),
                MENUITEM_COLOR, FALSE, FALSE, FALSE);
             current = next;
             PAL_DrawText(PAL_GetWord(rgMenuItem[current].wNumWord),
-               PAL_XY(PAL_BUYMENU_NATIVE_NAME_X,
-                  PAL_BUYMENU_NATIVE_NAME_Y +
-                     (current - first) * PAL_BUYMENU_NATIVE_ROW_HEIGHT),
+               PAL_XY(layout.name_x,
+                  layout.name_y + (current - first) * layout.row_height),
                MENUITEM_COLOR_SELECTED, FALSE, TRUE, FALSE);
          }
          PAL_BuyMenu_OnItemChange(rgMenuItem[current].wValue);
@@ -370,10 +397,10 @@ PAL_UIGameNativePosition(
 }
 
 static BOOL
-PAL_UIGameBlitMappedRle(
-   FILE         *fp,
-   UINT          chunknum,
-   PAL_POS       position
+PAL_UIGameBlitFitRle(
+   FILE              *fp,
+   UINT               chunknum,
+   PalNativeUiRect    box
 )
 {
    LPCBITMAPRLE rle;
@@ -384,13 +411,10 @@ PAL_UIGameBlitMappedRle(
    {
       return FALSE;
    }
-   return PalNativeUi_BlitRleMappedIndexed(
-      rle, size,
-      (LPBYTE)gpScreen->pixels,
-      (uint16_t)gpScreen->pitch,
-      (uint16_t)gpScreen->w,
-      (uint16_t)gpScreen->h,
-      PAL_X(position), PAL_Y(position), NULL) ? TRUE : FALSE;
+   return PalNativeUi_BlitRleFitIndexed(
+      rle, size, (LPBYTE)gpScreen->pixels,
+      (uint16_t)gpScreen->pitch, (uint16_t)gpScreen->w,
+      (uint16_t)gpScreen->h, box, NULL) ? TRUE : FALSE;
 }
 
 static INT
@@ -817,6 +841,7 @@ PAL_SelectionMenu(
 		(nWords >= 3 && wItems[2]) ? PAL_WordWidth(wItems[2]) : 1,
 		(nWords >= 4 && wItems[3]) ? PAL_WordWidth(wItems[3]) : 1 };
 	int             dx[4] = { (w[0] - 1) * 16, (w[1] - 1) * 16, (w[2] - 1) * 16, (w[3] - 1) * 16 }, i;
+	int             boxLen[4] = { w[0] + 1, w[1] + 1, w[2] + 1, w[3] + 1 };
 	PAL_POS         pos[4] = { PAL_XY(145, 110), PAL_XY(220 + dx[0], 110), PAL_XY(145, 160), PAL_XY(220 + dx[2], 160) };
 	PAL_POS         boxPos[4] = { PAL_XY(130, 100), PAL_XY(205 + dx[0], 100), PAL_XY(130, 150), PAL_XY(205 + dx[2], 150) };
 	WORD            wReturnValue;
@@ -833,35 +858,73 @@ PAL_SelectionMenu(
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
 	{
-		const int gap = 16;
-		const int rowStride = 50;
-		const int boxHeight = 40;
-		int rows = (nWords + 1) / 2;
-		int firstY = max(0,
-			(gpScreen->h - (boxHeight + (rows - 1) * rowStride)) / 2);
+		LPCBITMAPRLE left = PAL_SpriteGetFrame(
+			gpSpriteUI, SPRITENUM_SINGLELINEBOX_LEFT);
+		LPCBITMAPRLE middle = PAL_SpriteGetFrame(
+			gpSpriteUI, SPRITENUM_SINGLELINEBOX_MIDDLE);
+		LPCBITMAPRLE right = PAL_SpriteGetFrame(
+			gpSpriteUI, SPRITENUM_SINGLELINEBOX_RIGHT);
+		const int gap = 4;
+		const int boxHeight = PAL_RLEGetHeight(left);
+		const int rowStride = boxHeight + gap;
+		int boxWidth[4] = { 0, 0, 0, 0 };
+		int columns = 2;
+		int rows;
+		int firstY;
 		int row;
+		int widestPair = 0;
 
-		/* Keep the original single-line boxes, centered on the physical panel. */
+		for (i = 0; i < nWords; i++)
+		{
+			int textWidth = PAL_TextWidth(PAL_GetWord(wItems[i]));
+			int inside = max(0, textWidth + 8 -
+				PAL_RLEGetWidth(left) - PAL_RLEGetWidth(right));
+			boxLen[i] = max(1, (inside + PAL_RLEGetWidth(middle) - 1) /
+				max(1, PAL_RLEGetWidth(middle)));
+			boxWidth[i] = PAL_RLEGetWidth(left) + PAL_RLEGetWidth(right) +
+				boxLen[i] * PAL_RLEGetWidth(middle);
+		}
+		for (i = 0; i < nWords; i += 2)
+		{
+			int width = boxWidth[i];
+			if (i + 1 < nWords)
+			{
+				width += gap + boxWidth[i + 1];
+			}
+			widestPair = max(widestPair, width);
+		}
+		if (widestPair > gpScreen->w - 4)
+		{
+			columns = 1;
+		}
+		rows = (nWords + columns - 1) / columns;
+		firstY = max(0,
+			(gpScreen->h - (boxHeight + (rows - 1) * rowStride)) / 2);
+
 		for (row = 0; row < rows; row++)
 		{
-			int first = row * 2;
-			int count = min(2, nWords - first);
-			int firstWidth = 32 + 16 * w[first];
-			int rowWidth = firstWidth + 6;
+			int first = row * columns;
+			int count = min(columns, nWords - first);
+			int rowWidth = boxWidth[first];
 			int x;
 
 			if (count == 2)
 			{
-				rowWidth += gap + 32 + 16 * w[first + 1];
+				rowWidth += gap + boxWidth[first + 1];
 			}
 			x = max(0, (gpScreen->w - rowWidth) / 2);
 			boxPos[first] = PAL_XY(x, firstY + row * rowStride);
-			pos[first] = PAL_XY(x + 15, firstY + 10 + row * rowStride);
+			pos[first] = PAL_XY(
+				x + (boxWidth[first] - PAL_TextWidth(PAL_GetWord(wItems[first]))) / 2,
+				firstY + (boxHeight - PAL_FontHeight()) / 2 + row * rowStride);
 			if (count == 2)
 			{
-				x += firstWidth + gap;
+				x += boxWidth[first] + gap;
 				boxPos[first + 1] = PAL_XY(x, firstY + row * rowStride);
-				pos[first + 1] = PAL_XY(x + 15, firstY + 10 + row * rowStride);
+				pos[first + 1] = PAL_XY(
+					x + (boxWidth[first + 1] -
+						PAL_TextWidth(PAL_GetWord(wItems[first + 1]))) / 2,
+					firstY + (boxHeight - PAL_FontHeight()) / 2 + row * rowStride);
 			}
 		}
 	}
@@ -893,9 +956,9 @@ PAL_SelectionMenu(
 	{
 #ifdef PAL_NO_RUNTIME_HEAP
 		rgpBox[i] = PAL_UIGameCreateSelectionBox(i,
-			boxPos[i], w[i] + 1);
+			boxPos[i], boxLen[i]);
 #else
-		rgpBox[i] = PAL_CreateSingleLineBox(boxPos[i], w[i] + 1, TRUE);
+		rgpBox[i] = PAL_CreateSingleLineBox(boxPos[i], boxLen[i], TRUE);
 #endif
 	}
 
@@ -1500,13 +1563,12 @@ PAL_InGameMagicMenu(
    // Draw the player info boxes
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   y = (gpScreen->w - 77 * (gpGlobals->wMaxPartyMemberIndex + 1)) / 2;
    for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
    {
-      PAL_PlayerInfoBox(PAL_XY(y, gpScreen->h - 35),
+      PAL_PlayerInfoBox(PAL_PlayerInfoBoxPosition(i,
+            gpGlobals->wMaxPartyMemberIndex + 1),
          gpGlobals->rgParty[i].wPlayerRole, 100,
          TIMEMETER_COLOR_DEFAULT, TRUE);
-      y += 77;
    }
 #else
    y = 45;
@@ -1623,22 +1685,21 @@ start_magicmenu:
             //
 #if defined(PAL_EXTREME_TWO_SCREENS)
             VIDEO_RestoreScreen(gpScreen);
-            y = (gpScreen->w -
-               77 * (gpGlobals->wMaxPartyMemberIndex + 1)) / 2;
             for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
             {
-               PAL_PlayerInfoBox(PAL_XY(y, gpScreen->h - 35),
+               PAL_PlayerInfoBox(PAL_PlayerInfoBoxPosition(i,
+                     gpGlobals->wMaxPartyMemberIndex + 1),
                   gpGlobals->rgParty[i].wPlayerRole, 100,
                   TIMEMETER_COLOR_DEFAULT, FALSE);
-               y += 77;
             }
-            PAL_RLEBlitToSurface(
-               PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR_UP),
-               gpScreen, PAL_XY(
-                  (gpScreen->w -
-                     77 * (gpGlobals->wMaxPartyMemberIndex + 1)) / 2 +
-                     33 + 77 * wPlayer,
-                  gpScreen->h - 42));
+            {
+               PAL_POS playerPos = PAL_PlayerInfoBoxPosition(wPlayer,
+                  gpGlobals->wMaxPartyMemberIndex + 1);
+               PAL_RLEBlitToSurface(
+                  PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR_UP),
+                  gpScreen, PAL_XY(PAL_X(playerPos) + 33,
+                     max(0, PAL_Y(playerPos) - 7)));
+            }
             VIDEO_UpdateScreen(NULL);
 #else
             y = 45;
@@ -1735,13 +1796,12 @@ start_magicmenu:
       // Redraw the player info boxes
       //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-      y = (gpScreen->w - 77 * (gpGlobals->wMaxPartyMemberIndex + 1)) / 2;
       for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
       {
-         PAL_PlayerInfoBox(PAL_XY(y, gpScreen->h - 35),
+         PAL_PlayerInfoBox(PAL_PlayerInfoBoxPosition(i,
+               gpGlobals->wMaxPartyMemberIndex + 1),
             gpGlobals->rgParty[i].wPlayerRole, 100,
             TIMEMETER_COLOR_DEFAULT, TRUE);
-         y += 77;
       }
 #else
       y = 45;
@@ -1784,7 +1844,31 @@ PAL_InventoryMenu(
       { 2,      INVMENU_LABEL_USE,        TRUE,     PAL_XY(43, 73 + 18) },
    };
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   {
+      int columns = PAL_MenuTextMaxWidth(rgMenuItem, 2) - 1;
+      int boxWidth = PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 0)) +
+         PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 2)) +
+         max(1, columns) *
+            PAL_RLEGetWidth(PAL_SpriteGetFrame(gpSpriteUI, 1));
+      int boxHeight = PAL_RLEGetHeight(PAL_SpriteGetFrame(gpSpriteUI, 0)) +
+         PAL_RLEGetHeight(PAL_SpriteGetFrame(gpSpriteUI, 6)) +
+         PAL_RLEGetHeight(PAL_SpriteGetFrame(gpSpriteUI, 3));
+      int x = max(0, (gpScreen->w - boxWidth) / 2);
+      int y = max(0, (gpScreen->h - boxHeight) / 2);
+      int i;
+
+      for (i = 0; i < 2; i++)
+      {
+         rgMenuItem[i].pos = PAL_XY(x + 10,
+            y + 8 + i * (PAL_FontHeight() + 8));
+      }
+      PAL_CreateBoxWithShadow(PAL_XY(x, y), 1, columns,
+         0, FALSE, 0);
+   }
+#else
    PAL_CreateBox(PAL_XY(30, 60), 1, PAL_MenuTextMaxWidth(rgMenuItem, sizeof(rgMenuItem)/sizeof(MENUITEM)) - 1, 0, FALSE);
+#endif
 
    w = PAL_ReadMenu(NULL, rgMenuItem, 2, w - 1, MENUITEM_COLOR);
 
@@ -1861,6 +1945,19 @@ PAL_InGameMenu(
       { 4,      GAMEMENU_LABEL_SYSTEM,     TRUE,     PAL_XY(16, 50 + 54) },
    };
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   {
+      int menuY = PAL_RLEGetHeight(PAL_SpriteGetFrame(
+         gpSpriteUI, SPRITENUM_SINGLELINEBOX_LEFT)) + 2;
+      int i;
+      for (i = 0; i < 4; i++)
+      {
+         rgMainMenuItem[i].pos = PAL_XY(13,
+            menuY + 8 + i * (PAL_FontHeight() + 8));
+      }
+   }
+#endif
+
    //
    // Display the cash amount.
    //
@@ -1870,7 +1967,15 @@ PAL_InGameMenu(
    // Create the menu box.
    //
    // Fix render problem with shadow
-   lpMenuBox = PAL_CreateBox(PAL_XY(3, 37), 3, PAL_MenuTextMaxWidth(rgMainMenuItem, 4) - 1, 0, FALSE);
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   lpMenuBox = PAL_CreateBox(PAL_XY(0,
+      PAL_RLEGetHeight(PAL_SpriteGetFrame(
+         gpSpriteUI, SPRITENUM_SINGLELINEBOX_LEFT)) + 2),
+      3, PAL_MenuTextMaxWidth(rgMainMenuItem, 4) - 1, 0, FALSE);
+#else
+   lpMenuBox = PAL_CreateBox(PAL_XY(3, 37), 3,
+      PAL_MenuTextMaxWidth(rgMainMenuItem, 4) - 1, 0, FALSE);
+#endif
 
    //
    // Process the menu
@@ -1977,10 +2082,12 @@ PAL_PlayerStatus(
       STATUS_LABEL_EXP, STATUS_LABEL_LEVEL, STATUS_LABEL_HP,
       STATUS_LABEL_MP
    };
+#if !defined(PAL_EXTREME_TWO_SCREENS)
    int              labels1[] = {
       STATUS_LABEL_EXP_LAYOUT, STATUS_LABEL_LEVEL_LAYOUT, STATUS_LABEL_HP_LAYOUT,
       STATUS_LABEL_MP_LAYOUT
    };
+#endif
    int              labels[] = {
       STATUS_LABEL_ATTACKPOWER, STATUS_LABEL_MAGICPOWER, STATUS_LABEL_RESISTANCE,
       STATUS_LABEL_DEXTERITY, STATUS_LABEL_FLEERATE
@@ -1989,6 +2096,13 @@ PAL_PlayerStatus(
    int              iPlayerRole;
    int              i, j;
    WORD             w;
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   const int        nativeStatsWidth = min(72, gpScreen->w / 2);
+   const int        nativeEquipWidth = max(48, gpScreen->w / 3);
+   const int        nativePortraitX = nativeStatsWidth;
+   const int        nativePortraitWidth = max(1,
+      gpScreen->w - nativeStatsWidth - nativeEquipWidth);
+#endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
 #if defined(PAL_EXTREME_TWO_SCREENS)
@@ -2057,10 +2171,14 @@ PAL_PlayerStatus(
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
       {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-         (void)PAL_UIGameBlitMappedRle(
+         (void)PAL_UIGameBlitFitRle(
             gpGlobals->f.fpRGM,
             gpGlobals->g.PlayerRoles.rgwAvatar[iPlayerRole],
-            gConfig.ScreenLayout.RoleImage);
+            (PalNativeUiRect){
+               (int16_t)nativePortraitX, 12,
+               (uint16_t)nativePortraitWidth,
+               (uint16_t)min(72, gpScreen->h - 12)
+            });
 #else
          LPCBITMAPRLE lpImage = PAL_MapNativeRleChunk(gpGlobals->f.fpRGM, gpGlobals->g.PlayerRoles.rgwAvatar[iPlayerRole]);
          if (lpImage != NULL)
@@ -2081,7 +2199,9 @@ PAL_PlayerStatus(
       //
       for (i = 0; i < MAX_PLAYER_EQUIPMENTS; i++)
       {
+#if !defined(PAL_EXTREME_TWO_SCREENS)
          int offset;
+#endif
 
          w = gpGlobals->g.PlayerRoles.rgwEquipment[i][iPlayerRole];
 
@@ -2096,11 +2216,26 @@ PAL_PlayerStatus(
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
          {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-            (void)PAL_UIGameBlitMappedRle(
+            PAL_POS sourceBox = gConfig.ScreenLayout.RoleEquipImageBoxes[i];
+            int boxLeft = PalNativeUi_MapVirtualX(
+               PAL_X(sourceBox), gpScreen->w);
+            int boxTop = PalNativeUi_MapVirtualY(
+               PAL_Y(sourceBox), gpScreen->h);
+            int boxRight = PalNativeUi_MapVirtualX(
+               PAL_X(sourceBox) + 50, gpScreen->w);
+            int boxBottom = PalNativeUi_MapVirtualY(
+               PAL_Y(sourceBox) + 49, gpScreen->h);
+            int labelTop = max(boxTop, boxBottom - PAL_FontHeight());
+
+            (void)PAL_UIGameBlitFitRle(
                gpGlobals->f.fpBALL,
                gpGlobals->g.rgObject[w].item.wBitmap,
-               PAL_XY_OFFSET(
-                  gConfig.ScreenLayout.RoleEquipImageBoxes[i], 1, 1));
+               (PalNativeUiRect){
+                  (int16_t)(boxLeft + 1),
+                  (int16_t)(boxTop + 1),
+                  (uint16_t)max(1, boxRight - boxLeft - 2),
+                  (uint16_t)max(1, labelTop - boxTop - 2)
+               });
 #else
             LPCBITMAPRLE lpImage = PAL_MapNativeRleChunk(gpGlobals->f.fpBALL,
                gpGlobals->g.rgObject[w].item.wBitmap);
@@ -2124,19 +2259,26 @@ PAL_PlayerStatus(
          // Draw the text label
          //
          {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+            PAL_POS sourceBox = gConfig.ScreenLayout.RoleEquipImageBoxes[i];
+            int boxLeft = PalNativeUi_MapVirtualX(
+               PAL_X(sourceBox), gpScreen->w);
+            int boxTop = PalNativeUi_MapVirtualY(
+               PAL_Y(sourceBox), gpScreen->h);
+            int boxRight = PalNativeUi_MapVirtualX(
+               PAL_X(sourceBox) + 50, gpScreen->w);
+            int boxBottom = PalNativeUi_MapVirtualY(
+               PAL_Y(sourceBox) + 49, gpScreen->h);
+            int textWidth = PAL_TextWidth(PAL_GetWord(w));
+            int textX = boxLeft + (boxRight - boxLeft - textWidth) / 2;
+            int textY = max(boxTop, boxBottom - PAL_FontHeight());
+
+            textX = max(0, min(textX, gpScreen->w - textWidth));
+            PAL_DrawText(PAL_GetWord(w), PAL_XY(textX, textY),
+               STATUS_COLOR_EQUIPMENT, TRUE, FALSE, FALSE);
+#else
             PAL_POS position = PAL_UIGameFbpPosition(
                gConfig.ScreenLayout.RoleEquipNames[i]);
-#if defined(PAL_EXTREME_TWO_SCREENS)
-            offset = PAL_TextWidth(PAL_GetWord(w));
-            if (PAL_X(position) + offset > gpScreen->w)
-            {
-               offset = gpScreen->w - PAL_X(position) - offset;
-            }
-            else
-            {
-               offset = 0;
-            }
-#else
             offset = PAL_WordWidth(w) * 16;
             if (PAL_X(position) + offset > 320)
             {
@@ -2146,19 +2288,20 @@ PAL_PlayerStatus(
             {
                offset = 0;
             }
-#endif
             {
                int index = &gConfig.ScreenLayout.RoleEquipNames[i] - gConfig.ScreenLayoutArray;
                BOOL fShadow = (gConfig.ScreenLayoutFlag[index] & DISABLE_SHADOW) ? FALSE : TRUE;
                BOOL fUse8x8Font = (gConfig.ScreenLayoutFlag[index] & USE_8x8_FONT) ? TRUE : FALSE;
                PAL_DrawText(PAL_GetWord(w), PAL_XY_OFFSET(position, offset, 0), STATUS_COLOR_EQUIPMENT, fShadow, FALSE, fUse8x8Font);
             }
+#endif
          }
       }
 
       //
       // Draw the text labels
       //
+#if !defined(PAL_EXTREME_TWO_SCREENS)
       for (i = 0; i < sizeof(labels0) / sizeof(int); i++)
       {
          int index = labels1[i];
@@ -2179,11 +2322,70 @@ PAL_PlayerStatus(
                gConfig.ScreenLayout.RoleStatusLabels[i]),
             MENUITEM_COLOR, fShadow, FALSE, fUse8x8Font);
       }
+#else
+      for (i = 0; i < 4; i++)
+      {
+         PAL_DrawText(PAL_GetWord(labels0[i]),
+            PAL_XY(2, 2 + i * 13), MENUITEM_COLOR,
+            TRUE, FALSE, FALSE);
+      }
+      for (i = 0; i < 5; i++)
+      {
+         PAL_DrawText(PAL_GetWord(labels[i]),
+            PAL_XY(2, 54 + i * 13), MENUITEM_COLOR,
+            TRUE, FALSE, FALSE);
+      }
+#endif
 
       PAL_DrawText(PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[iPlayerRole]),
+#if defined(PAL_EXTREME_TWO_SCREENS)
+         PAL_XY(nativePortraitX +
+            (nativePortraitWidth - PAL_TextWidth(PAL_GetWord(
+               gpGlobals->g.PlayerRoles.rgwName[iPlayerRole]))) / 2, 2),
+#else
          PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleName),
+#endif
          MENUITEM_COLOR_CONFIRMED, TRUE, FALSE, FALSE);
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+      PAL_DrawNumber(gpGlobals->Exp.rgPrimaryExp[iPlayerRole].wExp, 5,
+         PAL_XY(nativeStatsWidth - 26, 5),
+         kNumColorYellow, kNumAlignRight);
+      PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwLevel[iPlayerRole], 2,
+         PAL_XY(nativeStatsWidth - 8, 18),
+         kNumColorYellow, kNumAlignRight);
+      PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[iPlayerRole], 4,
+         PAL_XY(nativeStatsWidth - 46, 31),
+         kNumColorYellow, kNumAlignRight);
+      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
+         gpScreen, PAL_XY(nativeStatsWidth - 25, 31));
+      PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[iPlayerRole], 4,
+         PAL_XY(nativeStatsWidth - 20, 31),
+         kNumColorBlue, kNumAlignRight);
+      PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[iPlayerRole], 4,
+         PAL_XY(nativeStatsWidth - 46, 44),
+         kNumColorYellow, kNumAlignRight);
+      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
+         gpScreen, PAL_XY(nativeStatsWidth - 25, 44));
+      PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[iPlayerRole], 4,
+         PAL_XY(nativeStatsWidth - 20, 44),
+         kNumColorBlue, kNumAlignRight);
+      PAL_DrawNumber(PAL_GetPlayerAttackStrength(iPlayerRole), 4,
+         PAL_XY(nativeStatsWidth - 20, 57),
+         kNumColorYellow, kNumAlignRight);
+      PAL_DrawNumber(PAL_GetPlayerMagicStrength(iPlayerRole), 4,
+         PAL_XY(nativeStatsWidth - 20, 70),
+         kNumColorYellow, kNumAlignRight);
+      PAL_DrawNumber(PAL_GetPlayerDefense(iPlayerRole), 4,
+         PAL_XY(nativeStatsWidth - 20, 83),
+         kNumColorYellow, kNumAlignRight);
+      PAL_DrawNumber(PAL_GetPlayerDexterity(iPlayerRole), 4,
+         PAL_XY(nativeStatsWidth - 20, 96),
+         kNumColorYellow, kNumAlignRight);
+      PAL_DrawNumber(PAL_GetPlayerFleeRate(iPlayerRole), 4,
+         PAL_XY(nativeStatsWidth - 20, 109),
+         kNumColorYellow, kNumAlignRight);
+#else
       //
       // Draw the stats
       //
@@ -2243,6 +2445,7 @@ PAL_PlayerStatus(
       PAL_DrawNumber(PAL_GetPlayerFleeRate(iPlayerRole), 4,
          PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleStatusValues[4]),
          kNumColorYellow, kNumAlignRight);
+#endif
 
       //
       // Draw all poisons
@@ -2317,60 +2520,67 @@ PAL_ItemUseMenuDrawNative(
    int i;
    int role = gpGlobals->rgParty[iSelectedPlayer].wPlayerRole;
    LPCBITMAPRLE image;
+   const int leftWidth = max(52, gpScreen->w / 3);
+   const int labelX = leftWidth;
+   const int valueRight = gpScreen->w - 8;
+   const int currentRight = valueRight - 38;
+   const int slashX = valueRight - 34;
+   const int row = PAL_FontHeight() + 2;
 
-   PAL_CreateBoxWithShadow(PAL_XY(2, 0), 5, 11, 0, FALSE, 0);
+   PAL_CreateBoxWithShadow(PAL_XY(2, 0), 5,
+      max(1, (gpScreen->w - 18) / 16), 0, FALSE, 0);
 
    for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
    {
       PAL_DrawText(PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[
-         gpGlobals->rgParty[i].wPlayerRole]), PAL_XY(12, 10 + 12 * i),
+         gpGlobals->rgParty[i].wPlayerRole]), PAL_XY(8, 8 + row * i),
          i == iSelectedPlayer ? bSelectedColor : MENUITEM_COLOR,
          TRUE, FALSE, FALSE);
    }
 
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_LEVEL), PAL_XY(80, 8),
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_LEVEL), PAL_XY(labelX, 8),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwLevel[role], 4,
-      PAL_XY(198, 12), kNumColorYellow, kNumAlignRight);
+      PAL_XY(valueRight - 18, 12), kNumColorYellow, kNumAlignRight);
 
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_HP), PAL_XY(80, 20),
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_HP), PAL_XY(labelX, 20),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[role], 4,
-      PAL_XY(134, 24), kNumColorYellow, kNumAlignRight);
+      PAL_XY(currentRight - 18, 24), kNumColorYellow, kNumAlignRight);
    PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-      gpScreen, PAL_XY(160, 24));
+      gpScreen, PAL_XY(slashX, 24));
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[role], 4,
-      PAL_XY(172, 24), kNumColorBlue, kNumAlignRight);
+      PAL_XY(valueRight - 18, 24), kNumColorBlue, kNumAlignRight);
 
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_MP), PAL_XY(80, 32),
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_MP), PAL_XY(labelX, 32),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[role], 4,
-      PAL_XY(134, 36), kNumColorYellow, kNumAlignRight);
+      PAL_XY(currentRight - 18, 36), kNumColorYellow, kNumAlignRight);
    PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-      gpScreen, PAL_XY(160, 36));
+      gpScreen, PAL_XY(slashX, 36));
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[role], 4,
-      PAL_XY(172, 36), kNumColorBlue, kNumAlignRight);
+      PAL_XY(valueRight - 18, 36), kNumColorBlue, kNumAlignRight);
 
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_ATTACKPOWER), PAL_XY(80, 44),
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_ATTACKPOWER), PAL_XY(labelX, 44),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(PAL_GetPlayerAttackStrength(role), 4,
-      PAL_XY(198, 48), kNumColorYellow, kNumAlignRight);
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_MAGICPOWER), PAL_XY(80, 56),
+      PAL_XY(valueRight - 18, 48), kNumColorYellow, kNumAlignRight);
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_MAGICPOWER), PAL_XY(labelX, 56),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(PAL_GetPlayerMagicStrength(role), 4,
-      PAL_XY(198, 60), kNumColorYellow, kNumAlignRight);
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_RESISTANCE), PAL_XY(80, 68),
+      PAL_XY(valueRight - 18, 60), kNumColorYellow, kNumAlignRight);
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_RESISTANCE), PAL_XY(labelX, 68),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(PAL_GetPlayerDefense(role), 4,
-      PAL_XY(198, 72), kNumColorYellow, kNumAlignRight);
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_DEXTERITY), PAL_XY(80, 80),
+      PAL_XY(valueRight - 18, 72), kNumColorYellow, kNumAlignRight);
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_DEXTERITY), PAL_XY(labelX, 80),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(PAL_GetPlayerDexterity(role), 4,
-      PAL_XY(198, 84), kNumColorYellow, kNumAlignRight);
-   PAL_DrawText(PAL_GetWord(STATUS_LABEL_FLEERATE), PAL_XY(80, 92),
+      PAL_XY(valueRight - 18, 84), kNumColorYellow, kNumAlignRight);
+   PAL_DrawText(PAL_GetWord(STATUS_LABEL_FLEERATE), PAL_XY(labelX, 92),
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(PAL_GetPlayerFleeRate(role), 4,
-      PAL_XY(198, 96), kNumColorYellow, kNumAlignRight);
+      PAL_XY(valueRight - 18, 96), kNumColorYellow, kNumAlignRight);
 
    PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ITEMBOX),
       gpScreen, PAL_XY(8, 63));
@@ -2380,9 +2590,9 @@ PAL_ItemUseMenuDrawNative(
    {
       PAL_RLEBlitToSurface(image, gpScreen, PAL_XY(16, 70));
    }
-   PAL_DrawText(PAL_GetWord(wItem), PAL_XY(80, 108),
+   PAL_DrawText(PAL_GetWord(wItem), PAL_XY(labelX, 108),
       STATUS_COLOR_EQUIPMENT, TRUE, FALSE, FALSE);
-   PAL_DrawNumber(iAmount, 2, PAL_XY(198, 112),
+   PAL_DrawNumber(iAmount, 2, PAL_XY(valueRight - 6, 112),
       kNumColorCyan, kNumAlignRight);
 }
 #endif
@@ -2658,7 +2868,8 @@ PAL_BuyMenu_OnItemChange(
 --*/
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   const SDL_Rect      rect = {0, 0, PAL_BUYMENU_NATIVE_INFO_WIDTH, 135};
+   const PAL_BUYMENU_NATIVE_LAYOUT layout = PAL_BuyMenuNativeLayout();
+   const SDL_Rect      rect = {0, 0, layout.info_width, gpScreen->h};
 #else
    const SDL_Rect      rect = {20, 8, 300, 175};
 #endif
@@ -2673,7 +2884,12 @@ PAL_BuyMenu_OnItemChange(
    // Prepare item bakcground box pos
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   x = 18, y = 0;
+   {
+      LPCBITMAPRLE item_box = PAL_SpriteGetFrame(
+         gpSpriteUI, SPRITENUM_ITEMBOX);
+      x = max(0, (layout.info_width - PAL_RLEGetWidth(item_box)) / 2);
+      y = 0;
+   }
 #else
    x = 40, y = 8;
 #endif
@@ -2692,7 +2908,7 @@ PAL_BuyMenu_OnItemChange(
    // Prepare item pos
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   x = 26, y = 7;
+   x += 8, y += 7;
 #else
    x = 48, y = 15;
 #endif
@@ -2746,8 +2962,10 @@ PAL_BuyMenu_OnItemChange(
    // Prepare inventory quantities pos
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   x = 0, y = 65;
-   PAL_CreateSingleLineBoxWithShadow(PAL_XY(x, y), 5, FALSE, 0);
+   x = 0;
+   y = max(0, gpScreen->h - (PAL_FontHeight() * 2 + 20));
+   PAL_CreateBoxWithShadow(PAL_XY(x, y), 1,
+      max(1, (layout.info_width - 16) / 16), 0, FALSE, 0);
 #else
    x = 20, y = 100;
 
@@ -2761,7 +2979,8 @@ PAL_BuyMenu_OnItemChange(
 #endif
    PAL_DrawText(PAL_GetWord(BUYMENU_LABEL_CURRENT), PAL_XY(x + 10, y + 10), 0, FALSE, FALSE, FALSE);
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   PAL_DrawNumber(n, 6, PAL_XY(x + 55, y + 15), kNumColorYellow, kNumAlignRight);
+   PAL_DrawNumber(n, 6, PAL_XY(layout.info_width - 34, y + 13),
+      kNumColorYellow, kNumAlignRight);
 #else
    PAL_DrawNumber(n, 6, PAL_XY(x + 49, y + 15), kNumColorYellow, kNumAlignRight);
 #endif
@@ -2770,8 +2989,7 @@ PAL_BuyMenu_OnItemChange(
    // Prepare inventory quantities pos
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   x = 0, y = 100;
-   PAL_CreateSingleLineBoxWithShadow(PAL_XY(x, y), 5, FALSE, 0);
+   y += PAL_FontHeight() + 4;
 #else
    x = 20, y = 141;
 
@@ -2785,7 +3003,9 @@ PAL_BuyMenu_OnItemChange(
 #endif
    PAL_DrawText(PAL_GetWord(CASH_LABEL), PAL_XY(x + 10, y + 10), 0, FALSE, FALSE, FALSE);
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   PAL_DrawNumber(gpGlobals->dwCash, 6, PAL_XY(x + 55, y + 15), kNumColorYellow, kNumAlignRight);
+   PAL_DrawNumber(gpGlobals->dwCash, 6,
+      PAL_XY(layout.info_width - 34, y + 13),
+      kNumColorYellow, kNumAlignRight);
 #else
    PAL_DrawNumber(gpGlobals->dwCash, 6, PAL_XY(x + 49, y + 15), kNumColorYellow, kNumAlignRight);
 #endif
@@ -2817,6 +3037,9 @@ PAL_BuyMenu(
    MENUITEM        rgMenuItem[MAX_STORE_ITEM];
    int             i, y;
    WORD            w;
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   const PAL_BUYMENU_NATIVE_LAYOUT layout = PAL_BuyMenuNativeLayout();
+#endif
 
    //
    // create the menu items
@@ -2834,9 +3057,8 @@ PAL_BuyMenu(
       rgMenuItem[i].wNumWord = gpGlobals->g.lprgStore[wStoreNum].rgwItems[i];
       rgMenuItem[i].fEnabled = TRUE;
 #if defined(PAL_EXTREME_TWO_SCREENS)
-      rgMenuItem[i].pos = PAL_XY(PAL_BUYMENU_NATIVE_NAME_X,
-         PAL_BUYMENU_NATIVE_NAME_Y +
-            i * PAL_BUYMENU_NATIVE_ROW_HEIGHT);
+      rgMenuItem[i].pos = PAL_XY(layout.name_x,
+         layout.name_y + i * layout.row_height);
 #else
       rgMenuItem[i].pos = PAL_XY(150, y);
 #endif

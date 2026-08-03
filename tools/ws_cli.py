@@ -221,6 +221,47 @@ def save_screenshot(payload: bytes, output: Path) -> tuple[int, int]:
     return width, height
 
 
+def tap_key(client: WsClient, key: str, hold_ms: int = 50) -> None:
+    parse_json_response(client.command({"cmd": "input", "key": key, "action": "down"}))
+    if hold_ms:
+        time.sleep(hold_ms / 1000.0)
+    parse_json_response(client.command({"cmd": "input", "key": key, "action": "up"}))
+
+
+def wait_for_state(
+    client: WsClient,
+    predicate: Any,
+    timeout: float,
+    description: str,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    while True:
+        state = parse_json_response(client.command({"cmd": "status"}))
+        if predicate(state):
+            return state
+        if time.monotonic() >= deadline:
+            raise WsError(f"timed out waiting for {description}")
+        time.sleep(0.05)
+
+
+def dismiss_active_dialogue(client: WsClient, timeout: float) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    quiet_since: float | None = None
+    while True:
+        state = parse_json_response(client.command({"cmd": "status"}))
+        now = time.monotonic()
+        if state.get("dialog"):
+            tap_key(client, "enter", 20)
+            quiet_since = None
+        elif quiet_since is None:
+            quiet_since = now
+        elif now - quiet_since >= 2.0:
+            return state
+        if now >= deadline:
+            raise WsError("could not dismiss the active dialogue")
+        time.sleep(0.05)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -284,6 +325,11 @@ def build_parser() -> argparse.ArgumentParser:
     shop = commands.add_parser("shop", help="open a real buy menu from field gameplay")
     shop.add_argument("store", type=int)
 
+    ui = commands.add_parser("ui", help="open a real gameplay UI from field gameplay")
+    ui.add_argument(
+        "name", choices=("main", "status", "items", "magic", "save", "confirm")
+    )
+
     battle = commands.add_parser("battle", help="start a real battle from field gameplay")
     battle.add_argument("team", type=int)
     battle.add_argument(
@@ -292,6 +338,24 @@ def build_parser() -> argparse.ArgumentParser:
     battle.add_argument(
         "--auto", action="store_true", help="enable auto battle after entering"
     )
+
+    sop = commands.add_parser(
+        "sop-capture",
+        help="capture the reachable gameplay UI review SOP from a running field game",
+    )
+    sop.add_argument("output_dir", type=Path)
+    sop.add_argument("--dialog-script", type=int, default=7739)
+    sop.add_argument("--dialog-event", type=int, default=113)
+    sop.add_argument(
+        "--inventory-script",
+        type=int,
+        default=9551,
+        help="real item-grant script used before the item screenshot; 0 disables it",
+    )
+    sop.add_argument("--shop", type=int, default=0)
+    sop.add_argument("--battle", type=int, default=0)
+    sop.add_argument("--battlefield", type=int, default=3)
+    sop.add_argument("--settle-ms", type=int, default=150)
     return parser
 
 
@@ -353,18 +417,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise WsError("--delay-ms and --hold-ms must not be negative")
                 for index, key in enumerate(args.keys):
                     if args.action == "tap":
-                        parse_json_response(
-                            client.command(
-                                {"cmd": "input", "key": key, "action": "down"}
-                            )
-                        )
-                        if args.hold_ms:
-                            time.sleep(args.hold_ms / 1000.0)
-                        parse_json_response(
-                            client.command(
-                                {"cmd": "input", "key": key, "action": "up"}
-                            )
-                        )
+                        tap_key(client, key, args.hold_ms)
                     else:
                         parse_json_response(
                             client.command(
@@ -399,6 +452,11 @@ def main(argv: list[str] | None = None) -> int:
                     client.command({"cmd": "shop", "store": args.store})
                 )
                 print(json.dumps(response, ensure_ascii=False, indent=2, sort_keys=True))
+            elif args.command == "ui":
+                response = parse_json_response(
+                    client.command({"cmd": "ui", "name": args.name})
+                )
+                print(json.dumps(response, ensure_ascii=False, indent=2, sort_keys=True))
             elif args.command == "battle":
                 request = {
                     "cmd": "battle",
@@ -411,6 +469,147 @@ def main(argv: list[str] | None = None) -> int:
                     client.command(request)
                 )
                 print(json.dumps(response, ensure_ascii=False, indent=2, sort_keys=True))
+            elif args.command == "sop-capture":
+                if args.settle_ms < 0:
+                    raise WsError("--settle-ms must not be negative")
+                settle = args.settle_ms / 1000.0
+                state = dismiss_active_dialogue(client, args.timeout)
+                if not state.get("main_game") or state.get("battle") or state.get("ui"):
+                    raise WsError("sop-capture requires idle field gameplay")
+                args.output_dir.mkdir(parents=True, exist_ok=True)
+                captures: list[dict[str, Any]] = []
+
+                def capture(name: str) -> None:
+                    output = args.output_dir / name
+                    width, height = save_screenshot(
+                        client.command({"cmd": "screenshot"}), output
+                    )
+                    captures.append({"file": name, "width": width, "height": height})
+
+                def capture_ui(name: str, output: str) -> None:
+                    parse_json_response(client.command({"cmd": "ui", "name": name}))
+                    wait_for_state(
+                        client, lambda value: value.get("ui") == name,
+                        args.timeout, f"{name} UI",
+                    )
+                    if settle:
+                        time.sleep(settle)
+                    capture(output)
+                    tap_key(client, "escape")
+                    wait_for_state(
+                        client, lambda value: value.get("ui") == "",
+                        args.timeout, f"{name} UI to close",
+                    )
+
+                capture_ui("main", "04_main_menu.png")
+                dismiss_active_dialogue(client, args.timeout)
+                capture("01_map.png")
+                capture_ui("status", "05_status.png")
+                if args.inventory_script:
+                    parse_json_response(
+                        client.command(
+                            {
+                                "cmd": "script",
+                                "entry": args.inventory_script,
+                                "event": 0,
+                            }
+                        )
+                    )
+                    time.sleep(max(settle, 0.05))
+                capture_ui("items", "06_items.png")
+
+                parse_json_response(client.command({"cmd": "ui", "name": "magic"}))
+                wait_for_state(
+                    client, lambda value: value.get("ui") == "magic",
+                    args.timeout, "magic UI",
+                )
+                if settle:
+                    time.sleep(settle)
+                capture("07_magic_party.png")
+                if state.get("party_members", 1) > 1:
+                    tap_key(client, "enter")
+                    if settle:
+                        time.sleep(settle)
+                    capture("08_magic_list.png")
+                tap_key(client, "escape")
+                wait_for_state(
+                    client, lambda value: value.get("ui") == "",
+                    args.timeout, "magic UI to close",
+                )
+
+                capture_ui("save", "09_save_slots.png")
+
+                capture_ui("confirm", "10_yes_no.png")
+
+                parse_json_response(client.command({"cmd": "shop", "store": args.shop}))
+                wait_for_state(
+                    client, lambda value: value.get("ui") == "shop",
+                    args.timeout, "shop UI",
+                )
+                if settle:
+                    time.sleep(settle)
+                capture("11_shop.png")
+                tap_key(client, "escape")
+                wait_for_state(
+                    client, lambda value: value.get("ui") == "",
+                    args.timeout, "shop UI to close",
+                )
+
+                parse_json_response(
+                    client.command(
+                        {
+                            "cmd": "script",
+                            "entry": args.dialog_script,
+                            "event": args.dialog_event,
+                        }
+                    )
+                )
+                wait_for_state(
+                    client, lambda value: value.get("script"),
+                    args.timeout, "dialogue script",
+                )
+                if settle:
+                    time.sleep(settle)
+                capture("02_dialogue.png")
+                for _ in range(8):
+                    tap_key(client, "enter", 20)
+                    time.sleep(0.03)
+
+                wait_for_state(
+                    client,
+                    lambda value: value.get("main_game")
+                    and not value.get("battle")
+                    and not value.get("script")
+                    and not value.get("dialog"),
+                    args.timeout,
+                    "field gameplay after dialogue",
+                )
+                parse_json_response(
+                    client.command(
+                        {
+                            "cmd": "battle",
+                            "team": args.battle,
+                            "battlefield": args.battlefield,
+                            "auto": 0,
+                        }
+                    )
+                )
+                wait_for_state(
+                    client,
+                    lambda value: value.get("battle")
+                    and value.get("battle_ui_state", 0) != 0,
+                    args.timeout,
+                    "interactive battle UI",
+                )
+                if settle:
+                    time.sleep(settle)
+                capture("03_battle.png")
+
+                (args.output_dir / "captures.json").write_text(
+                    json.dumps(captures, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                print(f"{args.output_dir}: captured {len(captures)} SOP screen(s)")
             else:
                 raise AssertionError(args.command)
     except (OSError, WsError, ValueError) as exc:

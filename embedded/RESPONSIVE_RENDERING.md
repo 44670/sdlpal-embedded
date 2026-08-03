@@ -21,9 +21,9 @@ and animations are clipped directly into the native framebuffer. The legacy
 world camera remains `gpGlobals->viewport`; any physical centering offset is a
 draw-only translation and must not become a second camera or enter game state.
 
-For the 240x135 Cardputer profile, the current source viewport is
-`(40,45,240,135)`, placing the canonical party anchor `(160,112)` at
-`(120,67)`. Do not scale map tiles, map sprites, or a completed map frame.
+The draw-time offset is calculated in C from the framebuffer dimensions so the
+canonical party anchor `(160,112)` lands at the physical screen center. Do not
+scale map tiles, map sprites, or a completed map frame.
 
 ## Full-canvas game assets
 
@@ -47,6 +47,13 @@ then make only the position or per-material size adjustment required by the
 physical canvas. There is no generic UI scaler, semantic layout solver,
 replacement menu, or second scrolling-screen mode. If a list is taller than
 the screen, scroll the list items rather than the rendered screen.
+
+Each UI draw function calculates its rectangles directly in C from the current
+framebuffer, FONT10 cell size, content count, and actual source material. Keep
+these calculations next to the draw code. Do not use Python to calculate
+coordinates, generated layout headers, resolution-specific coordinate tables,
+or a parallel layout description. The required native canvases are 240x135 and
+160x128, but formulas use the current width and height rather than a board name.
 
 Per-material downsampling must be bounded and deterministic and preserve RLE
 transparency. The current dialogue-portrait fitter preserves aspect ratio;

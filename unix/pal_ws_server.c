@@ -51,9 +51,41 @@ static int pal_ws_pending_battle = -1;
 static BOOL pal_ws_pending_battle_auto;
 static int pal_ws_pending_script = -1;
 static int pal_ws_pending_script_event;
+static BOOL pal_ws_active_script;
 static int pal_ws_pending_shop = -1;
+enum
+{
+   PAL_WS_UI_NONE = 0,
+   PAL_WS_UI_MAIN,
+   PAL_WS_UI_STATUS,
+   PAL_WS_UI_ITEMS,
+   PAL_WS_UI_MAGIC,
+   PAL_WS_UI_SAVE,
+   PAL_WS_UI_CONFIRM,
+   PAL_WS_UI_SHOP
+};
+static int pal_ws_pending_ui = PAL_WS_UI_NONE;
+static int pal_ws_active_ui = PAL_WS_UI_NONE;
 static int pal_ws_last_battle_team = -1;
 static int pal_ws_last_battle_result = -1;
+
+static const char *
+pal_ws_ui_name(
+   int ui
+)
+{
+   switch (ui)
+   {
+   case PAL_WS_UI_MAIN: return "main";
+   case PAL_WS_UI_STATUS: return "status";
+   case PAL_WS_UI_ITEMS: return "items";
+   case PAL_WS_UI_MAGIC: return "magic";
+   case PAL_WS_UI_SAVE: return "save";
+   case PAL_WS_UI_CONFIRM: return "confirm";
+   case PAL_WS_UI_SHOP: return "shop";
+   default: return "";
+   }
+}
 
 static uint32_t
 pal_ws_rotl(
@@ -785,7 +817,7 @@ pal_ws_command(
    }
    if (strcmp(command, "status") == 0)
    {
-      char response[512];
+      char response[560];
       int world_x = 0;
       int world_y = 0;
       if (gpGlobals != NULL)
@@ -802,7 +834,8 @@ pal_ws_command(
          "\"last_battle_result\":%d,\"battle_player\":%d,"
          "\"battle_selected_action\":%d,"
          "\"battle_selected_index\":%d,\"save_slot\":%u,"
-         "\"party_members\":%u}",
+         "\"party_members\":%u,\"ui\":\"%s\",\"script\":%s,"
+         "\"dialog\":%s}",
          gpGlobals == NULL ? 0u : (unsigned)gpGlobals->wNumScene,
          gpGlobals == NULL ? 0u : (unsigned)gpGlobals->wNumBattleField,
          world_x, world_y,
@@ -826,7 +859,10 @@ pal_ws_command(
             g_Battle.UI.iSelectedIndex : -1,
          gpGlobals == NULL ? 0u : (unsigned)gpGlobals->bCurrentSaveSlot,
          gpGlobals == NULL ? 0u :
-            (unsigned)gpGlobals->wMaxPartyMemberIndex + 1u);
+            (unsigned)gpGlobals->wMaxPartyMemberIndex + 1u,
+         pal_ws_ui_name(pal_ws_active_ui),
+         pal_ws_active_script ? "true" : "false",
+         PAL_IsInDialog() ? "true" : "false");
       pal_ws_reply_text(response);
       return;
    }
@@ -923,7 +959,9 @@ pal_ws_command(
       }
       if (gpGlobals == NULL || !gpGlobals->fInMainGame ||
           gpGlobals->fInBattle || pal_ws_pending_battle >= 0 ||
-          pal_ws_pending_script >= 0 || pal_ws_pending_shop >= 0)
+          pal_ws_pending_script >= 0 || pal_ws_pending_shop >= 0 ||
+          pal_ws_pending_ui != PAL_WS_UI_NONE ||
+          pal_ws_active_ui != PAL_WS_UI_NONE || pal_ws_active_script)
       {
          pal_ws_reply_error("load requires idle field gameplay");
          return;
@@ -954,7 +992,9 @@ pal_ws_command(
       }
       if (!gpGlobals->fInMainGame || gpGlobals->fInBattle ||
           pal_ws_pending_battle >= 0 || pal_ws_pending_script >= 0 ||
-          pal_ws_pending_shop >= 0)
+          pal_ws_pending_shop >= 0 ||
+          pal_ws_pending_ui != PAL_WS_UI_NONE ||
+          pal_ws_active_ui != PAL_WS_UI_NONE || pal_ws_active_script)
       {
          pal_ws_reply_error("script trigger requires idle field gameplay");
          return;
@@ -982,7 +1022,9 @@ pal_ws_command(
       }
       if (gpGlobals == NULL || !gpGlobals->fInMainGame ||
           gpGlobals->fInBattle || pal_ws_pending_battle >= 0 ||
-          pal_ws_pending_script >= 0 || pal_ws_pending_shop >= 0)
+          pal_ws_pending_script >= 0 || pal_ws_pending_shop >= 0 ||
+          pal_ws_pending_ui != PAL_WS_UI_NONE ||
+          pal_ws_active_ui != PAL_WS_UI_NONE || pal_ws_active_script)
       {
          pal_ws_reply_error("battle start requires idle field gameplay");
          return;
@@ -1027,7 +1069,9 @@ pal_ws_command(
       }
       if (!gpGlobals->fInMainGame || gpGlobals->fInBattle ||
           pal_ws_pending_battle >= 0 || pal_ws_pending_script >= 0 ||
-          pal_ws_pending_shop >= 0)
+          pal_ws_pending_shop >= 0 ||
+          pal_ws_pending_ui != PAL_WS_UI_NONE ||
+          pal_ws_active_ui != PAL_WS_UI_NONE || pal_ws_active_script)
       {
          pal_ws_reply_error("shop requires idle field gameplay");
          return;
@@ -1035,6 +1079,43 @@ pal_ws_command(
       pal_ws_pending_shop = store;
       snprintf(response, sizeof(response),
          "{\"ok\":true,\"store\":%d}", store);
+      pal_ws_reply_text(response);
+      return;
+   }
+   if (strcmp(command, "ui") == 0)
+   {
+      char name[16];
+      int ui = PAL_WS_UI_NONE;
+      char response[80];
+
+      if (!pal_ws_json_string(json, "name", name, sizeof(name)))
+      {
+         pal_ws_reply_error("missing UI name");
+         return;
+      }
+      if (strcmp(name, "main") == 0) ui = PAL_WS_UI_MAIN;
+      else if (strcmp(name, "status") == 0) ui = PAL_WS_UI_STATUS;
+      else if (strcmp(name, "items") == 0) ui = PAL_WS_UI_ITEMS;
+      else if (strcmp(name, "magic") == 0) ui = PAL_WS_UI_MAGIC;
+      else if (strcmp(name, "save") == 0) ui = PAL_WS_UI_SAVE;
+      else if (strcmp(name, "confirm") == 0) ui = PAL_WS_UI_CONFIRM;
+      else
+      {
+         pal_ws_reply_error("unknown UI name");
+         return;
+      }
+      if (gpGlobals == NULL || !gpGlobals->fInMainGame ||
+          gpGlobals->fInBattle || pal_ws_pending_battle >= 0 ||
+          pal_ws_pending_script >= 0 || pal_ws_pending_shop >= 0 ||
+          pal_ws_pending_ui != PAL_WS_UI_NONE ||
+          pal_ws_active_ui != PAL_WS_UI_NONE || pal_ws_active_script)
+      {
+         pal_ws_reply_error("UI open requires idle field gameplay");
+         return;
+      }
+      pal_ws_pending_ui = ui;
+      snprintf(response, sizeof(response),
+         "{\"ok\":true,\"ui\":\"%s\"}", name);
       pal_ws_reply_text(response);
       return;
    }
@@ -1054,7 +1135,9 @@ pal_ws_command(
          return;
       }
       if (gpGlobals == NULL || !gpGlobals->fInMainGame ||
-          gpGlobals->fInBattle)
+          gpGlobals->fInBattle || pal_ws_pending_ui != PAL_WS_UI_NONE ||
+          pal_ws_active_ui != PAL_WS_UI_NONE ||
+          pal_ws_pending_script >= 0 || pal_ws_active_script)
       {
          pal_ws_reply_error("scene switch requires field gameplay");
          return;
@@ -1334,6 +1417,7 @@ PAL_WsServer_Poll(
       old_auto_battle = gpGlobals->fAutoBattle;
       gpGlobals->fAutoBattle = auto_battle;
       pal_ws_last_battle_team = team;
+      PAL_ClearKeyState();
       pal_ws_last_battle_result = (int)PAL_StartBattle((WORD)team, FALSE);
       gpGlobals->fAutoBattle = old_auto_battle;
    }
@@ -1344,16 +1428,55 @@ PAL_WsServer_Poll(
 
       pal_ws_pending_script = -1;
       pal_ws_pending_script_event = 0;
+      pal_ws_active_script = TRUE;
       (void)PAL_RunTriggerScript((WORD)entry, (WORD)event);
+      pal_ws_active_script = FALSE;
    }
    if (pal_ws_pending_shop >= 0 && pal_ws_output_len == 0)
    {
       int store = pal_ws_pending_shop;
 
       pal_ws_pending_shop = -1;
+      pal_ws_active_ui = PAL_WS_UI_SHOP;
       PAL_MakeScene();
       VIDEO_UpdateScreen(NULL);
       PAL_BuyMenu((WORD)store);
+      pal_ws_active_ui = PAL_WS_UI_NONE;
+      PAL_MakeScene();
+      VIDEO_UpdateScreen(NULL);
+   }
+   if (pal_ws_pending_ui != PAL_WS_UI_NONE && pal_ws_output_len == 0)
+   {
+      int ui = pal_ws_pending_ui;
+
+      pal_ws_pending_ui = PAL_WS_UI_NONE;
+      pal_ws_active_ui = ui;
+      switch (ui)
+      {
+      case PAL_WS_UI_MAIN:
+         PAL_InGameMenu();
+         break;
+      case PAL_WS_UI_STATUS:
+         PAL_PlayerStatus();
+         break;
+      case PAL_WS_UI_ITEMS:
+         (void)PAL_ItemSelectMenu(NULL, 0xffffu);
+         break;
+      case PAL_WS_UI_MAGIC:
+         PAL_InGameMagicMenu();
+         break;
+      case PAL_WS_UI_SAVE:
+         (void)PAL_SaveSlotMenu(gpGlobals->bCurrentSaveSlot);
+         break;
+      case PAL_WS_UI_CONFIRM:
+         (void)PAL_ConfirmMenu();
+         break;
+      default:
+         break;
+      }
+      pal_ws_active_ui = PAL_WS_UI_NONE;
+      PAL_MakeScene();
+      VIDEO_UpdateScreen(NULL);
    }
 }
 
@@ -1367,7 +1490,10 @@ PAL_WsServer_Shutdown(
    pal_ws_pending_battle_auto = FALSE;
    pal_ws_pending_script = -1;
    pal_ws_pending_script_event = 0;
+   pal_ws_active_script = FALSE;
    pal_ws_pending_shop = -1;
+   pal_ws_pending_ui = PAL_WS_UI_NONE;
+   pal_ws_active_ui = PAL_WS_UI_NONE;
    pal_ws_last_battle_team = -1;
    pal_ws_last_battle_result = -1;
    if (pal_ws_listen >= 0)

@@ -42,21 +42,15 @@ RIX_MAME_OPL2_CACHE_OBJ := $(BUILD_DIR)/pal_rix_music_cache.o
 RIX_MAME_OPL2_NOHEAP_OBJ := $(BUILD_DIR)/pal_rix_noheap.o
 RIX_EXPECTED_TRACKS ?= 86
 FONT10_SMOKE := $(BUILD_DIR)/pal_font10_cache_smoke
-NATIVE_UI_HEADER_240 := ../esp32s3/main/generated/pal_native_ui_240x135.h
-NATIVE_UI_HEADER_160 := ../esp32s3/main/generated/pal_native_ui_160x128.h
-NATIVE_UI_240_SMOKE := $(BUILD_DIR)/pal_native_ui_240x135_smoke
-NATIVE_UI_160_SMOKE := $(BUILD_DIR)/pal_native_ui_160x128_smoke
-NATIVE_UI_SMOKES := $(NATIVE_UI_240_SMOKE) $(NATIVE_UI_160_SMOKE)
-NATIVE_UI_240_OBJECT := $(BUILD_DIR)/pal_native_ui_240x135.o
-NATIVE_UI_160_OBJECT := $(BUILD_DIR)/pal_native_ui_160x128.o
-NATIVE_UI_OBJECTS := $(NATIVE_UI_240_OBJECT) $(NATIVE_UI_160_OBJECT)
+NATIVE_UI_SMOKE := $(BUILD_DIR)/pal_native_ui_smoke
+NATIVE_UI_OBJECT := $(BUILD_DIR)/pal_native_ui.o
 NATIVE_UI_FLASH_MAX ?= 8192
 NATIVE_UI_SRAM_MAX ?= 16
 FULLSCREEN_STRETCH_SMOKE := $(BUILD_DIR)/pal_fullscreen_stretch_smoke
 
 .PHONY: all clean check pack-build font10-pack-build font10-check realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check native-ui-check fullscreen-stretch-check
 
-all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK) $(NATIVE_UI_SMOKES) $(FULLSCREEN_STRETCH_SMOKE)
+all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK) $(NATIVE_UI_SMOKE) $(FULLSCREEN_STRETCH_SMOKE)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -79,24 +73,16 @@ $(PACK_CHECK): pal_noheap.c pal_pack.c pal_pack.h ../tools/pal_pack_check.c | $(
 $(FONT10_SMOKE): pal_noheap.c pal_pack.c pal_pack.h pal_font10_cache.c pal_font10_cache.h pal_font10_cache_smoke.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) pal_noheap.c pal_pack.c pal_font10_cache.c pal_font10_cache_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
-$(NATIVE_UI_240_SMOKE): pal_noheap.c pal_native_ui.c pal_native_ui.h pal_native_ui_smoke.c $(NATIVE_UI_HEADER_240) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' pal_noheap.c pal_native_ui.c pal_native_ui_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
+$(NATIVE_UI_SMOKE): pal_noheap.c pal_native_ui.c pal_native_ui.h pal_native_ui_smoke.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) pal_noheap.c pal_native_ui.c pal_native_ui_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
 
-$(NATIVE_UI_160_SMOKE): pal_noheap.c pal_native_ui.c pal_native_ui.h pal_native_ui_smoke.c $(NATIVE_UI_HEADER_160) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' pal_noheap.c pal_native_ui.c pal_native_ui_smoke.c -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(MAP_LDFLAGS)
+$(NATIVE_UI_OBJECT): pal_native_ui.c pal_native_ui.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c pal_native_ui.c -o $@
 
-$(NATIVE_UI_240_OBJECT): pal_native_ui.c pal_native_ui.h $(NATIVE_UI_HEADER_240) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_240x135.h"' -c pal_native_ui.c -o $@
-
-$(NATIVE_UI_160_OBJECT): pal_native_ui.c pal_native_ui.h $(NATIVE_UI_HEADER_160) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I../esp32s3/main -DPAL_NATIVE_UI_GENERATED_HEADER='"generated/pal_native_ui_160x128.h"' -c pal_native_ui.c -o $@
-
-native-ui-check: $(NATIVE_UI_SMOKES) $(NATIVE_UI_OBJECTS)
-	$(NATIVE_UI_240_SMOKE)
-	$(NATIVE_UI_160_SMOKE)
-	! $(NM) -u $(NATIVE_UI_SMOKES) | grep -E 'malloc|calloc|realloc|free'
-	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_native_ui.c --source-file pal_native_ui.h --binary $(NATIVE_UI_240_OBJECT) --max text=$(NATIVE_UI_FLASH_MAX) --max .data=$(NATIVE_UI_SRAM_MAX) --max .bss=$(NATIVE_UI_SRAM_MAX)
-	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_native_ui.c --source-file pal_native_ui.h --binary $(NATIVE_UI_160_OBJECT) --max text=$(NATIVE_UI_FLASH_MAX) --max .data=$(NATIVE_UI_SRAM_MAX) --max .bss=$(NATIVE_UI_SRAM_MAX)
+native-ui-check: $(NATIVE_UI_SMOKE) $(NATIVE_UI_OBJECT)
+	$(NATIVE_UI_SMOKE)
+	! $(NM) -u $(NATIVE_UI_SMOKE) | grep -E 'malloc|calloc|realloc|free'
+	$(PYTHON) -B ../tools/embedded_contract_check.py --root . --fail-on-source --source-file pal_native_ui.c --source-file pal_native_ui.h --binary $(NATIVE_UI_OBJECT) --max text=$(NATIVE_UI_FLASH_MAX) --max .data=$(NATIVE_UI_SRAM_MAX) --max .bss=$(NATIVE_UI_SRAM_MAX)
 
 $(FULLSCREEN_STRETCH_SMOKE): pal_fullscreen_stretch.h ../tests/test_fullscreen_stretch.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I.. ../tests/test_fullscreen_stretch.c -o $@ $(LDFLAGS)
@@ -138,12 +124,11 @@ rix-mame-opl2-check: $(RIX_MAME_OPL2_SMOKE)
 	$(RIX_MAME_OPL2_SMOKE) $(PACK_NOR) $(RIX_EXPECTED_TRACKS)
 	! $(NM) -u -C $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(MAME_OPL2_STATIC_OBJ) | grep -E ' U (malloc|calloc|realloc|free|pow|sin|log)(@[^ ]*)?$$| U operator (new|delete)'
 
-check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(NATIVE_UI_SMOKES) native-ui-check fullscreen-stretch-check
+check: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(NATIVE_UI_SMOKE) native-ui-check fullscreen-stretch-check
 	$(SMOKE)
 	$(MEMORY_SMOKE)
 	SDL_VIDEODRIVER=dummy $(NATIVE_SDL_SMOKE)
-	$(NATIVE_UI_240_SMOKE)
-	$(NATIVE_UI_160_SMOKE)
+	$(NATIVE_UI_SMOKE)
 
 pack-build:
 	$(PYTHON) -B ../tools/pal_pack_build.py $(PAL_DATA_DIR) --out-nor $(PACK_NOR) --out-tf $(PACK_TF) --manifest $(PACK_MANIFEST)

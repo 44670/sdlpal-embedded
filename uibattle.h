@@ -122,6 +122,14 @@ PAL_PlayerInfoBox(
    BOOL            fUpdate
 );
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+PAL_POS
+PAL_PlayerInfoBoxPosition(
+   INT             iPlayerIndex,
+   INT             iPlayerCount
+);
+#endif
+
 VOID
 PAL_BattleUIShowText(
    LPCWSTR       lpszText,

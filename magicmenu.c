@@ -55,9 +55,13 @@ PAL_MagicSelectionMenuUpdate(
    BYTE        bColor;
    WORD        wScript;
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   const int   iItemsPerLine = 2;
-   const int   iItemTextWidth = 112;
-   const int   iLinesPerPage = 4;
+   const int   iItemsPerLine = max(1, gpScreen->w / 112);
+   const int   iItemTextWidth =
+      (gpScreen->w - 16) / iItemsPerLine;
+   const int   iListTextY = 53;
+   const int   iLinesPerPage = min(4,
+      max(1, (gpScreen->h - iListTextY - PAL_FontHeight()) /
+         (PAL_FontHeight() + 8) + 1));
    const int   iCursorXOffset = 5;
 #else
    const int   iItemsPerLine = 32 / gConfig.dwWordLength;
@@ -126,7 +130,8 @@ PAL_MagicSelectionMenuUpdate(
    // Create the box.
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   PAL_CreateBoxWithShadow(PAL_XY(2, 41), iLinesPerPage - 1, 12, 1,
+   PAL_CreateBoxWithShadow(PAL_XY(2, 41), iLinesPerPage - 1,
+      max(1, (gpScreen->w - 18) / 16), 1,
       FALSE, 0);
 #else
    PAL_CreateBoxWithShadow(PAL_XY(10, 42 + iBoxYOffset),
@@ -140,20 +145,30 @@ PAL_MagicSelectionMenuUpdate(
          //
          // Draw the cash amount.
          //
+#if defined(PAL_EXTREME_TWO_SCREENS)
+         PAL_CreateBoxWithShadow(PAL_XY(0, 0), 0,
+            max(1, (gpScreen->w - 16) / 16), 0, FALSE, 0);
+         PAL_DrawText(PAL_GetWord(CASH_LABEL), PAL_XY(8, 10),
+            0, FALSE, FALSE, FALSE);
+         PAL_DrawNumber(gpGlobals->dwCash, 6,
+            PAL_XY(gpScreen->w / 2 - 34, 14),
+            kNumColorYellow, kNumAlignRight);
+#else
          PAL_CreateSingleLineBox(PAL_XY(0, 0), 5, FALSE);
          PAL_DrawText(PAL_GetWord(CASH_LABEL), PAL_XY(10, 10), 0, FALSE, FALSE, FALSE);
          PAL_DrawNumber(gpGlobals->dwCash, 6, PAL_XY(49, 14), kNumColorYellow, kNumAlignRight);
+#endif
 
          //
          // Draw the MP of the selected magic.
          //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-         PAL_CreateSingleLineBox(PAL_XY(138, 0), 5, FALSE);
          PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-            gpScreen, PAL_XY(183, 14));
-         PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4, PAL_XY(153, 14),
+            gpScreen, PAL_XY(gpScreen->w - 50, 14));
+         PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4,
+            PAL_XY(gpScreen->w - 80, 14),
             kNumColorYellow, kNumAlignRight);
-         PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(188, 14),
+         PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(gpScreen->w - 45, 14),
             kNumColorCyan, kNumAlignRight);
 #else
          PAL_CreateSingleLineBox(PAL_XY(215, 0), 5, FALSE);
@@ -187,9 +202,10 @@ PAL_MagicSelectionMenuUpdate(
                }
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-               PAL_DrawText(d, PAL_XY(102, k), DESCTEXT_COLOR,
+               PAL_DrawText(d, PAL_XY(min(86, gpScreen->w / 2), k),
+                  DESCTEXT_COLOR,
                   TRUE, FALSE, FALSE);
-               k += 11;
+               k += PAL_FontHeight() + 1;
 #else
                PAL_DrawText(d, PAL_XY(102, k), DESCTEXT_COLOR,
                   TRUE, FALSE, FALSE);
@@ -208,7 +224,11 @@ PAL_MagicSelectionMenuUpdate(
          //
          // Draw the MP of the selected magic.
          //
+#if defined(PAL_EXTREME_TWO_SCREENS)
+         PAL_CreateSingleLineBoxWithShadow(PAL_XY(0, 0), 4, FALSE, 0);
+#else
          PAL_CreateSingleLineBox(PAL_XY(0, 0), 5, FALSE);
+#endif
          PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
             gpScreen, PAL_XY(45, 14));
          PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4, PAL_XY(15, 14),
@@ -291,7 +311,7 @@ PAL_MagicSelectionMenuUpdate(
          //
 #if defined(PAL_EXTREME_TWO_SCREENS)
          item_x = 8 + k * iItemTextWidth;
-         item_y = 53 + j * 18;
+         item_y = iListTextY + j * (PAL_FontHeight() + 8);
 #else
          item_x = 35 + k * iItemTextWidth;
          item_y = 54 + j * 18 + iBoxYOffset;
@@ -321,7 +341,7 @@ PAL_MagicSelectionMenuUpdate(
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
          j = 8 + j * iItemTextWidth;
-         k = 53 + k * 18;
+         k = iListTextY + k * (PAL_FontHeight() + 8);
 #else
          j = 35 + j * iItemTextWidth;
          k = 54 + k * 18 + iBoxYOffset;

@@ -1,4 +1,4 @@
-# 240x135 gameplay UI review SOP
+# Small-screen gameplay UI review SOP
 
 Apply the rules in [`RESPONSIVE_RENDERING.md`](RESPONSIVE_RENDERING.md).
 Only the allowlisted FBP/RNG materials use the transform in
@@ -41,3 +41,9 @@ Store real gameplay screenshots and session-specific notes under `./tmp_ui/`.
 Use the repeatable controls in
 [`../unix/WEBSOCKET_HARNESS.md`](../unix/WEBSOCKET_HARNESS.md) to reach the
 review state, then stop automation while the human operates it.
+
+Before human review, run the SDL host at both `240x135` and `160x128` and use
+the command-line SOP capture command documented in the harness guide. It writes
+one real-gameplay screenshot for every reachable major screen into a new
+subdirectory of `./tmp_ui/`; it must never synthesize UI images or clean older
+captures.

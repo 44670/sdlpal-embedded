@@ -29,9 +29,11 @@ python3 -B tools/ws_cli.py record ./tmp_ui/battle --battle 0 --battlefield 2 --b
 python3 -B tools/ws_cli.py input enter down enter
 python3 -B tools/ws_cli.py scene 7 --x 1312 --y 288
 python3 -B tools/ws_cli.py load 1
-python3 -B tools/ws_cli.py script 1435
+python3 -B tools/ws_cli.py script 7739 --event 113
 python3 -B tools/ws_cli.py shop 0
-python3 -B tools/ws_cli.py battle 0 --battlefield 2
+python3 -B tools/ws_cli.py battle 0 --battlefield 3
+python3 -B tools/ws_cli.py ui status
+python3 -B tools/ws_cli.py sop-capture ./tmp_ui/review_160x128
 ```
 
 `record` writes a bounded PNG sequence plus per-frame `state.jsonl`; `--battle`
@@ -55,14 +57,39 @@ automation can wait for a real interaction state without guessing frames.
 API used by the engine, so it also observes the Cardputer extreme pager rather
 than a desktop-only resident array.
 
+`ui` opens an ordinary blocking gameplay UI (`main`, `status`, `items`,
+`magic`, `save`, or `confirm`) on the game thread. `sop-capture` requires an
+idle field game, opens those real UIs plus a shop, dialogue, and battle in SOP
+order, and writes their native screenshots and `captures.json` beneath the
+requested `./tmp_ui/` directory. It waits for the interactive battle UI and
+leaves that battle running for human review. The pinned DOS-data default runs
+real script entry 9551 before the item-list capture so the list is not empty;
+pass `--inventory-script 0` for a data set where that entry is not applicable.
+
 The Cardputer native Linux host can compile the same server with
-`CARDPUTER_EXTREME_NATIVE_WS=1`. Its screenshot response is the generated
-physical 1:1 viewport profile (for example 160x128 or 240x135). This flag
+`CARDPUTER_EXTREME_NATIVE_WS=1`. Select its logical framebuffer at launch with
+`--ui-size 240x135` or `--ui-size 160x128`; coordinates and widget extents are
+calculated in C from that actual size. Its screenshot response is the physical
+1:1 framebuffer. This flag
 changes only the host build recipe; the ESP-IDF firmware never contains socket
 code or the screenshot buffer. A visible native host
 (`PAL_CORES3SE_NATIVE_DISPLAY=1`) uses real host time for human interaction;
 headless deterministic runs and explicit replay routes retain the fast virtual
 clock used by automated checks.
+
+For example, after generating the normal Cardputer packs, launch a visible
+160x128 session directly from the command line:
+
+```sh
+make -C esp32s3 CARDPUTER_EXTREME_NATIVE_WS=1 \
+  /tmp/sdlpal-cores3se-native/cardputer_extreme_engine_host
+cd /mnt/hgfs/deb13/PALSteam/PAL_DOS
+PAL_WS_PORT=12345 \
+PAL_CORES3SE_NATIVE_NOR_PACK=/tmp/pal_cardputer_extreme_nor.pak \
+PAL_CORES3SE_NATIVE_TF_PACK=/tmp/pal_cardputer_extreme_tf.pak \
+/tmp/sdlpal-cores3se-native/cardputer_extreme_engine_host \
+  --ui-size 160x128 --scale 4
+```
 
 Scene, script, shop, and battle commands are integration shortcuts. Their screenshots prove
 that the real game loop and renderer handle the requested state, but do not

@@ -387,34 +387,6 @@ def parse_cmake_cache(path: Path) -> dict[str, str]:
     return result
 
 
-def parse_generated_font10_identity(
-    path: Path,
-    errors: list[str],
-) -> tuple[int, int, int] | None:
-    try:
-        source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        errors.append(f"{path}: generated UI header cannot be read: {exc}")
-        return None
-
-    values: list[int] = []
-    for name in (
-        "PAL_NATIVE_UI_GENERATED_FONT_GLYPH_COUNT",
-        "PAL_NATIVE_UI_GENERATED_FONT_IMAGE_BYTES",
-        "PAL_NATIVE_UI_GENERATED_FONT_PAYLOAD_CRC32",
-    ):
-        match = re.search(
-            rf"^#define\s+{name}\s+(0[xX][0-9a-fA-F]+|[0-9]+)u$",
-            source,
-            re.MULTILINE,
-        )
-        if match is None:
-            errors.append(f"{path}: missing generated define {name}")
-            return None
-        values.append(int(match.group(1), 0))
-    return values[0], values[1], values[2]
-
-
 def parse_pack(path: Path, errors: list[str]) -> tuple[int, dict[int, dict[int, tuple[int, int]]]]:
     data = path.read_bytes()
     archives: dict[int, dict[int, tuple[int, int]]] = {}
@@ -520,9 +492,6 @@ def main() -> int:
     compile_commands_path = build / "compile_commands.json"
     flasher_args_path = build / "flasher_args.json"
     partition_bin = build / "partition_table/partition-table.bin"
-    ui_layout_header = (
-        root / "esp32s3/main/generated/pal_native_ui_240x135.h"
-    )
     target_pack_source = (
         root / "esp32s3/engine_bridge/pal_engine_target_packs.c"
     )
@@ -571,7 +540,6 @@ def main() -> int:
         compile_commands_path,
         flasher_args_path,
         partition_bin,
-        ui_layout_header,
         target_pack_source,
         pack_provider_source,
         fullscreen_stretch_header,
@@ -1106,10 +1074,6 @@ def main() -> int:
     if flash_files.get("0x10000") != "sdlpal_cardputer_extreme.bin":
         errors.append("generated flash args do not flash the app at 0x10000")
 
-    font10_identity = parse_generated_font10_identity(
-        ui_layout_header,
-        errors,
-    )
     nor_toc, nor = parse_pack(nor_path, errors)
     tf_toc, tf = parse_pack(tf_path, errors)
     nor_header = nor_path.read_bytes()[:PACK_HEADER_BYTES]
@@ -1136,13 +1100,8 @@ def main() -> int:
                     f"size={size}, format={fmt}"
                 )
     font_chunks = nor.get(ARCHIVE["FONT"], {})
-    if (
-        font10_identity is None
-        or font_chunks.get(1) != (font10_identity[1], 6)
-    ):
-        errors.append(
-            "NOR FONT chunk 1 does not match the generated FONT10 size/format"
-        )
+    if font_chunks.get(1, (0, 0))[0] <= 0 or font_chunks.get(1, (0, 0))[1] != 6:
+        errors.append("NOR FONT chunk 1 is not a non-empty FONT10 payload")
     if nonempty(nor, ARCHIVE["FONT"]) != {1}:
         errors.append("NOR FONT must contain only the FONT10 chunk 1")
     if ARCHIVE["FONT"] in tf:
@@ -1217,19 +1176,14 @@ def main() -> int:
     else:
         font10_summary = manifest_font10.get("font10")
         chunk_summary = manifest_font10.get("pack_chunk")
-        if (
-            font10_identity is None
-            or not isinstance(font10_summary, dict)
-            or (
-                font10_summary.get("glyph_count"),
-                font10_summary.get("bytes"),
-                font10_summary.get("payload_crc32"),
-            )
-            != font10_identity
-        ):
-            errors.append(
-                "manifest FONT10 identity differs from generated UI header"
-            )
+        if not isinstance(font10_summary, dict):
+            errors.append("manifest FONT10 metadata is invalid")
+        else:
+            metrics = font10_summary.get("metrics", {})
+            if metrics.get("cell_width") != 10 or metrics.get("cell_height") != 10:
+                errors.append("manifest FONT10 cell geometry is not 10x10")
+            if font_chunks.get(1, (0, 0))[0] != font10_summary.get("bytes"):
+                errors.append("NOR FONT10 size differs from its manifest")
         if chunk_summary != {
             "archive": "FONT",
             "chunk_id": 1,

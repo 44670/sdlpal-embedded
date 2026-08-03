@@ -22,6 +22,11 @@ disabled by default. The Cardputer native Linux host opts in at build time with
 server. Do not add target-side networking or pull this host-only harness into
 an ESP32 embedded build.
 
+The native SDL host accepts `--ui-size 240x135` and `--ui-size 160x128`.
+`tools/ws_cli.py sop-capture ./tmp_ui/<session>` is the standard automated
+preparation capture; it uses real gameplay UIs and leaves final acceptance to
+the human reviewer.
+
 Use the harness for screenshots, input, state inspection, and scene positioning
 instead of repeating brittle GDB/frame-guess workflows. Host control shortcuts
 are renderer/integration evidence, not proof that a natural story route reaches
@@ -333,26 +338,13 @@ Use the narrowest relevant checks while iterating, then the profile gate.
 ### Native UI/font
 
 ```sh
-PYTHONPATH=tools python3 -B tools/test_pal_native_ui_layout.py
 make -C embedded native-ui-check
-
-make -C esp32s3 \
-  FONT10_ARCHIVE="$FONT10_ARCHIVE" \
-  cardputer-extreme-ui-layout-check
-
 make -C esp32s3 cardputer-extreme-native-view-check
 ```
 
-Generation is an explicit mutation:
-
-```sh
-make -C esp32s3 \
-  FONT10_ARCHIVE="$FONT10_ARCHIVE" \
-  cardputer-extreme-ui-layout-generate
-```
-
-The check target must compare against committed generated headers and must not
-silently rewrite them.
+Responsive coordinates and widget extents are calculated directly in C from
+the current framebuffer size. Do not add Python layout solvers, coordinate
+generators, generated layout headers, or per-resolution constant tables.
 
 ### Cardputer extreme
 

@@ -51,9 +51,12 @@ PAL_ItemSelectMenuUpdate(
    static BYTE        bufImage[2048];
 #endif
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   const int          iItemsPerLine = 2;
-   const int          iItemTextWidth = 112;
-   const int          iLinesPerPage = 2;
+   const int          iItemsPerLine = max(1, gpScreen->w / 112);
+   const int          iItemTextWidth =
+      (gpScreen->w - 16) / iItemsPerLine;
+   const int          iInfoTop = gpScreen->h / 2 + 3;
+   const int          iLinesPerPage =
+      max(1, (iInfoTop - 20) / (PAL_FontHeight() + 8));
    const int          iCursorXOffset = 5;
    const int          iAmountXOffset = iItemTextWidth - 12;
    const int          iPictureYOffset = 0;
@@ -126,7 +129,8 @@ PAL_ItemSelectMenuUpdate(
    // Redraw the box
    //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   PAL_CreateBoxWithShadow(PAL_XY(2, 0), iLinesPerPage - 1, 12, 1,
+   PAL_CreateBoxWithShadow(PAL_XY(2, 0), iLinesPerPage - 1,
+      max(1, (gpScreen->w - 18) / 16), 1,
       FALSE, 0);
 #else
    PAL_CreateBoxWithShadow(PAL_XY(2, 0), iLinesPerPage - 1, 17, 1,
@@ -143,7 +147,7 @@ PAL_ItemSelectMenuUpdate(
    }
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   const int xBase = 2, yBase = 70;
+   const int xBase = 2, yBase = iInfoTop;
 #else
    const int xBase = 0, yBase = 140;
 #endif
@@ -204,7 +208,7 @@ PAL_ItemSelectMenuUpdate(
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
          item_x = 8 + k * iItemTextWidth;
-         item_y = 10 + j * 18;
+         item_y = 10 + j * (PAL_FontHeight() + 8);
 #else
          item_x = 15 + k * iItemTextWidth;
          item_y = 12 + j * 18;
@@ -284,7 +288,7 @@ PAL_ItemSelectMenuUpdate(
          if (d != NULL)
          {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-            k = 72;
+            k = iInfoTop + 2;
 #else
             k = 150 - gConfig.ScreenLayout.ExtraItemDescLines * 16;
 #endif
@@ -300,9 +304,11 @@ PAL_ItemSelectMenuUpdate(
                }
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-               PAL_DrawText(d, PAL_XY(72, k), DESCTEXT_COLOR,
+               PAL_DrawText(d, PAL_XY(
+                  xBase + PAL_RLEGetWidth(PAL_SpriteGetFrame(
+                     gpSpriteUI, SPRITENUM_ITEMBOX)), k), DESCTEXT_COLOR,
                   TRUE, FALSE, FALSE);
-               k += 11;
+               k += PAL_FontHeight() + 1;
 #else
                PAL_DrawText(d, PAL_XY(75, k), DESCTEXT_COLOR,
                   TRUE, FALSE, FALSE);
@@ -354,7 +360,7 @@ PAL_ItemSelectMenuUpdate(
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
             item_x = 8 + k * iItemTextWidth;
-            item_y = 10 + j * 18;
+            item_y = 10 + j * (PAL_FontHeight() + 8);
 #else
             item_x = 15 + k * iItemTextWidth;
             item_y = 12 + j * 18;

@@ -64,16 +64,11 @@ def check_profile(
     layout_path: Path,
 ) -> tuple[list[str], dict[str, int]]:
     errors: list[str] = []
-    ui_layout_header = (
-        Path(__file__).resolve().parent
-        / "main/generated/pal_native_ui_240x135.h"
-    )
     for path in (
         nor_path,
         tf_path,
         manifest_path,
         layout_path,
-        ui_layout_header,
     ):
         if not path.is_file():
             errors.append(f"missing required artifact: {path}")
@@ -102,10 +97,6 @@ def check_profile(
 
     nor_toc, nor = common.parse_pack(nor_path, errors)
     tf_toc, tf = common.parse_pack(tf_path, errors)
-    font10_identity = common.parse_generated_font10_identity(
-        ui_layout_header,
-        errors,
-    )
     if tf_toc > common.TF_TOC_BYTES:
         errors.append(
             f"TF TOC {tf_toc} exceeds SRAM capacity {common.TF_TOC_BYTES}"
@@ -139,12 +130,10 @@ def check_profile(
         errors.append("unexpected TF RNG chapter selection")
     font_chunks = nor.get(common.ARCHIVE["FONT"], {})
     if (
-        font10_identity is None
-        or font_chunks.get(1) != (font10_identity[1], builder.FORMAT_FONT10)
+        font_chunks.get(1, (0, 0))[0] <= 0
+        or font_chunks.get(1, (0, 0))[1] != builder.FORMAT_FONT10
     ):
-        errors.append(
-            "NOR FONT chunk 1 does not match the generated FONT10 size/format"
-        )
+        errors.append("NOR FONT chunk 1 is not a non-empty FONT10 payload")
     if common.nonempty(nor, common.ARCHIVE["FONT"]) != {1}:
         errors.append("NOR FONT must contain only the FONT10 chunk 1")
     if common.ARCHIVE["FONT"] in tf:
@@ -244,19 +233,14 @@ def check_profile(
     else:
         font10_summary = manifest_font10.get("font10")
         chunk_summary = manifest_font10.get("pack_chunk")
-        if (
-            font10_identity is None
-            or not isinstance(font10_summary, dict)
-            or (
-                font10_summary.get("glyph_count"),
-                font10_summary.get("bytes"),
-                font10_summary.get("payload_crc32"),
-            )
-            != font10_identity
-        ):
-            errors.append(
-                "manifest FONT10 identity differs from generated UI header"
-            )
+        if not isinstance(font10_summary, dict):
+            errors.append("manifest FONT10 metadata is invalid")
+        else:
+            metrics = font10_summary.get("metrics", {})
+            if metrics.get("cell_width") != 10 or metrics.get("cell_height") != 10:
+                errors.append("manifest FONT10 cell geometry is not 10x10")
+            if font_chunks.get(1, (0, 0))[0] != font10_summary.get("bytes"):
+                errors.append("NOR FONT10 size differs from its manifest")
         if chunk_summary != {
             "archive": "FONT",
             "chunk_id": 1,

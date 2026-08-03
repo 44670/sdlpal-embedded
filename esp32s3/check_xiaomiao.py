@@ -309,19 +309,6 @@ def config_disabled(config: str, name: str) -> bool:
     ) is not None
 
 
-def generated_define(path: Path, name: str, errors: list[str]) -> int | None:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    match = re.search(
-        rf"^#define\s+{re.escape(name)}\s+(0[xX][0-9a-fA-F]+|[0-9]+)u$",
-        text,
-        re.MULTILINE,
-    )
-    if match is None:
-        errors.append(f"{path}: missing generated define {name}")
-        return None
-    return int(match.group(1), 0)
-
-
 def aligned_total(sizes: list[int]) -> int:
     used = 0
     for size in sizes:
@@ -527,7 +514,6 @@ def main() -> int:
     flasher_path = build / "flasher_args.json"
     partition_bin = build / "partition_table/partition-table.bin"
     main_archive = build / "esp-idf/main/libmain.a"
-    ui_header = root / "esp32s3/main/generated/pal_native_ui_160x128.h"
     board_source = root / "esp32s3/main/xiaomiao_board.c"
     audio_source = root / "esp32s3/main/xiaomiao_audio.c"
     fatfs_stdio_source = (
@@ -563,7 +549,7 @@ def main() -> int:
     required = (
         elf, app_bin, map_path, sdkconfig_path, project_path,
         compile_commands_path, flasher_path, partition_bin, main_archive,
-        full_path, manifest_path, ui_header, board_source,
+        full_path, manifest_path, board_source,
         audio_source, fatfs_stdio_source,
         ending_source, palcommon_source, rngplay_source, pack_provider_source,
         target_packs_source, contract_stubs_source, fullscreen_stretch_header,
@@ -626,7 +612,6 @@ def main() -> int:
     for token in (
         "-DMEM_LEVEL2=1", "-DPAL_EXTREME_TWO_SCREENS=1",
         "-DPAL_TARGET_XIAOMIAO=1", "-DPAL_STORAGE_SD_ONLY=1",
-        "pal_native_ui_160x128.h",
         "-DPAL_NO_RUNTIME_HEAP=1", "-DPAL_NO_RUNTIME_DECOMPRESS=1",
         "-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_NO_SFX=1",
     ):
@@ -989,29 +974,9 @@ def main() -> int:
         ) = audit_sprite_arenas(full, full_image, errors)
 
     font_manifest = manifest.get("font10", {}).get("font10", {})
-    font_defines = {
-        "bytes": "PAL_NATIVE_UI_GENERATED_FONT_IMAGE_BYTES",
-        "glyph_count": "PAL_NATIVE_UI_GENERATED_FONT_GLYPH_COUNT",
-        "payload_crc32": "PAL_NATIVE_UI_GENERATED_FONT_PAYLOAD_CRC32",
-    }
-    for manifest_name, define_name in font_defines.items():
-        generated = generated_define(ui_header, define_name, errors)
-        if generated is not None and font_manifest.get(manifest_name) != generated:
-            errors.append(
-                f"FONT10 manifest {manifest_name}={font_manifest.get(manifest_name)} "
-                f"!= generated header {generated}"
-            )
     metrics = font_manifest.get("metrics", {})
-    for manifest_name, define_name in (
-        ("cell_width", "PAL_NATIVE_UI_GENERATED_FONT_CELL_WIDTH"),
-        ("cell_height", "PAL_NATIVE_UI_GENERATED_FONT_CELL_HEIGHT"),
-    ):
-        generated = generated_define(ui_header, define_name, errors)
-        if generated is not None and metrics.get(manifest_name) != generated:
-            errors.append(
-                f"FONT10 metric {manifest_name}={metrics.get(manifest_name)} "
-                f"!= generated header {generated}"
-            )
+    if metrics.get("cell_width") != 10 or metrics.get("cell_height") != 10:
+        errors.append("FONT10 manifest cell geometry is not 10x10")
     if full is not None:
         font_chunks = full.archives.get(ARCHIVE_IDS["FONT"], [])
         if len(font_chunks) > 1 and font_chunks[1].size != font_manifest.get("bytes"):

@@ -441,40 +441,6 @@ class Font10PackBuilderTests(unittest.TestCase):
             41328,
         )
 
-    @unittest.skipUnless(
-        PAL_DATA_DIR.is_dir()
-        and Path(
-            "/tmp/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip"
-        ).is_file(),
-        "real PAL data or pinned Fusion Pixel archive unavailable",
-    )
-    def test_pack_and_native_layout_use_identical_font10_identity(self) -> None:
-        import pal_native_ui_layout
-
-        release = Path(
-            "/tmp/fusion-pixel-font-10px-monospaced-bdf-v2026.07.20.zip"
-        )
-        pack_chunk, pack_summary = builder.build_font10_archive_chunk(
-            PAL_DATA_DIR,
-            release,
-        )
-        profile = pal_native_ui_layout.build_profile(
-            240,
-            135,
-            pack_summary["font10"],
-        )
-        self.assertEqual(len(pack_chunk.payload), 41328)
-        self.assertEqual(profile.font["image_bytes"], len(pack_chunk.payload))
-        self.assertEqual(
-            profile.font["payload_crc32"],
-            pack_summary["font10"]["payload_crc32"],
-        )
-        self.assertEqual(
-            pack_summary["font10"]["sha256"],
-            hashlib.sha256(pack_chunk.payload).hexdigest(),
-        )
-
-
 class Font10RuntimeViewTests(unittest.TestCase):
     def test_contract_checks_format6_placement_crc_and_budget(self) -> None:
         font10 = sample_font10()

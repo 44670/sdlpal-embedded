@@ -1196,17 +1196,23 @@ PAL_BattleNativeDrawResult(
    VOID
 )
 {
-   PAL_CreateBoxWithShadow(PAL_XY(28, 40), 1, 8, 1, FALSE, 0);
-   PAL_DrawText(PAL_GetWord(BATTLEWIN_GETEXP_LABEL), PAL_XY(38, 52),
+   LPCWSTR dollar = PAL_GetWord(BATTLEWIN_DOLLAR_LABEL);
+   int y = max(0, (gpScreen->h - 54) / 2);
+   int right = gpScreen->w - 6;
+   int dollar_x = right - PAL_TextWidth(dollar);
+
+   PAL_CreateBoxWithShadow(PAL_XY(2, y), 1,
+      max(1, (gpScreen->w - 18) / 16), 1, FALSE, 0);
+   PAL_DrawText(PAL_GetWord(BATTLEWIN_GETEXP_LABEL), PAL_XY(10, y + 12),
       0, FALSE, FALSE, FALSE);
-   PAL_DrawNumber(g_Battle.iExpGained, 5, PAL_XY(164, 55),
+   PAL_DrawNumber(g_Battle.iExpGained, 5, PAL_XY(right - 24, y + 15),
       kNumColorYellow, kNumAlignRight);
-   PAL_DrawText(PAL_GetWord(BATTLEWIN_BEATENEMY_LABEL), PAL_XY(38, 72),
+   PAL_DrawText(PAL_GetWord(BATTLEWIN_BEATENEMY_LABEL), PAL_XY(10, y + 32),
       0, FALSE, FALSE, FALSE);
-   PAL_DrawNumber(g_Battle.iCashGained, 5, PAL_XY(126, 75),
+   PAL_DrawNumber(g_Battle.iCashGained, 5,
+      PAL_XY(max(0, dollar_x - 28), y + 35),
       kNumColorYellow, kNumAlignRight);
-   PAL_DrawText(PAL_GetWord(BATTLEWIN_DOLLAR_LABEL), PAL_XY(164, 72),
-      0, FALSE, FALSE, FALSE);
+   PAL_DrawText(dollar, PAL_XY(dollar_x, y + 32), 0, FALSE, FALSE, FALSE);
 }
 
 static VOID
@@ -1258,7 +1264,8 @@ PAL_BattleNativeDrawLevelUp(
       gpGlobals->g.PlayerRoles.rgwFleeRate[wPlayerRole];
    new_value[7] = PAL_GetPlayerFleeRate(wPlayerRole);
 
-   PAL_CreateBoxWithShadow(PAL_XY(44, 0), 5, 6, 1, FALSE, 0);
+   PAL_CreateBoxWithShadow(PAL_XY(2, 0), 5,
+      max(1, (gpScreen->w - 18) / 16), 1, FALSE, 0);
    PAL_swprintf(title, sizeof(title) / sizeof(WCHAR), L"%ls%ls%ls",
       PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[wPlayerRole]),
       PAL_GetWord(STATUS_LABEL_LEVEL),
@@ -1269,13 +1276,14 @@ PAL_BattleNativeDrawLevelUp(
    for (i = 0; i < 8; i++)
    {
       int y = 23 + i * 12;
-      PAL_DrawText(PAL_GetWord(labels[i]), PAL_XY(52, y),
+      int arrow_x = gpScreen->w / 2;
+      PAL_DrawText(PAL_GetWord(labels[i]), PAL_XY(8, y),
          BATTLEWIN_LEVELUP_LABEL_COLOR, TRUE, FALSE, FALSE);
-      PAL_DrawNumber(old_value[i], 4, PAL_XY(98, y + 3),
+      PAL_DrawNumber(old_value[i], 4, PAL_XY(arrow_x - 26, y + 3),
          kNumColorYellow, kNumAlignRight);
       PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_ARROW),
-         gpScreen, PAL_XY(124, y + 4));
-      PAL_DrawNumber(new_value[i], 4, PAL_XY(140, y + 3),
+         gpScreen, PAL_XY(arrow_x, y + 4));
+      PAL_DrawNumber(new_value[i], 4, PAL_XY(gpScreen->w - 26, y + 3),
          kNumColorYellow, kNumAlignRight);
    }
 }
@@ -1286,9 +1294,11 @@ PAL_BattleNativeDrawGain(
    DWORD         amount
 )
 {
-   PAL_CreateBoxWithShadow(PAL_XY(28, 48), 0, 8, 1, FALSE, 0);
-   PAL_DrawText(text, PAL_XY(38, 60), 0, FALSE, FALSE, FALSE);
-   PAL_DrawNumber(amount, 5, PAL_XY(172, 63),
+   int y = max(0, (gpScreen->h - 36) / 2);
+   PAL_CreateBoxWithShadow(PAL_XY(2, y), 0,
+      max(1, (gpScreen->w - 18) / 16), 1, FALSE, 0);
+   PAL_DrawText(text, PAL_XY(10, y + 12), 0, FALSE, FALSE, FALSE);
+   PAL_DrawNumber(amount, 5, PAL_XY(gpScreen->w - 32, y + 15),
       kNumColorYellow, kNumAlignRight);
 }
 
@@ -1304,14 +1314,16 @@ PAL_BattleNativeDrawLearnMagic(
    LPCWSTR magic = PAL_GetWord(wMagic);
    int total_width = PAL_TextWidth(name) + PAL_TextWidth(label) +
       PAL_TextWidth(magic);
-   int x = (gpScreen->w - total_width) / 2;
+   int x = max(2, (gpScreen->w - total_width) / 2);
+   int y = max(0, (gpScreen->h - 36) / 2);
 
-   PAL_CreateBoxWithShadow(PAL_XY(28, 48), 0, 8, 1, FALSE, 0);
-   PAL_DrawText(name, PAL_XY(x, 60), 0, FALSE, FALSE, FALSE);
+   PAL_CreateBoxWithShadow(PAL_XY(2, y), 0,
+      max(1, (gpScreen->w - 18) / 16), 1, FALSE, 0);
+   PAL_DrawText(name, PAL_XY(x, y + 12), 0, FALSE, FALSE, FALSE);
    x += PAL_TextWidth(name);
-   PAL_DrawText(label, PAL_XY(x, 60), 0, FALSE, FALSE, FALSE);
+   PAL_DrawText(label, PAL_XY(x, y + 12), 0, FALSE, FALSE, FALSE);
    x += PAL_TextWidth(label);
-   PAL_DrawText(magic, PAL_XY(x, 60), 0x1B, FALSE, FALSE, FALSE);
+   PAL_DrawText(magic, PAL_XY(x, y + 12), 0x1B, FALSE, FALSE, FALSE);
 }
 #endif
 
