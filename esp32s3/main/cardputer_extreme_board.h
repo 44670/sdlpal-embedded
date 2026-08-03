@@ -11,27 +11,13 @@ extern "C" {
 /*
  * M5Stack Cardputer ADV (K132-Adv), not the original Cardputer.
  *
- * The generated 240x135 profile owns the LCD and native PAL framebuffer. The
- * board converts it 1:1 without a whole-frame scaler or RGB565 framebuffer.
+ * The 240x135 LCD owns the native PAL framebuffer. The board converts it 1:1
+ * without a whole-frame scaler or RGB565 framebuffer.
  */
-#ifndef PAL_NATIVE_UI_GENERATED_HEADER
-#define PAL_NATIVE_UI_GENERATED_HEADER "generated/pal_native_ui_240x135.h"
-#endif
-#include PAL_NATIVE_UI_GENERATED_HEADER
-
-#if !defined(PAL_NATIVE_UI_SCHEMA_VERSION) || \
-    PAL_NATIVE_UI_SCHEMA_VERSION != 1u
-#error "Cardputer extreme requires the generated native PAL UI contract"
-#endif
-
-#define CARDPUTER_EXTREME_LCD_WIDTH \
-    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
-#define CARDPUTER_EXTREME_LCD_HEIGHT \
-    PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
-#define CARDPUTER_EXTREME_PAL_VIEW_WIDTH \
-    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
-#define CARDPUTER_EXTREME_PAL_VIEW_HEIGHT \
-    PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
+#define CARDPUTER_EXTREME_LCD_WIDTH 240u
+#define CARDPUTER_EXTREME_LCD_HEIGHT 135u
+#define CARDPUTER_EXTREME_PAL_VIEW_WIDTH CARDPUTER_EXTREME_LCD_WIDTH
+#define CARDPUTER_EXTREME_PAL_VIEW_HEIGHT CARDPUTER_EXTREME_LCD_HEIGHT
 #define CARDPUTER_EXTREME_PAL_VIEW_X 0u
 #define CARDPUTER_EXTREME_PAL_VIEW_Y 0u
 #define CARDPUTER_EXTREME_TF_MOUNT_POINT "/sdcard"
@@ -112,7 +98,7 @@ bool CardputerExtreme_FlushArgb8888Texture(
     uint16_t height,
     uint16_t pitch);
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
-/* Draw the cache-rebuild screen directly at the generated display resolution. */
+/* Draw the cache-rebuild screen directly at the physical display resolution. */
 void CardputerExtreme_ShowLoading(uint8_t percent);
 #endif
 void CardputerExtreme_ShowError(const char *line1, const char *line2);

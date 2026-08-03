@@ -14,31 +14,32 @@ static void store_rgb565_be(
     destination[1] = (uint8_t)color;
 }
 
-bool CardputerExtreme_NativeViewValidate(void)
+bool CardputerExtreme_NativeViewValidate(
+    uint16_t width,
+    uint16_t height)
 {
-    return PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH != 0u &&
-        PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT != 0u;
+    return width != 0u && height != 0u;
 }
 
 bool CardputerExtreme_CopyIndexedNativeStrip(
     const uint8_t *pixels,
     uint16_t pitch,
     const uint8_t *palette_rgba,
+    uint16_t width,
+    uint16_t height,
     uint16_t destination_y,
     uint16_t rows,
     uint8_t *rgb565_be,
     size_t rgb565_pitch_bytes,
     size_t rgb565_capacity)
 {
-    size_t row_bytes =
-        (size_t)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH * 2u;
+    size_t row_bytes = (size_t)width * 2u;
     size_t required;
     uint16_t row;
 
     if (pixels == NULL || palette_rgba == NULL || rgb565_be == NULL ||
-        pitch < PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH || rows == 0u ||
-        destination_y >= PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT ||
-        rows > PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT - destination_y ||
+        width == 0u || height == 0u || pitch < width || rows == 0u ||
+        destination_y >= height || rows > height - destination_y ||
         rgb565_pitch_bytes < row_bytes) {
         return false;
     }
@@ -62,7 +63,7 @@ bool CardputerExtreme_CopyIndexedNativeStrip(
         uint16_t destination_x;
 
         for (destination_x = 0;
-             destination_x < PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH;
+             destination_x < width;
              destination_x++) {
             const uint8_t *color = palette_rgba +
                 (size_t)source[destination_x] * 4u;

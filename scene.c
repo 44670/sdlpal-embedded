@@ -561,8 +561,8 @@ PAL_MakeScene(
    g_iSceneDrawOriginX = PAL_X(gpGlobals->viewport);
    g_iSceneDrawOriginY = PAL_Y(gpGlobals->viewport);
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   g_iSceneDrawOriginX += PAL_NATIVE_UI_GENERATED_MAP_VIEW_OFFSET_X;
-   g_iSceneDrawOriginY += PAL_NATIVE_UI_GENERATED_MAP_VIEW_OFFSET_Y;
+   g_iSceneDrawOriginX += 160 - gpScreen->w / 2;
+   g_iSceneDrawOriginY += 112 - gpScreen->h / 2;
 #endif
    rect.x = g_iSceneDrawOriginX;
    rect.y = g_iSceneDrawOriginY;

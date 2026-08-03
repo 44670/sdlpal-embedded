@@ -482,21 +482,14 @@ PalEngineBridge_TargetInitPacks(
       !PalPack_OpenConst(
          &nor_pack, (const uint8_t *)nor_image, nor_pack_size) ||
       !PalFont10_Open(&nor_pack, &font10) ||
-      !PalNativeUi_Font10IdentityMatches(
-         font10.glyph_count,
-         font10.size,
-         font10.payload_crc32,
-         font10.cell_width,
-         font10.cell_height,
-         (int8_t)font10.ascent,
-         (int8_t)font10.descent) ||
+      font10.cell_width != 10u || font10.cell_height != 10u ||
 #endif
       !PalEngineBridge_SetNorPackConst(
          (const uint8_t *)nor_image, nor_pack_size))
    {
       esp_partition_munmap(pal_engine_nor_mmap_handle);
       pal_engine_nor_mmap_handle = 0;
-      ESP_LOGE(TAG, "NOR pack or generated FONT10 validation failed");
+      ESP_LOGE(TAG, "NOR pack or FONT10 geometry validation failed");
       return false;
    }
 #endif

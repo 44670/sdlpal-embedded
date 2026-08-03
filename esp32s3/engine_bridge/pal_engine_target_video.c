@@ -78,8 +78,7 @@ PalEngineBridge_RenderPresentIndexed(
    int64_t flush_us;
 
    if (pixels == NULL || palette_rgba == NULL || pitch < w ||
-       w != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH ||
-       h != PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT)
+       w != PAL_TARGET_LCD_WIDTH || h != PAL_TARGET_LCD_HEIGHT)
    {
       return;
    }
@@ -102,8 +101,8 @@ PalEngineBridge_RenderPresentIndexed(
    {
       ESP_LOGI(TAG,
          "first native indexed present: %ux%u, flush_us=%lld",
-         (unsigned)PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
-         (unsigned)PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
+         (unsigned)PAL_TARGET_LCD_WIDTH,
+         (unsigned)PAL_TARGET_LCD_HEIGHT,
          (long long)flush_us);
       pal_engine_logged_first_present = true;
    }

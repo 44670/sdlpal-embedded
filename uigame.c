@@ -365,8 +365,8 @@ PAL_UIGameNativePosition(
 )
 {
    return PAL_XY(
-      PalNativeUi_MapVirtualX(PAL_X(position)),
-      PalNativeUi_MapVirtualY(PAL_Y(position)));
+      PalNativeUi_MapVirtualX(PAL_X(position), (uint16_t)gpScreen->w),
+      PalNativeUi_MapVirtualY(PAL_Y(position), (uint16_t)gpScreen->h));
 }
 
 static BOOL
@@ -398,7 +398,7 @@ PAL_UIGameNativeToVirtualX(
    INT            x
 )
 {
-   return (x * PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH + gpScreen->w / 2) /
+   return (x * PAL_NATIVE_UI_VIRTUAL_WIDTH + gpScreen->w / 2) /
       gpScreen->w;
 }
 
@@ -407,7 +407,7 @@ PAL_UIGameNativeToVirtualY(
    INT            y
 )
 {
-   return (y * PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT + gpScreen->h / 2) /
+   return (y * PAL_NATIVE_UI_VIRTUAL_HEIGHT + gpScreen->h / 2) /
       gpScreen->h;
 }
 
@@ -636,15 +636,16 @@ PAL_SaveSlotMenu(
    const INT margin = 2;
    const INT number_width = 4 * 6;
    LPCBITMAPRLE left = PAL_SpriteGetFrame(
-      gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_LEFT_FRAME);
+      gpSpriteUI, SPRITENUM_SINGLELINEBOX_LEFT);
    LPCBITMAPRLE middle = PAL_SpriteGetFrame(
-      gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_MIDDLE_FRAME);
+      gpSpriteUI, SPRITENUM_SINGLELINEBOX_MIDDLE);
    LPCBITMAPRLE right = PAL_SpriteGetFrame(
-      gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_RIGHT_FRAME);
+      gpSpriteUI, SPRITENUM_SINGLELINEBOX_RIGHT);
    INT left_width = PAL_RLEGetWidth(left);
    INT middle_width = PAL_RLEGetWidth(middle);
    INT right_width = PAL_RLEGetWidth(right);
-   INT box_height = PalNativeUi_MapVirtualY(PAL_RLEGetHeight(left));
+   INT box_height = PalNativeUi_MapVirtualY(
+      PAL_RLEGetHeight(left), (uint16_t)gpScreen->h);
    INT row_step = (gpScreen->h - margin * 2) / PAL_SAVE_SLOT_COUNT;
    INT label_width = 0;
    INT middle_count = 1;
@@ -665,13 +666,15 @@ PAL_SaveSlotMenu(
       }
    }
    while (PalNativeUi_MapVirtualX(
-             left_width + middle_count * middle_width + right_width) <
+             left_width + middle_count * middle_width + right_width,
+             (uint16_t)gpScreen->w) <
           label_width + number_width + 16)
    {
       middle_count++;
    }
    box_width = PalNativeUi_MapVirtualX(
-      left_width + middle_count * middle_width + right_width);
+      left_width + middle_count * middle_width + right_width,
+      (uint16_t)gpScreen->w);
    box_x = gpScreen->w - margin - box_width;
 
    VIDEO_BackupScreen(gpScreen);
@@ -683,18 +686,18 @@ PAL_SaveSlotMenu(
       INT virtual_y = PAL_UIGameNativeToVirtualY(row_y);
 
       (void)PAL_UIGameBlitMappedSpriteFrame(
-         PAL_NATIVE_UI_GENERATED_SINGLE_LINE_LEFT_FRAME,
+         SPRITENUM_SINGLELINEBOX_LEFT,
          PAL_XY(virtual_x, virtual_y));
       virtual_x += left_width;
       for (j = 0; j < middle_count; j++)
       {
          (void)PAL_UIGameBlitMappedSpriteFrame(
-            PAL_NATIVE_UI_GENERATED_SINGLE_LINE_MIDDLE_FRAME,
+            SPRITENUM_SINGLELINEBOX_MIDDLE,
             PAL_XY(virtual_x, virtual_y));
          virtual_x += middle_width;
       }
       (void)PAL_UIGameBlitMappedSpriteFrame(
-         PAL_NATIVE_UI_GENERATED_SINGLE_LINE_RIGHT_FRAME,
+         SPRITENUM_SINGLELINEBOX_RIGHT,
          PAL_XY(virtual_x, virtual_y));
 
       rgMenuItem[i].wValue = i + 1;
@@ -1137,6 +1140,14 @@ PAL_SystemMenu_OnItemChange(
 }
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
+static INT
+PAL_SystemMenuNativeRowHeight(
+   VOID
+)
+{
+   return PAL_FontHeight() + 8;
+}
+
 static LPBOX
 PAL_SystemMenuCreateNativeBox(
    LPCMENUITEM     rgMenuItem,
@@ -1145,8 +1156,7 @@ PAL_SystemMenuCreateNativeBox(
 )
 {
    return PAL_CreateBoxWithBuffer(
-      PAL_XY(PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_X,
-         PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_Y),
+      PAL_XY(0, 0),
       nVisibleItem - 1,
       PAL_MenuTextMaxWidth(rgMenuItem, nMenuItem) - 1, 0,
       (LPBOX)pal_psram_uigame_system_box,
@@ -1169,9 +1179,8 @@ PAL_SystemMenuDrawNative(
    {
       BYTE color;
       PAL_POS pos = PAL_XY(
-         PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_TEXT_X,
-         PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_TEXT_Y +
-            (i - iTop) * PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_ROW_HEIGHT);
+         13,
+         12 + (i - iTop) * PAL_SystemMenuNativeRowHeight());
 
       if (i == iCurrent)
       {
@@ -1199,7 +1208,7 @@ PAL_ReadSystemMenuNative(
 )
 {
    int current = wDefaultItem < nMenuItem ? wDefaultItem : 0;
-   int visible = PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_VISIBLE_ROWS;
+   int visible = (gpScreen->h - 12) / PAL_SystemMenuNativeRowHeight();
    int top;
 
    if (visible > nMenuItem)
@@ -1245,10 +1254,9 @@ PAL_ReadSystemMenuNative(
          if (rgMenuItem[current].fEnabled)
          {
             PAL_DrawText(PAL_GetWord(rgMenuItem[current].wNumWord),
-               PAL_XY(PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_TEXT_X,
-                  PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_TEXT_Y +
-                     (current - top) *
-                        PAL_NATIVE_UI_GENERATED_SYSTEM_MENU_ROW_HEIGHT),
+               PAL_XY(13,
+                  12 + (current - top) *
+                     PAL_SystemMenuNativeRowHeight()),
                MENUITEM_COLOR_CONFIRMED, FALSE, TRUE, FALSE);
             VIDEO_UpdateScreen(NULL);
             return rgMenuItem[current].wValue;
@@ -1312,9 +1320,7 @@ PAL_SystemMenu(
    WORD                wReturnValue;
    int                 iSlot, i;
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   const SDL_Rect      rect = {0, 0,
-      PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
-      PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT};
+   const SDL_Rect      rect = {0, 0, gpScreen->w, gpScreen->h};
 #else
    const SDL_Rect      rect = {40, 60, 280, 135};
 #endif

@@ -28,10 +28,7 @@
 #define PAL_DETERMINISTIC_EVENT_CODE 0x50445250u
 #define PAL_DETERMINISTIC_LINE_BYTES 128u
 #define PAL_DETERMINISTIC_PNG_MAX_WIDTH 1024u
-#ifdef PAL_EXTREME_TWO_SCREENS
-#define PAL_DETERMINISTIC_LCD_WIDTH PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH
-#define PAL_DETERMINISTIC_LCD_HEIGHT PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT
-#else
+#ifndef PAL_EXTREME_TWO_SCREENS
 #define PAL_DETERMINISTIC_LCD_WIDTH 320u
 #define PAL_DETERMINISTIC_LCD_HEIGHT 240u
 #define PAL_DETERMINISTIC_LCD_Y_OFFSET 20u
@@ -355,8 +352,13 @@ pal_deterministic_write_png(
        gpScreen->w > (int)PAL_DETERMINISTIC_PNG_MAX_WIDTH) {
       return false;
    }
+#ifdef PAL_EXTREME_TWO_SCREENS
+   png_width = gpScreen->w;
+   png_height = gpScreen->h;
+#else
    png_width = lcd_frame ? (int)PAL_DETERMINISTIC_LCD_WIDTH : gpScreen->w;
    png_height = lcd_frame ? (int)PAL_DETERMINISTIC_LCD_HEIGHT : gpScreen->h;
+#endif
    if (png_width > (int)PAL_DETERMINISTIC_PNG_MAX_WIDTH) {
       return false;
    }

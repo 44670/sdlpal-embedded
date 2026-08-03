@@ -16,6 +16,9 @@ static uint8_t pal_native_cardputer_argb[
 static uint8_t pal_native_cardputer_current_key;
 static uint8_t pal_native_cardputer_pending_key;
 
+uint16_t PalNativeHost_LogicalWidth(void);
+uint16_t PalNativeHost_LogicalHeight(void);
+
 /*
  * Host-only board adapter for running the exact Cardputer extreme engine
  * profile through the deterministic harness.  Storage/time/FatFS emulation
@@ -129,20 +132,23 @@ CardputerExtreme_FlushIndexedFramebuffer(
    const uint8_t *palette_rgba
 )
 {
+   const uint16_t width = PalNativeHost_LogicalWidth();
+   const uint16_t height = PalNativeHost_LogicalHeight();
    uint16_t destination_y;
 
    if (pixels == NULL || palette_rgba == NULL ||
-      pitch < PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH)
+      width == 0u || height == 0u || width > CARDPUTER_EXTREME_LCD_WIDTH ||
+      height > CARDPUTER_EXTREME_LCD_HEIGHT || pitch < width)
    {
       return false;
    }
    for (destination_y = 0;
-      destination_y < CARDPUTER_EXTREME_LCD_HEIGHT;
+      destination_y < height;
       destination_y++)
    {
       uint16_t destination_x;
       for (destination_x = 0;
-         destination_x < CARDPUTER_EXTREME_LCD_WIDTH;
+         destination_x < width;
          destination_x++)
       {
          const uint8_t *color;
@@ -150,7 +156,7 @@ CardputerExtreme_FlushIndexedFramebuffer(
          color = palette_rgba +
             (size_t)pixels[(size_t)destination_y * pitch + destination_x] * 4u;
          destination = pal_native_cardputer_argb +
-            ((size_t)destination_y * CARDPUTER_EXTREME_LCD_WIDTH +
+            ((size_t)destination_y * width +
              destination_x) * 4u;
          destination[0] = color[2];
          destination[1] = color[1];
@@ -160,9 +166,9 @@ CardputerExtreme_FlushIndexedFramebuffer(
    }
    return CoreS3Se_FlushArgb8888Texture(
       pal_native_cardputer_argb,
-      CARDPUTER_EXTREME_LCD_WIDTH,
-      CARDPUTER_EXTREME_LCD_HEIGHT,
-      CARDPUTER_EXTREME_LCD_WIDTH * 4u);
+      width,
+      height,
+      width * 4u);
 }
 
 void

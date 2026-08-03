@@ -487,27 +487,9 @@ int PAL_InitFont(const CONFIGURATION *cfg)
     (void)cfg;
 #ifdef PAL_EXTREME_TWO_SCREENS
     pal_contract_font_ready = PalContract_OpenNorPack() &&
-        PalFont10_Open(&pal_contract_nor_pack, &pal_contract_font10);
-#if defined(PAL_EXTREME_CHAPTER_CACHE) || defined(PAL_STORAGE_SD_ONLY)
-    /*
-     * Data-set-independent targets accept the FONT10 subset carried by the
-     * active data pack; only the fixed rendering geometry is an application
-     * ABI.
-     */
-    pal_contract_font_ready = pal_contract_font_ready &&
+        PalFont10_Open(&pal_contract_nor_pack, &pal_contract_font10) &&
         pal_contract_font10.cell_width == 10u &&
         pal_contract_font10.cell_height == 10u;
-#else
-    pal_contract_font_ready = pal_contract_font_ready &&
-        PalNativeUi_Font10IdentityMatches(
-            pal_contract_font10.glyph_count,
-            pal_contract_font10.size,
-            pal_contract_font10.payload_crc32,
-            pal_contract_font10.cell_width,
-            pal_contract_font10.cell_height,
-            pal_contract_font10.ascent,
-            pal_contract_font10.descent);
-#endif
 #else
     pal_contract_font_ready = PalContract_OpenNorPack() &&
         PalFont_Open(&pal_contract_nor_pack, &pal_contract_font);
@@ -560,7 +542,7 @@ int PAL_CharWidth(uint16_t wChar)
         PalFont10_FindGlyph(&pal_contract_font10, wChar, &glyph10)) {
         return glyph10.advance;
     }
-    return PAL_NATIVE_UI_GENERATED_FONT_CELL_WIDTH;
+    return PAL_NATIVE_UI_FONT_WIDTH;
 #endif
     return (wChar < 0x80) ? 8 : 16;
 }
@@ -568,7 +550,7 @@ int PAL_CharWidth(uint16_t wChar)
 int PAL_FontHeight(void)
 {
 #ifdef PAL_EXTREME_TWO_SCREENS
-    return PAL_NATIVE_UI_GENERATED_FONT_CELL_HEIGHT;
+    return PAL_NATIVE_UI_FONT_HEIGHT;
 #endif
     return 16;
 }
@@ -579,7 +561,8 @@ PalContract_NativeResetDefaultDialogLayout(
     void
 )
 {
-    if (!PalNativeUi_GetDialogLayout(
+    if (gpScreen == NULL || !PalNativeUi_GetDialogLayout(
+            (uint16_t)gpScreen->w, (uint16_t)gpScreen->h,
             false, false, &pal_contract_dialog_layout) ||
         pal_contract_dialog_layout.page_lines == 0u ||
         pal_contract_dialog_layout.line_height == 0u) {
@@ -751,10 +734,12 @@ VOID PAL_StartDialogWithOffset(BYTE bDialogLocation, BYTE bFontColor, INT iNumCh
     if (bDialogLocation == kDialogCenter ||
         bDialogLocation == kDialogCenterWindow) {
         if (!PalNativeUi_GetCenterDialogLayout(
+                (uint16_t)gpScreen->w, (uint16_t)gpScreen->h,
                 &pal_contract_dialog_layout)) {
             return;
         }
     } else if (!PalNativeUi_GetDialogLayout(
+            (uint16_t)gpScreen->w, (uint16_t)gpScreen->h,
             bDialogLocation == kDialogLower,
             iNumCharFace > 0,
             &pal_contract_dialog_layout)) {
@@ -992,11 +977,11 @@ PalContract_NativeDrawPopup(
 )
 {
     LPCBITMAPRLE single_left = PAL_SpriteGetFrame(
-        gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_LEFT_FRAME);
+        gpSpriteUI, SPRITENUM_SINGLELINEBOX_LEFT);
     LPCBITMAPRLE single_middle = PAL_SpriteGetFrame(
-        gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_MIDDLE_FRAME);
+        gpSpriteUI, SPRITENUM_SINGLELINEBOX_MIDDLE);
     LPCBITMAPRLE single_right = PAL_SpriteGetFrame(
-        gpSpriteUI, PAL_NATIVE_UI_GENERATED_SINGLE_LINE_RIGHT_FRAME);
+        gpSpriteUI, SPRITENUM_SINGLELINEBOX_RIGHT);
     bool drawn = false;
     int single_left_width;
     int single_middle_width;
@@ -1034,8 +1019,7 @@ PalContract_NativeDrawPopup(
         box_width = single_left_width + single_right_width +
             box_units * single_middle_width;
         box_x = region_x + (region_width - box_width) / 2 + x_offset;
-        box_y = text_y -
-            PAL_NATIVE_UI_GENERATED_DIALOG_POPUP_SINGLE_TEXT_INSET_Y;
+        box_y = text_y - PAL_NATIVE_UI_FONT_HEIGHT;
         draw_x = box_x + (box_width - text_width) / 2;
         (void)PAL_CreateSingleLineBoxWithShadow(
             PAL_XY(box_x, box_y), box_units, FALSE, shadow_offset);
@@ -1198,13 +1182,12 @@ VOID PAL_ShowDialogText(LPCWSTR lpszText)
             return;
         }
 #endif
-        x_offset = pal_contract_dialog_layout.text.x -
-            PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_X;
+        x_offset = pal_contract_dialog_layout.text.x - 4;
         VIDEO_BackupScreen(gpScreen);
         (void)PalContract_NativeDrawPopup(
             lpszText,
             0,
-            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
+            gpScreen->w,
             pal_contract_dialog_layout.text.y,
             x_offset,
             g_TextLib.iDialogShadow);

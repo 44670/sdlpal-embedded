@@ -122,14 +122,7 @@ main(
    PalEngineBridge_ClearPacks();
    if (!PalPack_OpenConst(&nor_pack, nor_image, (uint32_t)st.st_size) ||
       !PalFont10_Open(&nor_pack, &font10) ||
-      !PalNativeUi_Font10IdentityMatches(
-         font10.glyph_count,
-         font10.size,
-         font10.payload_crc32,
-         font10.cell_width,
-         font10.cell_height,
-         (int8_t)font10.ascent,
-         (int8_t)font10.descent) ||
+      font10.cell_width != 10u || font10.cell_height != 10u ||
       !PalEngineBridge_SetNorPackConst(nor_image, (uint32_t)st.st_size) ||
       !PalEngineBridge_SetTfPackReadAt(tf_size, read_at, &tf))
    {

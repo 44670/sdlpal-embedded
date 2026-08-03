@@ -457,7 +457,9 @@ Xiaomiao_FlushIndexedFramebuffer(
             rows = max_rows;
         }
         if (!CardputerExtreme_CopyIndexedNativeStrip(
-                pixels, pitch, palette_rgba, y, rows,
+                pixels, pitch, palette_rgba,
+                XIAOMIAO_LCD_WIDTH, XIAOMIAO_LCD_HEIGHT,
+                y, rows,
                 pal_sram_display_dma, row_bytes,
                 PAL_EXTREME_DISPLAY_DMA_BYTES) ||
             !lcd_send_strip(y, rows)) {

@@ -46,28 +46,24 @@ PAL_BattleRenderPosition(
     */
    if (x >= 0)
    {
-      x = (x * PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH +
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH / 2) /
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH;
+      x = (x * gpScreen->w + PAL_NATIVE_UI_VIRTUAL_WIDTH / 2) /
+         PAL_NATIVE_UI_VIRTUAL_WIDTH;
    }
    else
    {
-      x = -((-x * PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH +
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH / 2) /
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH);
+      x = -((-x * gpScreen->w + PAL_NATIVE_UI_VIRTUAL_WIDTH / 2) /
+         PAL_NATIVE_UI_VIRTUAL_WIDTH);
    }
 
    if (y >= 0)
    {
-      y = (y * PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT +
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT / 2) /
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT;
+      y = (y * gpScreen->h + PAL_NATIVE_UI_VIRTUAL_HEIGHT / 2) /
+         PAL_NATIVE_UI_VIRTUAL_HEIGHT;
    }
    else
    {
-      y = -((-y * PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT +
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT / 2) /
-         PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT);
+      y = -((-y * gpScreen->h + PAL_NATIVE_UI_VIRTUAL_HEIGHT / 2) /
+         PAL_NATIVE_UI_VIRTUAL_HEIGHT);
    }
 
    return PAL_XY(

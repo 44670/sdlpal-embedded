@@ -20,101 +20,104 @@ static PalNativeUiRect local_rect(
 }
 
 bool PalNativeUi_GetDialogLayout(
+    uint16_t screen_width,
+    uint16_t screen_height,
     bool lower,
     bool has_portrait,
     PalNativeUiDialogLayout *out)
 {
-    if (out == NULL) {
+    const uint16_t margin = 4u;
+    const uint16_t line_height = PAL_NATIVE_UI_FONT_HEIGHT;
+    const uint16_t text_height = line_height * 4u;
+    uint16_t portrait_size;
+    int16_t text_y;
+
+    if (out == NULL || screen_width < 80u || screen_height < 64u) {
         return false;
     }
+    portrait_size = (uint16_t)((uint32_t)screen_width * 3u / 10u);
+    if (portrait_size > 64u) {
+        portrait_size = 64u;
+    }
+    if (portrait_size > screen_height - 2u * margin) {
+        portrait_size = (uint16_t)(screen_height - 2u * margin);
+    }
+    text_y = lower ?
+        (int16_t)(screen_height - margin - text_height) :
+        (int16_t)(margin + 12u);
 
     if (lower) {
         out->portrait = local_rect(
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_X,
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_Y,
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_WIDTH,
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_PORTRAIT_HEIGHT);
+            (int16_t)(screen_width - margin - portrait_size),
+            (int16_t)(screen_height - margin - portrait_size),
+            portrait_size,
+            portrait_size);
         if (has_portrait) {
             out->text = local_rect(
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_X,
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_Y,
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_WIDTH,
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_HEIGHT);
+                (int16_t)margin,
+                text_y,
+                (uint16_t)(out->portrait.x - 2 * (int16_t)margin),
+                text_height);
         } else {
             out->text = local_rect(
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_X,
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_Y,
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_WIDTH,
-                PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TEXT_NO_PORTRAIT_HEIGHT);
+                (int16_t)margin,
+                text_y,
+                (uint16_t)(screen_width - 2u * margin),
+                text_height);
         }
-        out->title_x = (int16_t)(has_portrait ?
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X :
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X);
-        out->title_y = PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_Y;
+        out->title_x = (int16_t)(has_portrait ? margin : margin + 8u);
+        out->title_y = (int16_t)(text_y - 12);
     } else {
         out->portrait = local_rect(
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_X,
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_Y,
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_WIDTH,
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_PORTRAIT_HEIGHT);
+            (int16_t)margin,
+            (int16_t)margin,
+            portrait_size,
+            portrait_size);
         if (has_portrait) {
             out->text = local_rect(
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_X,
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_Y,
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_WIDTH,
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_HEIGHT);
+                (int16_t)(margin + portrait_size + 4u),
+                text_y,
+                (uint16_t)(screen_width - portrait_size - 3u * margin),
+                text_height);
         } else {
             out->text = local_rect(
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_X,
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_Y,
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_WIDTH,
-                PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TEXT_NO_PORTRAIT_HEIGHT);
+                (int16_t)margin,
+                text_y,
+                (uint16_t)(screen_width - 2u * margin),
+                text_height);
         }
         out->title_x = (int16_t)(has_portrait ?
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_X :
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X);
-        out->title_y = PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_Y;
+            margin + portrait_size + 4u : margin + 8u);
+        out->title_y = (int16_t)margin;
     }
-    out->line_height = PAL_NATIVE_UI_GENERATED_DIALOG_LINE_HEIGHT;
-    out->page_lines = PAL_NATIVE_UI_GENERATED_DIALOG_PAGE_LINES;
+    out->line_height = (uint8_t)line_height;
+    out->page_lines = 4u;
     return true;
 }
 
 bool PalNativeUi_GetCenterDialogLayout(
+    uint16_t screen_width,
+    uint16_t screen_height,
     PalNativeUiDialogLayout *out)
 {
-    if (out == NULL) {
+    const uint16_t margin = 4u;
+    const uint16_t text_height = PAL_NATIVE_UI_FONT_HEIGHT * 4u;
+
+    if (out == NULL || screen_width < 2u * margin ||
+        screen_height < text_height) {
         return false;
     }
     out->portrait = local_rect(0, 0, 1u, 1u);
     out->text = local_rect(
-        PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_X,
-        PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_Y,
-        PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_WIDTH,
-        PAL_NATIVE_UI_GENERATED_DIALOG_CENTER_TEXT_HEIGHT);
+        (int16_t)margin,
+        (int16_t)((screen_height - text_height) / 2u),
+        (uint16_t)(screen_width - 2u * margin),
+        text_height);
     out->title_x = out->text.x;
     out->title_y = out->text.y;
-    out->line_height = PAL_NATIVE_UI_GENERATED_DIALOG_LINE_HEIGHT;
-    out->page_lines = PAL_NATIVE_UI_GENERATED_DIALOG_PAGE_LINES;
+    out->line_height = PAL_NATIVE_UI_FONT_HEIGHT;
+    out->page_lines = 4u;
     return true;
-}
-
-bool PalNativeUi_Font10IdentityMatches(
-    uint32_t glyph_count,
-    uint32_t image_bytes,
-    uint32_t payload_crc32,
-    uint8_t cell_width,
-    uint8_t cell_height,
-    uint8_t ascent,
-    uint8_t descent)
-{
-    return glyph_count == PAL_NATIVE_UI_GENERATED_FONT_GLYPH_COUNT &&
-        image_bytes == PAL_NATIVE_UI_GENERATED_FONT_IMAGE_BYTES &&
-        payload_crc32 == PAL_NATIVE_UI_GENERATED_FONT_PAYLOAD_CRC32 &&
-        cell_width == PAL_NATIVE_UI_GENERATED_FONT_CELL_WIDTH &&
-        cell_height == PAL_NATIVE_UI_GENERATED_FONT_CELL_HEIGHT &&
-        ascent == PAL_NATIVE_UI_GENERATED_FONT_ASCENT &&
-        descent == PAL_NATIVE_UI_GENERATED_FONT_DESCENT;
 }
 
 bool PalNativeUi_DrawFont10Glyph(
@@ -133,7 +136,7 @@ bool PalNativeUi_DrawFont10Glyph(
         return false;
     }
     for (glyph_y = 0;
-         glyph_y < PAL_NATIVE_UI_GENERATED_FONT_CELL_HEIGHT;
+         glyph_y < PAL_NATIVE_UI_FONT_HEIGHT;
          glyph_y++) {
         uint16_t glyph_x;
         int32_t destination_y = (int32_t)y + glyph_y;
@@ -141,10 +144,10 @@ bool PalNativeUi_DrawFont10Glyph(
             continue;
         }
         for (glyph_x = 0;
-             glyph_x < PAL_NATIVE_UI_GENERATED_FONT_CELL_WIDTH;
+             glyph_x < PAL_NATIVE_UI_FONT_WIDTH;
              glyph_x++) {
             uint32_t bit = (uint32_t)glyph_y *
-                PAL_NATIVE_UI_GENERATED_FONT_CELL_WIDTH + glyph_x;
+                PAL_NATIVE_UI_FONT_WIDTH + glyph_x;
             int32_t destination_x = (int32_t)x + glyph_x;
             if (destination_x >= 0 && destination_x < surface_width &&
                 (bitmap[bit >> 3] & (uint8_t)(0x80u >> (bit & 7u))) != 0u) {
@@ -169,20 +172,16 @@ static int16_t map_virtual_coordinate(
         virtual_extent);
 }
 
-int16_t PalNativeUi_MapVirtualX(int16_t x)
+int16_t PalNativeUi_MapVirtualX(int16_t x, uint16_t screen_width)
 {
     return map_virtual_coordinate(
-        x,
-        PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
-        PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH);
+        x, screen_width, PAL_NATIVE_UI_VIRTUAL_WIDTH);
 }
 
-int16_t PalNativeUi_MapVirtualY(int16_t y)
+int16_t PalNativeUi_MapVirtualY(int16_t y, uint16_t screen_height)
 {
     return map_virtual_coordinate(
-        y,
-        PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
-        PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT);
+        y, screen_height, PAL_NATIVE_UI_VIRTUAL_HEIGHT);
 }
 
 static bool rect_fits_surface(
@@ -401,23 +400,21 @@ bool PalNativeUi_BlitRleMappedIndexed(
     int16_t bottom;
     PalNativeUiRect destination;
 
-    if (surface_width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH ||
-        surface_height != PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT ||
-        !rle_geometry(rle, rle_bytes, &header_offset,
+    if (!rle_geometry(rle, rle_bytes, &header_offset,
             &source_width, &source_height)) {
         return false;
     }
     (void)header_offset;
-    left = PalNativeUi_MapVirtualX(virtual_x);
-    top = PalNativeUi_MapVirtualY(virtual_y);
+    left = PalNativeUi_MapVirtualX(virtual_x, surface_width);
+    top = PalNativeUi_MapVirtualY(virtual_y, surface_height);
     right = map_virtual_coordinate(
         (int32_t)virtual_x + source_width,
-        PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
-        PAL_NATIVE_UI_GENERATED_VIRTUAL_WIDTH);
+        surface_width,
+        PAL_NATIVE_UI_VIRTUAL_WIDTH);
     bottom = map_virtual_coordinate(
         (int32_t)virtual_y + source_height,
-        PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
-        PAL_NATIVE_UI_GENERATED_VIRTUAL_HEIGHT);
+        surface_height,
+        PAL_NATIVE_UI_VIRTUAL_HEIGHT);
     if (right <= left) {
         right = (int16_t)(left + 1);
     }

@@ -47,6 +47,29 @@ static bool pal_native_wrote_screenshot;
 static unsigned pal_native_argb_present_count;
 static png_byte pal_native_png_image[CORES3SE_LCD_WIDTH * CORES3SE_LCD_HEIGHT * 3u];
 
+#if defined(PAL_TARGET_XIAOMIAO)
+static uint16_t pal_native_logical_width = 160u;
+static uint16_t pal_native_logical_height = 128u;
+#elif defined(PAL_TARGET_CARDPUTER_ADV)
+static uint16_t pal_native_logical_width = 240u;
+static uint16_t pal_native_logical_height = 135u;
+#else
+static uint16_t pal_native_logical_width = CORES3SE_LCD_WIDTH;
+static uint16_t pal_native_logical_height = CORES3SE_LCD_HEIGHT;
+#endif
+static unsigned pal_native_display_scale = 2u;
+static bool pal_native_display_requested;
+
+uint16_t PalNativeHost_LogicalWidth(void)
+{
+    return pal_native_logical_width;
+}
+
+uint16_t PalNativeHost_LogicalHeight(void)
+{
+    return pal_native_logical_height;
+}
+
 #if PAL_CORES3SE_NATIVE_ENGINE_HOST && PAL_NATIVE_HAVE_REAL_SDL
 typedef struct PalNativeDisplay {
     void *lib;
@@ -209,12 +232,9 @@ static bool native_display_init(void)
     if (!native_display_load_sdl()) {
         return false;
     }
-    width = strtoul(env_or_default(
-        "PAL_CORES3SE_NATIVE_DISPLAY_WIDTH", "320"), NULL, 0);
-    height = strtoul(env_or_default(
-        "PAL_CORES3SE_NATIVE_DISPLAY_HEIGHT", "240"), NULL, 0);
-    scale = strtoul(env_or_default(
-        "PAL_CORES3SE_NATIVE_DISPLAY_SCALE", "2"), NULL, 0);
+    width = pal_native_logical_width;
+    height = pal_native_logical_height;
+    scale = pal_native_display_scale;
     if (width == 0 || width > CORES3SE_LCD_WIDTH ||
         height == 0 || height > CORES3SE_LCD_HEIGHT ||
         scale == 0 || scale > 8) {
@@ -1094,8 +1114,87 @@ UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t task)
     return 32768u;
 }
 
-int main(void)
+static bool parse_unsigned_arg(const char *text, unsigned long *value)
 {
+    char *end = NULL;
+    unsigned long parsed;
+
+    if (text == NULL || text[0] == '\0' || value == NULL) {
+        return false;
+    }
+    parsed = strtoul(text, &end, 10);
+    if (end == text || *end != '\0') {
+        return false;
+    }
+    *value = parsed;
+    return true;
+}
+
+static bool parse_ui_size(const char *text, uint16_t *width, uint16_t *height)
+{
+    char *end = NULL;
+    unsigned long parsed_width;
+    unsigned long parsed_height;
+
+    if (text == NULL || width == NULL || height == NULL) {
+        return false;
+    }
+    parsed_width = strtoul(text, &end, 10);
+    if (end == text || (*end != 'x' && *end != 'X')) {
+        return false;
+    }
+    parsed_height = strtoul(end + 1, &end, 10);
+    if (*end != '\0' || parsed_width < 80u || parsed_width > 240u ||
+        parsed_height < 64u || parsed_height > 135u) {
+        return false;
+    }
+    *width = (uint16_t)parsed_width;
+    *height = (uint16_t)parsed_height;
+    return true;
+}
+
+static int parse_native_args(int argc, char **argv)
+{
+    int i;
+
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--display") == 0) {
+            pal_native_display_requested = true;
+        } else if (strcmp(argv[i], "--ui-size") == 0 && i + 1 < argc) {
+            if (!parse_ui_size(argv[++i], &pal_native_logical_width,
+                    &pal_native_logical_height)) {
+                fprintf(stderr, "invalid --ui-size (expected WIDTHxHEIGHT, max 240x135)\n");
+                return 2;
+            }
+            pal_native_display_requested = true;
+        } else if (strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
+            unsigned long scale;
+            if (!parse_unsigned_arg(argv[++i], &scale) || scale == 0u || scale > 8u) {
+                fprintf(stderr, "invalid --scale (expected 1..8)\n");
+                return 2;
+            }
+            pal_native_display_scale = (unsigned)scale;
+        } else if (strcmp(argv[i], "--help") == 0) {
+            printf("usage: %s [--display] [--ui-size WIDTHxHEIGHT] [--scale 1..8]\n",
+                argv[0]);
+            return 1;
+        } else {
+            fprintf(stderr, "unknown option: %s\n", argv[i]);
+            return 2;
+        }
+    }
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    int result = parse_native_args(argc, argv);
+    if (result != 0) {
+        return result == 1 ? 0 : result;
+    }
+    if (pal_native_display_requested) {
+        (void)setenv("PAL_CORES3SE_NATIVE_DISPLAY", "1", 1);
+    }
     app_main();
     return 0;
 }

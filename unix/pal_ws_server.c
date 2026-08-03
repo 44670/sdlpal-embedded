@@ -649,7 +649,7 @@ pal_ws_screen_width(
 )
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   return PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH;
+   return gpScreen == NULL ? 0 : gpScreen->w;
 #else
    return gpScreen == NULL ? 0 : gpScreen->w;
 #endif
@@ -661,7 +661,7 @@ pal_ws_screen_height(
 )
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   return PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT;
+   return gpScreen == NULL ? 0 : gpScreen->h;
 #else
    return gpScreen == NULL ? 0 : gpScreen->h;
 #endif
@@ -677,8 +677,8 @@ pal_ws_screen_source(
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
    if (destination_x < 0 || destination_y < 0 ||
-       destination_x >= PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH ||
-       destination_y >= PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT)
+       gpScreen == NULL || destination_x >= gpScreen->w ||
+       destination_y >= gpScreen->h)
    {
       return FALSE;
    }

@@ -3,9 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-static uint8_t mapped_pixels[
-    PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH *
-    PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT];
+static uint8_t mapped_pixels[240u * 135u];
 
 static int fail(const char *message)
 {
@@ -13,7 +11,7 @@ static int fail(const char *message)
     return 1;
 }
 
-int main(void)
+static int check_geometry(uint16_t width, uint16_t height)
 {
     PalNativeUiDialogLayout dialog;
     PalNativeUiRect box = { 0, 0, 2, 2 };
@@ -29,35 +27,32 @@ int main(void)
         13, 14, 15, 16,
     };
 
-    if (!PalNativeUi_GetDialogLayout(false, true, &dialog) ||
+    if (!PalNativeUi_GetDialogLayout(
+            width, height, false, true, &dialog) ||
         dialog.portrait.x >= dialog.text.x ||
         dialog.page_lines != 4u ||
-        (uint32_t)dialog.text.x + dialog.text.width >
-            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH) {
+        (uint32_t)dialog.text.x + dialog.text.width > width) {
         return fail("upper dialogue layout is invalid");
     }
-    if (!PalNativeUi_GetDialogLayout(true, true, &dialog) ||
+    if (!PalNativeUi_GetDialogLayout(
+            width, height, true, true, &dialog) ||
         dialog.text.x >= dialog.portrait.x ||
         dialog.page_lines != 4u ||
-        dialog.title_x !=
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_X) {
+        dialog.title_y >= dialog.text.y) {
         return fail("lower dialogue layout is invalid");
     }
-    if (!PalNativeUi_GetDialogLayout(false, false, &dialog) ||
-        dialog.text.width != PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH - 8u ||
-        dialog.title_x !=
-            PAL_NATIVE_UI_GENERATED_DIALOG_UPPER_TITLE_NO_PORTRAIT_X) {
+    if (!PalNativeUi_GetDialogLayout(
+            width, height, false, false, &dialog) ||
+        dialog.text.width != width - 8u || dialog.title_x != 12) {
         return fail("portrait-free dialogue layout is invalid");
     }
-    if (!PalNativeUi_GetDialogLayout(true, false, &dialog) ||
-        dialog.title_x !=
-            PAL_NATIVE_UI_GENERATED_DIALOG_LOWER_TITLE_NO_PORTRAIT_X) {
+    if (!PalNativeUi_GetDialogLayout(
+            width, height, true, false, &dialog) ||
+        dialog.title_x != 12) {
         return fail("portrait-free lower dialogue title is invalid");
     }
-    if (!PalNativeUi_GetCenterDialogLayout(&dialog) ||
-        dialog.text.height !=
-            PAL_NATIVE_UI_GENERATED_DIALOG_LINE_HEIGHT *
-            PAL_NATIVE_UI_GENERATED_DIALOG_PAGE_LINES) {
+    if (!PalNativeUi_GetCenterDialogLayout(width, height, &dialog) ||
+        dialog.text.height != PAL_NATIVE_UI_FONT_HEIGHT * 4u) {
         return fail("center dialogue layout is invalid");
     }
 
@@ -73,16 +68,14 @@ int main(void)
     memset(mapped_pixels, 0, sizeof(mapped_pixels));
     if (!PalNativeUi_BlitRleMappedIndexed(
             rle, sizeof(rle), mapped_pixels,
-            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
-            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH,
-            PAL_NATIVE_UI_GENERATED_DISPLAY_HEIGHT,
+            width, width, height,
             0, 0, &drawn) ||
         drawn.x != 0 || drawn.y != 0 ||
-        drawn.width != (uint16_t)PalNativeUi_MapVirtualX(4) ||
-        drawn.height != (uint16_t)PalNativeUi_MapVirtualY(4) ||
+        drawn.width != (uint16_t)PalNativeUi_MapVirtualX(4, width) ||
+        drawn.height != (uint16_t)PalNativeUi_MapVirtualY(4, height) ||
         mapped_pixels[0] == 0u ||
         mapped_pixels[(size_t)(drawn.height - 1u) *
-            PAL_NATIVE_UI_GENERATED_DISPLAY_WIDTH + drawn.width - 1u] != 16u) {
+            width + drawn.width - 1u] != 16u) {
         return fail("mapped RLE material mismatch");
     }
 
@@ -97,4 +90,12 @@ int main(void)
     }
 
     return 0;
+}
+
+int main(void)
+{
+    if (check_geometry(240u, 135u) != 0) {
+        return 1;
+    }
+    return check_geometry(160u, 128u);
 }

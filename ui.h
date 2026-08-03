@@ -107,6 +107,9 @@
 #define SELLMENU_LABEL_PRICE               25
 
 #define SPRITENUM_SLASH                    39
+#define SPRITENUM_SINGLELINEBOX_LEFT       44
+#define SPRITENUM_SINGLELINEBOX_MIDDLE     45
+#define SPRITENUM_SINGLELINEBOX_RIGHT      46
 #define SPRITENUM_ITEMBOX                  70
 #define SPRITENUM_CURSOR_YELLOW_UP         66
 #define SPRITENUM_CURSOR_UP                67

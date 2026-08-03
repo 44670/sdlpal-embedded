@@ -192,11 +192,19 @@ VIDEO_Startup(
 #endif
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
+   int native_width = PAL_EXTREME_SCREEN_WIDTH;
+   int native_height = PAL_EXTREME_SCREEN_HEIGHT;
+#if PAL_CORES3SE_NATIVE_ENGINE_HOST
+   extern uint16_t PalNativeHost_LogicalWidth(void);
+   extern uint16_t PalNativeHost_LogicalHeight(void);
+   native_width = PalNativeHost_LogicalWidth();
+   native_height = PalNativeHost_LogicalHeight();
+#endif
    gpScreen = SDL_CreateRGBSurfaceFrom(pal_sram_framebuffer,
-      PAL_EXTREME_SCREEN_WIDTH, PAL_EXTREME_SCREEN_HEIGHT, 8,
+      native_width, native_height, 8,
       PAL_EXTREME_SCREEN_WIDTH, 0, 0, 0, 0);
    gpScreenBak = SDL_CreateRGBSurfaceFrom(pal_sram_aux_framebuffer,
-      PAL_EXTREME_SCREEN_WIDTH, PAL_EXTREME_SCREEN_HEIGHT, 8,
+      native_width, native_height, 8,
       PAL_EXTREME_SCREEN_WIDTH, 0, 0, 0, 0);
    gpPalette = SDL_AllocPalette(256);
    if (gpScreen == NULL || gpScreenBak == NULL || gpPalette == NULL)
