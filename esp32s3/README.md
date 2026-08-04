@@ -187,6 +187,15 @@ fixed 4KB internal-DMA staging buffer because that SPI DMA engine cannot
 transmit the Level2 PSRAM save image directly. ESP32-S3 and Level1 builds keep
 the normal direct FatFS path.
 
+Shared two-screen engine code selects framebuffer storage through
+`pal_target_memory.h`; compile-time guards require that storage geometry match
+the selected LCD. On Xiaomiao, controlled fatal errors stop audio and the game
+task, then draw a black Guru Meditation screen directly through the fixed LCD
+DMA strip. Its const 5x7 font shows the source file/line and application Git
+revision without depending on TF, FONT10, the game framebuffer, or an
+allocator. Uncontrolled CPU exceptions retain ESP-IDF's serial panic report
+and halt instead of rebooting.
+
 ```sh
 make -C esp32s3 xiaomiao-check
 make -C esp32s3 TF_MOUNT=/media/$USER/PALTF xiaomiao-prepare-tf

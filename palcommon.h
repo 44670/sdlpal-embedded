@@ -37,7 +37,7 @@ typedef DWORD           PAL_POS;
 typedef struct tagTRIGGERRANGE { PAL_POS rgPos[13]; } TRIGGERRANGE;
 #endif
 
-#define PAL_XY(x, y)    (PAL_POS)(((((WORD)(y)) << 16) & 0xFFFF0000) | (((WORD)(x)) & 0xFFFF))
+#define PAL_XY(x, y)    (PAL_POS)((((DWORD)(WORD)(y)) << 16) | (DWORD)(WORD)(x))
 #define PAL_X(xy)       (SHORT)((xy) & 0xFFFF)
 #define PAL_Y(xy)       (SHORT)(((xy) >> 16) & 0xFFFF)
 #define PAL_XY_OFFSET(xy, x, y)    (PAL_POS)(((((INT)(y) << 16) & 0xFFFF0000) + ((xy) & 0xFFFF0000)) | (((INT)(x) & 0xFFFF) + ((xy) & 0xFFFF)))

@@ -91,11 +91,23 @@ UTIL_Delay(
    unsigned int ms
 );
 
+#if defined(PAL_TARGET_GURU_MEDITATION)
+void
+PAL_TerminateOnErrorAt(
+   const char *file,
+   unsigned int line,
+   const char *fmt,
+   ...
+);
+#define TerminateOnError(...) \
+   PAL_TerminateOnErrorAt(__FILE__, __LINE__, __VA_ARGS__)
+#else
 void
 TerminateOnError(
    const char *fmt,
    ...
 );
+#endif
 
 #ifdef PAL_NO_RUNTIME_HEAP
 

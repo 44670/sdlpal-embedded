@@ -3,6 +3,9 @@
 #include "pal_memory_profile.h"
 #include "pal_engine_pack_provider.h"
 #include "pal_engine_runtime_metrics.h"
+#if defined(PAL_TARGET_GURU_MEDITATION)
+#include "pal_engine_guru.h"
+#endif
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -57,11 +60,15 @@ app_main(
    PalEngineBridge_LogRuntimeMemory("app-entry");
    if (!PalTarget_Begin())
    {
+#if defined(PAL_TARGET_GURU_MEDITATION)
+      PAL_GURU_MEDITATION("BOARD INIT FAILED");
+#else
       PalTarget_ShowError("BOARD FAIL", "TARGET INIT");
       for (;;)
       {
          vTaskDelay(pdMS_TO_TICKS(1000));
       }
+#endif
    }
    PalTarget_TouchReservedBuffers();
 #if defined(MEM_LEVEL2)
@@ -71,18 +78,26 @@ app_main(
 
    if (!PalEngineBridge_TargetInitPacks())
    {
+#if defined(PAL_TARGET_GURU_MEDITATION)
+      PAL_GURU_MEDITATION("RESOURCE PACK FAILED");
+#else
       PalTarget_ShowError("PACK FAIL", "RESOURCE STORAGE");
       for (;;)
       {
          vTaskDelay(pdMS_TO_TICKS(1000));
       }
+#endif
    }
    PalEngineBridge_LogRuntimeMemory("packs-ready");
 
    (void)PAL_EngineMain(1, argv);
    PalEngineBridge_LogRuntimeMemory("engine-returned");
+#if defined(PAL_TARGET_GURU_MEDITATION)
+   PAL_GURU_MEDITATION("ENGINE RETURNED");
+#else
    for (;;)
    {
       vTaskDelay(pdMS_TO_TICKS(1000));
    }
+#endif
 }

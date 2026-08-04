@@ -422,6 +422,13 @@ PAL_KeyboardEventFilter(
       {
          VIDEO_SaveScreenshot();
       }
+#if defined(PAL_HAS_WS_SERVER)
+      else if (lpEvent->key.keysym.sym == SDLK_F1 && PAL_WsReviewEnabled())
+      {
+         PAL_WsReviewNext();
+         return;
+      }
+#endif
 #if PAL_HAS_GLSL
       else if (lpEvent->key.keysym.sym == SDLK_z)
       {

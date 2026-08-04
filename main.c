@@ -22,6 +22,10 @@
 #include "main.h"
 #include <setjmp.h>
 
+#if defined(PAL_HAS_WS_SERVER)
+#include "unix/pal_ws_server.h"
+#endif
+
 #if defined(PAL_EXTREME_RIX_MUSIC)
 #include "pal_target_board.h"
 #endif
@@ -603,6 +607,9 @@ main(
 
 --*/
 {
+#if defined(PAL_HAS_WS_SERVER)
+   PAL_WsReviewParseArgs(argc, argv);
+#endif
 #if !defined( __EMSCRIPTEN__ ) && !defined(__WINRT__) && !defined(__N3DS__)
    memset(gExecutablePath,0,PAL_MAX_PATH);
    strncpy(gExecutablePath, argv[0], PAL_MAX_PATH);

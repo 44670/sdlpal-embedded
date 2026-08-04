@@ -319,6 +319,31 @@ PAL_BattleFadeScene(
    VOID
 );
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+VOID
+PAL_BattleNativeDrawResult(
+   VOID
+);
+
+VOID
+PAL_BattleNativeDrawLevelUp(
+   WORD                 wPlayerRole,
+   const PLAYERROLES   *original
+);
+
+VOID
+PAL_BattleNativeDrawGain(
+   LPCWSTR       text,
+   DWORD         amount
+);
+
+VOID
+PAL_BattleNativeDrawLearnMagic(
+   WORD          wPlayerRole,
+   WORD          wMagic
+);
+#endif
+
 VOID
 PAL_BattleEnemyEscape(
    VOID

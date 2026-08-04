@@ -38,6 +38,12 @@
 #include <time.h>
 #include <unistd.h>
 
+#if defined(PAL_HAS_WS_SERVER)
+void PAL_WsReviewEnable(void);
+int PAL_WsReviewEnabled(void);
+void PAL_WsReviewNext(void);
+#endif
+
 void app_main(void);
 
 static esp_partition_t pal_native_partition;
@@ -399,6 +405,12 @@ static void native_display_poll(void)
             break;
         case SDL_KEYDOWN:
             if (event.key.repeat == 0) {
+#if defined(PAL_HAS_WS_SERVER)
+                if (event.key.keysym.sym == SDLK_F1 && PAL_WsReviewEnabled()) {
+                    PAL_WsReviewNext();
+                    break;
+                }
+#endif
                 native_display_set_key(event.key.keysym.sym, true);
             }
             break;
@@ -1160,6 +1172,14 @@ static int parse_native_args(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--display") == 0) {
             pal_native_display_requested = true;
+        } else if (strcmp(argv[i], "--ui-test") == 0) {
+#if defined(PAL_HAS_WS_SERVER)
+            PAL_WsReviewEnable();
+            pal_native_display_requested = true;
+#else
+            fprintf(stderr, "--ui-test requires a host build with WebSocket harness support\n");
+            return 2;
+#endif
         } else if (strcmp(argv[i], "--ui-size") == 0 && i + 1 < argc) {
             if (!parse_ui_size(argv[++i], &pal_native_logical_width,
                     &pal_native_logical_height)) {
@@ -1175,7 +1195,7 @@ static int parse_native_args(int argc, char **argv)
             }
             pal_native_display_scale = (unsigned)scale;
         } else if (strcmp(argv[i], "--help") == 0) {
-            printf("usage: %s [--display] [--ui-size WIDTHxHEIGHT] [--scale 1..8]\n",
+            printf("usage: %s [--display] [--ui-test] [--ui-size WIDTHxHEIGHT] [--scale 1..8]\n",
                 argv[0]);
             return 1;
         } else {

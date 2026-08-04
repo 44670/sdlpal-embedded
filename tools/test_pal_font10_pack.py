@@ -428,17 +428,20 @@ class Font10PackBuilderTests(unittest.TestCase):
         self.assertEqual(len(pal), 2571)
         self.assertEqual(
             builder.FONT10_UI_LABELS,
-            {"chapter_complete": "CHAPTER COMPLETE - SUZHOU NEXT"},
+            {
+                "chapter_complete": "CHAPTER COMPLETE - SUZHOU NEXT",
+                "numeric_glyphs": "0123456789/",
+            },
         )
         self.assertEqual(
             with_ui - pal,
-            {ord(ch) for ch in " -LORSTUXZ"},
+            {ord(ch) for ch in " -/LORSTUXZ"},
         )
-        self.assertEqual(len(with_ui), 2581)
+        self.assertEqual(len(with_ui), 2582)
         self.assertEqual(
             font_tool.FONT10_HEADER_BYTES
             + len(with_ui) * font_tool.FONT10_RECORD_BYTES,
-            41328,
+            41344,
         )
 
 class Font10RuntimeViewTests(unittest.TestCase):

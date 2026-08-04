@@ -826,6 +826,21 @@ PAL_BattleMain(
    {
       g_Battle.BattleResult = kBattleResultOnGoing;
    }
+   if (g_Battle.BattleResult == kBattleResultOnGoing &&
+       PAL_CheatAlwaysWinEnabled())
+   {
+      for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
+      {
+         if (g_Battle.rgEnemy[i].wObjectID != 0)
+         {
+            g_Battle.iExpGained += (INT)g_Battle.rgEnemy[i].e.wExp * 8;
+            g_Battle.iCashGained += g_Battle.rgEnemy[i].e.wCash;
+            g_Battle.rgEnemy[i].e.wHealth = 0;
+            g_Battle.rgEnemy[i].wObjectID = 0;
+         }
+      }
+      g_Battle.BattleResult = kBattleResultWon;
+   }
 
 #ifndef PAL_CLASSIC
    PAL_UpdateTimeChargingUnit();
@@ -1191,7 +1206,7 @@ PAL_LoadBattleBackground(
 }
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-static VOID
+VOID
 PAL_BattleNativeDrawResult(
    VOID
 )
@@ -1205,7 +1220,7 @@ PAL_BattleNativeDrawResult(
       max(1, (gpScreen->w - 18) / 16), 1, FALSE, 0);
    PAL_DrawText(PAL_GetWord(BATTLEWIN_GETEXP_LABEL), PAL_XY(10, y + 12),
       0, FALSE, FALSE, FALSE);
-   PAL_DrawNumber(g_Battle.iExpGained, 5, PAL_XY(right - 24, y + 15),
+   PAL_DrawNumber(g_Battle.iExpGained, 6, PAL_XY(right - 29, y + 15),
       kNumColorYellow, kNumAlignRight);
    PAL_DrawText(PAL_GetWord(BATTLEWIN_BEATENEMY_LABEL), PAL_XY(10, y + 32),
       0, FALSE, FALSE, FALSE);
@@ -1215,7 +1230,7 @@ PAL_BattleNativeDrawResult(
    PAL_DrawText(dollar, PAL_XY(dollar_x, y + 32), 0, FALSE, FALSE, FALSE);
 }
 
-static VOID
+VOID
 PAL_BattleNativeDrawLevelUp(
    WORD                 wPlayerRole,
    const PLAYERROLES   *original
@@ -1288,7 +1303,7 @@ PAL_BattleNativeDrawLevelUp(
    }
 }
 
-static VOID
+VOID
 PAL_BattleNativeDrawGain(
    LPCWSTR       text,
    DWORD         amount
@@ -1302,7 +1317,7 @@ PAL_BattleNativeDrawGain(
       kNumColorYellow, kNumAlignRight);
 }
 
-static VOID
+VOID
 PAL_BattleNativeDrawLearnMagic(
    WORD          wPlayerRole,
    WORD          wMagic
@@ -1389,7 +1404,7 @@ PAL_BattleWon(
 	  PAL_DrawText(PAL_GetWord(BATTLEWIN_BEATENEMY_LABEL), PAL_XY(77, 115), 0, FALSE, FALSE, FALSE);
 	  PAL_DrawText(PAL_GetWord(BATTLEWIN_DOLLAR_LABEL), PAL_XY(197, 115), 0, FALSE, FALSE, FALSE);
 
-      PAL_DrawNumber(g_Battle.iExpGained, 5, PAL_XY(182 + ww1, 74), kNumColorYellow, kNumAlignRight);
+      PAL_DrawNumber(g_Battle.iExpGained, 6, PAL_XY(176 + ww1, 74), kNumColorYellow, kNumAlignRight);
       PAL_DrawNumber(g_Battle.iCashGained, 5, PAL_XY(162, 119), kNumColorYellow, kNumAlignMid);
 
       VIDEO_UpdateScreen(&rect);
@@ -1513,27 +1528,23 @@ PAL_BattleWon(
             kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(OrigPlayerRoles.rgwMaxHP[w], 4, PAL_XY(-offsetX+154, 68),
             kNumColorBlue, kNumAlignRight);
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-            PAL_XY(-offsetX+156, 66));
+         PAL_DrawNumberSlash(PAL_XY(-offsetX+156, 66), kNumColorBlue);
          PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[w], 4, PAL_XY(-offsetX+195, 64),
             kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[w], 4, PAL_XY(-offsetX+216, 68),
             kNumColorBlue, kNumAlignRight);
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-            PAL_XY(-offsetX+218, 66));
+         PAL_DrawNumberSlash(PAL_XY(-offsetX+218, 66), kNumColorBlue);
 
          PAL_DrawNumber(OrigPlayerRoles.rgwMP[w], 4, PAL_XY(-offsetX+133, 82),
             kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(OrigPlayerRoles.rgwMaxMP[w], 4, PAL_XY(-offsetX+154, 86),
             kNumColorBlue, kNumAlignRight);
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-            PAL_XY(-offsetX+156, 84));
+         PAL_DrawNumberSlash(PAL_XY(-offsetX+156, 84), kNumColorBlue);
          PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[w], 4, PAL_XY(-offsetX+195, 82),
             kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[w], 4, PAL_XY(-offsetX+216, 86),
             kNumColorBlue, kNumAlignRight);
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-            PAL_XY(-offsetX+218, 84));
+         PAL_DrawNumberSlash(PAL_XY(-offsetX+218, 84), kNumColorBlue);
 
          PAL_DrawNumber(OrigPlayerRoles.rgwAttackStrength[w] + PAL_GetPlayerAttackStrength(w) -
             gpGlobals->g.PlayerRoles.rgwAttackStrength[w],

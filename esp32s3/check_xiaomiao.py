@@ -516,6 +516,20 @@ def main() -> int:
     main_archive = build / "esp-idf/main/libmain.a"
     board_source = root / "esp32s3/main/xiaomiao_board.c"
     audio_source = root / "esp32s3/main/xiaomiao_audio.c"
+    guru_screen_source = root / "esp32s3/main/pal_guru_screen.c"
+    guru_screen_header = root / "esp32s3/main/pal_guru_screen.h"
+    guru_bridge_source = root / "esp32s3/engine_bridge/pal_engine_guru.c"
+    guru_bridge_header = root / "esp32s3/engine_bridge/pal_engine_guru.h"
+    target_memory_header = root / "esp32s3/main/pal_target_memory.h"
+    xiaomiao_memory_header = root / "esp32s3/main/xiaomiao_memory.h"
+    cardputer_memory_header = (
+        root / "esp32s3/main/cardputer_extreme_memory.h"
+    )
+    target_video_source = (
+        root / "esp32s3/engine_bridge/pal_engine_target_video.c"
+    )
+    util_source = root / "util.c"
+    util_header = root / "util.h"
     fatfs_stdio_source = (
         root / "esp32s3/engine_bridge/pal_engine_fatfs_stdio.c"
     )
@@ -527,13 +541,15 @@ def main() -> int:
     contract_stubs_source = root / "unix/embedded_contract_stubs.c"
     fullscreen_stretch_header = root / "embedded/pal_fullscreen_stretch.h"
     fullscreen_rendering_doc = root / "embedded/FULLSCREEN_ASSET_RENDERING.md"
+    video_source = root / "video.c"
+    uigame_source = root / "uigame.c"
     responsive_ui_sources = (
         root / "map.c",
         root / "scene.c",
         root / "battle.c",
         root / "uibattle.c",
         root / "ui.c",
-        root / "uigame.c",
+        uigame_source,
         root / "itemmenu.c",
         root / "magicmenu.c",
     )
@@ -550,10 +566,13 @@ def main() -> int:
         elf, app_bin, map_path, sdkconfig_path, project_path,
         compile_commands_path, flasher_path, partition_bin, main_archive,
         full_path, manifest_path, board_source,
-        audio_source, fatfs_stdio_source,
+        audio_source, guru_screen_source, guru_screen_header,
+        guru_bridge_source, guru_bridge_header, target_memory_header,
+        xiaomiao_memory_header, cardputer_memory_header,
+        target_video_source, util_source, util_header, fatfs_stdio_source,
         ending_source, palcommon_source, rngplay_source, pack_provider_source,
         target_packs_source, contract_stubs_source, fullscreen_stretch_header,
-        fullscreen_rendering_doc,
+        fullscreen_rendering_doc, video_source,
         *responsive_ui_sources,
     )
     for path in required:
@@ -588,6 +607,7 @@ def main() -> int:
         "CONFIG_SPIRAM_SPEED_40M", "CONFIG_SPIRAM_USE_MEMMAP",
         "CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY",
         "CONFIG_SPIRAM_MEMTEST", "CONFIG_FATFS_LFN_NONE",
+        "CONFIG_ESP_SYSTEM_PANIC_PRINT_HALT",
     ):
         if not config_enabled(config, name):
             errors.append(f"sdkconfig must enable {name}")
@@ -596,6 +616,8 @@ def main() -> int:
         "CONFIG_SPIRAM_BANKSWITCH_ENABLE",
         "CONFIG_FATFS_USE_DYN_BUFFERS", "CONFIG_FATFS_PER_FILE_CACHE",
         "CONFIG_FATFS_USE_FASTSEEK",
+        "CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT",
+        "CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT",
     ):
         if not config_disabled(config, name):
             errors.append(f"sdkconfig must leave {name} disabled")
@@ -614,6 +636,7 @@ def main() -> int:
         "-DPAL_TARGET_XIAOMIAO=1", "-DPAL_STORAGE_SD_ONLY=1",
         "-DPAL_NO_RUNTIME_HEAP=1", "-DPAL_NO_RUNTIME_DECOMPRESS=1",
         "-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_NO_SFX=1",
+        "-DPAL_TARGET_GURU_MEDITATION=1",
     ):
         if token not in joined_commands:
             errors.append(f"Xiaomiao compile contract is missing {token}")
@@ -648,6 +671,14 @@ def main() -> int:
     for label, snippet in board_contract.items():
         if snippet not in board_text:
             errors.append(f"Xiaomiao board source is missing {label}: {snippet}")
+    for token in (
+        "Xiaomiao_GuruMeditation(",
+        "PalGuruScreen_BuildText(",
+        "PalGuruScreen_RenderRgb565Strip(",
+        "esp_app_get_description()",
+    ):
+        if token not in board_text:
+            errors.append(f"Xiaomiao Guru display is missing {token!r}")
     reset_pos = board_text.find("pulse_lcd_reset()")
     bus_pos = board_text.find("spi_bus_initialize(")
     if reset_pos < 0 or bus_pos < 0 or reset_pos > bus_pos:
@@ -697,6 +728,86 @@ def main() -> int:
     provider_text = pack_provider_source.read_text(encoding="utf-8")
     target_packs_text = target_packs_source.read_text(encoding="utf-8")
     contract_stubs_text = contract_stubs_source.read_text(encoding="utf-8")
+    video_text = video_source.read_text(encoding="utf-8")
+    uigame_text = uigame_source.read_text(encoding="utf-8")
+    for label, text in (("video", video_text), ("uigame", uigame_text)):
+        if '#include "esp32s3/main/pal_target_memory.h"' not in text:
+            errors.append(
+                f"{label} two-screen storage must include pal_target_memory.h"
+            )
+        if '#include "esp32s3/main/cardputer_extreme_memory.h"' in text:
+            errors.append(
+                f"{label} must not hard-code Cardputer framebuffer geometry"
+            )
+    for path in root.glob("*.c"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for board_header in (
+            "cardputer_extreme_memory.h",
+            "xiaomiao_memory.h",
+            "cores3se_memory.h",
+        ):
+            if board_header in text:
+                errors.append(
+                    f"{path}: shared engine source directly includes "
+                    f"board-specific {board_header}"
+                )
+    target_memory_text = target_memory_header.read_text(encoding="utf-8")
+    if (
+        "PAL_EXTREME_SCREEN_WIDTH != PAL_TARGET_LCD_WIDTH"
+        not in target_memory_text
+        or "PAL_EXTREME_SCREEN_HEIGHT != PAL_TARGET_LCD_HEIGHT"
+        not in target_memory_text
+        or "PAL_EXTREME_SCREEN_BYTES !=" not in target_memory_text
+    ):
+        errors.append(
+            "target memory selector lacks framebuffer/LCD geometry guards"
+        )
+    if "defined(PAL_TARGET_XIAOMIAO)" not in (
+        cardputer_memory_header.read_text(encoding="utf-8")
+    ):
+        errors.append("Cardputer memory header lacks a Xiaomiao mismatch guard")
+    if "defined(PAL_TARGET_CARDPUTER_ADV)" not in (
+        xiaomiao_memory_header.read_text(encoding="utf-8")
+    ):
+        errors.append("Xiaomiao memory header lacks a Cardputer mismatch guard")
+    if (
+        "native_width > PAL_EXTREME_SCREEN_WIDTH" not in video_text
+        or "native_height > PAL_EXTREME_SCREEN_HEIGHT" not in video_text
+    ):
+        errors.append("video startup lacks backing-buffer geometry guards")
+    target_video_text = target_video_source.read_text(encoding="utf-8")
+    if "native indexed present rejected:" not in target_video_text:
+        errors.append("LCD presenter silently drops invalid native geometry")
+
+    guru_screen_text = guru_screen_source.read_text(encoding="utf-8")
+    guru_bridge_text = guru_bridge_source.read_text(encoding="utf-8")
+    util_text = util_source.read_text(encoding="utf-8")
+    util_header_text = util_header.read_text(encoding="utf-8")
+    for token in (
+        "static const uint8_t pal_guru_font_5x7",
+        "PalGuruScreen_RenderRgb565Strip(",
+        '"GURU"',
+        '"MEDITATION"',
+        '"HALTED"',
+    ):
+        if token not in guru_screen_text:
+            errors.append(f"const Guru screen renderer is missing {token!r}")
+    if any(token in guru_screen_text for token in ("malloc(", "calloc(", "free(")):
+        errors.append("Guru screen renderer must not use a runtime allocator")
+    for token in (
+        "AUDIO_CloseDevice();",
+        "PalTarget_GuruMeditation(file, line, reason);",
+        "vTaskSuspend(NULL);",
+    ):
+        if token not in guru_bridge_text:
+            errors.append(f"Guru halt path is missing {token!r}")
+    if (
+        "PAL_TerminateOnErrorAt(__FILE__, __LINE__, __VA_ARGS__)"
+        not in util_header_text
+        or "PalEngineBridge_GuruMeditationAt(file, line, string);"
+        not in util_text
+    ):
+        errors.append("TerminateOnError does not preserve source file and line")
     if (
         "#if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)\n"
         "#define PAL_ENGINE_STRICT_PACK_VALIDATION 1"
@@ -718,10 +829,7 @@ def main() -> int:
         errors.append(
             "Xiaomiao must accept data-pack FONT10 subsets by geometry"
         )
-    if (
-        "defined(PAL_EXTREME_CHAPTER_CACHE) || defined(PAL_STORAGE_SD_ONLY)"
-        not in contract_stubs_text
-    ):
+    if "PalNativeUi_Font10IdentityMatches" in contract_stubs_text:
         errors.append(
             "Xiaomiao font initialization is still bound to a generated data hash"
         )

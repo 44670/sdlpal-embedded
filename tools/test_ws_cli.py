@@ -53,6 +53,10 @@ class WsCliTest(unittest.TestCase):
         )
         self.assertEqual(args.battlefield, 2)
 
+    def test_battle_items_command_has_no_layout_arguments(self) -> None:
+        args = ws_cli.build_parser().parse_args(["battle-items"])
+        self.assertEqual(args.command, "battle-items")
+
     def test_load_command_accepts_save_slots(self) -> None:
         args = ws_cli.build_parser().parse_args(["load", "3"])
         self.assertEqual(args.slot, 3)
@@ -69,6 +73,14 @@ class WsCliTest(unittest.TestCase):
     def test_shop_command_selects_store(self) -> None:
         args = ws_cli.build_parser().parse_args(["shop", "3"])
         self.assertEqual(args.store, 3)
+
+    def test_ui_command_accepts_sell_menu(self) -> None:
+        args = ws_cli.build_parser().parse_args(["ui", "sell"])
+        self.assertEqual(args.name, "sell")
+
+    def test_review_next_command_has_no_layout_arguments(self) -> None:
+        args = ws_cli.build_parser().parse_args(["review-next"])
+        self.assertEqual(args.command, "review-next")
 
     def test_input_tap_has_a_bounded_explicit_hold(self) -> None:
         args = ws_cli.build_parser().parse_args(["input", "down"])

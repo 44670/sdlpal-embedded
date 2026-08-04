@@ -146,12 +146,40 @@ PAL_MagicSelectionMenuUpdate(
          // Draw the cash amount.
          //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-         PAL_CreateBoxWithShadow(PAL_XY(0, 0), 0,
-            max(1, (gpScreen->w - 16) / 16), 0, FALSE, 0);
-         PAL_DrawText(PAL_GetWord(CASH_LABEL), PAL_XY(8, 10),
+         LPCBITMAPRLE boxLeft = PAL_SpriteGetFrame(
+            gpSpriteUI, SPRITENUM_SINGLELINEBOX_LEFT);
+         LPCBITMAPRLE boxMiddle = PAL_SpriteGetFrame(
+            gpSpriteUI, SPRITENUM_SINGLELINEBOX_MIDDLE);
+         LPCBITMAPRLE boxRight = PAL_SpriteGetFrame(
+            gpSpriteUI, SPRITENUM_SINGLELINEBOX_RIGHT);
+         INT boxFixedWidth = PAL_RLEGetWidth(boxLeft) +
+            PAL_RLEGetWidth(boxRight);
+         INT boxMiddleWidth = max(1, PAL_RLEGetWidth(boxMiddle));
+         INT cashFieldWidth = PAL_CharWidth(L'0') * 6;
+         INT mpFieldWidth = PAL_CharWidth(L'0') * 4;
+         INT slashWidth = PAL_CharWidth(L'/');
+         INT cashContentWidth = 4 + PAL_TextWidth(PAL_GetWord(CASH_LABEL)) +
+            2 + cashFieldWidth + 4;
+         INT mpContentWidth = mpFieldWidth + 2 + slashWidth + 2 +
+            mpFieldWidth;
+         INT cashColumns = max(0, (cashContentWidth - boxFixedWidth +
+            boxMiddleWidth - 1) / boxMiddleWidth);
+         INT mpColumns = max(0, (mpContentWidth + 8 - boxFixedWidth +
+            boxMiddleWidth - 1) / boxMiddleWidth);
+         INT cashBoxWidth = boxFixedWidth + cashColumns * boxMiddleWidth;
+         INT mpBoxWidth = boxFixedWidth + mpColumns * boxMiddleWidth;
+         INT mpBoxX = max(cashBoxWidth + 2, gpScreen->w - mpBoxWidth);
+         INT mpExpressionX = mpBoxX +
+            (mpBoxWidth - mpContentWidth) / 2;
+
+         PAL_CreateSingleLineBoxWithShadow(
+            PAL_XY(0, 0), cashColumns, FALSE, 0);
+         PAL_CreateSingleLineBoxWithShadow(
+            PAL_XY(mpBoxX, 0), mpColumns, FALSE, 0);
+         PAL_DrawText(PAL_GetWord(CASH_LABEL), PAL_XY(4, 10),
             0, FALSE, FALSE, FALSE);
          PAL_DrawNumber(gpGlobals->dwCash, 6,
-            PAL_XY(gpScreen->w / 2 - 34, 14),
+            PAL_XY(cashBoxWidth - cashFieldWidth - 4, 10),
             kNumColorYellow, kNumAlignRight);
 #else
          PAL_CreateSingleLineBox(PAL_XY(0, 0), 5, FALSE);
@@ -163,17 +191,18 @@ PAL_MagicSelectionMenuUpdate(
          // Draw the MP of the selected magic.
          //
 #if defined(PAL_EXTREME_TWO_SCREENS)
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-            gpScreen, PAL_XY(gpScreen->w - 50, 14));
+         PAL_DrawNumberSlash(PAL_XY(
+            mpExpressionX + mpFieldWidth + 2, 10),
+            kNumColorYellow);
          PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4,
-            PAL_XY(gpScreen->w - 80, 14),
+            PAL_XY(mpExpressionX, 10),
             kNumColorYellow, kNumAlignRight);
-         PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(gpScreen->w - 45, 14),
+         PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(
+            mpExpressionX + mpFieldWidth + 2 + slashWidth + 2, 10),
             kNumColorCyan, kNumAlignRight);
 #else
          PAL_CreateSingleLineBox(PAL_XY(215, 0), 5, FALSE);
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-            gpScreen, PAL_XY(260, 14));
+         PAL_DrawNumberSlash(PAL_XY(260, 14), kNumColorYellow);
          PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4, PAL_XY(230, 14),
             kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(265, 14), kNumColorCyan, kNumAlignRight);
@@ -229,8 +258,7 @@ PAL_MagicSelectionMenuUpdate(
 #else
          PAL_CreateSingleLineBox(PAL_XY(0, 0), 5, FALSE);
 #endif
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-            gpScreen, PAL_XY(45, 14));
+         PAL_DrawNumberSlash(PAL_XY(45, 14), kNumColorYellow);
          PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4, PAL_XY(15, 14),
             kNumColorYellow, kNumAlignRight);
          PAL_DrawNumber(g_wPlayerMP, 4, PAL_XY(50, 14), kNumColorCyan, kNumAlignRight);
@@ -258,8 +286,8 @@ PAL_MagicSelectionMenuUpdate(
       // Draw the MP of the selected magic.
       //
       PAL_CreateSingleLineBox(PAL_XY(0, 0), PAL_X(gConfig.ScreenLayout.MagicMPDescLines), FALSE);
-      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-          gpScreen, gConfig.ScreenLayout.MagicMPSlashPos);
+      PAL_DrawNumberSlash(gConfig.ScreenLayout.MagicMPSlashPos,
+         kNumColorYellow);
       PAL_DrawNumber(rgMagicItem[g_iCurrentItem].wMP, 4, gConfig.ScreenLayout.MagicMPNeededPos,
           kNumColorYellow, kNumAlignRight);
       PAL_DrawNumber(g_wPlayerMP, 4, gConfig.ScreenLayout.MagicMPCurrentPos, kNumColorCyan, kNumAlignRight);

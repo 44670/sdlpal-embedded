@@ -37,6 +37,12 @@ PAL_OpeningMenu(
    VOID
 );
 
+/* Host review entry: cancellation never starts a new game or plays the intro. */
+INT
+PAL_OpeningMenuForReview(
+   VOID
+);
+
 INT
 PAL_SaveSlotMenu(
    WORD        wDefaultSlot
@@ -58,8 +64,55 @@ PAL_SwitchMenu(
 );
 
 VOID
+PAL_CheatMenu(
+   VOID
+);
+
+BOOL
+PAL_CheatGodModeEnabled(
+   VOID
+);
+
+BOOL
+PAL_CheatAlwaysWinEnabled(
+   VOID
+);
+
+VOID
+PAL_CheatApplyWorldState(
+   VOID
+);
+
+VOID
+PAL_CheatApplyBattleState(
+   VOID
+);
+
+#ifndef PAL_CLASSIC
+VOID
+PAL_BattleSpeedMenu(
+   VOID
+);
+#endif
+
+BOOL
+PAL_SystemMenu(
+   VOID
+);
+
+VOID
+PAL_InventoryMenu(
+   VOID
+);
+
+VOID
 PAL_InGameMagicMenu(
    VOID
+);
+
+WORD
+PAL_MagicTargetMenu(
+   WORD        wDefaultPlayer
 );
 
 VOID

@@ -25,6 +25,23 @@
 #endif
 static BOOL __buymenu_firsttime_render;
 
+/* Session-only developer cheats. They are deliberately not part of a save
+ * image: loading a game never silently changes the saved PAL state. */
+static BOOL pal_cheat_money;
+static BOOL pal_cheat_god_mode;
+static BOOL pal_cheat_always_win;
+
+#if defined(PAL_EXTREME_TWO_SCREENS)
+static WORD
+PAL_ReadSystemMenuNative(
+   LPCMENUITEM               rgMenuItem,
+   INT                       nMenuItem,
+   WORD                      wDefaultItem,
+   LPBOX                    *lplpMenuBox,
+   LPITEMCHANGED_CALLBACK    lpfnItemChanged
+);
+#endif
+
 #if defined(PAL_EXTREME_TWO_SCREENS)
 typedef struct tagPAL_BUYMENU_NATIVE_LAYOUT
 {
@@ -216,7 +233,7 @@ PAL_BuyMenuNativeRead(
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
 #if defined(PAL_EXTREME_TWO_SCREENS)
-#include "esp32s3/main/cardputer_extreme_memory.h"
+#include "esp32s3/main/pal_target_memory.h"
 #define PAL_UIGAME_PSRAM __attribute__((section(".bss.pal_sram"), aligned(8)))
 #define pal_psram_uigame_background pal_sram_aux_framebuffer
 #else
@@ -532,9 +549,9 @@ PAL_DrawOpeningMenuBackground(
    VIDEO_UpdateScreen(NULL);
 }
 
-INT
-PAL_OpeningMenu(
-   VOID
+static INT
+PAL_OpeningMenuInternal(
+   BOOL        fReview
 )
 /*++
   Purpose:
@@ -597,7 +614,12 @@ PAL_OpeningMenu(
       //
       wItemSelected = PAL_ReadMenu(NULL, rgMainMenuItem, 2, wDefaultItem, MENUITEM_COLOR);
 
-      if (wItemSelected == 0 || wItemSelected == MENUITEM_VALUE_CANCELLED)
+      if (wItemSelected == MENUITEM_VALUE_CANCELLED && fReview)
+      {
+         break;
+      }
+      else if (wItemSelected == 0 ||
+               wItemSelected == MENUITEM_VALUE_CANCELLED)
       {
          //
          // Start a new game
@@ -628,12 +650,28 @@ PAL_OpeningMenu(
    AUDIO_PlayMusic(0, FALSE, 1);
    PAL_FadeOut(1);
 
-   if (wItemSelected == 0)
+   if (wItemSelected == 0 && !fReview)
    {
       PAL_PlayAVI("3.avi");
    }
 
    return (INT)wItemSelected;
+}
+
+INT
+PAL_OpeningMenu(
+   VOID
+)
+{
+   return PAL_OpeningMenuInternal(FALSE);
+}
+
+INT
+PAL_OpeningMenuForReview(
+   VOID
+)
+{
+   return PAL_OpeningMenuInternal(TRUE);
 }
 
 INT
@@ -1055,9 +1093,136 @@ PAL_SwitchMenu(
    return (wReturnValue == MENUITEM_VALUE_CANCELLED) ? fEnabled : ((wReturnValue == 0) ? FALSE : TRUE);
 }
 
+BOOL
+PAL_CheatGodModeEnabled(
+   VOID
+)
+{
+   return pal_cheat_god_mode;
+}
+
+BOOL
+PAL_CheatAlwaysWinEnabled(
+   VOID
+)
+{
+   return pal_cheat_always_win;
+}
+
+VOID
+PAL_CheatApplyWorldState(
+   VOID
+)
+{
+   if (gpGlobals != NULL && pal_cheat_money)
+   {
+      gpGlobals->dwCash = 999999;
+   }
+}
+
+VOID
+PAL_CheatApplyBattleState(
+   VOID
+)
+{
+   int i;
+
+   if (gpGlobals == NULL || !pal_cheat_god_mode)
+   {
+      return;
+   }
+
+   for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
+   {
+      WORD w = gpGlobals->rgParty[i].wPlayerRole;
+
+      gpGlobals->g.PlayerRoles.rgwHP[w] =
+         gpGlobals->g.PlayerRoles.rgwMaxHP[w];
+      gpGlobals->g.PlayerRoles.rgwMP[w] =
+         gpGlobals->g.PlayerRoles.rgwMaxMP[w];
+
+      /* Clear harmful battle state, while preserving positive effects. */
+      PAL_RemovePlayerStatus(w, kStatusConfused);
+      PAL_RemovePlayerStatus(w, kStatusSleep);
+      PAL_RemovePlayerStatus(w, kStatusSilence);
+      PAL_RemovePlayerStatus(w, kStatusPuppet);
+#ifdef PAL_CLASSIC
+      PAL_RemovePlayerStatus(w, kStatusParalyzed);
+#else
+      PAL_RemovePlayerStatus(w, kStatusSlow);
+#endif
+      PAL_CurePoisonByLevel(w, 3);
+   }
+}
+
+VOID
+PAL_CheatMenu(
+   VOID
+)
+{
+   LPBOX lpMenuBox;
+   WORD wReturnValue;
+   MENUITEM rgMenuItem[] = {
+      { 1, CHEATMENU_LABEL_MONEY,         TRUE, PAL_XY(53, 72) },
+      { 2, CHEATMENU_LABEL_INVINCIBLE,    TRUE, PAL_XY(53, 90) },
+      { 3, CHEATMENU_LABEL_ALWAYS_WIN,     TRUE, PAL_XY(53, 108) },
+   };
+   const INT nMenuItem = sizeof(rgMenuItem) / sizeof(rgMenuItem[0]);
+
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   const SDL_Rect rect = {0, 0, gpScreen->w, gpScreen->h};
+
+   /* Use the same single vertical list and border as the parent system menu. */
+   VIDEO_BackupScreen(gpScreen);
+   wReturnValue = PAL_ReadSystemMenuNative(
+      rgMenuItem, nMenuItem, 0, &lpMenuBox, NULL);
+   PAL_DeleteBox(lpMenuBox);
+   VIDEO_RestoreScreen(gpScreen);
+   VIDEO_UpdateScreen(&rect);
+#else
+   /* Keep the classic menu geometry identical to PAL_SystemMenu. */
+#ifdef PAL_NO_RUNTIME_HEAP
+   lpMenuBox = PAL_CreateBoxWithBuffer(
+      PAL_XY(40, 60), nMenuItem - 1,
+      PAL_MenuTextMaxWidth(rgMenuItem, nMenuItem) - 1, 0,
+      (LPBOX)pal_psram_uigame_system_box,
+      pal_psram_uigame_system_pixels, PAL_UIGAME_SYSTEM_PIXELS);
+#else
+   lpMenuBox = PAL_CreateBox(
+      PAL_XY(40, 60), nMenuItem - 1,
+      PAL_MenuTextMaxWidth(rgMenuItem, nMenuItem) - 1, 0, TRUE);
+#endif
+   wReturnValue = PAL_ReadMenu(
+      NULL, rgMenuItem, nMenuItem, 0, MENUITEM_COLOR);
+   PAL_DeleteBox(lpMenuBox);
+#endif
+
+   if (wReturnValue == MENUITEM_VALUE_CANCELLED)
+   {
+      return;
+   }
+
+   switch (wReturnValue)
+   {
+   case 1:
+      pal_cheat_money = PAL_SwitchMenu(pal_cheat_money);
+      PAL_CheatApplyWorldState();
+      break;
+   case 2:
+      pal_cheat_god_mode = PAL_SwitchMenu(pal_cheat_god_mode);
+      PAL_CheatApplyBattleState();
+      break;
+   case 3:
+      pal_cheat_always_win = PAL_SwitchMenu(pal_cheat_always_win);
+      break;
+   default:
+      break;
+   }
+}
+
 #ifndef PAL_CLASSIC
 
-static VOID
+VOID
 PAL_BattleSpeedMenu(
    VOID
 )
@@ -1151,6 +1316,9 @@ PAL_ShowCash(
 --*/
 {
    LPBOX     lpBox;
+
+   PAL_CheatApplyWorldState();
+   dwCash = gpGlobals->dwCash;
 
    //
    // Create the box.
@@ -1267,7 +1435,8 @@ PAL_ReadSystemMenuNative(
    LPCMENUITEM     rgMenuItem,
    INT             nMenuItem,
    WORD            wDefaultItem,
-   LPBOX          *lplpMenuBox
+   LPBOX          *lplpMenuBox,
+   LPITEMCHANGED_CALLBACK lpfnItemChanged
 )
 {
    int current = wDefaultItem < nMenuItem ? wDefaultItem : 0;
@@ -1291,7 +1460,10 @@ PAL_ReadSystemMenuNative(
    }
    PAL_SystemMenuDrawNative(
       rgMenuItem, nMenuItem, current, top, visible);
-   PAL_SystemMenu_OnItemChange(rgMenuItem[current].wValue);
+   if (lpfnItemChanged != NULL)
+   {
+      (*lpfnItemChanged)(rgMenuItem[current].wValue);
+   }
 
    while (TRUE)
    {
@@ -1348,7 +1520,10 @@ PAL_ReadSystemMenuNative(
          }
          PAL_SystemMenuDrawNative(
             rgMenuItem, nMenuItem, current, top, visible);
-         PAL_SystemMenu_OnItemChange(rgMenuItem[current].wValue);
+         if (lpfnItemChanged != NULL)
+         {
+            (*lpfnItemChanged)(rgMenuItem[current].wValue);
+         }
       }
       else
       {
@@ -1360,7 +1535,7 @@ PAL_ReadSystemMenuNative(
 }
 #endif
 
-static BOOL
+BOOL
 PAL_SystemMenu(
    VOID
 )
@@ -1398,7 +1573,7 @@ PAL_SystemMenu(
       { 2,      SYSMENU_LABEL_LOAD,          TRUE,     PAL_XY(53, 72 + 18) },
       { 3,      SYSMENU_LABEL_MUSIC,         TRUE,     PAL_XY(53, 72 + 36) },
       { 4,      SYSMENU_LABEL_SOUND,         TRUE,     PAL_XY(53, 72 + 54) },
-      { 5,      SYSMENU_LABEL_QUIT,          TRUE,     PAL_XY(53, 72 + 72) },
+      { 5,      SYSMENU_LABEL_CHEAT,         TRUE,     PAL_XY(53, 72 + 72) },
 #if !defined(PAL_CLASSIC)
       { 6,      SYSMENU_LABEL_BATTLEMODE,    TRUE,     PAL_XY(53, 72 + 90) },
 #endif
@@ -1421,7 +1596,8 @@ PAL_SystemMenu(
 #if defined(PAL_EXTREME_TWO_SCREENS)
    wReturnValue = PAL_ReadSystemMenuNative(
       rgSystemMenuItem, nSystemMenuItem,
-      gpGlobals->iCurSystemMenuItem, &lpMenuBox);
+      gpGlobals->iCurSystemMenuItem, &lpMenuBox,
+      PAL_SystemMenu_OnItemChange);
 #else
 #ifdef PAL_NO_RUNTIME_HEAP
    lpMenuBox = PAL_CreateBoxWithBuffer(PAL_XY(40, 60), nSystemMenuItem - 1,
@@ -1510,9 +1686,9 @@ PAL_SystemMenu(
 
    case 5:
       //
-      // Quit
+      // Cheats
       //
-      PAL_QuitGame();
+      PAL_CheatMenu();
       break;
 
 #if !defined(PAL_CLASSIC)
@@ -1527,6 +1703,91 @@ PAL_SystemMenu(
 
    PAL_DeleteBox(lpMenuBox);
    return TRUE;
+}
+
+WORD
+PAL_MagicTargetMenu(
+   WORD        wDefaultPlayer
+)
+{
+   WORD wPlayer = wDefaultPlayer;
+
+   if (wPlayer > gpGlobals->wMaxPartyMemberIndex)
+   {
+      wPlayer = 0;
+   }
+
+   while (TRUE)
+   {
+      int i;
+#if !defined(PAL_EXTREME_TWO_SCREENS)
+      int y = 45;
+      SDL_Rect rect = {0, 158, 320, 6};
+#endif
+
+#if defined(PAL_EXTREME_TWO_SCREENS)
+      VIDEO_RestoreScreen(gpScreen);
+      for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
+      {
+         PAL_PlayerInfoBox(PAL_PlayerInfoBoxPosition(i,
+               gpGlobals->wMaxPartyMemberIndex + 1),
+            gpGlobals->rgParty[i].wPlayerRole, 100,
+            TIMEMETER_COLOR_DEFAULT, FALSE);
+      }
+      {
+         PAL_POS playerPos = PAL_PlayerInfoBoxPosition(wPlayer,
+            gpGlobals->wMaxPartyMemberIndex + 1);
+         PAL_RLEBlitToSurface(
+            PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR_UP),
+            gpScreen, PAL_XY(PAL_X(playerPos) + 33,
+               max(0, PAL_Y(playerPos) - 7)));
+      }
+      VIDEO_UpdateScreen(NULL);
+#else
+      for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
+      {
+         PAL_PlayerInfoBox(PAL_XY(y, 165),
+            gpGlobals->rgParty[i].wPlayerRole, 100,
+            TIMEMETER_COLOR_DEFAULT, TRUE);
+         y += 78;
+      }
+      VIDEO_RestoreScreen(gpScreen);
+      PAL_RLEBlitToSurface(
+         PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR_UP),
+         gpScreen, PAL_XY(75 + 78 * wPlayer, rect.y));
+      VIDEO_UpdateScreen(&rect);
+#endif
+
+      PAL_ClearKeyState();
+      while (g_InputState.dwKeyPress == 0)
+      {
+         PAL_ProcessEvent();
+         SDL_Delay(1);
+      }
+
+      if (g_InputState.dwKeyPress & kKeyMenu)
+      {
+         return MENUITEM_VALUE_CANCELLED;
+      }
+      if (g_InputState.dwKeyPress & kKeySearch)
+      {
+         return wPlayer;
+      }
+      if (g_InputState.dwKeyPress & (kKeyLeft | kKeyUp))
+      {
+         if (wPlayer > 0)
+         {
+            wPlayer--;
+         }
+      }
+      else if (g_InputState.dwKeyPress & (kKeyRight | kKeyDown))
+      {
+         if (wPlayer < gpGlobals->wMaxPartyMemberIndex)
+         {
+            wPlayer++;
+         }
+      }
+   }
 }
 
 VOID
@@ -1674,120 +1935,44 @@ start_magicmenu:
          // Need to select which player to use the magic on.
          //
          WORD       wPlayer = 0;
-#if !defined(PAL_EXTREME_TWO_SCREENS)
-         SDL_Rect   rect;
-#endif
 
          while (wPlayer != MENUITEM_VALUE_CANCELLED)
          {
-            //
-            // Redraw the player info boxes first
-            //
-#if defined(PAL_EXTREME_TWO_SCREENS)
-            VIDEO_RestoreScreen(gpScreen);
-            for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
+            WORD wSelectedPlayer = PAL_MagicTargetMenu(wPlayer);
+
+            if (wSelectedPlayer == MENUITEM_VALUE_CANCELLED)
             {
-               PAL_PlayerInfoBox(PAL_PlayerInfoBoxPosition(i,
-                     gpGlobals->wMaxPartyMemberIndex + 1),
-                  gpGlobals->rgParty[i].wPlayerRole, 100,
-                  TIMEMETER_COLOR_DEFAULT, FALSE);
+               wPlayer = MENUITEM_VALUE_CANCELLED;
+               break;
             }
+            wPlayer = wSelectedPlayer;
+            gpGlobals->g.rgObject[wMagic].magic.wScriptOnUse =
+               PAL_RunTriggerScript(
+                  gpGlobals->g.rgObject[wMagic].magic.wScriptOnUse,
+                  gpGlobals->rgParty[wPlayer].wPlayerRole);
+
+            if (g_fScriptSuccess)
             {
-               PAL_POS playerPos = PAL_PlayerInfoBoxPosition(wPlayer,
-                  gpGlobals->wMaxPartyMemberIndex + 1);
-               PAL_RLEBlitToSurface(
-                  PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR_UP),
-                  gpScreen, PAL_XY(PAL_X(playerPos) + 33,
-                     max(0, PAL_Y(playerPos) - 7)));
-            }
-            VIDEO_UpdateScreen(NULL);
-#else
-            y = 45;
+               gpGlobals->g.rgObject[wMagic].magic.wScriptOnSuccess =
+                  PAL_RunTriggerScript(
+                     gpGlobals->g.rgObject[wMagic].magic.wScriptOnSuccess,
+                     gpGlobals->rgParty[wPlayer].wPlayerRole);
 
-            for (i = 0; i <= gpGlobals->wMaxPartyMemberIndex; i++)
-            {
-               PAL_PlayerInfoBox(PAL_XY(y, 165), gpGlobals->rgParty[i].wPlayerRole, 100,
-                  TIMEMETER_COLOR_DEFAULT, TRUE);
-               y += 78;
-            }
-
-            //
-            // Draw the cursor on the selected item
-            //
-            rect.x = 0;
-            rect.y = 158;
-            rect.w = 320;
-            rect.h = 6;
-
-            VIDEO_RestoreScreen(gpScreen);
-
-            PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_CURSOR_UP),
-               gpScreen, PAL_XY(75 + 78 * wPlayer, rect.y));
-
-            VIDEO_UpdateScreen(&rect);
-#endif
-
-            while (TRUE)
-            {
-               PAL_ClearKeyState();
-               PAL_ProcessEvent();
-
-               if (g_InputState.dwKeyPress & kKeyMenu)
+               if (g_fScriptSuccess)
                {
-                  wPlayer = MENUITEM_VALUE_CANCELLED;
-                  break;
-               }
-               else if (g_InputState.dwKeyPress & kKeySearch)
-               {
-                  gpGlobals->g.rgObject[wMagic].magic.wScriptOnUse =
-                     PAL_RunTriggerScript(gpGlobals->g.rgObject[wMagic].magic.wScriptOnUse,
-                        gpGlobals->rgParty[wPlayer].wPlayerRole);
+                  gpGlobals->g.PlayerRoles.rgwMP[
+                     gpGlobals->rgParty[w].wPlayerRole] -=
+                     gpGlobals->g.lprgMagic[
+                        gpGlobals->g.rgObject[wMagic].magic.wMagicNumber].wCostMP;
 
-                  if (g_fScriptSuccess)
+                  if (gpGlobals->g.PlayerRoles.rgwMP[
+                         gpGlobals->rgParty[w].wPlayerRole] <
+                      gpGlobals->g.lprgMagic[
+                         gpGlobals->g.rgObject[wMagic].magic.wMagicNumber].wCostMP)
                   {
-                     gpGlobals->g.rgObject[wMagic].magic.wScriptOnSuccess =
-                        PAL_RunTriggerScript(gpGlobals->g.rgObject[wMagic].magic.wScriptOnSuccess,
-                           gpGlobals->rgParty[wPlayer].wPlayerRole);
-
-                     if (g_fScriptSuccess)
-                     {
-                        gpGlobals->g.PlayerRoles.rgwMP[gpGlobals->rgParty[w].wPlayerRole] -=
-                           gpGlobals->g.lprgMagic[gpGlobals->g.rgObject[wMagic].magic.wMagicNumber].wCostMP;
-
-                        //
-                        // Check if we have run out of MP
-                        //
-                        if (gpGlobals->g.PlayerRoles.rgwMP[gpGlobals->rgParty[w].wPlayerRole] <
-                           gpGlobals->g.lprgMagic[gpGlobals->g.rgObject[wMagic].magic.wMagicNumber].wCostMP)
-                        {
-                           //
-                           // Don't go further if run out of MP
-                           //
-                           wPlayer = MENUITEM_VALUE_CANCELLED;
-                        }
-                     }
-                  }
-
-                  break;
-               }
-               else if (g_InputState.dwKeyPress & (kKeyLeft | kKeyUp))
-               {
-                  if (wPlayer > 0)
-                  {
-                     wPlayer--;
-                     break;
+                     wPlayer = MENUITEM_VALUE_CANCELLED;
                   }
                }
-               else if (g_InputState.dwKeyPress & (kKeyRight | kKeyDown))
-               {
-                  if (wPlayer < gpGlobals->wMaxPartyMemberIndex)
-                  {
-                     wPlayer++;
-                     break;
-                  }
-               }
-
-               SDL_Delay(1);
             }
          }
       }
@@ -1816,7 +2001,7 @@ start_magicmenu:
    }
 }
 
-static VOID
+VOID
 PAL_InventoryMenu(
    VOID
 )
@@ -2357,16 +2542,16 @@ PAL_PlayerStatus(
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[iPlayerRole], 4,
          PAL_XY(nativeStatsWidth - 46, 31),
          kNumColorYellow, kNumAlignRight);
-      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-         gpScreen, PAL_XY(nativeStatsWidth - 25, 31));
+      PAL_DrawNumberSlash(PAL_XY(nativeStatsWidth - 25, 31),
+         kNumColorYellow);
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[iPlayerRole], 4,
          PAL_XY(nativeStatsWidth - 20, 31),
          kNumColorBlue, kNumAlignRight);
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[iPlayerRole], 4,
          PAL_XY(nativeStatsWidth - 46, 44),
          kNumColorYellow, kNumAlignRight);
-      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-         gpScreen, PAL_XY(nativeStatsWidth - 25, 44));
+      PAL_DrawNumberSlash(PAL_XY(nativeStatsWidth - 25, 44),
+         kNumColorYellow);
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[iPlayerRole], 4,
          PAL_XY(nativeStatsWidth - 20, 44),
          kNumColorBlue, kNumAlignRight);
@@ -2391,21 +2576,21 @@ PAL_PlayerStatus(
       //
       if (gConfig.ScreenLayout.RoleExpSlash != 0)
 	  {
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-            gpScreen,
-            PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleExpSlash));
+         PAL_DrawNumberSlash(
+            PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleExpSlash),
+            kNumColorYellow);
       }
       if (gConfig.ScreenLayout.RoleHPSlash != 0)
 	  {
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-            gpScreen,
-            PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleHPSlash));
+         PAL_DrawNumberSlash(
+            PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleHPSlash),
+            kNumColorYellow);
       }
       if (gConfig.ScreenLayout.RoleMPSlash != 0)
 	  {
-         PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-            gpScreen,
-            PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleMPSlash));
+         PAL_DrawNumberSlash(
+            PAL_UIGameFbpPosition(gConfig.ScreenLayout.RoleMPSlash),
+            kNumColorYellow);
       }
 
       PAL_DrawNumber(gpGlobals->Exp.rgPrimaryExp[iPlayerRole].wExp, 5,
@@ -2547,8 +2732,7 @@ PAL_ItemUseMenuDrawNative(
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[role], 4,
       PAL_XY(currentRight - 18, 24), kNumColorYellow, kNumAlignRight);
-   PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-      gpScreen, PAL_XY(slashX, 24));
+   PAL_DrawNumberSlash(PAL_XY(slashX, 24), kNumColorYellow);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[role], 4,
       PAL_XY(valueRight - 18, 24), kNumColorBlue, kNumAlignRight);
 
@@ -2556,8 +2740,7 @@ PAL_ItemUseMenuDrawNative(
       ITEMUSEMENU_COLOR_STATLABEL, TRUE, FALSE, FALSE);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[role], 4,
       PAL_XY(currentRight - 18, 36), kNumColorYellow, kNumAlignRight);
-   PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
-      gpScreen, PAL_XY(slashX, 36));
+   PAL_DrawNumberSlash(PAL_XY(slashX, 36), kNumColorYellow);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[role], 4,
       PAL_XY(valueRight - 18, 36), kNumColorBlue, kNumAlignRight);
 
@@ -2678,15 +2861,13 @@ PAL_ItemUseMenu(
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwLevel[i], 4, PAL_XY(240, 20),
          kNumColorYellow, kNumAlignRight);
 
-      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-         PAL_XY(263, 38));
+      PAL_DrawNumberSlash(PAL_XY(263, 38), kNumColorYellow);
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[i], 4,
          PAL_XY(261, 40), kNumColorBlue, kNumAlignRight);
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[i], 4,
          PAL_XY(240, 37), kNumColorYellow, kNumAlignRight);
 
-      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-         PAL_XY(263, 56));
+      PAL_DrawNumberSlash(PAL_XY(263, 56), kNumColorYellow);
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[i], 4,
          PAL_XY(261, 58), kNumColorBlue, kNumAlignRight);
       PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[i], 4,
@@ -3145,6 +3326,55 @@ PAL_SellMenu_OnItemChange(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   SDL_Rect preview;
+   LPCBITMAPRLE boxLeft = PAL_SpriteGetFrame(
+      gpSpriteUI, SPRITENUM_SINGLELINEBOX_LEFT);
+   LPCBITMAPRLE boxMiddle = PAL_SpriteGetFrame(
+      gpSpriteUI, SPRITENUM_SINGLELINEBOX_MIDDLE);
+   LPCBITMAPRLE boxRight = PAL_SpriteGetFrame(
+      gpSpriteUI, SPRITENUM_SINGLELINEBOX_RIGHT);
+   INT numberWidth = PAL_CharWidth(L'0') * 6;
+   INT cashLabelWidth = PAL_TextWidth(PAL_GetWord(CASH_LABEL));
+   INT priceLabelWidth = PAL_TextWidth(PAL_GetWord(SELLMENU_LABEL_PRICE));
+   INT x;
+   INT y;
+   INT width;
+   INT columns;
+   INT panelWidth;
+   INT cashValueX;
+   INT priceValueX;
+   INT priceLabelX;
+
+   PAL_ItemSelectMenuGetPreviewRect(&preview);
+   x = preview.x + preview.w + 2;
+   width = max(1, gpScreen->w - x);
+   columns = max(1, (width - PAL_RLEGetWidth(boxLeft) -
+      PAL_RLEGetWidth(boxRight)) / max(1, PAL_RLEGetWidth(boxMiddle)));
+   panelWidth = PAL_RLEGetWidth(boxLeft) + PAL_RLEGetWidth(boxRight) +
+      columns * PAL_RLEGetWidth(boxMiddle);
+   y = max(0, gpScreen->h - PAL_RLEGetHeight(boxLeft));
+   cashValueX = x + 4 + cashLabelWidth + 2;
+   priceValueX = x + panelWidth - numberWidth - 4;
+   priceLabelX = priceValueX - priceLabelWidth - 2;
+
+   PAL_CreateSingleLineBoxWithShadow(
+      PAL_XY(x, y), columns, FALSE, 0);
+   PAL_DrawText(PAL_GetWord(CASH_LABEL), PAL_XY(x + 4, y + 10),
+      0, FALSE, FALSE, FALSE);
+   PAL_DrawNumber(gpGlobals->dwCash, 6, PAL_XY(cashValueX, y + 10),
+      kNumColorYellow, kNumAlignRight);
+
+   if (gpGlobals->g.rgObject[wCurrentItem].item.wFlags & kItemFlagSellable)
+   {
+      PAL_DrawText(PAL_GetWord(SELLMENU_LABEL_PRICE),
+         PAL_XY(priceLabelX, y + 10),
+         0, FALSE, FALSE, FALSE);
+      PAL_DrawNumber(gpGlobals->g.rgObject[wCurrentItem].item.wPrice / 2,
+         6, PAL_XY(priceValueX, y + 10),
+         kNumColorYellow, kNumAlignRight);
+   }
+#else
    WORD x = 100, y = 150;
 
    //
@@ -3167,6 +3397,7 @@ PAL_SellMenu_OnItemChange(
       PAL_DrawNumber(gpGlobals->g.rgObject[wCurrentItem].item.wPrice / 2, 6,
          PAL_XY(x + 48, y + 15), kNumColorYellow, kNumAlignRight);
    }
+#endif
 }
 
 VOID

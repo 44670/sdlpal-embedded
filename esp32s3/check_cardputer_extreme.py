@@ -1210,10 +1210,10 @@ def main() -> int:
     closure = layout.get("closure_audit", {})
     if closure.get("status") != "candidate-not-route-proven":
         errors.append("chapter layout must explicitly remain candidate-not-route-proven")
-    if closure.get("known_unresolved_scene_destinations") != []:
-        errors.append("chapter layout has unexpected unresolved scene destinations")
-    if closure.get("chapter_complete_scene_destinations") != [21]:
-        errors.append("chapter layout must record scene 21 as the completed boundary")
+    if closure.get("known_unresolved_scene_destinations") != [21]:
+        errors.append("chapter layout must record scene 21 as unresolved in the legacy sparse layout")
+    if closure.get("chapter_complete_scene_destinations") != []:
+        errors.append("chapter layout must not encode a runtime chapter-complete endpoint")
     if closure.get("known_unresolved_event_object_targets") != []:
         errors.append("chapter layout has unexpected unresolved event-object targets")
     if closure.get("supported_sparse_event_object_targets") != []:

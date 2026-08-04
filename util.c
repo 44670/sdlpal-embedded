@@ -27,6 +27,11 @@
 
 #include "midi.h"
 
+#if defined(PAL_TARGET_GURU_MEDITATION)
+#include "pal_engine_guru.h"
+#undef TerminateOnError
+#endif
+
 static char internal_buffer[PAL_MAX_GLOBAL_BUFFERS + 1][PAL_GLOBAL_BUFFER_SIZE];
 #define INTERNAL_BUFFER_SIZE_ARGS internal_buffer[PAL_MAX_GLOBAL_BUFFERS], PAL_GLOBAL_BUFFER_SIZE
 
@@ -292,18 +297,30 @@ UTIL_Delay(
    }
 }
 
+#if defined(PAL_TARGET_GURU_MEDITATION)
+void
+PAL_TerminateOnErrorAt(
+   const char *file,
+   unsigned int line,
+   const char *fmt,
+   ...
+)
+#else
 void
 TerminateOnError(
    const char *fmt,
    ...
 )
+#endif
 // This function terminates the game because of an error and
 // prints the message string pointed to by fmt both in the
 // console and in a messagebox.
 {
    va_list argptr;
    char string[256];
+#if !defined(PAL_TARGET_GURU_MEDITATION)
    extern VOID PAL_Shutdown(int);
+#endif
 
    // concatenate all the arguments in one string
    va_start(argptr, fmt);
@@ -312,6 +329,9 @@ TerminateOnError(
 
    fprintf(stderr, "\nFATAL ERROR: %s\n", string);
 
+#if defined(PAL_TARGET_GURU_MEDITATION)
+   PalEngineBridge_GuruMeditationAt(file, line, string);
+#else
 #if SDL_VERSION_ATLEAST(2, 0, 0)
    {
 	  extern SDL_Window *gpWindow;
@@ -342,7 +362,13 @@ TerminateOnError(
 #endif
 
    PAL_Shutdown(255);
+#endif
 }
+
+#if defined(PAL_TARGET_GURU_MEDITATION)
+#define TerminateOnError(...) \
+   PAL_TerminateOnErrorAt(__FILE__, __LINE__, __VA_ARGS__)
+#endif
 
 #ifdef PAL_NO_RUNTIME_HEAP
 

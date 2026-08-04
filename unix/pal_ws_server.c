@@ -53,6 +53,7 @@ static int pal_ws_pending_script = -1;
 static int pal_ws_pending_script_event;
 static BOOL pal_ws_active_script;
 static int pal_ws_pending_shop = -1;
+static int pal_ws_pending_review_screen = -1;
 enum
 {
    PAL_WS_UI_NONE = 0,
@@ -62,12 +63,119 @@ enum
    PAL_WS_UI_MAGIC,
    PAL_WS_UI_SAVE,
    PAL_WS_UI_CONFIRM,
-   PAL_WS_UI_SHOP
+   PAL_WS_UI_SELL,
+   PAL_WS_UI_SHOP,
+   PAL_WS_UI_INVENTORY,
+   PAL_WS_UI_ITEM_TARGET,
+   PAL_WS_UI_EQUIPMENT,
+   PAL_WS_UI_MAGIC_LIST,
+   PAL_WS_UI_MAGIC_TARGET,
+   PAL_WS_UI_SYSTEM,
+   PAL_WS_UI_BATTLE_SPEED,
+   PAL_WS_UI_OPENING,
+   PAL_WS_UI_DIALOG,
+   PAL_WS_UI_REVIEW_SCREEN,
+   PAL_WS_UI_CHAPTER_END
 };
 static int pal_ws_pending_ui = PAL_WS_UI_NONE;
 static int pal_ws_active_ui = PAL_WS_UI_NONE;
 static int pal_ws_last_battle_team = -1;
 static int pal_ws_last_battle_result = -1;
+static BOOL pal_ws_review_enabled;
+static BOOL pal_ws_review_fixture_applied;
+static int pal_ws_review_current;
+static int pal_ws_review_pending = -1;
+static int pal_ws_review_battle_setup = -1;
+static WORD pal_ws_review_usable_item;
+static WORD pal_ws_review_equipment_item;
+static WORD pal_ws_review_field_magic;
+static WORD pal_ws_review_battle_magic;
+enum
+{
+   PAL_WS_REVIEW_MAP = 0,
+   PAL_WS_REVIEW_DIALOG,
+   PAL_WS_REVIEW_BATTLE_MAIN,
+   PAL_WS_REVIEW_BATTLE_MAGIC,
+   PAL_WS_REVIEW_BATTLE_USE_ITEM,
+   PAL_WS_REVIEW_BATTLE_THROW_ITEM,
+   PAL_WS_REVIEW_BATTLE_MISC,
+   PAL_WS_REVIEW_BATTLE_MISC_ITEM,
+   PAL_WS_REVIEW_BATTLE_TARGET_ENEMY,
+   PAL_WS_REVIEW_BATTLE_TARGET_PLAYER,
+#ifndef PAL_CLASSIC
+   PAL_WS_REVIEW_BATTLE_TARGET_ENEMY_ALL,
+   PAL_WS_REVIEW_BATTLE_TARGET_PLAYER_ALL,
+#endif
+   PAL_WS_REVIEW_BATTLE_RESULT,
+   PAL_WS_REVIEW_BATTLE_LEVEL_UP,
+   PAL_WS_REVIEW_BATTLE_GAIN,
+   PAL_WS_REVIEW_BATTLE_LEARN_MAGIC,
+   PAL_WS_REVIEW_GAME_OVER,
+   PAL_WS_REVIEW_MAIN,
+   PAL_WS_REVIEW_STATUS,
+   PAL_WS_REVIEW_ITEMS,
+   PAL_WS_REVIEW_INVENTORY,
+   PAL_WS_REVIEW_ITEM_TARGET,
+   PAL_WS_REVIEW_EQUIPMENT,
+   PAL_WS_REVIEW_MAGIC_PARTY,
+   PAL_WS_REVIEW_MAGIC_LIST,
+   PAL_WS_REVIEW_MAGIC_TARGET,
+   PAL_WS_REVIEW_BUY,
+   PAL_WS_REVIEW_SELL,
+   PAL_WS_REVIEW_SYSTEM,
+   PAL_WS_REVIEW_CONFIRM,
+#ifndef PAL_CLASSIC
+   PAL_WS_REVIEW_BATTLE_SPEED,
+#endif
+   PAL_WS_REVIEW_SAVE,
+   PAL_WS_REVIEW_OPENING,
+   PAL_WS_REVIEW_CHAPTER_LOADING,
+   PAL_WS_REVIEW_CHAPTER_END,
+   PAL_WS_REVIEW_COUNT
+};
+
+static const char *pal_ws_review_names[PAL_WS_REVIEW_COUNT] =
+{
+   "map",
+   "dialog",
+   "battle-main",
+   "battle-magic",
+   "battle-use-item",
+   "battle-throw-item",
+   "battle-misc",
+   "battle-misc-item",
+   "battle-target-enemy",
+   "battle-target-player",
+#ifndef PAL_CLASSIC
+   "battle-target-enemy-all",
+   "battle-target-player-all",
+#endif
+   "battle-result",
+   "battle-level-up",
+   "battle-gain",
+   "battle-learn-magic",
+   "game-over",
+   "main",
+   "status",
+   "items",
+   "inventory",
+   "item-target",
+   "equipment",
+   "magic-party",
+   "magic-list",
+   "magic-target",
+   "buy",
+   "sell",
+   "system",
+   "confirm",
+#ifndef PAL_CLASSIC
+   "battle-speed",
+#endif
+   "save",
+   "opening",
+   "chapter-loading",
+   "chapter-end"
+};
 
 static const char *
 pal_ws_ui_name(
@@ -82,8 +190,690 @@ pal_ws_ui_name(
    case PAL_WS_UI_MAGIC: return "magic";
    case PAL_WS_UI_SAVE: return "save";
    case PAL_WS_UI_CONFIRM: return "confirm";
+   case PAL_WS_UI_SELL: return "sell";
    case PAL_WS_UI_SHOP: return "shop";
+   case PAL_WS_UI_INVENTORY: return "inventory";
+   case PAL_WS_UI_ITEM_TARGET: return "item-target";
+   case PAL_WS_UI_EQUIPMENT: return "equipment";
+   case PAL_WS_UI_MAGIC_LIST: return "magic-list";
+   case PAL_WS_UI_MAGIC_TARGET: return "magic-target";
+   case PAL_WS_UI_SYSTEM: return "system";
+   case PAL_WS_UI_BATTLE_SPEED: return "battle-speed";
+   case PAL_WS_UI_OPENING: return "opening";
+   case PAL_WS_UI_DIALOG: return "dialog";
+   case PAL_WS_UI_REVIEW_SCREEN: return "review-screen";
+   case PAL_WS_UI_CHAPTER_END: return "chapter-end";
    default: return "";
+   }
+}
+
+static BOOL
+pal_ws_review_is_live_battle(
+   int module
+)
+{
+   return module >= PAL_WS_REVIEW_BATTLE_MAIN &&
+#ifndef PAL_CLASSIC
+      module <= PAL_WS_REVIEW_BATTLE_TARGET_PLAYER_ALL;
+#else
+      module <= PAL_WS_REVIEW_BATTLE_TARGET_PLAYER;
+#endif
+}
+
+static BOOL
+pal_ws_word_seen(
+   const WORD *values,
+   int count,
+   WORD value
+)
+{
+   int i;
+
+   for (i = 0; i < count; i++)
+   {
+      if (values[i] == value)
+      {
+         return TRUE;
+      }
+   }
+   return FALSE;
+}
+
+static WORD
+pal_ws_review_find_item(
+   WORD flags
+)
+{
+   int i;
+   int j;
+
+   for (i = 0; i < MAX_INVENTORY &&
+        gpGlobals->rgInventory[i].wItem != 0; i++)
+   {
+      WORD item = gpGlobals->rgInventory[i].wItem;
+      if ((gpGlobals->g.rgObject[item].item.wFlags & flags) == flags)
+      {
+         return item;
+      }
+   }
+   for (i = 0; i < gpGlobals->g.nStore; i++)
+   {
+      for (j = 0; j < MAX_STORE_ITEM; j++)
+      {
+         WORD item = gpGlobals->g.lprgStore[i].rgwItems[j];
+         if (item != 0 &&
+             (gpGlobals->g.rgObject[item].item.wFlags & flags) == flags &&
+             PAL_AddItemToInventory(item, 7))
+         {
+            return item;
+         }
+      }
+   }
+   return 0;
+}
+
+static WORD
+pal_ws_review_find_magic(
+   WORD role,
+   WORD required,
+   WORD forbidden
+)
+{
+   int i;
+
+   for (i = 0; i < MAX_PLAYER_MAGICS; i++)
+   {
+      WORD magic = gpGlobals->g.PlayerRoles.rgwMagic[i][role];
+      WORD flags;
+
+      if (magic == 0)
+      {
+         continue;
+      }
+      flags = gpGlobals->g.rgObject[magic].magic.wFlags;
+      if ((flags & required) == required && (flags & forbidden) == 0)
+      {
+         return magic;
+      }
+   }
+   return 0;
+}
+
+static void
+pal_ws_apply_review_fixture(
+   int *item_count,
+   int *magic_count
+)
+{
+   enum
+   {
+      PAL_WS_REVIEW_ITEMS = 18,
+      PAL_WS_REVIEW_MAGICS = 18
+   };
+   WORD items[PAL_WS_REVIEW_ITEMS];
+   WORD magics[PAL_WS_REVIEW_MAGICS];
+   PARTY leader = gpGlobals->rgParty[0];
+   TRAIL trail = gpGlobals->rgTrail[0];
+   int count;
+   int i;
+   int j;
+
+   for (i = 0; i < MAX_PLAYERS_IN_PARTY; i++)
+   {
+      gpGlobals->rgParty[i] = leader;
+      gpGlobals->rgParty[i].wPlayerRole = (WORD)i;
+      gpGlobals->rgTrail[i] = trail;
+      gpGlobals->g.PlayerRoles.rgwHP[i] =
+         gpGlobals->g.PlayerRoles.rgwMaxHP[i];
+      gpGlobals->g.PlayerRoles.rgwMP[i] =
+         gpGlobals->g.PlayerRoles.rgwMaxMP[i];
+   }
+   gpGlobals->wMaxPartyMemberIndex = MAX_PLAYERS_IN_PARTY - 1;
+
+   count = 0;
+   for (i = 0; i < gpGlobals->g.nStore && count < PAL_WS_REVIEW_ITEMS; i++)
+   {
+      for (j = 0; j < MAX_STORE_ITEM && count < PAL_WS_REVIEW_ITEMS; j++)
+      {
+         WORD item = gpGlobals->g.lprgStore[i].rgwItems[j];
+
+         if (item != 0 && !pal_ws_word_seen(items, count, item) &&
+             PAL_AddItemToInventory(item, 3 + count % 7))
+         {
+            items[count++] = item;
+         }
+      }
+   }
+   *item_count = count;
+
+   count = 0;
+   for (i = 0; i < gpGlobals->g.nLevelUpMagic &&
+        count < PAL_WS_REVIEW_MAGICS; i++)
+   {
+      for (j = 0; j < MAX_PLAYABLE_PLAYER_ROLES &&
+           count < PAL_WS_REVIEW_MAGICS; j++)
+      {
+         WORD magic = gpGlobals->g.lprgLevelUpMagic[i].m[j].wMagic;
+
+         if (magic != 0 && !pal_ws_word_seen(magics, count, magic))
+         {
+            magics[count++] = magic;
+         }
+      }
+   }
+   for (i = 0; i < MAX_PLAYERS_IN_PARTY; i++)
+   {
+      for (j = 0; j < count; j++)
+      {
+         (void)PAL_AddMagic((WORD)i, magics[j]);
+      }
+   }
+   *magic_count = count;
+
+   pal_ws_review_usable_item = pal_ws_review_find_item(kItemFlagUsable);
+   pal_ws_review_equipment_item =
+      pal_ws_review_find_item(kItemFlagEquipable);
+   (void)pal_ws_review_find_item(kItemFlagThrowable);
+   pal_ws_review_field_magic = pal_ws_review_find_magic(0,
+      kMagicFlagUsableOutsideBattle, kMagicFlagApplyToAll);
+   pal_ws_review_battle_magic = pal_ws_review_find_magic(0,
+      kMagicFlagUsableInBattle, 0);
+}
+
+VOID
+PAL_WsReviewEnable(
+   VOID
+)
+{
+   pal_ws_review_enabled = TRUE;
+}
+
+VOID
+PAL_WsReviewParseArgs(
+   INT argc,
+   char *argv[]
+)
+{
+   int i;
+
+   for (i = 1; i < argc; i++)
+   {
+      if (strcmp(argv[i], "--ui-test") == 0)
+      {
+         PAL_WsReviewEnable();
+      }
+   }
+}
+
+BOOL
+PAL_WsReviewEnabled(
+   VOID
+)
+{
+   return pal_ws_review_enabled;
+}
+
+static void
+pal_ws_review_apply_battle(
+   int module
+)
+{
+   WORD role;
+
+   if (!gpGlobals->fInBattle ||
+       g_Battle.BattleResult != kBattleResultOnGoing)
+   {
+      return;
+   }
+
+   PAL_BattleUIPlayerReady(0);
+   role = gpGlobals->rgParty[0].wPlayerRole;
+   switch (module)
+   {
+   case PAL_WS_REVIEW_BATTLE_MAGIC:
+      g_Battle.UI.MenuState = kBattleMenuMagicSelect;
+      PAL_MagicSelectionMenuInit(role, TRUE, pal_ws_review_battle_magic);
+      break;
+   case PAL_WS_REVIEW_BATTLE_USE_ITEM:
+      g_Battle.UI.MenuState = kBattleMenuUseItemSelect;
+      PAL_ItemSelectMenuInit(kItemFlagUsable);
+      break;
+   case PAL_WS_REVIEW_BATTLE_THROW_ITEM:
+      g_Battle.UI.MenuState = kBattleMenuThrowItemSelect;
+      PAL_ItemSelectMenuInit(kItemFlagThrowable);
+      break;
+   case PAL_WS_REVIEW_BATTLE_MISC:
+      g_Battle.UI.MenuState = kBattleMenuMisc;
+      break;
+   case PAL_WS_REVIEW_BATTLE_MISC_ITEM:
+      g_Battle.UI.MenuState = kBattleMenuMiscItemSubMenu;
+      break;
+   case PAL_WS_REVIEW_BATTLE_TARGET_ENEMY:
+      g_Battle.UI.state = kBattleUISelectTargetEnemy;
+      g_Battle.UI.wActionType = kBattleActionAttack;
+      g_Battle.UI.iSelectedIndex = 0;
+      break;
+   case PAL_WS_REVIEW_BATTLE_TARGET_PLAYER:
+      g_Battle.UI.state = kBattleUISelectTargetPlayer;
+      g_Battle.UI.wActionType = kBattleActionUseItem;
+      g_Battle.UI.wObjectID = pal_ws_review_usable_item;
+      g_Battle.UI.iSelectedIndex = 0;
+      break;
+#ifndef PAL_CLASSIC
+   case PAL_WS_REVIEW_BATTLE_TARGET_ENEMY_ALL:
+      g_Battle.UI.state = kBattleUISelectTargetEnemyAll;
+      g_Battle.UI.wActionType = kBattleActionAttack;
+      g_Battle.UI.iSelectedIndex = -1;
+      break;
+   case PAL_WS_REVIEW_BATTLE_TARGET_PLAYER_ALL:
+      g_Battle.UI.state = kBattleUISelectTargetPlayerAll;
+      g_Battle.UI.wActionType = kBattleActionUseItem;
+      g_Battle.UI.wObjectID = pal_ws_review_usable_item;
+      g_Battle.UI.iSelectedIndex = -1;
+      break;
+#endif
+   default:
+      break;
+   }
+
+   pal_ws_review_current = module;
+   if (pal_ws_review_pending == module)
+   {
+      pal_ws_review_pending = -1;
+   }
+   pal_ws_review_battle_setup = -1;
+   PAL_ClearKeyState();
+   UTIL_LogOutput(LOGLEVEL_INFO, "UI test module: %s\n",
+      pal_ws_review_names[module]);
+}
+
+static void
+pal_ws_review_wait_screen(
+   void
+)
+{
+   PAL_ClearKeyState();
+   while (pal_ws_review_enabled && pal_ws_review_pending < 0)
+   {
+      PAL_ProcessEvent();
+      SDL_Delay(1);
+   }
+}
+
+#if !defined(PAL_EXTREME_TWO_SCREENS)
+static void
+pal_ws_review_draw_centered_text(
+   LPCWSTR text
+)
+{
+   int x = max(0, (gpScreen->w - PAL_TextWidth(text)) / 2);
+   int y = max(0, (gpScreen->h - PAL_FontHeight()) / 2);
+
+   PAL_DrawText(text, PAL_XY(x, y), 0, FALSE, FALSE, FALSE);
+}
+#endif
+
+static void
+pal_ws_review_draw_loading(
+   void
+)
+{
+   const WCHAR label[] = WIDETEXT("LOADING");
+   SDL_Rect bar;
+   SDL_Rect fill;
+   int label_x;
+   int label_y;
+
+   SDL_FillRect(gpScreen, NULL, 0);
+   label_x = max(0, (gpScreen->w - PAL_TextWidth(label)) / 2);
+   label_y = max(2, gpScreen->h / 4);
+   PAL_DrawText(label, PAL_XY(label_x, label_y), MENUITEM_COLOR,
+      FALSE, FALSE, FALSE);
+   bar.x = max(4, gpScreen->w / 12);
+   bar.y = gpScreen->h * 3 / 4;
+   bar.w = max(8, gpScreen->w - bar.x * 2);
+   bar.h = max(4, gpScreen->h / 14);
+   SDL_FillRect(gpScreen, &bar, 0x10);
+   fill = bar;
+   fill.x += 2;
+   fill.y += 2;
+   fill.w = max(1, (bar.w - 4) * 65 / 100);
+   fill.h = max(1, bar.h - 4);
+   SDL_FillRect(gpScreen, &fill, 0x1b);
+   VIDEO_UpdateScreen(NULL);
+}
+
+static void
+pal_ws_review_show_screen(
+   int module
+)
+{
+   WCHAR text[256] = L"";
+   WORD role = gpGlobals->rgParty[0].wPlayerRole;
+
+   pal_ws_active_ui = PAL_WS_UI_REVIEW_SCREEN;
+   PAL_MakeScene();
+   VIDEO_UpdateScreen(NULL);
+   VIDEO_BackupScreen(gpScreen);
+
+   switch (module)
+   {
+   case PAL_WS_REVIEW_BATTLE_RESULT:
+      if (g_Battle.iExpGained <= 0)
+      {
+         g_Battle.iExpGained = 128;
+      }
+      if (g_Battle.iCashGained <= 0)
+      {
+         g_Battle.iCashGained = 88;
+      }
+#if defined(PAL_EXTREME_TWO_SCREENS)
+      PAL_BattleNativeDrawResult();
+#else
+      pal_ws_review_draw_centered_text(
+         PAL_GetWord(BATTLEWIN_GETEXP_LABEL));
+#endif
+      VIDEO_UpdateScreen(NULL);
+      break;
+   case PAL_WS_REVIEW_BATTLE_LEVEL_UP:
+#if defined(PAL_EXTREME_TWO_SCREENS)
+      {
+         PLAYERROLES original = gpGlobals->g.PlayerRoles;
+         if (original.rgwLevel[role] > 1)
+         {
+            original.rgwLevel[role]--;
+         }
+         if (original.rgwMaxHP[role] > 2)
+         {
+            original.rgwMaxHP[role] -= 2;
+         }
+         if (original.rgwMaxMP[role] > 1)
+         {
+            original.rgwMaxMP[role]--;
+         }
+         PAL_BattleNativeDrawLevelUp(role, &original);
+      }
+#else
+      pal_ws_review_draw_centered_text(
+         PAL_GetWord(BATTLEWIN_LEVELUP_LABEL));
+#endif
+      VIDEO_UpdateScreen(NULL);
+      break;
+   case PAL_WS_REVIEW_BATTLE_GAIN:
+      PAL_swprintf(text, sizeof(text) / sizeof(WCHAR), L"%ls%ls%ls",
+         PAL_GetWord(gpGlobals->g.PlayerRoles.rgwName[role]),
+         PAL_GetWord(STATUS_LABEL_HP),
+         PAL_GetWord(BATTLEWIN_LEVELUP_LABEL));
+#if defined(PAL_EXTREME_TWO_SCREENS)
+      PAL_BattleNativeDrawGain(text, 2);
+#else
+      pal_ws_review_draw_centered_text(text);
+#endif
+      VIDEO_UpdateScreen(NULL);
+      break;
+   case PAL_WS_REVIEW_BATTLE_LEARN_MAGIC:
+      if (pal_ws_review_field_magic == 0)
+      {
+         pal_ws_review_field_magic =
+            gpGlobals->g.PlayerRoles.rgwMagic[0][role];
+      }
+#if defined(PAL_EXTREME_TWO_SCREENS)
+      PAL_BattleNativeDrawLearnMagic(role, pal_ws_review_field_magic);
+#else
+      pal_ws_review_draw_centered_text(
+         PAL_GetWord(BATTLEWIN_ADDMAGIC_LABEL));
+#endif
+      VIDEO_UpdateScreen(NULL);
+      break;
+   case PAL_WS_REVIEW_GAME_OVER:
+      PAL_FadeToRed();
+      break;
+   case PAL_WS_REVIEW_CHAPTER_LOADING:
+      pal_ws_review_draw_loading();
+      break;
+   default:
+      break;
+   }
+
+   pal_ws_review_wait_screen();
+   if (module == PAL_WS_REVIEW_GAME_OVER)
+   {
+      PAL_SetPalette(gpGlobals->wNumPalette, gpGlobals->fNightPalette);
+   }
+   pal_ws_active_ui = PAL_WS_UI_NONE;
+}
+
+static void
+pal_ws_review_show_dialog(
+   void
+)
+{
+   int i;
+
+   for (i = 0; i + 4 < gpGlobals->g.nScriptEntry; i++)
+   {
+      LPSCRIPTENTRY entry = &gpGlobals->g.lprgScriptEntry[i];
+      int j;
+
+      if ((entry->wOperation != 0x003c &&
+           entry->wOperation != 0x003d) || entry->rgwOperand[0] == 0)
+      {
+         continue;
+      }
+      for (j = 1; j <= 4; j++)
+      {
+         if (gpGlobals->g.lprgScriptEntry[i + j].wOperation != 0xffff)
+         {
+            break;
+         }
+      }
+      if (j <= 3)
+      {
+         continue;
+      }
+
+      PAL_StartDialog(entry->wOperation == 0x003c ?
+            kDialogUpper : kDialogLower,
+         (BYTE)entry->rgwOperand[1], entry->rgwOperand[0], FALSE);
+      for (j = 1; j <= 4 && i + j < gpGlobals->g.nScriptEntry; j++)
+      {
+         LPSCRIPTENTRY line = &gpGlobals->g.lprgScriptEntry[i + j];
+         if (line->wOperation != 0xffff)
+         {
+            break;
+         }
+         PAL_ShowDialogText(PAL_GetMsg(line->rgwOperand[0]));
+      }
+      PAL_EndDialog();
+      return;
+   }
+
+   PAL_StartDialog(kDialogUpper, 0, 0, FALSE);
+   for (i = 0; i < g_TextLib.nMsgs &&
+        g_TextLib.nCurrentDialogLine < 4; i++)
+   {
+      LPCWSTR line = PAL_GetMsg(i);
+      if (line != NULL && line[0] != L'\0')
+      {
+         PAL_ShowDialogText(line);
+      }
+   }
+   PAL_EndDialog();
+}
+
+static void
+pal_ws_review_show_chapter_end(
+   void
+)
+{
+   PAL_StartDialog(kDialogUpper, 0, 0, FALSE);
+   PAL_ShowDialogText(WIDETEXT("CHAPTER COMPLETE"));
+   PAL_ShowDialogText(WIDETEXT("SUZHOU NEXT"));
+   PAL_EndDialog();
+}
+
+VOID
+PAL_WsReviewNext(
+   VOID
+)
+{
+   if (!pal_ws_review_enabled || gpGlobals == NULL ||
+       !gpGlobals->fInMainGame || pal_ws_review_pending >= 0)
+   {
+      return;
+   }
+
+   pal_ws_review_pending =
+      (pal_ws_review_current + 1) % PAL_WS_REVIEW_COUNT;
+   if (gpGlobals->fInBattle &&
+       !pal_ws_review_is_live_battle(pal_ws_review_pending))
+   {
+      g_Battle.BattleResult = kBattleResultTerminated;
+   }
+}
+
+static void
+pal_ws_review_prepare(
+   void
+)
+{
+   int module;
+   int item_count;
+   int magic_count;
+
+   if (pal_ws_review_pending >= 0 && PAL_IsInDialog())
+   {
+      PAL_WsInputKey(kKeySearch, PAL_WS_KEY_TAP);
+      return;
+   }
+   if (pal_ws_review_pending >= 0 &&
+       pal_ws_active_ui != PAL_WS_UI_NONE)
+   {
+      PAL_WsInputKey(kKeyMenu, PAL_WS_KEY_TAP);
+      return;
+   }
+   if (gpGlobals != NULL && gpGlobals->fInBattle)
+   {
+      int battle_module = pal_ws_review_pending >= 0 ?
+         pal_ws_review_pending : pal_ws_review_battle_setup;
+
+      if (pal_ws_review_is_live_battle(battle_module))
+      {
+         pal_ws_review_apply_battle(battle_module);
+      }
+      return;
+   }
+   if (pal_ws_review_pending < 0 || gpGlobals == NULL ||
+       !gpGlobals->fInMainGame ||
+       PAL_IsInDialog() || pal_ws_active_script ||
+       pal_ws_active_ui != PAL_WS_UI_NONE ||
+       pal_ws_pending_ui != PAL_WS_UI_NONE || pal_ws_pending_shop >= 0 ||
+       pal_ws_pending_review_screen >= 0 ||
+       pal_ws_pending_battle >= 0 || pal_ws_pending_script >= 0)
+   {
+      return;
+   }
+
+   if (!pal_ws_review_fixture_applied)
+   {
+      pal_ws_apply_review_fixture(&item_count, &magic_count);
+      pal_ws_review_fixture_applied = TRUE;
+   }
+   module = pal_ws_review_pending;
+   pal_ws_review_pending = -1;
+   pal_ws_review_current = module;
+   UTIL_LogOutput(LOGLEVEL_INFO, "UI test module: %s\n",
+      pal_ws_review_names[module]);
+
+   switch (module)
+   {
+   case PAL_WS_REVIEW_MAP:
+      PAL_MakeScene();
+      VIDEO_UpdateScreen(NULL);
+      break;
+   case PAL_WS_REVIEW_DIALOG:
+      pal_ws_pending_ui = PAL_WS_UI_DIALOG;
+      break;
+   case PAL_WS_REVIEW_BATTLE_MAIN:
+   case PAL_WS_REVIEW_BATTLE_MAGIC:
+   case PAL_WS_REVIEW_BATTLE_USE_ITEM:
+   case PAL_WS_REVIEW_BATTLE_THROW_ITEM:
+   case PAL_WS_REVIEW_BATTLE_MISC:
+   case PAL_WS_REVIEW_BATTLE_MISC_ITEM:
+   case PAL_WS_REVIEW_BATTLE_TARGET_ENEMY:
+   case PAL_WS_REVIEW_BATTLE_TARGET_PLAYER:
+#ifndef PAL_CLASSIC
+   case PAL_WS_REVIEW_BATTLE_TARGET_ENEMY_ALL:
+   case PAL_WS_REVIEW_BATTLE_TARGET_PLAYER_ALL:
+#endif
+      gpGlobals->wNumBattleField = 3;
+      pal_ws_review_battle_setup = module;
+      pal_ws_pending_battle = 3;
+      pal_ws_pending_battle_auto = FALSE;
+      break;
+   case PAL_WS_REVIEW_MAIN:
+      pal_ws_pending_ui = PAL_WS_UI_MAIN;
+      break;
+   case PAL_WS_REVIEW_STATUS:
+      pal_ws_pending_ui = PAL_WS_UI_STATUS;
+      break;
+   case PAL_WS_REVIEW_ITEMS:
+      pal_ws_pending_ui = PAL_WS_UI_ITEMS;
+      break;
+   case PAL_WS_REVIEW_INVENTORY:
+      pal_ws_pending_ui = PAL_WS_UI_INVENTORY;
+      break;
+   case PAL_WS_REVIEW_ITEM_TARGET:
+      pal_ws_pending_ui = PAL_WS_UI_ITEM_TARGET;
+      break;
+   case PAL_WS_REVIEW_EQUIPMENT:
+      pal_ws_pending_ui = PAL_WS_UI_EQUIPMENT;
+      break;
+   case PAL_WS_REVIEW_MAGIC_PARTY:
+      pal_ws_pending_ui = PAL_WS_UI_MAGIC;
+      break;
+   case PAL_WS_REVIEW_MAGIC_LIST:
+      pal_ws_pending_ui = PAL_WS_UI_MAGIC_LIST;
+      break;
+   case PAL_WS_REVIEW_MAGIC_TARGET:
+      pal_ws_pending_ui = PAL_WS_UI_MAGIC_TARGET;
+      break;
+   case PAL_WS_REVIEW_BUY:
+      pal_ws_pending_shop = 0;
+      break;
+   case PAL_WS_REVIEW_SELL:
+      pal_ws_pending_ui = PAL_WS_UI_SELL;
+      break;
+   case PAL_WS_REVIEW_SYSTEM:
+      pal_ws_pending_ui = PAL_WS_UI_SYSTEM;
+      break;
+   case PAL_WS_REVIEW_CONFIRM:
+      pal_ws_pending_ui = PAL_WS_UI_CONFIRM;
+      break;
+#ifndef PAL_CLASSIC
+   case PAL_WS_REVIEW_BATTLE_SPEED:
+      pal_ws_pending_ui = PAL_WS_UI_BATTLE_SPEED;
+      break;
+#endif
+   case PAL_WS_REVIEW_SAVE:
+      pal_ws_pending_ui = PAL_WS_UI_SAVE;
+      break;
+   case PAL_WS_REVIEW_OPENING:
+      pal_ws_pending_ui = PAL_WS_UI_OPENING;
+      break;
+   case PAL_WS_REVIEW_BATTLE_RESULT:
+   case PAL_WS_REVIEW_BATTLE_LEVEL_UP:
+   case PAL_WS_REVIEW_BATTLE_GAIN:
+   case PAL_WS_REVIEW_BATTLE_LEARN_MAGIC:
+   case PAL_WS_REVIEW_GAME_OVER:
+   case PAL_WS_REVIEW_CHAPTER_LOADING:
+      pal_ws_pending_review_screen = module;
+      break;
+   case PAL_WS_REVIEW_CHAPTER_END:
+      pal_ws_pending_ui = PAL_WS_UI_CHAPTER_END;
+      break;
+   default:
+      break;
    }
 }
 
@@ -817,7 +1607,7 @@ pal_ws_command(
    }
    if (strcmp(command, "status") == 0)
    {
-      char response[560];
+      char response[768];
       int world_x = 0;
       int world_y = 0;
       if (gpGlobals != NULL)
@@ -834,7 +1624,8 @@ pal_ws_command(
          "\"last_battle_result\":%d,\"battle_player\":%d,"
          "\"battle_selected_action\":%d,"
          "\"battle_selected_index\":%d,\"save_slot\":%u,"
-         "\"party_members\":%u,\"ui\":\"%s\",\"script\":%s,"
+         "\"party_members\":%u,\"ui\":\"%s\",\"review\":\"%s\","
+         "\"script\":%s,"
          "\"dialog\":%s}",
          gpGlobals == NULL ? 0u : (unsigned)gpGlobals->wNumScene,
          gpGlobals == NULL ? 0u : (unsigned)gpGlobals->wNumBattleField,
@@ -861,6 +1652,8 @@ pal_ws_command(
          gpGlobals == NULL ? 0u :
             (unsigned)gpGlobals->wMaxPartyMemberIndex + 1u,
          pal_ws_ui_name(pal_ws_active_ui),
+         pal_ws_review_enabled ?
+            pal_ws_review_names[pal_ws_review_current] : "",
          pal_ws_active_script ? "true" : "false",
          PAL_IsInDialog() ? "true" : "false");
       pal_ws_reply_text(response);
@@ -944,6 +1737,41 @@ pal_ws_command(
       snprintf(response, sizeof(response),
          "{\"ok\":true,\"key\":\"%s\",\"action\":\"%s\"}",
          key_name, action_name);
+      pal_ws_reply_text(response);
+      return;
+   }
+   if (strcmp(command, "review-next") == 0)
+   {
+      if (!pal_ws_review_enabled)
+      {
+         pal_ws_reply_error("review mode is not enabled");
+         return;
+      }
+      PAL_WsReviewNext();
+      pal_ws_reply_text("{\"ok\":true}");
+      return;
+   }
+   if (strcmp(command, "review-fixture") == 0)
+   {
+      int item_count;
+      int magic_count;
+      char response[128];
+
+      if (gpGlobals == NULL || !gpGlobals->fInMainGame ||
+          gpGlobals->fInBattle || PAL_IsInDialog() ||
+          pal_ws_pending_battle >= 0 || pal_ws_pending_script >= 0 ||
+          pal_ws_pending_shop >= 0 ||
+          pal_ws_pending_ui != PAL_WS_UI_NONE ||
+          pal_ws_active_ui != PAL_WS_UI_NONE || pal_ws_active_script)
+      {
+         pal_ws_reply_error("review fixture requires idle field gameplay");
+         return;
+      }
+      pal_ws_apply_review_fixture(&item_count, &magic_count);
+      pal_ws_review_fixture_applied = TRUE;
+      snprintf(response, sizeof(response),
+         "{\"ok\":true,\"party_members\":%d,\"items\":%d,\"magics\":%d}",
+         MAX_PLAYERS_IN_PARTY, item_count, magic_count);
       pal_ws_reply_text(response);
       return;
    }
@@ -1056,6 +1884,22 @@ pal_ws_command(
       pal_ws_reply_text(response);
       return;
    }
+   if (strcmp(command, "battle-items") == 0)
+   {
+      if (gpGlobals == NULL || !gpGlobals->fInMainGame ||
+          !gpGlobals->fInBattle ||
+          g_Battle.UI.state != kBattleUISelectMove ||
+          g_Battle.BattleResult != kBattleResultOnGoing)
+      {
+         pal_ws_reply_error(
+            "battle item selector requires an active player move");
+         return;
+      }
+      g_Battle.UI.MenuState = kBattleMenuUseItemSelect;
+      PAL_ItemSelectMenuInit(kItemFlagUsable);
+      pal_ws_reply_text("{\"ok\":true,\"battle_items\":true}");
+      return;
+   }
    if (strcmp(command, "shop") == 0)
    {
       int store;
@@ -1099,6 +1943,8 @@ pal_ws_command(
       else if (strcmp(name, "magic") == 0) ui = PAL_WS_UI_MAGIC;
       else if (strcmp(name, "save") == 0) ui = PAL_WS_UI_SAVE;
       else if (strcmp(name, "confirm") == 0) ui = PAL_WS_UI_CONFIRM;
+      else if (strcmp(name, "sell") == 0) ui = PAL_WS_UI_SELL;
+      else if (strcmp(name, "system") == 0) ui = PAL_WS_UI_SYSTEM;
       else
       {
          pal_ws_reply_error("unknown UI name");
@@ -1358,16 +2204,17 @@ PAL_WsServer_Poll(
 {
    ssize_t received;
 
+   pal_ws_review_prepare();
    if (pal_ws_listen < 0)
    {
-      return;
+      goto dispatch;
    }
    if (pal_ws_client < 0)
    {
       pal_ws_client = accept(pal_ws_listen, NULL, NULL);
       if (pal_ws_client < 0)
       {
-         return;
+         goto dispatch;
       }
       if (pal_ws_nonblocking(pal_ws_client) != 0)
       {
@@ -1379,7 +2226,7 @@ PAL_WsServer_Poll(
    if (pal_ws_client < 0 || pal_ws_output_len != 0 ||
        pal_ws_input_len == sizeof(pal_ws_input))
    {
-      return;
+      goto dispatch;
    }
    received = recv(pal_ws_client, pal_ws_input + pal_ws_input_len,
       sizeof(pal_ws_input) - pal_ws_input_len, 0);
@@ -1404,6 +2251,7 @@ PAL_WsServer_Poll(
       pal_ws_close_client();
    }
    pal_ws_flush();
+dispatch:
    if (pal_ws_pending_battle >= 0 && pal_ws_output_len == 0)
    {
       int team = pal_ws_pending_battle;
@@ -1445,6 +2293,15 @@ PAL_WsServer_Poll(
       PAL_MakeScene();
       VIDEO_UpdateScreen(NULL);
    }
+   if (pal_ws_pending_review_screen >= 0 && pal_ws_output_len == 0)
+   {
+      int module = pal_ws_pending_review_screen;
+
+      pal_ws_pending_review_screen = -1;
+      pal_ws_review_show_screen(module);
+      PAL_MakeScene();
+      VIDEO_UpdateScreen(NULL);
+   }
    if (pal_ws_pending_ui != PAL_WS_UI_NONE && pal_ws_output_len == 0)
    {
       int ui = pal_ws_pending_ui;
@@ -1471,6 +2328,57 @@ PAL_WsServer_Poll(
       case PAL_WS_UI_CONFIRM:
          (void)PAL_ConfirmMenu();
          break;
+      case PAL_WS_UI_SELL:
+         PAL_SellMenu();
+         break;
+      case PAL_WS_UI_INVENTORY:
+         PAL_InventoryMenu();
+         break;
+      case PAL_WS_UI_ITEM_TARGET:
+         if (pal_ws_review_usable_item != 0)
+         {
+            (void)PAL_ItemUseMenu(pal_ws_review_usable_item);
+         }
+         break;
+      case PAL_WS_UI_EQUIPMENT:
+         if (pal_ws_review_equipment_item != 0)
+         {
+            PAL_EquipItemMenu(pal_ws_review_equipment_item);
+         }
+         break;
+      case PAL_WS_UI_MAGIC_LIST:
+         (void)PAL_MagicSelectionMenu(
+            gpGlobals->rgParty[0].wPlayerRole, FALSE,
+            pal_ws_review_field_magic);
+         break;
+      case PAL_WS_UI_MAGIC_TARGET:
+         VIDEO_BackupScreen(gpScreen);
+         (void)PAL_MagicTargetMenu(0);
+         break;
+      case PAL_WS_UI_SYSTEM:
+         (void)PAL_SystemMenu();
+         break;
+      case PAL_WS_UI_BATTLE_SPEED:
+#ifndef PAL_CLASSIC
+         PAL_BattleSpeedMenu();
+#endif
+         break;
+      case PAL_WS_UI_OPENING:
+         (void)PAL_OpeningMenuForReview();
+         PAL_SetPalette(gpGlobals->wNumPalette,
+            gpGlobals->fNightPalette);
+         AUDIO_PlayMusic(gpGlobals->wNumMusic, TRUE, 1);
+         break;
+      case PAL_WS_UI_DIALOG:
+         PAL_MakeScene();
+         VIDEO_UpdateScreen(NULL);
+         pal_ws_review_show_dialog();
+         break;
+      case PAL_WS_UI_CHAPTER_END:
+         PAL_MakeScene();
+         VIDEO_UpdateScreen(NULL);
+         pal_ws_review_show_chapter_end();
+         break;
       default:
          break;
       }
@@ -1492,10 +2400,19 @@ PAL_WsServer_Shutdown(
    pal_ws_pending_script_event = 0;
    pal_ws_active_script = FALSE;
    pal_ws_pending_shop = -1;
+   pal_ws_pending_review_screen = -1;
    pal_ws_pending_ui = PAL_WS_UI_NONE;
    pal_ws_active_ui = PAL_WS_UI_NONE;
    pal_ws_last_battle_team = -1;
    pal_ws_last_battle_result = -1;
+   pal_ws_review_fixture_applied = FALSE;
+   pal_ws_review_current = PAL_WS_REVIEW_MAP;
+   pal_ws_review_pending = -1;
+   pal_ws_review_battle_setup = -1;
+   pal_ws_review_usable_item = 0;
+   pal_ws_review_equipment_item = 0;
+   pal_ws_review_field_magic = 0;
+   pal_ws_review_battle_magic = 0;
    if (pal_ws_listen >= 0)
    {
       close(pal_ws_listen);

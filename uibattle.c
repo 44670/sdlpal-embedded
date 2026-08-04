@@ -31,12 +31,71 @@ static int g_iCurMiscMenuItem = 0;
 static int g_iCurSubMenuItem = 0;
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
+static BOOL
+PAL_BattleBlitUiFrameFit(
+   INT                 iFrame,
+   PalNativeUiRect     box
+)
+{
+   LPCBITMAPRLE rle = PAL_SpriteGetFrame(gpSpriteUI, iFrame);
+   LPCBITMAPRLE next = PAL_SpriteGetFrame(gpSpriteUI, iFrame + 1);
+
+   return rle != NULL && next != NULL && next > rle &&
+      PalNativeUi_BlitRleFitIndexed(
+         rle, (size_t)(next - rle),
+         (LPBYTE)gpScreen->pixels, (uint16_t)gpScreen->pitch,
+         (uint16_t)gpScreen->w, (uint16_t)gpScreen->h,
+         box, NULL);
+}
+
+static VOID
+PAL_BattleDrawCompactActionIcon(
+   INT                 iFrame,
+   PAL_POS             pos,
+   BOOL                fSelected
+)
+{
+   const INT size = 18;
+   PalNativeUiRect box = {
+      (int16_t)(PAL_X(pos) + 1),
+      (int16_t)(PAL_Y(pos) + 1),
+      (uint16_t)(size - 2),
+      (uint16_t)(size - 2)
+   };
+
+   (void)PAL_BattleBlitUiFrameFit(iFrame, box);
+   if (fSelected)
+   {
+      SDL_Rect edge = {PAL_X(pos), PAL_Y(pos), size, 1};
+      BYTE color = MENUITEM_COLOR_SELECTED;
+
+      SDL_FillRect(gpScreen, &edge, color);
+      edge.y += size - 1;
+      SDL_FillRect(gpScreen, &edge, color);
+      edge.x = PAL_X(pos);
+      edge.y = PAL_Y(pos) + 1;
+      edge.w = 1;
+      edge.h = size - 2;
+      SDL_FillRect(gpScreen, &edge, color);
+      edge.x += size - 1;
+      SDL_FillRect(gpScreen, &edge, color);
+   }
+}
+
 PAL_POS
 PAL_PlayerInfoBoxPosition(
    INT             iPlayerIndex,
    INT             iPlayerCount
 )
 {
+   if (gpScreen->w < 200)
+   {
+      const INT boxHeight = PAL_FontHeight() * 2 + 4;
+      return PAL_XY(
+         iPlayerIndex * gpScreen->w / max(1, iPlayerCount),
+         max(0, gpScreen->h - boxHeight));
+   }
+
    const INT boxWidth = 77;
    const INT boxHeight = 35;
    INT columns = max(1, min(iPlayerCount, gpScreen->w / boxWidth));
@@ -63,6 +122,84 @@ PAL_PlayerInfoBoxPosition(
       max(0, (gpScreen->w - rowCount * boxWidth) / 2) +
          rowIndex * boxWidth,
       max(0, gpScreen->h - (rowFromBottom + 1) * boxHeight));
+}
+
+static VOID
+PAL_PlayerInfoBoxCompact(
+   PAL_POS         pos,
+   WORD            wPlayerRole,
+   INT             iTimeMeter,
+   BYTE            bTimeMeterColor,
+   BOOL            fUpdate
+)
+{
+   const INT playerCount = gpGlobals->wMaxPartyMemberIndex + 1;
+   INT playerIndex;
+   INT left;
+   INT right;
+   const INT top = PAL_Y(pos);
+   const INT height = PAL_FontHeight() * 2 + 4;
+   PalNativeUiRect box;
+   WCHAR value[16];
+   SDL_Rect rect;
+
+   for (playerIndex = 0; playerIndex < playerCount; playerIndex++)
+   {
+      if (gpGlobals->rgParty[playerIndex].wPlayerRole == wPlayerRole)
+      {
+         break;
+      }
+   }
+   if (playerIndex >= playerCount)
+   {
+      return;
+   }
+   left = playerIndex * gpScreen->w / playerCount;
+   right = (playerIndex + 1) * gpScreen->w / playerCount;
+   box.x = (int16_t)(left + 1);
+   box.y = (int16_t)top;
+   box.width = (uint16_t)max(1, right - left - 2);
+   box.height = (uint16_t)height;
+   (void)PAL_BattleBlitUiFrameFit(SPRITENUM_PLAYERINFOBOX, box);
+
+   PAL_swprintf(value, sizeof(value) / sizeof(value[0]), L"%u/%u",
+      gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole],
+      gpGlobals->g.PlayerRoles.rgwMaxHP[wPlayerRole]);
+   PAL_DrawText(value,
+      PAL_XY(left + (right - left - PAL_TextWidth(value)) / 2, top + 1),
+      0x2D, TRUE, FALSE, FALSE);
+   PAL_swprintf(value, sizeof(value) / sizeof(value[0]), L"%u/%u",
+      gpGlobals->g.PlayerRoles.rgwMP[wPlayerRole],
+      gpGlobals->g.PlayerRoles.rgwMaxMP[wPlayerRole]);
+   PAL_DrawText(value,
+      PAL_XY(left + (right - left - PAL_TextWidth(value)) / 2,
+         top + PAL_FontHeight() + 2),
+      0x8D, TRUE, FALSE, FALSE);
+
+#ifndef PAL_CLASSIC
+   rect.x = left + 2;
+   rect.y = top + height - 2;
+   rect.w = max(1, right - left - 4);
+   rect.h = 1;
+   SDL_FillRect(gpScreen, &rect, 0xBD);
+   if (iTimeMeter > 0)
+   {
+      rect.w = min(100, iTimeMeter) * rect.w / 100;
+      if (rect.w > 0)
+      {
+         SDL_FillRect(gpScreen, &rect,
+            iTimeMeter >= 100 ? 0x2C : bTimeMeterColor);
+      }
+   }
+#endif
+   if (fUpdate)
+   {
+      rect.x = left;
+      rect.y = top;
+      rect.w = right - left;
+      rect.h = height;
+      VIDEO_UpdateScreen(&rect);
+   }
 }
 #endif
 
@@ -140,6 +277,15 @@ PAL_PlayerInfoBox(
       0x00,  // haste
       0x00,  // dualattack
    };
+
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   if (gpScreen->w < 200)
+   {
+      PAL_PlayerInfoBoxCompact(pos, wPlayerRole, iTimeMeter,
+         bTimeMeterColor, fUpdate);
+      return;
+   }
+#endif
 
    //
    // Draw the box
@@ -247,29 +393,29 @@ PAL_PlayerInfoBox(
    // Draw the HP and MP value
    //
 #ifdef PAL_CLASSIC
-   PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-      PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 6));
+   PAL_DrawNumberSlash(PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 6),
+      kNumColorYellow);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[wPlayerRole], 4,
       PAL_XY(PAL_X(pos) + 47, PAL_Y(pos) + 8), kNumColorYellow, kNumAlignRight);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole], 4,
       PAL_XY(PAL_X(pos) + 26, PAL_Y(pos) + 5), kNumColorYellow, kNumAlignRight);
 
-   PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-      PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 22));
+   PAL_DrawNumberSlash(PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 22),
+      kNumColorCyan);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[wPlayerRole], 4,
       PAL_XY(PAL_X(pos) + 47, PAL_Y(pos) + 24), kNumColorCyan, kNumAlignRight);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[wPlayerRole], 4,
       PAL_XY(PAL_X(pos) + 26, PAL_Y(pos) + 21), kNumColorCyan, kNumAlignRight);
 #else
-   PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-      PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 14));
+   PAL_DrawNumberSlash(PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 14),
+      kNumColorYellow);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxHP[wPlayerRole], 4,
       PAL_XY(PAL_X(pos) + 47, PAL_Y(pos) + 16), kNumColorYellow, kNumAlignRight);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole], 4,
       PAL_XY(PAL_X(pos) + 26, PAL_Y(pos) + 13), kNumColorYellow, kNumAlignRight);
 
-   PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH), gpScreen,
-      PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 24));
+   PAL_DrawNumberSlash(PAL_XY(PAL_X(pos) + 49, PAL_Y(pos) + 24),
+      kNumColorCyan);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMaxMP[wPlayerRole], 4,
       PAL_XY(PAL_X(pos) + 47, PAL_Y(pos) + 26), kNumColorCyan, kNumAlignRight);
    PAL_DrawNumber(gpGlobals->g.PlayerRoles.rgwMP[wPlayerRole], 4,
@@ -914,11 +1060,14 @@ PAL_BattleUIUpdate(
    static int       s_iFrame = 0;
 #if defined(PAL_EXTREME_TWO_SCREENS)
    const int        iPartyCount = gpGlobals->wMaxPartyMemberIndex + 1;
-   const int        iInfoColumns = max(1, gpScreen->w / 77);
+   const BOOL       fCompact = gpScreen->w < 200;
+   const int        iInfoHeight = fCompact ? PAL_FontHeight() * 2 + 4 : 35;
+   const int        iInfoColumns = fCompact ? iPartyCount :
+      max(1, gpScreen->w / 77);
    const int        iInfoRows =
       (iPartyCount + iInfoColumns - 1) / iInfoColumns;
    const int        iActionTop = max(0,
-      gpScreen->h - iInfoRows * 35 - 60);
+      gpScreen->h - iInfoRows * iInfoHeight - (fCompact ? 50 : 60));
 #endif
 
    struct {
@@ -929,16 +1078,16 @@ PAL_BattleUIUpdate(
    {
 #if defined(PAL_EXTREME_TWO_SCREENS)
       {SPRITENUM_BATTLEICON_ATTACK,
-         PAL_XY(27, iActionTop),
+         PAL_XY(fCompact ? 21 : 27, iActionTop),
          kBattleUIActionAttack},
       {SPRITENUM_BATTLEICON_MAGIC,
-         PAL_XY(0, iActionTop + 15),
+         PAL_XY(fCompact ? 1 : 0, iActionTop + 15),
          kBattleUIActionMagic},
       {SPRITENUM_BATTLEICON_COOPMAGIC,
-         PAL_XY(54, iActionTop + 15),
+         PAL_XY(fCompact ? 41 : 54, iActionTop + 15),
          kBattleUIActionCoopMagic},
       {SPRITENUM_BATTLEICON_MISCMENU,
-         PAL_XY(27, iActionTop + 30),
+         PAL_XY(fCompact ? 21 : 27, iActionTop + 30),
          kBattleUIActionMisc}
 #else
       {SPRITENUM_BATTLEICON_ATTACK,    PAL_XY(27, 140), kBattleUIActionAttack},
@@ -1203,6 +1352,14 @@ PAL_BattleUIUpdate(
 
          for (i = 0; i < 4; i++)
          {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+            if (fCompact)
+            {
+               PAL_BattleDrawCompactActionIcon(rgItems[i].iSpriteNum,
+                  rgItems[i].pos, g_Battle.UI.wSelectedAction == i);
+               continue;
+            }
+#endif
             if (g_Battle.UI.wSelectedAction == i)
             {
                PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, rgItems[i].iSpriteNum),
@@ -1698,6 +1855,14 @@ PAL_BattleUIUpdate(
 
       for (i = 0; i < 4; i++)
       {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+         if (fCompact)
+         {
+            PAL_BattleDrawCompactActionIcon(rgItems[i].iSpriteNum,
+               rgItems[i].pos, FALSE);
+            continue;
+         }
+#endif
          PAL_RLEBlitMonoColor(PAL_SpriteGetFrame(gpSpriteUI, rgItems[i].iSpriteNum),
             gpScreen, rgItems[i].pos, 0, -4);
       }

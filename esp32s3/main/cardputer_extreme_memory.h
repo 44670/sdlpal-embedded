@@ -1,6 +1,10 @@
 #ifndef CARDPUTER_EXTREME_MEMORY_H
 #define CARDPUTER_EXTREME_MEMORY_H
 
+#if defined(PAL_TARGET_XIAOMIAO)
+#error "Xiaomiao code must include pal_target_memory.h, not Cardputer memory"
+#endif
+
 #include <stdint.h>
 #include "cardputer_extreme_board.h"
 

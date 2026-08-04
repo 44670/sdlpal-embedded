@@ -13,6 +13,7 @@
 #define PalTarget_ShowError Xiaomiao_ShowError
 #define PalTarget_PollKey Xiaomiao_PollKey
 #define PalTarget_FlushIndexedFramebuffer Xiaomiao_FlushIndexedFramebuffer
+#define PalTarget_GuruMeditation Xiaomiao_GuruMeditation
 
 #elif defined(PAL_TARGET_CARDPUTER_ADV)
 

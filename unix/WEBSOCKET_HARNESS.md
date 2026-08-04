@@ -32,7 +32,11 @@ python3 -B tools/ws_cli.py load 1
 python3 -B tools/ws_cli.py script 7739 --event 113
 python3 -B tools/ws_cli.py shop 0
 python3 -B tools/ws_cli.py battle 0 --battlefield 3
+python3 -B tools/ws_cli.py battle-items
 python3 -B tools/ws_cli.py ui status
+python3 -B tools/ws_cli.py ui sell
+python3 -B tools/ws_cli.py review-fixture
+python3 -B tools/ws_cli.py review-next
 python3 -B tools/ws_cli.py sop-capture ./tmp_ui/review_160x128
 ```
 
@@ -51,24 +55,33 @@ opens the selected real `PAL_BuyMenu()` after drawing the current field scene;
 it does not invent shop data or bypass the ordinary menu/input loop, but it
 does bypass the NPC trigger script and therefore does not show the
 shopkeeper's preceding dialogue. Use `script` when that dialogue-to-shop
-sequence is under review. `status` reports field, dialogue, and battle UI
-state so automation can wait for a real interaction state without guessing
-frames.
+sequence is under review. `status` reports field, dialogue, battle UI, and the
+current `--ui-test` review module so automation can wait for a real
+interaction state without guessing frames.
 `event` reads one live event-object record through the same public event-state
 API used by the engine, so it also observes the Cardputer extreme pager rather
 than a desktop-only resident array.
 
 `ui` opens an ordinary blocking gameplay UI (`main`, `status`, `items`,
-`magic`, `save`, or `confirm`) on the game thread. `sop-capture` requires an
-idle field game, opens those real UIs plus a shop, dialogue, and battle in SOP
-order, and writes their native screenshots and `captures.json` beneath the
-requested `./tmp_ui/` directory. It waits for the interactive battle UI and
-leaves that battle running for human review. The pinned DOS-data default runs
-real script entry 9551 before the item-list capture so the list is not empty;
-pass `--inventory-script 0` for a data set where that entry is not applicable.
-It first advances any dialogue active in the loaded save and waits for a
-stable field interval, so menus are not nested inside a trigger dialogue and
-the map image does not retain a stale dialogue overlay.
+`magic`, `save`, `confirm`, or `sell`) on the game thread. The `sell` UI calls
+the real `PAL_SellMenu()` over the current inventory. `review-fixture` makes the
+current host session visually dense using three real player roles plus item
+and magic IDs discovered from the loaded data tables. It does not write a save
+or prove that normal story progression acquired that state. `sop-capture`
+requires an idle field game, applies that fixture after the clean map capture,
+then opens the real UIs plus a shop, dialogue, and battle in SOP order. It
+writes native first-page and scrolled item/magic screenshots, a sell-menu
+screenshot, and
+`captures.json` beneath the requested `./tmp_ui/` directory. Its pinned-data
+default uses enemy team 3 so the battle screenshot contains three enemies; an
+explicit `--battle` still overrides it. It waits for the interactive battle UI
+and then captures and leaves open its real usable-item selector for human
+review. The standalone `battle-items` command performs the same menu
+initialization during an active player move; like `battle`, it is an
+integration shortcut rather than story-route evidence. `sop-capture` first advances any
+dialogue active in the loaded save and waits for a stable field interval, so
+menus are not nested inside a trigger dialogue and the map image does not
+retain a stale dialogue overlay.
 
 The Cardputer native Linux host can compile the same server with
 `CARDPUTER_EXTREME_NATIVE_WS=1`. Select its logical framebuffer at launch with
@@ -90,10 +103,20 @@ make -C esp32s3 CARDPUTER_EXTREME_NATIVE_WS=1 \
 cd /mnt/hgfs/deb13/PALSteam/PAL_DOS
 PAL_WS_PORT=12345 \
 PAL_CORES3SE_NATIVE_NOR_PACK=/tmp/pal_cardputer_extreme_nor.pak \
-PAL_CORES3SE_NATIVE_TF_PACK=/tmp/pal_cardputer_extreme_tf.pak \
+PAL_CORES3SE_NATIVE_TF_PACK=/tmp/pal_cardputer_extreme_full.pak \
 /tmp/sdlpal-cores3se-native/cardputer_extreme_engine_host \
-  --ui-size 160x128 --scale 4
+  --ui-test --ui-size 160x128 --scale 4
 ```
+
+`--ui-test` is explicit host-only interactive QA mode. After reaching stable
+field gameplay, F1 applies the dense review fixture and traverses the complete
+module list in `UI_REVIEW_SOP.md`: dialogue; live battle commands, submenus,
+targets and results; item/equipment and magic flows; buy/sell; system,
+confirmation, save and opening/load; chapter loading/end; and map. Non-classic
+builds also include their all-target and battle-speed screens. `review-next`
+advances the same sequence without synthesizing an F1 key.
+The mode is unavailable unless the flag was present at process startup, and it
+does not alter embedded firmware.
 
 Scene, script, shop, and battle commands are integration shortcuts. Their screenshots prove
 that the real game loop and renderer handle the requested state, but do not

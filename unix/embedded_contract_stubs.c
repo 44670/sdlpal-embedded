@@ -99,6 +99,10 @@ static uint8_t pal_psram_contract_sfx[PAL_CONTRACT_SFX_BYTES] PAL_CONTRACT_PSRAM
 #endif
 static unsigned int pal_contract_text_slot;
 static WCHAR pal_empty_text[1];
+static const WCHAR pal_cheat_label[] = WIDETEXT("CHEAT");
+static const WCHAR pal_cheat_money_label[] = WIDETEXT("MONEY");
+static const WCHAR pal_cheat_invincible_label[] = WIDETEXT("INVINCIBLE");
+static const WCHAR pal_cheat_always_win_label[] = WIDETEXT("ALWAYS WIN");
 
 static uint16_t
 PalContract_ReadLe16(
@@ -621,10 +625,24 @@ VOID PAL_FreeText(VOID)
 
 LPCWSTR PAL_GetWord(int iNumWord)
 {
-    const uint8_t *utf16le;
-    uint32_t byte_size;
+   const uint8_t *utf16le;
+   uint32_t byte_size;
 
-    if (!pal_contract_text_ready || iNumWord < 0 ||
+   switch (iNumWord)
+   {
+   case SYSMENU_LABEL_CHEAT:
+      return pal_cheat_label;
+   case CHEATMENU_LABEL_MONEY:
+      return pal_cheat_money_label;
+   case CHEATMENU_LABEL_INVINCIBLE:
+      return pal_cheat_invincible_label;
+   case CHEATMENU_LABEL_ALWAYS_WIN:
+      return pal_cheat_always_win_label;
+   default:
+      break;
+   }
+
+   if (!pal_contract_text_ready || iNumWord < 0 ||
         !PalText_GetWord(&pal_contract_text, (uint16_t)iNumWord, &utf16le, &byte_size)) {
         return pal_empty_text;
     }

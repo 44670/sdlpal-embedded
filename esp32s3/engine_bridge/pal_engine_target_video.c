@@ -8,6 +8,7 @@
 
 static const char *TAG = "pal_engine_video";
 static bool pal_engine_logged_first_present;
+static bool pal_engine_logged_bad_present;
 static uint32_t pal_engine_present_count;
 static int64_t pal_engine_present_max_us;
 
@@ -76,10 +77,28 @@ PalEngineBridge_RenderPresentIndexed(
 {
    int64_t start_us;
    int64_t flush_us;
+#if defined(PAL_CORES3SE_NATIVE_ENGINE_HOST)
+   extern uint16_t PalNativeHost_LogicalWidth(void);
+   extern uint16_t PalNativeHost_LogicalHeight(void);
+   const int target_width = PalNativeHost_LogicalWidth();
+   const int target_height = PalNativeHost_LogicalHeight();
+#else
+   const int target_width = PAL_TARGET_LCD_WIDTH;
+   const int target_height = PAL_TARGET_LCD_HEIGHT;
+#endif
 
    if (pixels == NULL || palette_rgba == NULL || pitch < w ||
-       w != PAL_TARGET_LCD_WIDTH || h != PAL_TARGET_LCD_HEIGHT)
+       w != target_width || h != target_height)
    {
+      if (!pal_engine_logged_bad_present)
+      {
+         ESP_LOGE(TAG,
+            "native indexed present rejected: pixels=%p palette=%p "
+            "got=%dx%d pitch=%d expected=%dx%d",
+            pixels, palette_rgba, w, h, pitch,
+            target_width, target_height);
+         pal_engine_logged_bad_present = true;
+      }
       return;
    }
 
@@ -101,8 +120,8 @@ PalEngineBridge_RenderPresentIndexed(
    {
       ESP_LOGI(TAG,
          "first native indexed present: %ux%u, flush_us=%lld",
-         (unsigned)PAL_TARGET_LCD_WIDTH,
-         (unsigned)PAL_TARGET_LCD_HEIGHT,
+         (unsigned)target_width,
+         (unsigned)target_height,
          (long long)flush_us);
       pal_engine_logged_first_present = true;
    }

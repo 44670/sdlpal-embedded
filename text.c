@@ -977,10 +977,32 @@ PAL_GetWord(
 
   Return value:
 
-    Pointer to the requested word. NULL if not found.
+  Pointer to the requested word. NULL if not found.
 
 --*/
 {
+   /* These labels are intentionally not part of WORD.DAT.  Keeping them in
+    * the text accessor lets the system/cheat menu use the same native menu
+    * machinery on every PAL data set while the host pack builder explicitly
+    * includes their glyphs in FONT10. */
+   switch (iNumWord)
+   {
+   case SYSMENU_LABEL_CHEAT:
+      return WIDETEXT("CHEAT");
+   case CHEATMENU_LABEL_MONEY:
+      return WIDETEXT("MONEY");
+   case CHEATMENU_LABEL_INVINCIBLE:
+      return WIDETEXT("INVINCIBLE");
+   case CHEATMENU_LABEL_ALWAYS_WIN:
+      return WIDETEXT("ALWAYS WIN");
+   default:
+      break;
+   }
+
+   if (iNumWord < 0)
+   {
+      return L"";
+   }
    return (iNumWord >= g_TextLib.nWords || !g_TextLib.lpWordBuf[iNumWord]) ? L"" : g_TextLib.lpWordBuf[iNumWord];
 }
 

@@ -23,6 +23,14 @@
 #include "map.h"
 #include "embedded/pal_memory_profile.h"
 
+#if defined(ESP_PLATFORM)
+#include <esp_log.h>
+static const char *PAL_MAP_TAG = "pal_map";
+#define PAL_MAP_LOGE(...) ESP_LOGE(PAL_MAP_TAG, __VA_ARGS__)
+#else
+#define PAL_MAP_LOGE(...) do { } while (0)
+#endif
+
 #if defined(MEM_LEVEL1) || defined(MEM_LEVEL2)
 
 static PALMAP pal_embedded_map_instance;
@@ -121,15 +129,21 @@ PAL_LoadMap(
    LPBYTE                     buf;
 #endif
    INT                        size, i, j;
+   INT                        map_count;
+   INT                        gop_count;
    LPPALMAP                   map;
 
    //
    // Check for invalid map number.
    //
-   if (iMapNum >= PAL_MKFGetChunkCount(fpMapMKF) ||
-      iMapNum >= PAL_MKFGetChunkCount(fpGopMKF) ||
+   map_count = PAL_MKFGetChunkCount(fpMapMKF);
+   gop_count = PAL_MKFGetChunkCount(fpGopMKF);
+   if (iMapNum >= map_count ||
+      iMapNum >= gop_count ||
       iMapNum <= 0)
    {
+      PAL_MAP_LOGE("load rejected: map=%d map_count=%d gop_count=%d",
+         iMapNum, map_count, gop_count);
       return NULL;
    }
 
@@ -148,22 +162,43 @@ PAL_LoadMap(
       map = PAL_MapAllocInstance();
       if (map == NULL || size != 128 * 64 * 2 * (INT)sizeof(DWORD))
       {
+         PAL_MAP_LOGE("MAP geometry failed: map=%d size=%d expected=%u",
+            iMapNum, size,
+            (unsigned)(128u * 64u * 2u * sizeof(DWORD)));
          PAL_MapFreeInstance(map);
          return NULL;
       }
 #if defined(MEM_LEVEL2)
       map_data = (LPCBYTE)PAL_MemorySceneAlloc((size_t)size);
-      if (map_data == NULL ||
-         PAL_MKFReadChunk((LPBYTE)map_data, (UINT)size,
-            (UINT)iMapNum, fpMapMKF) != size)
+      if (map_data == NULL)
       {
+         PAL_MAP_LOGE("MAP arena allocation failed: map=%d size=%d used=%u capacity=%u",
+            iMapNum, size, (unsigned)PAL_MemorySceneUsed(),
+            (unsigned)PAL_MEM_LEVEL2_SCENE_ARENA_BYTES);
          PAL_MapFreeInstance(map);
          return NULL;
+      }
+      {
+         INT read_size = PAL_MKFReadChunk((LPBYTE)map_data, (UINT)size,
+            (UINT)iMapNum, fpMapMKF);
+         if (read_size != size)
+         {
+            PAL_MAP_LOGE("MAP read failed: map=%d expected=%d read=%d used=%u/%u",
+               iMapNum, size, read_size, (unsigned)PAL_MemorySceneUsed(),
+               (unsigned)PAL_MEM_LEVEL2_SCENE_ARENA_BYTES);
+            PAL_MAP_LOGE("MAP buffer: ptr=%p ptr_mod4=%u size_mod4=%u",
+               (void *)map_data, (unsigned)((uintptr_t)map_data & 3u),
+               (unsigned)((UINT)size & 3u));
+            PAL_MapFreeInstance(map);
+            return NULL;
+         }
       }
 #else
       if (!PAL_MKFMapChunk(fpMapMKF, (UINT)iMapNum, &map_data, &map_size) ||
          map_size != (UINT)size)
       {
+         PAL_MAP_LOGE("MAP mapping failed: map=%d size=%d mapped=%u",
+            iMapNum, size, (unsigned)map_size);
          PAL_MapFreeInstance(map);
          return NULL;
       }
@@ -250,6 +285,7 @@ PAL_LoadMap(
    size = PAL_MKFGetChunkSize(iMapNum, fpGopMKF);
    if (size <= 0)
    {
+      PAL_MAP_LOGE("GOP size failed: map=%d size=%d", iMapNum, size);
       PAL_MapFreeInstance(map);
       return NULL;
    }
@@ -261,17 +297,35 @@ PAL_LoadMap(
 #endif
 #if defined(MEM_LEVEL2)
       gop_data = (LPCBYTE)PAL_MemorySceneAlloc((size_t)size);
-      if (gop_data == NULL ||
-         PAL_MKFReadChunk((LPBYTE)gop_data, (UINT)size,
-            (UINT)iMapNum, fpGopMKF) != size)
+      if (gop_data == NULL)
       {
+         PAL_MAP_LOGE("GOP arena allocation failed: map=%d size=%d used=%u capacity=%u",
+            iMapNum, size, (unsigned)PAL_MemorySceneUsed(),
+            (unsigned)PAL_MEM_LEVEL2_SCENE_ARENA_BYTES);
          PAL_MapFreeInstance(map);
          return NULL;
+      }
+      {
+         INT read_size = PAL_MKFReadChunk((LPBYTE)gop_data, (UINT)size,
+            (UINT)iMapNum, fpGopMKF);
+         if (read_size != size)
+         {
+            PAL_MAP_LOGE("GOP read failed: map=%d size=%d read=%d used=%u/%u",
+               iMapNum, size, read_size, (unsigned)PAL_MemorySceneUsed(),
+               (unsigned)PAL_MEM_LEVEL2_SCENE_ARENA_BYTES);
+            PAL_MAP_LOGE("GOP buffer: ptr=%p ptr_mod4=%u size_mod4=%u",
+               (void *)gop_data, (unsigned)((uintptr_t)gop_data & 3u),
+               (unsigned)((UINT)size & 3u));
+            PAL_MapFreeInstance(map);
+            return NULL;
+         }
       }
 #else
       if (!PAL_MKFMapChunk(fpGopMKF, (UINT)iMapNum, &gop_data, &gop_size) ||
          gop_size != (UINT)size)
       {
+         PAL_MAP_LOGE("GOP mapping failed: map=%d size=%d mapped=%u",
+            iMapNum, size, (unsigned)gop_size);
          PAL_MapFreeInstance(map);
          return NULL;
       }

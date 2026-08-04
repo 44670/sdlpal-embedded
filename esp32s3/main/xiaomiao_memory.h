@@ -1,6 +1,10 @@
 #ifndef XIAOMIAO_MEMORY_H
 #define XIAOMIAO_MEMORY_H
 
+#if defined(PAL_TARGET_CARDPUTER_ADV)
+#error "Cardputer code must include pal_target_memory.h, not Xiaomiao memory"
+#endif
+
 #include <stdint.h>
 #include "pal_memory_profile.h"
 #include "xiaomiao_board.h"

@@ -26,6 +26,12 @@ VOID PAL_WsServer_Init(VOID);
 VOID PAL_WsServer_Poll(VOID);
 VOID PAL_WsServer_Shutdown(VOID);
 
+/* Host-only interactive UI review mode. It is enabled only by --ui-test. */
+VOID PAL_WsReviewParseArgs(INT argc, char *argv[]);
+VOID PAL_WsReviewEnable(VOID);
+BOOL PAL_WsReviewEnabled(VOID);
+VOID PAL_WsReviewNext(VOID);
+
 /* Implemented by input.c so remote input uses the ordinary PAL key state. */
 VOID PAL_WsInputKey(DWORD key, INT action);
 

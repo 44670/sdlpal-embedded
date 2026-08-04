@@ -23,6 +23,7 @@ idf_component_register(
         "."
         "../../embedded"
     REQUIRES
+        esp_app_format
         esp_driver_gpio
         esp_driver_gptimer
         esp_driver_i2c
@@ -63,9 +64,11 @@ if(XIAOMIAO_WROVER)
         "xiaomiao_board.c"
         "xiaomiao_audio.c"
         "xiaomiao_memory.c"
+        "pal_guru_screen.c"
         "cardputer_extreme_native_view.c"
         "../../embedded/pal_font10_cache.c"
         "../../embedded/pal_native_ui.c"
+        "../engine_bridge/pal_engine_guru.c"
     )
     set(PAL_TARGET_AUDIO_SOURCES
         "../../adplug/player.cpp"
@@ -118,6 +121,7 @@ else()
 endif()
 
 set(PAL_ENGINE_REQUIRED_COMPONENTS
+    esp_app_format
     esp_driver_gpio
     esp_driver_i2c
     esp_driver_sdspi
@@ -244,6 +248,7 @@ if(XIAOMIAO_WROVER)
         PAL_LOG_BUFFER_SIZE=1024
         PAL_EXTREME_RIX_MUSIC=1
         PAL_CONTRACT_NO_SFX=1
+        PAL_TARGET_GURU_MEDITATION=1
         SHIM_MAX_SURFACES=6
         SHIM_MAX_PALETTES=1
         SHIM_MAX_TEXTURES=1

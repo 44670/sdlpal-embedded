@@ -125,6 +125,7 @@ typedef int SDL_bool;
 #define SDLK_r 'r'
 #define SDLK_s 's'
 #define SDLK_w 'w'
+#define SDLK_F1 0x4000003au
 #define SDLK_F4 0x4000003du
 #define KMOD_ALT 0x0300u
 #define SDLK_KP_0 256

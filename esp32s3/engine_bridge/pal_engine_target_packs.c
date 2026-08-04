@@ -16,6 +16,7 @@
 #include <ff.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -124,17 +125,53 @@ tf_read_at(
 {
    FIL *file = (FIL *)user;
    UINT got = 0;
+   FRESULT result;
+   FSIZE_t position;
 
    if (file == NULL || (dst == NULL && size != 0u))
    {
       return false;
    }
-   PalTarget_PrepareTfAccess();
-   if (f_lseek(file, (FSIZE_t)offset) != FR_OK)
+   if (size > (uint32_t)UINT_MAX)
    {
+      ESP_LOGE(TAG, "TF read size exceeds FatFS UINT: offset=%" PRIu32
+         " size=%" PRIu32, offset, size);
       return false;
    }
-   return f_read(file, dst, (UINT)size, &got) == FR_OK && got == (UINT)size;
+   PalTarget_PrepareTfAccess();
+   result = f_lseek(file, (FSIZE_t)offset);
+   if (result != FR_OK)
+   {
+      ESP_LOGE(TAG, "TF seek failed: offset=%" PRIu32 " size=%" PRIu32
+         " dst=%p dst_mod4=%u offset_mod512=%u result=%d file_size=%" PRIuMAX,
+         offset, size, (void *)dst, (unsigned)((uintptr_t)dst & 3u),
+         (unsigned)(offset & 511u), (int)result, (uintmax_t)f_size(file));
+      return false;
+   }
+   result = f_read(file, dst, (UINT)size, &got);
+   position = f_tell(file);
+   if (result != FR_OK)
+   {
+      ESP_LOGE(TAG, "TF read error: offset=%" PRIu32 " request=%" PRIu32
+         " got=%u position=%" PRIuMAX " dst=%p dst_mod4=%u "
+         "request_mod4=%u offset_mod512=%u result=%d file_size=%" PRIuMAX,
+         offset, size, (unsigned)got, (uintmax_t)position,
+         (void *)dst, (unsigned)((uintptr_t)dst & 3u),
+         (unsigned)(size & 3u), (unsigned)(offset & 511u), (int)result,
+         (uintmax_t)f_size(file));
+      return false;
+   }
+   if (got != (UINT)size)
+   {
+      ESP_LOGE(TAG, "TF short read: offset=%" PRIu32 " request=%" PRIu32
+         " got=%u position=%" PRIuMAX " dst=%p dst_mod4=%u "
+         "request_mod4=%u offset_mod512=%u file_size=%" PRIuMAX, offset,
+         size, (unsigned)got, (uintmax_t)position, (void *)dst,
+         (unsigned)((uintptr_t)dst & 3u), (unsigned)(size & 3u),
+         (unsigned)(offset & 511u), (uintmax_t)f_size(file));
+      return false;
+   }
+   return true;
 }
 
 #if defined(PAL_STORAGE_SD_ONLY)

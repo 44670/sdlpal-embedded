@@ -7,7 +7,19 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <limits.h>
+#if defined(ESP_PLATFORM)
+#include <esp_log.h>
+#include <inttypes.h>
+#endif
 #include <string.h>
+
+#if defined(ESP_PLATFORM)
+static const char *PAL_ENGINE_PROVIDER_TAG = "pal_engine_provider";
+#define PAL_ENGINE_PROVIDER_LOGE(...) \
+   ESP_LOGE(PAL_ENGINE_PROVIDER_TAG, __VA_ARGS__)
+#else
+#define PAL_ENGINE_PROVIDER_LOGE(...) do { } while (0)
+#endif
 
 #if defined(__has_include)
 #if __has_include("esp_attr.h")
@@ -916,27 +928,51 @@ __wrap_PAL_MKFReadChunk(
    {
       if (info.size > buffer_size)
       {
+         PAL_ENGINE_PROVIDER_LOGE(
+            "TF chunk buffer too small: archive=%u chunk=%u size=%" PRIu32
+            " buffer=%u", archive_id, chunk_id, info.size, buffer_size);
          return -2;
       }
       if (info.size == 0)
       {
+         PAL_ENGINE_PROVIDER_LOGE(
+            "TF chunk has zero size: archive=%u chunk=%u",
+            archive_id, chunk_id);
          return -1;
       }
-      return pal_engine_tf_read_at(pal_engine_tf_user, info.offset, buffer, info.size)
-         ? (INT)info.size : -1;
+      if (!pal_engine_tf_read_at(pal_engine_tf_user, info.offset, buffer,
+            info.size))
+      {
+         PAL_ENGINE_PROVIDER_LOGE(
+            "TF chunk read failed: archive=%u chunk=%u offset=%" PRIu32
+            " size=%" PRIu32 " buffer=%p buffer_mod4=%u offset_mod512=%u "
+            "size_mod4=%u", archive_id, chunk_id, info.offset, info.size,
+            (void *)buffer, (unsigned)((uintptr_t)buffer & 3u),
+            (unsigned)(info.offset & 511u), (unsigned)(info.size & 3u));
+         return -1;
+      }
+      return (INT)info.size;
    }
    if (store != PAL_ENGINE_ARCHIVE_STORE_OVERLAY &&
       store != PAL_ENGINE_ARCHIVE_STORE_CORE)
    {
+      PAL_ENGINE_PROVIDER_LOGE(
+         "chunk unavailable: archive=%u chunk=%u", archive_id, chunk_id);
       return -1;
    }
 
    if (span.size > buffer_size)
    {
+      PAL_ENGINE_PROVIDER_LOGE(
+         "cached chunk buffer too small: archive=%u chunk=%u size=%" PRIu32
+         " buffer=%u", archive_id, chunk_id, span.size, buffer_size);
       return -2;
    }
    if (span.size == 0)
    {
+      PAL_ENGINE_PROVIDER_LOGE(
+         "cached chunk has zero size: archive=%u chunk=%u",
+         archive_id, chunk_id);
       return -1;
    }
    memcpy(buffer, span.data, span.size);

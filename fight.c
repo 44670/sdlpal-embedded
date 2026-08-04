@@ -848,6 +848,8 @@ PAL_BattlePostActionCheck(
    BOOL     fFade = FALSE;
    BOOL     fEnemyRemaining = FALSE;
 
+   PAL_CheatApplyBattleState();
+
    for (i = 0; i <= g_Battle.wMaxEnemyIndex; i++)
    {
       if (g_Battle.rgEnemy[i].wObjectID == 0)
@@ -1048,6 +1050,8 @@ PAL_BattleUpdateFighters(
    int        i;
    WORD       wPlayerRole;
 
+   PAL_CheatApplyBattleState();
+
    //
    // Update the gesture for all players
    //
@@ -1206,6 +1210,8 @@ PAL_BattleStartFrame(
    WORD                     wPlayerRole;
    WORD                     wDexterity;
    BOOL                     fOnlyPuppet = TRUE;
+
+   PAL_CheatApplyBattleState();
 
 #ifndef PAL_CLASSIC
    FLOAT                    flMax;
@@ -3938,7 +3944,10 @@ PAL_BattlePlayerPerformAction(
             sDamage = gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[sTarget].wPlayerRole];
          }
 
-         gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[sTarget].wPlayerRole] -= sDamage;
+         if (!PAL_CheatGodModeEnabled())
+         {
+            gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[sTarget].wPlayerRole] -= sDamage;
+         }
 
          g_Battle.rgPlayer[sTarget].pos =
             PAL_XY(PAL_X(g_Battle.rgPlayer[sTarget].pos) - 12,
@@ -4064,12 +4073,15 @@ PAL_BattlePlayerPerformAction(
             continue;
 #endif
 
-         gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[i].wPlayerRole] -=
-            gpGlobals->g.lprgMagic[wMagicNum].wCostMP;
-
-         if ((SHORT)(gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[i].wPlayerRole]) <= 0)
+         if (!PAL_CheatGodModeEnabled())
          {
-            gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[i].wPlayerRole] = 1;
+            gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[i].wPlayerRole] -=
+               gpGlobals->g.lprgMagic[wMagicNum].wCostMP;
+
+            if ((SHORT)(gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[i].wPlayerRole]) <= 0)
+            {
+               gpGlobals->g.PlayerRoles.rgwHP[gpGlobals->rgParty[i].wPlayerRole] = 1;
+            }
          }
 
          //
@@ -4246,7 +4258,8 @@ PAL_BattlePlayerPerformAction(
          def = 0;
       }
 
-      if (str >= RandomLong(0, def) && !g_Battle.fIsBoss)
+      if (PAL_CheatGodModeEnabled() ||
+         (str >= RandomLong(0, def) && !g_Battle.fIsBoss))
       {
          //
          // Successful escape
@@ -4292,7 +4305,10 @@ PAL_BattlePlayerPerformAction(
 
       if (!gpGlobals->fAutoBattle)
       {
+      if (!PAL_CheatGodModeEnabled())
+      {
          gpGlobals->g.PlayerRoles.rgwMP[wPlayerRole] -= gpGlobals->g.lprgMagic[wMagicNum].wCostMP;
+      }
          if ((SHORT)(gpGlobals->g.PlayerRoles.rgwMP[wPlayerRole]) < 0)
          {
             gpGlobals->g.PlayerRoles.rgwMP[wPlayerRole] = 0;
@@ -4914,7 +4930,10 @@ PAL_BattleEnemyPerformAction(
                }
 
 #ifndef INVINCIBLE
-               gpGlobals->g.PlayerRoles.rgwHP[w] -= sDamage;
+               if (!PAL_CheatGodModeEnabled())
+               {
+                  gpGlobals->g.PlayerRoles.rgwHP[w] -= sDamage;
+               }
 #endif
 
                if (gpGlobals->g.PlayerRoles.rgwHP[w] == 0)
@@ -4949,7 +4968,10 @@ PAL_BattleEnemyPerformAction(
             }
 
 #ifndef INVINCIBLE
-            gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole] -= sDamage;
+            if (!PAL_CheatGodModeEnabled())
+            {
+               gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole] -= sDamage;
+            }
 #endif
 
             if (gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole] == 0)
@@ -5178,7 +5200,10 @@ PAL_BattleEnemyPerformAction(
          }
 
 #ifndef INVINCIBLE
-         gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole] -= sDamage;
+         if (!PAL_CheatGodModeEnabled())
+         {
+            gpGlobals->g.PlayerRoles.rgwHP[wPlayerRole] -= sDamage;
+         }
 #endif
 
          PAL_BattleDisplayStatChange();

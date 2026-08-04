@@ -37,6 +37,13 @@ PAL_ItemSelectMenuInit(
    WORD                      wItemFlags
 );
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+VOID
+PAL_ItemSelectMenuGetPreviewRect(
+   SDL_Rect                 *rect
+);
+#endif
+
 WORD
 PAL_ItemSelectMenu(
    LPITEMCHANGED_CALLBACK    lpfnMenuItemChanged,

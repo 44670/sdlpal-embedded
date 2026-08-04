@@ -58,6 +58,7 @@ XIAOMIAO_NATIVE_MAP_SCREENSHOT ?= $(abspath ../tmp_ui/xiaomiao_160x128_map.png)
 XIAOMIAO_NATIVE_BATTLE_SCREENSHOT ?= $(abspath ../tmp_ui/xiaomiao_160x128_battle.png)
 XIAOMIAO_NATIVE_MAP_FRAME ?= 1200
 XIAOMIAO_NATIVE_BATTLE_FRAME ?= 1320
+XIAOMIAO_GURU_SCREEN_TEST_TARGET ?= $(NATIVE_BUILD_DIR)/xiaomiao_guru_screen_test
 NATIVE_BUILD_DIR ?= /tmp/sdlpal-cores3se-native
 NATIVE_TARGET ?= $(NATIVE_BUILD_DIR)/cores3se_native_smoke
 NATIVE_SCREENSHOT ?= $(NATIVE_BUILD_DIR)/cores3se_scene.png
@@ -449,7 +450,7 @@ CARDPUTER_EXTREME_NATIVE_CFLAGS = \
 	-DPAL_EXTREME_SPRITES_TO_DRAW=512 \
 	-DPAL_GLOBAL_BUFFER_SIZE=256 \
 	-DPAL_SDL_SHIM_EXTERNAL_SURFACES_ONLY=1 \
-	-DPAL_ENGINE_TF_TOC_BYTES=2048u \
+	-DPAL_ENGINE_TF_TOC_BYTES=40960u \
 	-DPAL_LOG_BUFFER_SIZE=1024 \
 	-DSHIM_MAX_SURFACES=6 \
 	-DSHIM_MAX_PALETTES=1 \
@@ -493,7 +494,7 @@ CARDPUTER_EXTREME_NATIVE_CFLAGS += -DPAL_HAS_WS_SERVER=1
 CARDPUTER_EXTREME_NATIVE_SRCS += ../unix/pal_ws_server.c
 endif
 
-.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check tf-datapack xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf unified-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-prepare-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke native-pack-provider-sd-only-open-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
+.PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check tf-datapack xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-guru-screen-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf unified-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-prepare-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke native-pack-provider-sd-only-open-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
 .PHONY: native-pack-provider-chapter-open-smoke
 
 all: build
@@ -532,6 +533,14 @@ xiaomiao-pack-check: xiaomiao-tf
 	$(PYTHON) -B ../tools/test_pal_pack_build.py
 	@test -s "$(XIAOMIAO_FULL_PACK)"
 	@test -s "$(XIAOMIAO_MANIFEST)"
+
+$(XIAOMIAO_GURU_SCREEN_TEST_TARGET): main/pal_guru_screen.c main/pal_guru_screen.h native_shim/pal_guru_screen_test.c
+	mkdir -p "$(dir $@)"
+	$(CC) -std=c99 -Wall -Wextra -Werror -I main \
+		main/pal_guru_screen.c native_shim/pal_guru_screen_test.c -o "$@"
+
+xiaomiao-guru-screen-check: $(XIAOMIAO_GURU_SCREEN_TEST_TARGET)
+	"$(XIAOMIAO_GURU_SCREEN_TEST_TARGET)"
 
 $(XIAOMIAO_NATIVE_TARGET): $(XIAOMIAO_NATIVE_SRCS) ../embedded/pal_font10_cache.h ../embedded/pal_native_ui.h ../embedded/pal_fullscreen_stretch.h main/xiaomiao_memory.h main/pal_target_memory.h engine_bridge/include/pal_config.h engine_bridge/include/sys/mman.h native_engine_shim/include/SDL.h native_engine_shim/include/SDL_endian.h native_engine_shim/include/SDL_events.h native_engine_shim/include/SDL_video.h native_shim/include/esp_partition.h native_shim/include/ff.h Makefile
 	mkdir -p "$(XIAOMIAO_NATIVE_BUILD_DIR)"
@@ -614,7 +623,7 @@ xiaomiao-native-smoke: xiaomiao-pack-check $(XIAOMIAO_NATIVE_TARGET)
 	$(PYTHON) -B native_shim/check_png.py "$(XIAOMIAO_NATIVE_MAP_SCREENSHOT)" 160 128 6000 24
 	$(PYTHON) -B native_shim/check_png.py "$(XIAOMIAO_NATIVE_BATTLE_SCREENSHOT)" 160 128 6000 24
 
-xiaomiao-check: xiaomiao-build xiaomiao-native-smoke native-pack-provider-sd-only-open-smoke cardputer-extreme-event-pager-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check
+xiaomiao-check: xiaomiao-build xiaomiao-guru-screen-check xiaomiao-native-smoke native-pack-provider-sd-only-open-smoke cardputer-extreme-event-pager-check cardputer-extreme-native-view-check cardputer-extreme-rng-decoder-check
 	$(PYTHON) -B check_xiaomiao.py \
 		--build-dir "$(XIAOMIAO_BUILD_DIR)" \
 		--full-pack "$(XIAOMIAO_FULL_PACK)" \
@@ -904,7 +913,7 @@ cardputer-extreme-native-smoke: cardputer-extreme-pack-build $(CARDPUTER_EXTREME
 		rc=0; \
 		(cd "$(PAL_DATA_DIR)" && \
 			PAL_CORES3SE_NATIVE_NOR_PACK="$(abspath $(CARDPUTER_EXTREME_NOR))" \
-			PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(CARDPUTER_EXTREME_TF))" \
+			PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(CARDPUTER_EXTREME_TF_COMPLETE))" \
 			PAL_CORES3SE_NATIVE_SAVE_DIR="$$save_dir" \
 			PAL_CORES3SE_NATIVE_SCREENSHOT_FRAME=999999 \
 			PAL_CORES3SE_NATIVE_MAX_PRESENTS=0 \
@@ -949,7 +958,7 @@ cardputer-extreme-native-smoke: cardputer-extreme-pack-build $(CARDPUTER_EXTREME
 		"$(CARDPUTER_EXTREME_NATIVE_TRACE)"
 	grep -E ' battle .*from=0 to=1 .*enemies=[1-9]' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
 	grep -E ' battle .*from=1 to=0 .*result=3 ' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
-	grep -E ' chapter .*from=22 to=22 .*entry=10600 ' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
+	grep -E ' chapter .*from=22 to=21 .*entry=10600 ' "$(CARDPUTER_EXTREME_NATIVE_EVENT_TRACE)"
 	cmp -s "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT)" "$(CARDPUTER_EXTREME_NATIVE_SCREENSHOT)"
 	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_REFERENCE_SCREENSHOT)" 240 135 10000 32
 	$(PYTHON) -B native_shim/check_png.py "$(CARDPUTER_EXTREME_NATIVE_SCREENSHOT)" 240 135 10000 32
@@ -961,7 +970,7 @@ cardputer-extreme-draw-stress-check: cardputer-extreme-pack-build $(CARDPUTER_EX
 	trap 'rm -rf "$$tmpd"' EXIT; \
 	cd "$(PAL_DATA_DIR)" && \
 		PAL_CORES3SE_NATIVE_NOR_PACK="$(abspath $(CARDPUTER_EXTREME_NOR))" \
-		PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(CARDPUTER_EXTREME_TF))" \
+		PAL_CORES3SE_NATIVE_TF_PACK="$(abspath $(CARDPUTER_EXTREME_TF_COMPLETE))" \
 		PAL_CORES3SE_NATIVE_SAVE_DIR="$$tmpd" \
 		PAL_DETERMINISTIC_REPLAY="$(abspath $(NATIVE_ENGINE_BRIDGE_ROUTE))" \
 		PAL_DETERMINISTIC_MAX_PRESENTS=$(CARDPUTER_EXTREME_NATIVE_FRAMES) \
@@ -973,7 +982,7 @@ cardputer-extreme-save-check: cardputer-extreme-pack-build $(CARDPUTER_EXTREME_N
 	$(PYTHON) -B native_shim/test_cardputer_extreme_save.py \
 		--binary "$(CARDPUTER_EXTREME_NATIVE_TARGET)" \
 		--nor "$(CARDPUTER_EXTREME_NOR)" \
-		--tf "$(CARDPUTER_EXTREME_TF)" \
+		--tf "$(CARDPUTER_EXTREME_TF_COMPLETE)" \
 		--data-dir "$(PAL_DATA_DIR)" \
 		--route "$(NATIVE_ENGINE_BRIDGE_ROUTE)"
 
@@ -981,7 +990,7 @@ cardputer-extreme-music-save-check: cardputer-extreme-music-pack-build $(CARDPUT
 	$(PYTHON) -B native_shim/test_cardputer_extreme_save.py \
 		--binary "$(CARDPUTER_EXTREME_NATIVE_TARGET)" \
 		--nor "$(CARDPUTER_EXTREME_MUSIC_NOR)" \
-		--tf "$(CARDPUTER_EXTREME_MUSIC_TF)" \
+		--tf "$(CARDPUTER_EXTREME_MUSIC_TF_COMPLETE)" \
 		--data-dir "$(PAL_DATA_DIR)" \
 		--route "$(NATIVE_ENGINE_BRIDGE_ROUTE)"
 

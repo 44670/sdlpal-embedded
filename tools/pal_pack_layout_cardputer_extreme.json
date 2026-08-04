@@ -434,9 +434,9 @@
     "closure_audit": {
         "status": "candidate-not-route-proven",
         "known_unresolved_scene_destinations": [
+            21
         ],
         "chapter_complete_scene_destinations": [
-            21
         ],
         "known_unresolved_event_object_targets": [
         ],
@@ -447,7 +447,7 @@
             "magic-use-success",
             "poison-player-dying-friend-death"
         ],
-        "notes": "A conservative script traversal reaches scene 21 from selected scene 22. The extreme runtime replaces that exact transition with a visible chapter-complete endpoint, and a deterministic probe verifies that it remains in scene 22. The selected stock PAL_DOS script closure has no out-of-prefix event-object target. Full intended-route and indirect object-script closure are still required before this profile can be called route-proven.",
+        "notes": "A conservative script traversal reaches scene 21 from selected scene 22, but this legacy sparse layout does not contain scene 21. The current complete pal_full.pak path and MEM_LEVEL1 chapter cache continue that transition by selecting the required bundle automatically. The selected stock PAL_DOS script closure has no out-of-prefix event-object target. Full intended-route and indirect object-script closure are still required before this profile can be called route-proven.",
         "dataset": "/mnt/hgfs/deb13/PALSteam/PAL_DOS",
     "scenes": {
       "ids": [

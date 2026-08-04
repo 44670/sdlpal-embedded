@@ -71,6 +71,14 @@
 #define SYSMENU_LABEL_BATTLEMODE           606
 #define SYSMENU_LABEL_LAUNCHSETTING        612
 
+/* Runtime-only labels.  These IDs deliberately live outside WORD.DAT; the
+ * text layer supplies the short target-authored strings without changing the
+ * selected PAL data set. */
+#define SYSMENU_LABEL_CHEAT                0xFFF0
+#define CHEATMENU_LABEL_MONEY              0xFFF1
+#define CHEATMENU_LABEL_INVINCIBLE         0xFFF2
+#define CHEATMENU_LABEL_ALWAYS_WIN          0xFFF3
+
 #define BATTLESPEEDMENU_LABEL_1            (SYSMENU_LABEL_BATTLEMODE + 1)
 #define BATTLESPEEDMENU_LABEL_2            (SYSMENU_LABEL_BATTLEMODE + 2)
 #define BATTLESPEEDMENU_LABEL_3            (SYSMENU_LABEL_BATTLEMODE + 3)
@@ -289,6 +297,12 @@ PAL_DrawNumber(
    PAL_POS         pos,
    NUMCOLOR        color,
    NUMALIGN        align
+);
+
+VOID
+PAL_DrawNumberSlash(
+   PAL_POS         pos,
+   NUMCOLOR        color
 );
     
 INT

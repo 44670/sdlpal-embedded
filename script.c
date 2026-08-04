@@ -2118,23 +2118,6 @@ PAL_InterpretInstruction(
       //
       // Change to the specified scene
       //
-#if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)
-      if (gpGlobals->wNumScene == 22 && pScript->rgwOperand[0] == 21)
-      {
-         /*
-          * Scene 21 is the first Suzhou interior and is deliberately outside
-          * this finite chapter profile.  Turn the original transition into a
-          * visible, repeatable endpoint instead of allowing a later resource
-          * lookup to fail.
-          */
-         UTIL_LogOutput(LOGLEVEL_INFO,
-            "Cardputer chapter complete at scene 22 -> 21 boundary\n");
-         PAL_StartDialog(kDialogCenterWindow, 0, 0, FALSE);
-         /* '-' is a dialogue color control unless escaped. */
-         PAL_ShowDialogText(WIDETEXT("CHAPTER COMPLETE \\- SUZHOU NEXT"));
-         return 0;
-      }
-#endif
       if (pScript->rgwOperand[0] > 0 && pScript->rgwOperand[0] <= MAX_SCENES &&
          gpGlobals->wNumScene != pScript->rgwOperand[0])
       {

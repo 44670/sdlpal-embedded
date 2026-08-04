@@ -22,6 +22,10 @@ bool Xiaomiao_FlushIndexedFramebuffer(
     uint16_t pitch,
     const uint8_t *palette_rgba);
 void Xiaomiao_ShowError(const char *line1, const char *line2);
+void Xiaomiao_GuruMeditation(
+    const char *file,
+    uint32_t line,
+    const char *reason);
 
 #ifdef __cplusplus
 }

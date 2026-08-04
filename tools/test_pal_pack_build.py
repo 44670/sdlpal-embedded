@@ -539,9 +539,9 @@ class CardputerExtremeClosureTests(unittest.TestCase):
             if self.entries[index][0] == 0x0059
         }
         chapter_complete = set(audit["chapter_complete_scene_destinations"])
-        self.assertEqual(chapter_complete, {21})
+        self.assertEqual(chapter_complete, set())
         self.assertEqual(
-            scene_destinations - self.scene_ids - chapter_complete,
+            scene_destinations - self.scene_ids,
             set(audit["known_unresolved_scene_destinations"]),
         )
 

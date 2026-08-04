@@ -63,7 +63,7 @@ volatile BOOL g_bRenderPaused = FALSE;
 #endif
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-#include "esp32s3/main/cardputer_extreme_memory.h"
+#include "esp32s3/main/pal_target_memory.h"
 void PalEngineBridge_RenderPresentIndexed(const void *pixels, int pitch, int w, int h, const void *palette_rgba);
 #else
 static uint8_t pal_sram_video_screen[320u * 200u] PAL_VIDEO_SRAM;
@@ -200,6 +200,12 @@ VIDEO_Startup(
    native_width = PalNativeHost_LogicalWidth();
    native_height = PalNativeHost_LogicalHeight();
 #endif
+   if (native_width <= 0 || native_height <= 0 ||
+      native_width > PAL_EXTREME_SCREEN_WIDTH ||
+      native_height > PAL_EXTREME_SCREEN_HEIGHT)
+   {
+      return -2;
+   }
    gpScreen = SDL_CreateRGBSurfaceFrom(pal_sram_framebuffer,
       native_width, native_height, 8,
       PAL_EXTREME_SCREEN_WIDTH, 0, 0, 0, 0);

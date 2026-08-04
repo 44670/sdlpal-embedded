@@ -1232,8 +1232,9 @@ __wrap_SDL_RenderPresent(
        gpGlobals->wNumScene != 0 &&
        !gpGlobals->fInBattle) {
       /*
-       * Host-only boundary probe.  The scene value is restored immediately;
-       * the script must leave it at 22 and return without requesting scene 21.
+       * Host-only chapter-transition probe.  The scene value is restored
+       * immediately; the real script must request scene 21 so the complete
+       * host pack and the Cardputer chapter cache can continue normally.
        */
       pal_deterministic_force_chapter_active = true;
       pal_deterministic_force_chapter_done = true;
@@ -1244,9 +1245,9 @@ __wrap_SDL_RenderPresent(
          "from=22 to=%u entry=10600 result=%u",
          (unsigned)gpGlobals->wNumScene, (unsigned)chapter_result);
       pal_deterministic_emit_event("chapter", chapter_detail);
-      if (gpGlobals->wNumScene != 22) {
+      if (gpGlobals->wNumScene != 21) {
          TerminateOnError(
-            "Cardputer chapter boundary probe entered scene %u",
+            "Cardputer chapter transition stopped at scene %u",
             gpGlobals->wNumScene);
       }
       gpGlobals->wNumScene = old_scene;

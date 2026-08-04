@@ -902,6 +902,42 @@ PAL_DrawNumber(
 
 --*/
 {
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   WCHAR         text[16];
+   LPCWSTR       digits;
+   INT           actualWidth;
+   INT           fieldWidth;
+   INT           x;
+   BYTE          bColor;
+   size_t        length;
+
+   if (nLength == 0)
+   {
+      return;
+   }
+
+   PAL_swprintf(text, sizeof(text) / sizeof(text[0]), L"%u", iNum);
+   length = wcslen(text);
+   digits = text + (length > nLength ? length - nLength : 0);
+   actualWidth = PAL_TextWidth(digits);
+   fieldWidth = PAL_CharWidth(L'0') * (INT)nLength;
+   x = PAL_X(pos);
+
+   if (align == kNumAlignMid)
+   {
+      x += (fieldWidth - actualWidth) / 2;
+   }
+   else if (align == kNumAlignRight)
+   {
+      x += fieldWidth - actualWidth;
+   }
+
+   bColor = color == kNumColorCyan ? 0x8D :
+      (color == kNumColorBlue ? 0xDB : 0x2D);
+   PAL_DrawText(digits, PAL_XY(x, PAL_Y(pos)), bColor,
+      TRUE, FALSE, FALSE);
+   return;
+#else
    UINT          nActualLength, i;
    int           x, y;
    LPCBITMAPRLE  rglpBitmap[10];
@@ -964,6 +1000,24 @@ PAL_DrawNumber(
       x -= 6;
       iNum /= 10;
    }
+#endif
+}
+
+VOID
+PAL_DrawNumberSlash(
+   PAL_POS         pos,
+   NUMCOLOR        color
+)
+{
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   BYTE bColor = color == kNumColorCyan ? 0x8D :
+      (color == kNumColorBlue ? 0xDB : 0x2D);
+   PAL_DrawText(L"/", pos, bColor, TRUE, FALSE, FALSE);
+#else
+   (void)color;
+   PAL_RLEBlitToSurface(PAL_SpriteGetFrame(gpSpriteUI, SPRITENUM_SLASH),
+      gpScreen, pos);
+#endif
 }
 
 /*++

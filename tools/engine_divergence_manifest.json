@@ -14,7 +14,7 @@
       "path": "script.c",
       "sha256": "42a5edde2e8ebf645fbc2095e205898de36d091a065e9b278ed74c0fed90be95",
       "policy": "frozen-reviewed-extreme",
-      "reason": "reviewed bounded event/scene paging, responsive dialogue integration, finite-profile endpoint, and MEM_LEVEL1 chapter-cache continuation"
+      "reason": "reviewed bounded event/scene paging, responsive dialogue integration, and MEM_LEVEL1 chapter-cache continuation"
     },
     {
       "path": "scene.c",

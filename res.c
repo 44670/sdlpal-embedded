@@ -395,14 +395,6 @@ PAL_LoadResources(
       //
       // Load map
       //
-#if defined(MEM_LEVEL1) && !defined(PAL_EXTREME_CHAPTER_CACHE)
-      if (!((gpGlobals->wNumScene >= 1 && gpGlobals->wNumScene <= 20) ||
-            gpGlobals->wNumScene == 22))
-      {
-         TerminateOnError("MEM_LEVEL1 chapter boundary: scene %u is outside 1..20,22",
-            gpGlobals->wNumScene);
-      }
-#endif
       i = gpGlobals->wNumScene - 1;
       gpResources->lpMap = PAL_LoadMap(gpGlobals->g.rgScene[i].wMapNum,
          fpMAP, fpGOP);

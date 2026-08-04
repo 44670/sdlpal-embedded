@@ -633,6 +633,7 @@ PAL_StartFrame(
    // Run the game logic of one frame
    //
    PAL_GameUpdate(TRUE);
+   PAL_CheatApplyWorldState();
    if (gpGlobals->fEnteringScene)
    {
       return;

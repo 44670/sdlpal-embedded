@@ -1,6 +1,7 @@
 #include "xiaomiao_board.h"
 
 #include "cardputer_extreme_native_view.h"
+#include "pal_guru_screen.h"
 #include "xiaomiao_memory.h"
 
 #include <stddef.h>
@@ -8,11 +9,13 @@
 #include <driver/gpio.h>
 #include <driver/sdspi_host.h>
 #include <driver/spi_master.h>
+#include <esp_app_desc.h>
 #include <esp_err.h>
 #include <esp_lcd_io_spi.h>
 #include <esp_lcd_panel_commands.h>
 #include <esp_lcd_panel_io.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <esp_vfs_fat.h>
 #include <ff.h>
 #include <freertos/FreeRTOS.h>
@@ -20,6 +23,7 @@
 #include <sdmmc_cmd.h>
 
 static const char *TAG = "xiaomiao";
+static const char *TF_TAG = "xiaomiao_tf";
 
 static const gpio_num_t PIN_LCD_SCLK = GPIO_NUM_18;
 static const gpio_num_t PIN_LCD_MOSI = GPIO_NUM_23;
@@ -35,7 +39,7 @@ static const gpio_num_t key_pins[] = {
 static const uint8_t key_ascii[] = {'i', 'k', 'j', 'l', '\r', '\b'};
 
 static const spi_host_device_t SHARED_HOST = SPI3_HOST;
-static const uint32_t LCD_PIXEL_CLOCK_HZ = 40000000u;
+static const uint32_t LCD_PIXEL_CLOCK_HZ = 20000000u;
 static const uint32_t TF_SPI_CLOCK_KHZ = 20000u;
 
 enum {
@@ -62,6 +66,11 @@ typedef struct XiaomiaoKeyEvent {
 static esp_lcd_panel_io_handle_t lcd_io;
 static sdmmc_card_t *tf_card;
 static bool tf_mounted;
+static uint32_t tf_transaction_sequence;
+static uint32_t tf_data_transaction_count;
+static uint64_t tf_data_transaction_bytes;
+static uint32_t tf_transaction_failure_count;
+static uint32_t tf_max_transaction_us;
 static bool key_down[KEY_COUNT];
 static XiaomiaoKeyEvent key_events[KEY_EVENT_CAPACITY];
 static uint8_t key_event_read;
@@ -78,6 +87,70 @@ log_error(
     }
     ESP_LOGE(TAG, "%s: %s", what, esp_err_to_name(err));
     return false;
+}
+
+/*
+ * Keep the normal driver quiet so UART traffic does not perturb the shared
+ * bus timing.  On failure, retain the command-level information which FatFS
+ * otherwise collapses into FR_DISK_ERR at the caller.
+ */
+static esp_err_t
+xiaomiao_tf_do_transaction(
+    int slot,
+    sdmmc_command_t *command)
+{
+    int64_t start_us;
+    int64_t elapsed_us_64;
+    uint32_t elapsed_us;
+    uint32_t sequence;
+    esp_err_t result;
+
+    if (command == NULL) {
+        ESP_LOGE(TF_TAG, "null SDSPI command: slot=%d", slot);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    sequence = ++tf_transaction_sequence;
+    start_us = esp_timer_get_time();
+    result = sdspi_host_do_transaction(slot, command);
+    elapsed_us_64 = esp_timer_get_time() - start_us;
+    elapsed_us = elapsed_us_64 <= 0 ? 0u :
+        elapsed_us_64 > UINT32_MAX ? UINT32_MAX : (uint32_t)elapsed_us_64;
+    if (elapsed_us > tf_max_transaction_us) {
+        tf_max_transaction_us = elapsed_us;
+    }
+    if (command->datalen != 0u) {
+        tf_data_transaction_count++;
+        tf_data_transaction_bytes += command->datalen;
+    }
+
+    if (result != ESP_OK) {
+        tf_transaction_failure_count++;
+        ESP_LOGE(TF_TAG,
+            "%s transaction failed: seq=%lu slot=%d CMD%lu arg=0x%08lx "
+            "flags=0x%x data=%p datalen=%u buflen=%u blklen=%u "
+            "result=%s (0x%x) response0=0x%08lx elapsed_us=%lu "
+            "data_cmds=%lu data_bytes=%llu failures=%lu max_us=%lu",
+            tf_mounted ? "runtime" : "mount",
+            (unsigned long)sequence,
+            slot,
+            (unsigned long)command->opcode,
+            (unsigned long)command->arg,
+            command->flags,
+            command->data,
+            (unsigned)command->datalen,
+            (unsigned)command->buflen,
+            (unsigned)command->blklen,
+            esp_err_to_name(result),
+            (unsigned)result,
+            (unsigned long)command->response[0],
+            (unsigned long)elapsed_us,
+            (unsigned long)tf_data_transaction_count,
+            (unsigned long long)tf_data_transaction_bytes,
+            (unsigned long)tf_transaction_failure_count,
+            (unsigned long)tf_max_transaction_us);
+    }
+    return result;
 }
 
 static uint16_t
@@ -259,7 +332,7 @@ init_lcd(void)
     io_cfg.trans_queue_depth = 1;
     io_cfg.lcd_cmd_bits = 8;
     io_cfg.lcd_param_bits = 8;
-    io_cfg.flags.sio_mode = 1;
+    io_cfg.flags.sio_mode = 0;
     if (!log_error(esp_lcd_new_panel_io_spi(
             (esp_lcd_spi_bus_handle_t)SHARED_HOST, &io_cfg, &lcd_io),
             "create ST7735 IO")) {
@@ -357,6 +430,7 @@ Xiaomiao_MountTf(
     Xiaomiao_PrepareTfAccess();
     host.slot = SHARED_HOST;
     host.max_freq_khz = TF_SPI_CLOCK_KHZ;
+    host.do_transaction = xiaomiao_tf_do_transaction;
     host.unaligned_multi_block_rw_max_chunk_size = 8;
     slot.host_id = SHARED_HOST;
     slot.gpio_cs = PIN_TF_CS;
@@ -367,8 +441,16 @@ Xiaomiao_MountTf(
         return false;
     }
     tf_mounted = true;
-    ESP_LOGI(TAG, "SD mounted at %s, %lu kHz",
-        XIAOMIAO_TF_MOUNT_POINT, (unsigned long)TF_SPI_CLOCK_KHZ);
+    ESP_LOGI(TF_TAG,
+        "mounted at %s: requested=%lu kHz actual=%d kHz "
+        "transactions=%lu data_cmds=%lu data_bytes=%llu max_us=%lu",
+        XIAOMIAO_TF_MOUNT_POINT,
+        (unsigned long)TF_SPI_CLOCK_KHZ,
+        tf_card != NULL ? tf_card->real_freq_khz : 0,
+        (unsigned long)tf_transaction_sequence,
+        (unsigned long)tf_data_transaction_count,
+        (unsigned long long)tf_data_transaction_bytes,
+        (unsigned long)tf_max_transaction_us);
     return true;
 }
 
@@ -383,6 +465,7 @@ void
 Xiaomiao_PrepareTfAccess(
     void)
 {
+    gpio_set_level(PIN_LCD_CS, 1);
     /* GPIO19 becomes SD MISO permanently after the one boot-time LCD reset. */
 }
 
@@ -479,5 +562,51 @@ Xiaomiao_ShowError(
         line2 != NULL ? ": " : "", line2 != NULL ? line2 : "");
     if (lcd_io != NULL) {
         (void)lcd_fill(wire_rgb565(255u, 0u, 0u));
+    }
+}
+
+void
+Xiaomiao_GuruMeditation(
+    const char *file,
+    uint32_t line,
+    const char *reason)
+{
+    const esp_app_desc_t *description = esp_app_get_description();
+    const char *revision = description != NULL ? description->version : "UNKNOWN";
+    const uint16_t max_rows = (uint16_t)(
+        PAL_EXTREME_DISPLAY_DMA_BYTES / (XIAOMIAO_LCD_WIDTH * 2u));
+    PalGuruScreenText text;
+    uint16_t y;
+
+    ESP_LOGE("pal_guru", "halted at %s:%lu git=%s reason=%s",
+        file != NULL ? file : "?", (unsigned long)line, revision,
+        reason != NULL ? reason : "FATAL ERROR");
+    if (lcd_io == NULL || max_rows == 0u) {
+        return;
+    }
+    PalGuruScreen_BuildText(&text, file, line, revision, reason);
+    for (y = 0u; y < XIAOMIAO_LCD_HEIGHT;) {
+        uint16_t rows = (uint16_t)(XIAOMIAO_LCD_HEIGHT - y);
+
+        if (rows > max_rows) {
+            rows = max_rows;
+        }
+        if (!PalGuruScreen_RenderRgb565Strip(
+                &text,
+                (uint16_t *)(void *)pal_sram_display_dma,
+                PAL_EXTREME_DISPLAY_DMA_BYTES / sizeof(uint16_t),
+                XIAOMIAO_LCD_WIDTH,
+                XIAOMIAO_LCD_HEIGHT,
+                y,
+                rows,
+                wire_rgb565(0u, 0u, 0u),
+                wire_rgb565(255u, 24u, 24u),
+                wire_rgb565(255u, 255u, 255u)) ||
+            !lcd_send_strip(y, rows)) {
+            ESP_LOGE("pal_guru", "LCD diagnostic render failed at row %u",
+                (unsigned)y);
+            return;
+        }
+        y = (uint16_t)(y + rows);
     }
 }

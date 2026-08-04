@@ -85,10 +85,14 @@ DEFAULT_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_default.json")
 
 # The native small-screen path reuses the original WORD.DAT/M.MSG text and may
 # add only strings that the target engine actually renders.  Keep every such
-# string explicit so it changes the FONT10 identity and pack manifest visibly;
-# this is not a source for replacement-menu labels or alternative UI chrome.
+# string explicit so it changes the FONT10 identity and pack manifest visibly.
 FONT10_UI_LABELS: dict[str, str] = {
     "chapter_complete": "CHAPTER COMPLETE - SUZHOU NEXT",
+    "numeric_glyphs": "0123456789/",
+    "cheat": "CHEAT",
+    "cheat_money": "MONEY",
+    "cheat_invincible": "INVINCIBLE",
+    "cheat_always_win": "ALWAYS WIN",
 }
 
 
