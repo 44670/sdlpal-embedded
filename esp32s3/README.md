@@ -128,6 +128,60 @@ copies the full TOC into SRAM nor scans the 55MB payload. NOR core/overlay
 chunks take precedence over their duplicates, while FBP/RNG and any uncached
 chunk stream directly from the complete pack. This is not swap.
 
+### Fixed chapter-bundle assignment
+
+The default cache uses a fixed, route-aware, non-contiguous scene assignment.
+Numeric scene IDs are not story order, so contiguous numeric intervals are not
+an acceptable substitute for this table. The executable policy lives in
+`SCENE_BUNDLE_RANGES` in `tools/pal_chapter_pack_build.py`; generation writes
+the exact ranges to `chapter_manifest.json`, and the chapter-cache checker
+compares both the manifest and binary scene table against that policy.
+
+| Bundle | Exact scene IDs | Route grouping |
+| --- | --- | --- |
+| `b00` | `001-020` | Shengyu, Ten-Mile Slope, Fairy Island |
+| `b01` | `021-038` | Suzhou and Lin Family Fort |
+| `b02` | `039-047,101-104,106-107,109-113` | Hidden Dragon Cave, Toad Mountain, Jiangnan water route |
+| `b03` | `048-058,077-078,080,121` | White River, Jade Buddha Temple, one-way state scenes |
+| `b04` | `059-076` | General's Tomb and Ghost Mountain |
+| `b05` | `079,081-099,105` | Yangzhou, including scene 105 east outskirts |
+| `b06` | `100,108,114-120,122-137` | Capital and Minister's Residence, including local room states |
+| `b07` | `138-143,215-226` | Butterfly story and Trial Cave |
+| `b08` | `150-151,155,157-164,172-174,176-177,193-199` | Shushan, tower perimeter, post-tower story |
+| `b09` | `144-149,152-154,156,165-171` | Complete Locking Demon Tower interior |
+| `b10` | `175,178-192` | Mount Ling, Divine Wood Forest, Peach Blossom region |
+| `b11` | `200,202-214,259-260,263-273` | Dali physical maps before and after invasion |
+| `b12` | `201,227-246` | Dream return and ten-years-earlier Nanzhao |
+| `b13` | `247-258,261-262,274-276` | Ten-years-earlier Shengyu and Rain sequences |
+| `b14` | `277-299` | Final Nanzhao and catalog sentinel/padding rows |
+
+For the pinned DOS data, scene 294 is the source sentinel and scenes 295-299
+are normalized catalog padding; all are deterministically assigned to `b14`.
+They add no gameplay payload. Scene 121 is deliberately kept as a one-shot
+state outside `b06` to retain useful soft-cap headroom; local capital room
+states 125, 126, and 133 remain in `b06` so entering and leaving those rooms
+does not install another bundle.
+
+The conservative state-unioned script graph still has nine reversible
+cross-bundle boundaries. They are retained region or story boundaries, not
+high-frequency room edges:
+
+| Bundle boundary | Scene pairs |
+| --- | --- |
+| `b02` / `b05` | `102<->105`, `113<->105` |
+| `b03` / `b04` | `054<->061`, `055<->070` |
+| `b03` / `b05` | `080<->083` |
+| `b06` / `b07` | `117<->139` |
+| `b08` / `b10` | `176<->186` |
+| `b10` / `b11` | `179<->202` |
+| `b11` / `b07` | `214<->215` |
+
+The policy intentionally keeps high-frequency local movement and the complete
+tower interior together; it does not claim that every graph edge stays inside
+one bundle. Changing this cache assignment does not change the portable
+pack-set ID. A new `PALSET.BIN` core hash and catalog CRC invalidate stale NOR
+core and overlay commits even when the complete-data identity is unchanged.
+
 Only standard `N.rpg` slots are durable game state. The LEVEL1 runtime keeps
 three event pages over session-only `EVENT.WRK`; startup ignores stale work,
 New Game or Load Game overwrites the logical image, and dirty pages reach it
@@ -142,10 +196,11 @@ make -C esp32s3 cardputer-adv-music-check
 ```
 
 The older `cardputer-extreme-*` targets are regression profiles, not the
-default installation workflow. Generated chapter coverage is a candidate;
-only a deterministic natural route can prove story completeness. Physical
-acceptance must still cover LCD, keyboard, TF, save/reload, music, and the
-intended route.
+default installation workflow. The bundle assignment above is fixed and
+checker-enforced, but generated resource closure remains a broad-coverage
+candidate; only a deterministic natural route can prove story completeness.
+Physical acceptance must still cover LCD, keyboard, TF, save/reload, music,
+and the intended route.
 
 ## Xueersi Xiaomiao: SD-only MEM_LEVEL2 profile
 

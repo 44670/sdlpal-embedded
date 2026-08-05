@@ -231,7 +231,7 @@ from the complete native data; changing cache placement must not change
 
 - TF source `pal_core.pak`, copied to the core SPI-NOR cache on demand;
 - the sole complete TF payload `pal_full.pak`;
-- 15 conservative bundles `b00.pak` through `b14.pak`;
+- 15 fixed route-aware, non-contiguous bundles `b00.pak` through `b14.pak`;
 - `PALSET.BIN`, containing the external pack-set ID, core SHA-256, and chapter
   catalog;
 - `chapter_manifest.json`.

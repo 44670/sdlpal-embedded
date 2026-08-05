@@ -40,7 +40,7 @@ main(
    };
    uint8_t catalog_image[
       PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET +
-      PAL_ENGINE_CACHE_DESCRIPTOR_BYTES];
+      2u * PAL_ENGINE_CACHE_DESCRIPTOR_BYTES];
    uint8_t set_image[
       PAL_ENGINE_CACHE_SET_HEADER_BYTES + sizeof(catalog_image)];
    uint8_t commit[PAL_ENGINE_CACHE_COMMIT_BYTES];
@@ -63,7 +63,7 @@ main(
    write_le16(catalog_image + 6u, PAL_ENGINE_CACHE_CATALOG_HEADER_BYTES);
    write_le32(catalog_image + 8u, 0x12345678u);
    write_le16(catalog_image + 12u, PAL_ENGINE_CACHE_CATALOG_SCENES);
-   write_le16(catalog_image + 14u, 1u);
+   write_le16(catalog_image + 14u, 2u);
    write_le32(catalog_image + 16u,
       PAL_ENGINE_CACHE_CATALOG_SCENE_OFFSET);
    write_le32(catalog_image + 20u,
@@ -74,11 +74,20 @@ main(
    {
       catalog_image[PAL_ENGINE_CACHE_CATALOG_SCENE_OFFSET + i] = 7u;
    }
+   /* Prove that the runtime consumes the exact table, not numeric intervals. */
+   catalog_image[PAL_ENGINE_CACHE_CATALOG_SCENE_OFFSET + 105u] = 3u;
    catalog_image[PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET] = 7u;
    write_le32(catalog_image +
       PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET + 4u, 1234u);
    memcpy(catalog_image +
       PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET + 8u,
+      abc_sha256, sizeof(abc_sha256));
+   catalog_image[PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET +
+      PAL_ENGINE_CACHE_DESCRIPTOR_BYTES] = 3u;
+   write_le32(catalog_image + PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET +
+      PAL_ENGINE_CACHE_DESCRIPTOR_BYTES + 4u, 4321u);
+   memcpy(catalog_image + PAL_ENGINE_CACHE_CATALOG_DESCRIPTOR_OFFSET +
+      PAL_ENGINE_CACHE_DESCRIPTOR_BYTES + 8u,
       abc_sha256, sizeof(abc_sha256));
    crc = PalEngineChapterCache_Crc32(catalog_image,
       sizeof(catalog_image), 28u, 4u);
@@ -88,6 +97,12 @@ main(
       catalog_image, sizeof(catalog_image)));
    assert(!PalEngineChapterCache_DescribeScene(&catalog, 0u, &actual));
    assert(PalEngineChapterCache_DescribeScene(&catalog, 1u, &actual));
+   assert(actual.bundle_id == 7u);
+   assert(PalEngineChapterCache_DescribeScene(&catalog, 105u, &actual));
+   assert(actual.bundle_id == 3u);
+   assert(actual.pack_size == 4321u);
+   assert(PalEngineChapterCache_DescribeScene(&catalog, 106u, &actual));
+   assert(actual.bundle_id == 7u);
    assert(PalEngineChapterCache_DescribeScene(&catalog, 299u, &actual));
    assert(!PalEngineChapterCache_DescribeScene(&catalog, 300u, &actual));
    assert(actual.bundle_id == 7u);
@@ -129,6 +144,10 @@ main(
       catalog.set_id, &descriptor, catalog.crc32, &generation) ==
       PAL_ENGINE_CHAPTER_CACHE_VERIFY_PAYLOAD);
    assert(generation == 19u);
+   /* A cache-layout update keeps the set ID but must reject the old commit. */
+   assert(PalEngineChapterCache_Decide(commit, sizeof(commit),
+      catalog.set_id, &descriptor, catalog.crc32 ^ 1u, &generation) ==
+      PAL_ENGINE_CHAPTER_CACHE_REBUILD);
    memcpy(partial_commit, commit, sizeof(partial_commit));
    memset(partial_commit + 8u, 0xff, 4u);
    assert(PalEngineChapterCache_Decide(
@@ -139,10 +158,13 @@ main(
    {
       memset(partial_commit, 0xff, sizeof(partial_commit));
       memcpy(partial_commit, commit, i);
-      assert(PalEngineChapterCache_Decide(
-         partial_commit, sizeof(partial_commit),
-         catalog.set_id, &descriptor, catalog.crc32, NULL) ==
-         PAL_ENGINE_CHAPTER_CACHE_REBUILD);
+      if (memcmp(partial_commit, commit, sizeof(commit)) != 0)
+      {
+         assert(PalEngineChapterCache_Decide(
+            partial_commit, sizeof(partial_commit),
+            catalog.set_id, &descriptor, catalog.crc32, NULL) ==
+            PAL_ENGINE_CHAPTER_CACHE_REBUILD);
+      }
    }
    commit[24] ^= 1u;
    assert(PalEngineChapterCache_Decide(commit, sizeof(commit),

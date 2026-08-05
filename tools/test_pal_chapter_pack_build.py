@@ -31,19 +31,22 @@ EXPECTED_LEVEL2_RESIDENT_BYTES = 1_747_784
 EXPECTED_BUNDLE_BYTES = (
     2_648_156,
     2_463_416,
-    2_814_556,
-    2_851_024,
-    2_826_596,
-    2_804_176,
-    2_302_052,
-    2_776_836,
-    1_519_480,
-    2_788_432,
-    2_745_670,
-    2_772_660,
-    2_788_300,
-    2_812_288,
-    2_018_868,
+    2_821_260,
+    2_344_220,
+    2_634_644,
+    2_505_372,
+    2_760_060,
+    2_370_712,
+    2_776_084,
+    2_405_568,
+    2_193_804,
+    2_277_834,
+    2_441_404,
+    2_389_280,
+    2_386_960,
+)
+EXPECTED_SCENE_TABLE_SHA256 = (
+    "872f58eacc33d4159add454398227093a1660cda56e76133da55174c5117903b"
 )
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
@@ -94,8 +97,21 @@ class ChapterPackUnitTests(unittest.TestCase):
         self.assertEqual(len(table), 300)
         self.assertEqual(table[0], 0xFF)
         self.assertEqual(set(table[1:]), set(range(15)))
-        for bundle_id, (first, last) in enumerate(chapter.SCENE_INTERVALS):
-            self.assertEqual(table[first : last + 1], bytes([bundle_id]) * (last - first + 1))
+        self.assertEqual(
+            hashlib.sha256(table).hexdigest(),
+            EXPECTED_SCENE_TABLE_SHA256,
+        )
+        for bundle_id, scene_ids in enumerate(chapter.SCENE_BUNDLES):
+            for scene_id in scene_ids:
+                self.assertEqual(table[scene_id], bundle_id)
+        self.assertEqual(table[105], 5)  # Yangzhou east outskirts, not b02.
+        self.assertEqual(table[121], 3)  # One-shot post-meal state.
+        self.assertEqual(table[125], 6)  # Local capital room states stay local.
+        self.assertEqual(table[126], 6)
+        self.assertEqual(table[133], 6)
+        self.assertEqual(table[144], 9)  # Locking Demon Tower interior.
+        self.assertEqual(table[179], 10)  # Mount Ling summit.
+        self.assertEqual(table[202], 11)  # Outside Dali.
 
     def test_catalog_binary_layout_hashes_and_crc(self) -> None:
         scene_table = chapter.make_scene_table()
@@ -211,8 +227,7 @@ class ChapterPackUnitTests(unittest.TestCase):
         )
         closure = chapter.close_bundle(
             0,
-            2,
-            2,
+            {2},
             tables,
             {"ABC": 20, "GOP": 20, "MAP": 20, "MGO": 20},
         )
@@ -264,6 +279,7 @@ class ChapterPackRealDataTests(unittest.TestCase):
         )
 
     def test_real_build_has_complete_fixed_partition(self) -> None:
+        self.assertEqual(self.build.manifest["version"], 2)
         self.assertEqual(len(self.build.bundle_packs), 15)
         self.assertEqual(len(self.build.catalog), 932)
         self.assertEqual(len(self.build.set_file), 996)

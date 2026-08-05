@@ -1160,7 +1160,7 @@ def check_catalog(
     catalog_summary: object,
     set_id: int,
     bundle_meta: list[PackMeta],
-    intervals: list[dict[str, object]],
+    scene_bundles: list[dict[str, object]],
     errors: list[str],
 ) -> None:
     try:
@@ -1223,18 +1223,18 @@ def check_catalog(
     expected_scene_table = chapter.make_scene_table()
     actual_scene_table = catalog[scene_offset:descriptor_offset]
     if actual_scene_table != expected_scene_table:
-        errors.append("CACHE catalog scene table differs from audited intervals")
+        errors.append("CACHE catalog scene table differs from fixed bundle policy")
 
-    expected_intervals = [
+    expected_scene_bundles = [
         {
             "bundle_id": bundle_id,
-            "scene_first": first,
-            "scene_last": last,
+            "scene_count": len(scene_ids),
+            "scene_ranges": pack.ranges_from_ids(list(scene_ids)),
         }
-        for bundle_id, (first, last) in enumerate(chapter.SCENE_INTERVALS)
+        for bundle_id, scene_ids in enumerate(chapter.SCENE_BUNDLES)
     ]
-    if intervals != expected_intervals:
-        errors.append("manifest scene intervals differ from CACHE catalog policy")
+    if scene_bundles != expected_scene_bundles:
+        errors.append("manifest scene bundles differ from CACHE catalog policy")
 
     for bundle_id, meta in enumerate(bundle_meta):
         offset = descriptor_offset + bundle_id * chapter.CATALOG_BUNDLE_DESC_SIZE
@@ -1258,7 +1258,7 @@ def check_catalog(
 def check_manifest_contract(manifest: dict[str, object], errors: list[str]) -> None:
     if manifest.get("schema") != "sdlpal-embedded-chapter-pack-manifest":
         errors.append("chapter manifest schema mismatch")
-    if manifest.get("version") != 1:
+    if manifest.get("version") != 2:
         errors.append("chapter manifest version mismatch")
     runtime = manifest.get("runtime")
     if not isinstance(runtime, dict):
@@ -1545,8 +1545,10 @@ def check_packs(
         expected = {
             "id": bundle_id,
             "filename": meta.filename,
-            "scene_first": chapter.SCENE_INTERVALS[bundle_id][0],
-            "scene_last": chapter.SCENE_INTERVALS[bundle_id][1],
+            "scene_count": len(chapter.SCENE_BUNDLES[bundle_id]),
+            "scene_ranges": pack.ranges_from_ids(
+                list(chapter.SCENE_BUNDLES[bundle_id])
+            ),
             "size": meta.size,
             "sha256": meta.sha256,
             "soft_cap_bytes": CACHE_PACK_SOFT_BYTES,
@@ -1689,12 +1691,18 @@ def check_packs(
                 errors.append("full-mirror SSS#0 size differs from event-state manifest")
 
     scene_partition = manifest.get("scene_partition")
-    intervals = (
-        scene_partition.get("intervals")
+    scene_bundles = (
+        scene_partition.get("bundles")
         if isinstance(scene_partition, dict)
-        and isinstance(scene_partition.get("intervals"), list)
+        and isinstance(scene_partition.get("bundles"), list)
         else []
     )
+    if (
+        not isinstance(scene_partition, dict)
+        or scene_partition.get("policy")
+        != "fixed-route-aware-noncontiguous-bundles"
+    ):
+        errors.append("manifest scene partition policy mismatch")
     if set_catalog and core_catalog != set_catalog:
         errors.append(
             "PALSET.BIN catalog differs from pal_core.pak CACHE#0"
@@ -1705,7 +1713,7 @@ def check_packs(
             manifest.get("catalog"),
             manifest_set_id,
             bundle_meta,
-            intervals,
+            scene_bundles,
             errors,
         )
 

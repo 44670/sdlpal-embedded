@@ -59,22 +59,37 @@ EVENT_OBJECT_RECORD_CAPACITY = 5500
 FULL_TOC_CACHE_CAP = 40 * 1024
 
 # Scene 300 is the sentinel row that terminates scene 299's event span.
-SCENE_INTERVALS: tuple[tuple[int, int], ...] = (
-    (1, 20),
-    (21, 38),
-    (39, 57),
-    (58, 76),
-    (77, 99),
-    (100, 119),
-    (120, 143),
-    (144, 164),
-    (165, 174),
-    (175, 195),
-    (196, 214),
-    (215, 234),
-    (235, 257),
-    (258, 279),
-    (280, 299),
+# Fixed route-aware scene assignment.  Numeric scene IDs are not story order,
+# so a bundle can contain several disjoint ranges.  Scene 294 is the stock DOS
+# sentinel and 295..299 are catalog padding; assigning them to the final bundle
+# keeps every catalog entry deterministic without adding payload bytes.
+SCENE_BUNDLE_RANGES: tuple[tuple[tuple[int, int], ...], ...] = (
+    ((1, 20),),
+    ((21, 38),),
+    ((39, 47), (101, 104), (106, 107), (109, 113)),
+    # Scene 121 is a one-shot post-meal state kept out of the nearly full
+    # capital bundle.  The local room states 125, 126, and 133 stay in b06.
+    ((48, 58), (77, 78), (80, 80), (121, 121)),
+    ((59, 76),),
+    ((79, 79), (81, 99), (105, 105)),
+    ((100, 100), (108, 108), (114, 120), (122, 137)),
+    ((138, 143), (215, 226)),
+    ((150, 151), (155, 155), (157, 164), (172, 174), (176, 177),
+     (193, 199)),
+    ((144, 149), (152, 154), (156, 156), (165, 171)),
+    ((175, 175), (178, 192)),
+    ((200, 200), (202, 214), (259, 260), (263, 273)),
+    ((201, 201), (227, 246)),
+    ((247, 258), (261, 262), (274, 276)),
+    ((277, 299),),
+)
+SCENE_BUNDLES: tuple[tuple[int, ...], ...] = tuple(
+    tuple(
+        scene_id
+        for scene_first, scene_last in ranges
+        for scene_id in range(scene_first, scene_last + 1)
+    )
+    for ranges in SCENE_BUNDLE_RANGES
 )
 
 CORE_FULL_ARCHIVES: tuple[str, ...] = (
@@ -223,8 +238,7 @@ class BattleClosure:
 @dataclass(frozen=True)
 class BundleClosure:
     bundle_id: int
-    scene_first: int
-    scene_last: int
+    scene_ids: frozenset[int]
     initial_script_roots: frozenset[int]
     battle: BattleClosure
     map_ids: frozenset[int]
@@ -472,19 +486,19 @@ def resolve_battle_closure(
 
 def scene_initial_closure(
     tables: GameTables,
-    scene_first: int,
-    scene_last: int,
+    scene_ids: Iterable[int],
 ) -> tuple[set[int], set[int], set[int]]:
-    if not 1 <= scene_first <= scene_last < tables.scene_count:
+    scenes = tuple(sorted(set(scene_ids)))
+    if not scenes or scenes[0] < 1 or scenes[-1] >= tables.scene_count:
         raise ValueError(
-            f"bad scene interval {scene_first}..{scene_last}; "
+            f"bad scene set {scenes}; "
             f"scene count including sentinel is {tables.scene_count}"
         )
 
     roots: set[int] = set()
     map_ids: set[int] = set()
     event_mgo_ids: set[int] = set()
-    for scene_id in range(scene_first, scene_last + 1):
+    for scene_id in scenes:
         scene_offset = (scene_id - 1) * 8
         map_id, on_enter, on_teleport, event_start = struct.unpack_from(
             "<4H", tables.scenes, scene_offset
@@ -513,22 +527,22 @@ def scene_initial_closure(
 
 def incoming_scene_script_roots(
     tables: GameTables,
-    scene_first: int,
-    scene_last: int,
+    scene_ids: Iterable[int],
 ) -> tuple[set[int], tuple[tuple[int, int, int, int], ...]]:
-    """Find scripts installed into this interval by any SSS opcode 006d.
+    """Find scripts installed into these scenes by any SSS opcode 006d.
 
     The installing script may belong to a different chapter and does not need
-    to be reachable from this interval's default roots.  A save can persist
+    to be reachable from this bundle's default roots.  A save can persist
     that mutation and later enter the target scene, so the target overlay must
     close over every statically named replacement entry point.
     """
 
+    scenes = frozenset(scene_ids)
     roots: set[int] = set()
     installs: list[tuple[int, int, int, int]] = []
     for entry_id, entry in enumerate(tables.scripts):
         operation, target_scene, on_enter, on_teleport = entry
-        if operation != 0x006D or not scene_first <= target_scene <= scene_last:
+        if operation != 0x006D or target_scene not in scenes:
             continue
         roots.update(item for item in (on_enter, on_teleport) if item)
         installs.append((entry_id, target_scene, on_enter, on_teleport))
@@ -554,16 +568,16 @@ def validate_chunk_ids(
 
 def close_bundle(
     bundle_id: int,
-    scene_first: int,
-    scene_last: int,
+    scene_ids: Iterable[int],
     tables: GameTables,
     archive_counts: dict[str, int],
 ) -> BundleClosure:
+    scenes = tuple(sorted(set(scene_ids)))
     roots, base_maps, event_mgo = scene_initial_closure(
-        tables, scene_first, scene_last
+        tables, scenes
     )
     incoming_roots, incoming_installs = incoming_scene_script_roots(
-        tables, scene_first, scene_last
+        tables, scenes
     )
     roots.update(incoming_roots)
     battle = resolve_battle_closure(tables, roots)
@@ -604,8 +618,7 @@ def close_bundle(
 
     return BundleClosure(
         bundle_id,
-        scene_first,
-        scene_last,
+        frozenset(scenes),
         frozenset(roots),
         battle,
         frozenset(map_ids),
@@ -677,13 +690,13 @@ def build_overlay_archives(
 
 
 def make_scene_table(
-    intervals: Sequence[tuple[int, int]] = SCENE_INTERVALS,
+    bundles: Sequence[Sequence[int]] = SCENE_BUNDLES,
 ) -> bytes:
     scene_table = bytearray(b"\xFF" * CATALOG_SCENE_COUNT)
-    for bundle_id, (scene_first, scene_last) in enumerate(intervals):
+    for bundle_id, scene_ids in enumerate(bundles):
         if bundle_id > 0xFE:
             raise ValueError("too many chapter bundles")
-        for scene_id in range(scene_first, scene_last + 1):
+        for scene_id in scene_ids:
             if not 1 <= scene_id < CATALOG_SCENE_COUNT:
                 raise ValueError(f"invalid catalog scene {scene_id}")
             if scene_table[scene_id] != 0xFF:
@@ -965,11 +978,12 @@ def bundle_audit(
     soft_cap: int,
 ) -> dict[str, object]:
     size = int(summary["size"])
+    scene_ids = sorted(closure.scene_ids)
     return {
         "id": closure.bundle_id,
         "filename": summary["filename"],
-        "scene_first": closure.scene_first,
-        "scene_last": closure.scene_last,
+        "scene_count": len(scene_ids),
+        "scene_ranges": pack.ranges_from_ids(scene_ids),
         "size": size,
         "sha256": summary["sha256"],
         "soft_cap_bytes": soft_cap,
@@ -1066,8 +1080,8 @@ def build_chapter_packs(
         )
     archive_counts = {name: len(source[name]) for name in OVERLAY_ARCHIVES}
     closures = tuple(
-        close_bundle(bundle_id, scene_first, scene_last, tables, archive_counts)
-        for bundle_id, (scene_first, scene_last) in enumerate(SCENE_INTERVALS)
+        close_bundle(bundle_id, scene_ids, tables, archive_counts)
+        for bundle_id, scene_ids in enumerate(SCENE_BUNDLES)
     )
     source_006d_entries = {
         entry_id
@@ -1218,7 +1232,7 @@ def build_chapter_packs(
     ]
     manifest: dict[str, object] = {
         "schema": "sdlpal-embedded-chapter-pack-manifest",
-        "version": 1,
+        "version": 2,
         "data_dir": str(data_dir.resolve()),
         "runtime": {
             "heap_required": False,
@@ -1251,18 +1265,21 @@ def build_chapter_packs(
         "scene_partition": {
             "catalog_scene_table_entries": CATALOG_SCENE_COUNT,
             "catalog_scene_zero_is_reserved": True,
-            "playable_scene_first": 1,
-            "playable_scene_last": 299,
+            "catalog_mapped_scene_first": 1,
+            "catalog_mapped_scene_last": 299,
+            "authored_scene_first": 1,
+            "authored_scene_last": tables.source_scene_row_count - 1,
             "source_scene_row_count": tables.source_scene_row_count,
-            "source_scene_row_300_is_sentinel": True,
-            "intervals": [
+            "source_last_row_is_sentinel": True,
+            "normalized_scene_row_300_is_sentinel": True,
+            "policy": "fixed-route-aware-noncontiguous-bundles",
+            "bundles": [
                 {
                     "bundle_id": bundle_id,
-                    "scene_first": scene_first,
-                    "scene_last": scene_last,
+                    "scene_count": len(scene_ids),
+                    "scene_ranges": pack.ranges_from_ids(list(scene_ids)),
                 }
-                for bundle_id, (scene_first, scene_last)
-                in enumerate(SCENE_INTERVALS)
+                for bundle_id, scene_ids in enumerate(SCENE_BUNDLES)
             ],
         },
         "closure_audit": {
@@ -1423,9 +1440,13 @@ def print_audit(build: ChapterBuild) -> None:
         marker = "ok" if bundle["within_soft_cap"] else (
             f"+{bundle['over_soft_cap_bytes']}"
         )
+        scene_ranges = ",".join(
+            f"{first:03d}" if first == last else f"{first:03d}-{last:03d}"
+            for first, last in bundle["scene_ranges"]
+        )
         print(
             f"b{bundle['id']:02d}.pak "
-            f"scenes={bundle['scene_first']:03d}-{bundle['scene_last']:03d} "
+            f"scenes={scene_ranges} "
             f"bytes={bundle['size']} cap={marker} "
             f"sha256={bundle['sha256']}"
         )
