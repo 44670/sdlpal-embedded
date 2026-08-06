@@ -28,7 +28,7 @@
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
 #if defined(PAL_EXTREME_TWO_SCREENS)
 #include "esp32s3/engine_bridge/pal_engine_pack_provider.h"
-#include "esp32s3/main/pal_target_memory.h"
+#include "pal_target_memory.h"
 #define pal_psram_rng_frame_static pal_sram_aux_framebuffer
 #define PAL_RNG_FRAME_STATIC_BYTES PAL_EXTREME_SCREEN_BYTES
 #else

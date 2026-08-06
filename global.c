@@ -41,6 +41,9 @@
 #if defined(PAL_PAGED_EVENT_STATE)
 #include "pal_engine_event_state.h"
 #endif
+#if defined(PAL_TARGET_SAVE_BACKEND)
+#include "pal_target_save.h"
+#endif
 
 static GLOBALVARS _gGlobals;
 GLOBALVARS * const  gpGlobals = &_gGlobals;
@@ -912,6 +915,12 @@ PAL_GetSavedTimes(
    int iSaveSlot
 )
 {
+#if defined(PAL_TARGET_SAVE_BACKEND)
+   uint16_t saved_times = 0;
+
+   return PalTargetSave_ProbeSlot(iSaveSlot, &saved_times)
+      ? (WORD)saved_times : 0;
+#else
    FILE *fp = UTIL_OpenFileAtPath(gConfig.pszSavePath,
       PAL_va(0, "%d.rpg", iSaveSlot));
    WORD saved_times = 0;
@@ -935,6 +944,7 @@ PAL_GetSavedTimes(
       PAL_SAVE_LOGI("probe slot=%d missing errno=%d", iSaveSlot, errno);
    }
    return saved_times;
+#endif
 }
 
 static BOOL
@@ -959,6 +969,14 @@ PAL_LoadGame_Common(
 		return FALSE;
 	}
 #else
+#if defined(PAL_TARGET_SAVE_BACKEND)
+	size_t n = 0;
+
+	if (!PalTargetSave_ReadSlot(iSaveSlot, s, size, &n))
+	{
+		return FALSE;
+	}
+#else
 	//
 	// Try to open the specified file
 	//
@@ -972,6 +990,7 @@ PAL_LoadGame_Common(
 	{
 		fclose(fp);
 	}
+#endif
 
 	if (n < size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS)
 	{
@@ -1175,7 +1194,9 @@ PAL_SaveGame_Common(
 )
 {
 #if !defined(PAL_PAGED_EVENT_STATE)
+#if !defined(PAL_TARGET_SAVE_BACKEND)
 	FILE *fp;
+#endif
 	size_t i;
 #endif
 
@@ -1231,6 +1252,23 @@ PAL_SaveGame_Common(
 	}
 	return result;
 #else
+	i = PAL_MKFGetChunkSize(0, gpGlobals->f.fpSSS);
+	i += size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS;
+#if defined(PAL_TARGET_SAVE_BACKEND)
+	if (!PalTargetSave_WriteSlot(iSaveSlot, s, i))
+	{
+		UTIL_LogOutput(LOGLEVEL_ERROR,
+			"Failed to write target save slot %d\n", iSaveSlot);
+		return FALSE;
+	}
+	if (PAL_GetSavedTimes(iSaveSlot) != wSavedTimes)
+	{
+		UTIL_LogOutput(LOGLEVEL_ERROR,
+			"Target save slot %d verification failed\n", iSaveSlot);
+		return FALSE;
+	}
+	return TRUE;
+#else
 	//
 	// Try writing to file
 	//
@@ -1245,8 +1283,6 @@ PAL_SaveGame_Common(
 		return FALSE;
 	}
 
-	i = PAL_MKFGetChunkSize(0, gpGlobals->f.fpSSS);
-	i += size - sizeof(EVENTOBJECT) * MAX_EVENT_OBJECTS;
 	PAL_SAVE_LOGI("write slot=%d bytes=%u source=%p", iSaveSlot,
 		(unsigned int)i, (void *)s);
 
@@ -1295,6 +1331,7 @@ PAL_SaveGame_Common(
 		}
 		return result;
 	}
+#endif
 #endif
 }
 

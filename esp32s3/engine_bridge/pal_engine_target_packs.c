@@ -2,6 +2,9 @@
 
 #include "pal_target_board.h"
 #include "pal_memory_profile.h"
+#if defined(PAL_STORAGE_SD_ONLY)
+#include "../../embedded/pal_level2_resident_pack.h"
+#endif
 #if defined(PAL_EXTREME_TWO_SCREENS) || defined(PAL_EXTREME_CHAPTER_CACHE)
 #include "../../embedded/pal_font10_cache.h"
 #include "../../embedded/pal_native_ui.h"
@@ -39,17 +42,7 @@
 static const char *TAG = "pal_engine_packs";
 static FIL pal_engine_tf_file;
 static bool pal_engine_tf_open;
-#if defined(PAL_STORAGE_SD_ONLY)
-static const uint16_t pal_level2_resident_archives[] = {
-   PAL_PACK_ARCHIVE_DATA,
-   PAL_PACK_ARCHIVE_MUS,
-   PAL_PACK_ARCHIVE_PAT,
-   PAL_PACK_ARCHIVE_RGM,
-   PAL_PACK_ARCHIVE_SSS,
-   PAL_PACK_ARCHIVE_TEXT,
-   PAL_PACK_ARCHIVE_FONT,
-};
-#else
+#if !defined(PAL_STORAGE_SD_ONLY)
 static esp_partition_mmap_handle_t pal_engine_nor_mmap_handle;
 static uint8_t pal_sram_engine_pack_header[PAL_ENGINE_PACK_HEADER_BYTES];
 #endif
@@ -64,38 +57,6 @@ read_le32(
       ((uint32_t)p[2] << 16) |
       ((uint32_t)p[3] << 24);
 }
-
-#if defined(PAL_STORAGE_SD_ONLY)
-static void
-write_le16(
-   uint8_t *p,
-   uint16_t value
-)
-{
-   p[0] = (uint8_t)value;
-   p[1] = (uint8_t)(value >> 8);
-}
-
-static void
-write_le32(
-   uint8_t *p,
-   uint32_t value
-)
-{
-   p[0] = (uint8_t)value;
-   p[1] = (uint8_t)(value >> 8);
-   p[2] = (uint8_t)(value >> 16);
-   p[3] = (uint8_t)(value >> 24);
-}
-
-static uint32_t
-align4(
-   uint32_t value
-)
-{
-   return (value + 3u) & ~3u;
-}
-#endif
 
 #if defined(PAL_EXTREME_CHAPTER_CACHE)
 static bool
@@ -176,188 +137,6 @@ tf_read_at(
 
 #if defined(PAL_STORAGE_SD_ONLY)
 static bool
-sd_only_copy_full_range(
-   uint32_t offset,
-   uint8_t *dst,
-   uint32_t size
-)
-{
-   while (size != 0u)
-   {
-      uint32_t amount = size > 32768u ? 32768u : size;
-
-      if (!tf_read_at(&pal_engine_tf_file, offset, dst, amount))
-      {
-         return false;
-      }
-      offset += amount;
-      dst += amount;
-      size -= amount;
-   }
-   return true;
-}
-
-static bool
-sd_only_resident_chunk_selected(
-   uint16_t archive_id,
-   uint16_t chunk_id
-)
-{
-   /* The native 10px FONT chunk supersedes the legacy 16px DOS font. */
-   return archive_id != PAL_PACK_ARCHIVE_FONT || chunk_id == 1u;
-}
-
-static bool
-sd_only_build_resident_pack(
-   const PalPackToc *full_toc,
-   uint32_t *out_size
-)
-{
-   enum {
-      PACK_HEADER_BYTES = 32u,
-      ARCHIVE_ENTRY_BYTES = 12u,
-      CHUNK_ENTRY_BYTES = 16u,
-   };
-   uint8_t *image = pal_mem_level2_resident_pack;
-   const uint16_t archive_count = (uint16_t)(
-      sizeof(pal_level2_resident_archives) /
-      sizeof(pal_level2_resident_archives[0]));
-   uint16_t chunk_counts[
-      sizeof(pal_level2_resident_archives) /
-      sizeof(pal_level2_resident_archives[0])];
-   uint32_t archive_table = PACK_HEADER_BYTES;
-   uint32_t chunk_table = archive_table +
-      (uint32_t)archive_count * ARCHIVE_ENTRY_BYTES;
-   uint32_t data_offset;
-   uint32_t cursor;
-   uint16_t archive_index;
-
-   if (full_toc == NULL || full_toc->base == NULL || out_size == NULL)
-   {
-      return false;
-   }
-
-   for (archive_index = 0u; archive_index < archive_count; archive_index++)
-   {
-      if (!PalPackToc_GetChunkCount(full_toc,
-            pal_level2_resident_archives[archive_index],
-            &chunk_counts[archive_index]) ||
-         chunk_counts[archive_index] >
-            (PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES - chunk_table) /
-            CHUNK_ENTRY_BYTES)
-      {
-         return false;
-      }
-      chunk_table +=
-         (uint32_t)chunk_counts[archive_index] * CHUNK_ENTRY_BYTES;
-   }
-   data_offset = align4(chunk_table);
-   if (data_offset > PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES)
-   {
-      return false;
-   }
-   memset(image, 0, data_offset);
-   chunk_table = archive_table +
-      (uint32_t)archive_count * ARCHIVE_ENTRY_BYTES;
-   cursor = data_offset;
-
-   for (archive_index = 0u; archive_index < archive_count; archive_index++)
-   {
-      uint16_t archive_id = pal_level2_resident_archives[archive_index];
-      uint16_t chunk_count = chunk_counts[archive_index];
-      uint8_t *archive_entry = image + archive_table +
-         (uint32_t)archive_index * ARCHIVE_ENTRY_BYTES;
-      uint32_t source_first = 0u;
-      uint32_t source_end = 0u;
-      uint32_t destination_first;
-      uint16_t chunk_id;
-
-      write_le16(archive_entry, archive_id);
-      write_le16(archive_entry + 2u, chunk_count);
-      write_le32(archive_entry + 4u, chunk_table);
-      for (chunk_id = 0u; chunk_id < chunk_count; chunk_id++)
-      {
-         PalPackChunkInfo info;
-
-         if (!PalPackToc_GetChunkInfo(
-               full_toc, archive_id, chunk_id, &info) ||
-            info.flags != 0u)
-         {
-            return false;
-         }
-         if (info.size != 0u &&
-            sd_only_resident_chunk_selected(archive_id, chunk_id))
-         {
-            if (source_first == 0u)
-            {
-               source_first = info.offset;
-            }
-            else if (info.offset != align4(source_end))
-            {
-               return false;
-            }
-            if (info.offset > UINT32_MAX - info.size)
-            {
-               return false;
-            }
-            source_end = info.offset + info.size;
-         }
-      }
-      destination_first = align4(cursor);
-      if (source_first != 0u)
-      {
-         uint32_t span = source_end - source_first;
-
-         if (destination_first > PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES ||
-            span > PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES - destination_first ||
-            !sd_only_copy_full_range(
-               source_first, image + destination_first, span))
-         {
-            return false;
-         }
-         cursor = destination_first + span;
-      }
-      for (chunk_id = 0u; chunk_id < chunk_count; chunk_id++)
-      {
-         PalPackChunkInfo info;
-         uint8_t *chunk_entry = image + chunk_table +
-            (uint32_t)chunk_id * CHUNK_ENTRY_BYTES;
-         uint32_t destination = destination_first;
-
-         if (!PalPackToc_GetChunkInfo(
-               full_toc, archive_id, chunk_id, &info))
-         {
-            return false;
-         }
-         if (!sd_only_resident_chunk_selected(archive_id, chunk_id))
-         {
-            info.size = 0u;
-         }
-         if (info.size != 0u)
-         {
-            destination += info.offset - source_first;
-         }
-         write_le32(chunk_entry, destination);
-         write_le32(chunk_entry + 4u, info.size);
-         write_le16(chunk_entry + 8u, info.format);
-         write_le16(chunk_entry + 10u, info.flags);
-      }
-      chunk_table += (uint32_t)chunk_count * CHUNK_ENTRY_BYTES;
-   }
-
-   write_le32(image, PAL_PACK_MAGIC);
-   write_le16(image + 4u, PAL_PACK_VERSION);
-   write_le16(image + 6u, PACK_HEADER_BYTES);
-   write_le16(image + 8u, archive_count);
-   write_le32(image + 12u, archive_table);
-   write_le32(image + 16u, data_offset);
-   write_le32(image + 20u, read_le32(full_toc->base + 20u));
-   write_le32(image + 24u, cursor);
-   *out_size = cursor;
-   return true;
-}
-
-static bool
 sd_only_init_packs(
    void
 )
@@ -388,7 +167,11 @@ sd_only_init_packs(
    if (!PalPack_OpenTocRead(&full_toc, tf_read_at, &pal_engine_tf_file,
          full_size, pal_mem_level2_tf_toc,
          PAL_MEM_LEVEL2_TF_TOC_BYTES) ||
-      !sd_only_build_resident_pack(&full_toc, &core_size) ||
+      !PalLevel2ResidentPack_Build(
+         &full_toc, PAL_LEVEL2_RESIDENT_DEFAULT_MASK,
+         tf_read_at, &pal_engine_tf_file,
+         pal_mem_level2_resident_pack,
+         PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES, &core_size) ||
       !PalPack_OpenConst(
          &core_pack, pal_mem_level2_resident_pack, core_size) ||
       !PalFont10_Open(&core_pack, &font10) ||

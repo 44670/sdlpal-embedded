@@ -52,7 +52,7 @@ static const char *PAL_ENGINE_PROVIDER_TAG = "pal_engine_provider";
 #define PAL_ENGINE_TF_TOC_BYTES (40u * 1024u)
 #endif
 #define PAL_ENGINE_LEVEL2_TF_MAP_BYTES (2176u * 1024u)
-#if defined(PAL_STORAGE_SD_ONLY)
+#if defined(PAL_MEM_LEVEL2_STREAM_STORAGE)
 #define PAL_ENGINE_TF_MAP_BYTES PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES
 #elif defined(MEM_LEVEL2)
 #define PAL_ENGINE_TF_MAP_BYTES PAL_ENGINE_LEVEL2_TF_MAP_BYTES
@@ -95,7 +95,7 @@ static uint16_t pal_engine_tf_map_archive;
 static uint16_t pal_engine_tf_map_chunk;
 static uint32_t pal_engine_tf_map_size;
 #endif
-#if defined(PAL_STORAGE_SD_ONLY)
+#if defined(PAL_MEM_LEVEL2_STREAM_STORAGE)
 #define PAL_ENGINE_TF_TOC_STORAGE pal_mem_level2_tf_toc
 #define PAL_ENGINE_TF_MAP_STORAGE pal_mem_level2_transient_chunk
 #elif defined(MEM_LEVEL1) && defined(PAL_EXTREME_CHAPTER_CACHE)
@@ -836,7 +836,7 @@ __wrap_PAL_MKFMapChunk(
       return FALSE;
    }
 
-#if defined(PAL_STORAGE_SD_ONLY)
+#if defined(PAL_MEM_LEVEL2_STREAM_STORAGE)
    if (!PalPackToc_GetChunkInfo(&pal_engine_tf_toc,
          (uint16_t)archive_id, (uint16_t)chunk_id, &info) ||
       info.size > PAL_ENGINE_TF_MAP_BYTES)
@@ -896,6 +896,31 @@ __wrap_PAL_MKFMapChunk(
    *size = info.size;
    return TRUE;
 #endif
+}
+
+bool
+PalEngineBridge_MapNativeChunk(
+   uint16_t archive_id,
+   uint16_t chunk_id,
+   const uint8_t **data,
+   uint32_t *size)
+{
+   LPCBYTE mapped = NULL;
+   UINT mapped_size = 0u;
+   FILE *fp;
+
+   if (data == NULL || size == NULL || archive_id == 0u)
+   {
+      return false;
+   }
+   fp = (FILE *)(uintptr_t)(PAL_ENGINE_PACK_FILE_TAG | archive_id);
+   if (!__wrap_PAL_MKFMapChunk(fp, chunk_id, &mapped, &mapped_size))
+   {
+      return false;
+   }
+   *data = mapped;
+   *size = mapped_size;
+   return true;
 }
 
 INT

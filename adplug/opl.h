@@ -36,7 +36,7 @@ public:
    Copl(ChipType type) : currChip(0), currType(type) { }
 
 #ifdef PAL_NO_RUNTIME_HEAP
-   ~Copl() {}
+   ~Copl() = default;
 #else
    virtual ~Copl() {}
 #endif

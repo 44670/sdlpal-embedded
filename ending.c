@@ -21,6 +21,10 @@
 
 #include "main.h"
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+#include "embedded/pal_memory_profile.h"
+#endif
+
 static WORD g_wCurEffectSprite = 0;
 
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
@@ -33,7 +37,7 @@ PAL_ExtremeRequireEndingScratch(
    if (gpGlobals->fInBattle)
    {
       TerminateOnError(
-         "Cardputer two-screen ownership: %s cannot replace battle background",
+         "two-screen cinematic ownership: %s cannot replace battle background",
          operation);
    }
 }
@@ -63,6 +67,7 @@ PAL_EndingReadNativeFbp(
 }
 #endif
 
+#if !defined(PAL_EXTREME_TWO_SCREENS) || !defined(MEM_LEVEL2)
 static BOOL
 PAL_EndingMapNativeMgo(
    LPCSPRITE     *lplpSprite,
@@ -73,6 +78,129 @@ PAL_EndingMapNativeMgo(
    return PAL_MKFMapChunk(gpGlobals->f.fpMGO, wChunkNum, lplpSprite, &uiSpriteSize) &&
       uiSpriteSize > 0;
 }
+#endif
+
+#if defined(PAL_EXTREME_TWO_SCREENS)
+static BOOL
+PAL_ExtremeLoadNativeMgo(
+   LPCSPRITE     *lplpSprite,
+   WORD           wChunkNum,
+   LPBYTE         lpStorage,
+   UINT           uiStorageSize
+)
+{
+#if defined(MEM_LEVEL2)
+   INT size;
+
+   if (lplpSprite == NULL || lpStorage == NULL)
+   {
+      return FALSE;
+   }
+   size = PAL_MKFGetChunkSize(wChunkNum, gpGlobals->f.fpMGO);
+   if (size <= 0 || (UINT)size > uiStorageSize ||
+      PAL_MKFReadChunk(lpStorage, uiStorageSize,
+         wChunkNum, gpGlobals->f.fpMGO) != size)
+   {
+      return FALSE;
+   }
+   *lplpSprite = lpStorage;
+   return TRUE;
+#else
+   (void)lpStorage;
+   (void)uiStorageSize;
+   return PAL_EndingMapNativeMgo(lplpSprite, wChunkNum);
+#endif
+}
+
+static INT
+PAL_ExtremeBlitNativeFbp(
+   WORD            wChunkNum,
+   SDL_Surface    *lpDstSurface
+)
+{
+   LPCBYTE bitmap;
+   UINT mapped_size;
+
+   if (PAL_MKFGetChunkSize(wChunkNum, gpGlobals->f.fpFBP) != 320 * 200)
+   {
+      return -1;
+   }
+   if (PAL_MKFMapChunk(gpGlobals->f.fpFBP, wChunkNum,
+         &bitmap, &mapped_size))
+   {
+      /* The Level2 map owner is shared: consume it before any delay/audio pump. */
+      return mapped_size == 320u * 200u ?
+         PAL_FBPBlitToSurface(bitmap, lpDstSurface) : -1;
+   }
+   return PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
+      wChunkNum, lpDstSurface);
+}
+
+static INT
+PAL_ExtremeAdvanceNativeFbpTransition(
+   WORD            wChunkNum,
+   SDL_Surface    *lpStateSurface,
+   UINT            uiPreviousProgress,
+   UINT            uiProgress,
+   BOOL            fScrollDown
+)
+{
+   return PAL_FBPAdvanceChunkVerticalTransition(gpGlobals->f.fpFBP,
+      wChunkNum, lpStateSurface,
+      uiPreviousProgress, uiProgress, fScrollDown);
+}
+
+static VOID
+PAL_ExtremeBlitCinematicFrame(
+   LPCSPRITE        lpSprite,
+   INT              iFrame,
+   PAL_POS          pos
+)
+{
+   WORD frame_count;
+
+   if (lpSprite == NULL || (frame_count = PAL_SpriteGetNumFrames(lpSprite)) == 0)
+   {
+      return;
+   }
+   PAL_RLEBlitToSurfaceFullCanvas(
+      PAL_SpriteGetFrame(lpSprite, iFrame % frame_count),
+      gpScreen, pos, -1);
+}
+
+static VOID
+PAL_ExtremeAdvanceFbpFade(
+   const SDL_Surface *lpTarget,
+   SDL_Surface       *lpBlend,
+   INT                iIteration,
+   INT                iPass
+)
+{
+   static const int rgIndex[6] = {0, 3, 1, 5, 2, 4};
+   int k;
+
+   for (k = rgIndex[iPass];
+      k < lpBlend->pitch * lpBlend->h; k += 6)
+   {
+      BYTE a = ((LPCBYTE)lpTarget->pixels)[k];
+      BYTE b = ((LPBYTE)lpBlend->pixels)[k];
+
+      if (iIteration > 0)
+      {
+         if ((a & 0x0f) > (b & 0x0f))
+         {
+            b++;
+         }
+         else if ((a & 0x0f) < (b & 0x0f))
+         {
+            b--;
+         }
+      }
+      ((LPBYTE)lpBlend->pixels)[k] =
+         (BYTE)((a & 0xf0) | (b & 0x0f));
+   }
+}
+#endif
 #endif
 
 VOID
@@ -121,19 +249,89 @@ PAL_ShowFBP(
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
    LPCSPRITE effect = NULL;
+   int i, j;
 
    PAL_ExtremeRequireEndingScratch("FBP");
-   (void)wFade;
-   if (PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
-      wChunkNum, gpScreen) != 0)
-   {
-      SDL_FillRect(gpScreen, NULL, 0);
-   }
+#if defined(MEM_LEVEL2)
    if (g_wCurEffectSprite != 0 &&
-      PAL_EndingMapNativeMgo(&effect, g_wCurEffectSprite) &&
-      effect != NULL)
+      !PAL_ExtremeLoadNativeMgo(&effect, g_wCurEffectSprite,
+         pal_mem_level2_fight_effect,
+         PAL_MEM_LEVEL2_FIGHT_EFFECT_BYTES))
+#else
+   if (g_wCurEffectSprite != 0 &&
+      !PAL_ExtremeLoadNativeMgo(&effect, g_wCurEffectSprite, NULL, 0u))
+#endif
    {
-      PAL_RLEBlitToSurface(PAL_SpriteGetFrame(effect, 0), gpScreen, PAL_XY(0, 0));
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_ShowFBP(): ending effect %u is unavailable\n",
+         g_wCurEffectSprite);
+      effect = NULL;
+   }
+   if (wFade != 0)
+   {
+      BOOL redraw_target = effect != NULL;
+
+      wFade++;
+      wFade *= 10;
+      if (redraw_target)
+      {
+         VIDEO_BackupScreen(gpScreen);
+      }
+      else if (PAL_ExtremeBlitNativeFbp(wChunkNum, gpScreenBak) != 0)
+      {
+         SDL_FillRect(gpScreen, NULL, 0);
+         VIDEO_UpdateScreen(NULL);
+         return;
+      }
+
+      for (i = 0; i < 16; i++)
+      {
+         for (j = 0; j < 6; j++)
+         {
+            if (redraw_target &&
+               PAL_ExtremeBlitNativeFbp(wChunkNum, gpScreen) != 0)
+            {
+               SDL_FillRect(gpScreen, NULL, 0);
+               VIDEO_UpdateScreen(NULL);
+               return;
+            }
+            PAL_ExtremeAdvanceFbpFade(
+               redraw_target ? gpScreen : gpScreenBak,
+               redraw_target ? gpScreenBak : gpScreen, i, j);
+
+            if (redraw_target)
+            {
+               VIDEO_CopyEntireSurface(gpScreenBak, gpScreen);
+               PAL_ExtremeBlitCinematicFrame(effect,
+                  (INT)(SDL_GetTicks() / 150u), PAL_XY(0, 0));
+            }
+            VIDEO_UpdateScreen(NULL);
+            UTIL_Delay(wFade);
+         }
+      }
+
+      if (wChunkNum != (gConfig.fIsWIN95 ? 68 : 49))
+      {
+         if (redraw_target)
+         {
+            if (PAL_ExtremeBlitNativeFbp(wChunkNum, gpScreen) != 0)
+            {
+               SDL_FillRect(gpScreen, NULL, 0);
+            }
+         }
+         else
+         {
+            VIDEO_CopyEntireSurface(gpScreenBak, gpScreen);
+         }
+      }
+   }
+   else
+   {
+      if (PAL_ExtremeBlitNativeFbp(wChunkNum, gpScreen) != 0)
+      {
+         SDL_FillRect(gpScreen, NULL, 0);
+      }
+      PAL_ExtremeBlitCinematicFrame(effect, 0, PAL_XY(0, 0));
    }
    VIDEO_UpdateScreen(NULL);
 #else
@@ -274,10 +472,66 @@ PAL_ScrollFBP(
    PAL_ExtremeRequireEndingScratch("scroll FBP");
 #endif
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   (void)wScrollSpeed;
-   (void)fScrollDown;
-   if (PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
-      wChunkNum, gpScreen) == 0)
+   LPCSPRITE effect = NULL;
+   UINT previous_progress = 0u;
+   int l;
+
+#if defined(MEM_LEVEL2)
+   if (g_wCurEffectSprite != 0 &&
+      !PAL_ExtremeLoadNativeMgo(&effect, g_wCurEffectSprite,
+         pal_mem_level2_fight_effect,
+         PAL_MEM_LEVEL2_FIGHT_EFFECT_BYTES))
+#else
+   if (g_wCurEffectSprite != 0 &&
+      !PAL_ExtremeLoadNativeMgo(&effect, g_wCurEffectSprite, NULL, 0u))
+#endif
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_ScrollFBP(): ending effect %u is unavailable\n",
+         g_wCurEffectSprite);
+      effect = NULL;
+   }
+   if (PAL_MKFGetChunkSize(wChunkNum, gpGlobals->f.fpFBP) != 320 * 200)
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_ScrollFBP(): FBP %u is unavailable\n", wChunkNum);
+      return;
+   }
+   VIDEO_BackupScreen(gpScreen);
+   if (wScrollSpeed == 0)
+   {
+      wScrollSpeed = 1;
+   }
+
+   for (l = 0; l < 220; l++)
+   {
+      UINT progress = (UINT)min(l, 200);
+
+      if (PAL_ExtremeAdvanceNativeFbpTransition(wChunkNum,
+            gpScreenBak, previous_progress,
+            progress, fScrollDown) != 0)
+      {
+         UTIL_LogOutput(LOGLEVEL_ERROR,
+            "PAL_ScrollFBP(): FBP %u transition failed\n", wChunkNum);
+         return;
+      }
+      previous_progress = progress;
+      VIDEO_CopyEntireSurface(gpScreenBak, gpScreen);
+      PAL_ApplyWave(gpScreen);
+      PAL_ExtremeBlitCinematicFrame(effect,
+         (INT)(SDL_GetTicks() / 150u), PAL_XY(0, 0));
+      VIDEO_UpdateScreen(NULL);
+
+      if (gpGlobals->fNeedToFadeIn)
+      {
+         PAL_FadeIn(gpGlobals->wNumPalette,
+            gpGlobals->fNightPalette, 1);
+         gpGlobals->fNeedToFadeIn = FALSE;
+      }
+      UTIL_Delay(800 / wScrollSpeed);
+   }
+
+   if (PAL_ExtremeBlitNativeFbp(wChunkNum, gpScreen) == 0)
    {
       VIDEO_UpdateScreen(NULL);
    }
@@ -435,7 +689,88 @@ PAL_EndingAnimation(
    PAL_ExtremeRequireEndingScratch("ending animation");
 #endif
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   return;
+   const WORD upper_chunk = gConfig.fIsWIN95 ? 69 : 61;
+   const WORD lower_chunk = gConfig.fIsWIN95 ? 70 : 62;
+   LPCSPRITE beast_sprite = NULL;
+   LPCSPRITE girl_sprite = NULL;
+   UINT previous_progress = 0u;
+   int girl_y = 180;
+   int i;
+
+   if (PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
+         lower_chunk, gpScreenBak) != 0)
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_EndingAnimation(): lower FBP %u is unavailable\n",
+         lower_chunk);
+      return;
+   }
+#if defined(MEM_LEVEL2)
+   if (!PAL_ExtremeLoadNativeMgo(&beast_sprite, 571,
+         pal_mem_level2_fight_effect,
+         PAL_MEM_LEVEL2_FIGHT_EFFECT_BYTES) ||
+      !PAL_ExtremeLoadNativeMgo(&girl_sprite, 572,
+         pal_mem_level2_fight_summon,
+         PAL_MEM_LEVEL2_FIGHT_SUMMON_BYTES))
+#else
+   if (!PAL_ExtremeLoadNativeMgo(&beast_sprite, 571, NULL, 0u) ||
+      !PAL_ExtremeLoadNativeMgo(&girl_sprite, 572, NULL, 0u))
+#endif
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_EndingAnimation(): ending sprites are unavailable\n");
+      return;
+   }
+   if (PAL_MKFGetChunkSize(upper_chunk,
+         gpGlobals->f.fpFBP) != 320 * 200)
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_EndingAnimation(): upper FBP %u is unavailable\n",
+         upper_chunk);
+      return;
+   }
+
+   gpGlobals->wScreenWave = 2;
+   for (i = 0; i < 400; i++)
+   {
+      UINT progress = (UINT)(i / 2);
+
+      if (PAL_ExtremeAdvanceNativeFbpTransition(upper_chunk,
+            gpScreenBak, previous_progress,
+            progress, TRUE) != 0)
+      {
+         UTIL_LogOutput(LOGLEVEL_ERROR,
+            "PAL_EndingAnimation(): FBP transition failed\n");
+         break;
+      }
+      previous_progress = progress;
+      VIDEO_CopyEntireSurface(gpScreenBak, gpScreen);
+      PAL_ApplyWave(gpScreen);
+
+      PAL_ExtremeBlitCinematicFrame(beast_sprite, 0,
+         PAL_XY(0, -400 + i));
+      PAL_ExtremeBlitCinematicFrame(beast_sprite, 1,
+         PAL_XY(0, -200 + i));
+
+      girl_y -= i & 1;
+      if (girl_y < 80)
+      {
+         girl_y = 80;
+      }
+      PAL_ExtremeBlitCinematicFrame(girl_sprite,
+         (INT)((SDL_GetTicks() / 50u) % 4u),
+         PAL_XY(220, girl_y));
+
+      VIDEO_UpdateScreen(NULL);
+      if (gpGlobals->fNeedToFadeIn)
+      {
+         PAL_FadeIn(gpGlobals->wNumPalette,
+            gpGlobals->fNightPalette, 1);
+         gpGlobals->fNeedToFadeIn = FALSE;
+      }
+      UTIL_Delay(50);
+   }
+   gpGlobals->wScreenWave = 0;
 #else
 #if defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)
 #ifdef PAL_NO_RUNTIME_DECOMPRESS

@@ -29,21 +29,21 @@ EXPECTED_CORE_BYTES = 4_502_840
 EXPECTED_FULL_BYTES = 57_646_550
 EXPECTED_LEVEL2_RESIDENT_BYTES = 1_747_784
 EXPECTED_BUNDLE_BYTES = (
-    2_648_156,
-    2_463_416,
-    2_821_260,
-    2_344_220,
-    2_634_644,
-    2_505_372,
-    2_760_060,
-    2_370_712,
-    2_776_084,
-    2_405_568,
-    2_193_804,
-    2_277_834,
-    2_441_404,
-    2_389_280,
-    2_386_960,
+    2_649_320,
+    2_464_580,
+    2_822_424,
+    2_345_384,
+    2_635_808,
+    2_506_536,
+    2_761_224,
+    2_371_876,
+    2_777_248,
+    2_406_732,
+    2_194_968,
+    2_278_998,
+    2_442_568,
+    2_390_444,
+    2_644_124,
 )
 EXPECTED_SCENE_TABLE_SHA256 = (
     "872f58eacc33d4159add454398227093a1660cda56e76133da55174c5117903b"
@@ -229,7 +229,7 @@ class ChapterPackUnitTests(unittest.TestCase):
             0,
             {2},
             tables,
-            {"ABC": 20, "GOP": 20, "MAP": 20, "MGO": 20},
+            {"ABC": 20, "FBP": 80, "GOP": 20, "MAP": 20, "MGO": 20},
         )
         self.assertEqual(closure.inbound_cross_scene_scripts, ((1, 2, 4, 6),))
         self.assertTrue({4, 6} <= closure.battle.scripts)
@@ -416,6 +416,23 @@ class ChapterPackRealDataTests(unittest.TestCase):
         for bundle in packs["bundles"]:
             self.assertEqual(set(bundle["selection"]), set(chapter.OVERLAY_ARCHIVES))
             self.assertLessEqual(bundle["size"], chapter.SOFT_OVERLAY_CAP)
+        ending_bundles = [
+            bundle
+            for bundle in packs["bundles"]
+            if bundle["closure"]["ending_mgo_ids"]
+        ]
+        self.assertEqual(len(ending_bundles), 1)
+        self.assertEqual(
+            set(ending_bundles[0]["selection"]["FBP"]["chunk_ids"]),
+            set(chapter.ENDING_FADE_FBP),
+        )
+        self.assertTrue(
+            all(
+                not bundle["selection"]["FBP"]["chunk_ids"]
+                for bundle in packs["bundles"]
+                if bundle is not ending_bundles[0]
+            )
+        )
         self.assertLessEqual(len(self.build.core_pack), chapter.CORE_SLOT_CAP)
         self.assertEqual(len(chapter.CORE_GLOBAL_MGO), 35)
         self.assertEqual(len(chapter.CORE_STARTUP_MGO), 2)

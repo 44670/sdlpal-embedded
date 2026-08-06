@@ -27,8 +27,13 @@
 #error "A no-heap engine build must define MEM_LEVEL1 or MEM_LEVEL2"
 #endif
 
-#if defined(PAL_STORAGE_SD_ONLY) && !defined(MEM_LEVEL2)
-#error "PAL_STORAGE_SD_ONLY requires MEM_LEVEL2"
+#if (defined(PAL_STORAGE_SD_ONLY) || defined(PAL_STORAGE_NITROFS)) && \
+   !defined(MEM_LEVEL2)
+#error "streamed Level2 storage requires MEM_LEVEL2"
+#endif
+
+#if defined(PAL_STORAGE_SD_ONLY) || defined(PAL_STORAGE_NITROFS)
+#define PAL_MEM_LEVEL2_STREAM_STORAGE 1
 #endif
 
 #if defined(MEM_LEVEL2)
@@ -56,14 +61,22 @@ extern uint8_t pal_mem_level2_fight_effect[
 extern uint8_t pal_mem_level2_fight_summon[
    PAL_MEM_LEVEL2_FIGHT_SUMMON_BYTES];
 
-#if defined(PAL_STORAGE_SD_ONLY)
+#if defined(PAL_MEM_LEVEL2_STREAM_STORAGE)
+#ifndef PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES
 #define PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES      (2048u * 1024u)
+#endif
+#ifndef PAL_MEM_LEVEL2_TF_TOC_BYTES
 #define PAL_MEM_LEVEL2_TF_TOC_BYTES             (40u * 1024u)
+#endif
+#ifndef PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES
 #define PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES    (64u * 1024u)
-#define PAL_MEM_LEVEL2_SD_STORAGE_BYTES ( \
+#endif
+#define PAL_MEM_LEVEL2_STREAM_STORAGE_BYTES ( \
    PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES + \
    PAL_MEM_LEVEL2_TF_TOC_BYTES + \
    PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES)
+#define PAL_MEM_LEVEL2_SD_STORAGE_BYTES \
+   PAL_MEM_LEVEL2_STREAM_STORAGE_BYTES
 
 extern uint8_t pal_mem_level2_resident_pack[
    PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES];
@@ -71,7 +84,7 @@ extern uint8_t pal_mem_level2_tf_toc[
    PAL_MEM_LEVEL2_TF_TOC_BYTES];
 extern uint8_t pal_mem_level2_transient_chunk[
    PAL_MEM_LEVEL2_TRANSIENT_CHUNK_BYTES];
-#endif
+#endif /* PAL_MEM_LEVEL2_STREAM_STORAGE */
 
 void PAL_MemoryLevel2Touch(void);
 

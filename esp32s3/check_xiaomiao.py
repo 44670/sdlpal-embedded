@@ -490,6 +490,19 @@ def audit_sprite_arenas(
         errors.append("FIRE chunk exceeds the fixed fight-effect buffer")
     if max_f > FIGHT_SUMMON_BYTES:
         errors.append("F chunk exceeds the fixed summon buffer")
+    for chunk_id, owner, capacity in (
+        (71, "fight-effect", FIGHT_EFFECT_BYTES),
+        (73, "fight-summon", FIGHT_SUMMON_BYTES),
+        (571, "fight-effect", FIGHT_EFFECT_BYTES),
+        (572, "fight-summon", FIGHT_SUMMON_BYTES),
+        (635, "fight-effect", FIGHT_EFFECT_BYTES),
+    ):
+        if chunk_id >= len(mgo) or mgo[chunk_id].size == 0:
+            errors.append(f"cinematic MGO {chunk_id} is unavailable")
+        elif mgo[chunk_id].size > capacity:
+            errors.append(
+                f"cinematic MGO {chunk_id} exceeds the fixed {owner} buffer"
+            )
     return max_scene, max_player, max_battle
 
 
@@ -731,7 +744,7 @@ def main() -> int:
     video_text = video_source.read_text(encoding="utf-8")
     uigame_text = uigame_source.read_text(encoding="utf-8")
     for label, text in (("video", video_text), ("uigame", uigame_text)):
-        if '#include "esp32s3/main/pal_target_memory.h"' not in text:
+        if '#include "pal_target_memory.h"' not in text:
             errors.append(
                 f"{label} two-screen storage must include pal_target_memory.h"
             )
@@ -820,7 +833,7 @@ def main() -> int:
         )
     for token in (
         '#define PAL_ENGINE_TF_PACK_PATH "0:/pal_full.pak"',
-        "sd_only_build_resident_pack(",
+        "PalLevel2ResidentPack_Build(",
         "pal_mem_level2_resident_pack",
     ):
         if token not in target_packs_text:

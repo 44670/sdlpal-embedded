@@ -121,6 +121,8 @@ enforced default-profile limits live in
   once per sample from a fixed four-tick ring. MIDI, VOC, and SFX remain out.
   Buzzer sound quality and timing require physical acceptance.
 
+The classic Nintendo DS port is the sole non-PSRAM `MEM_LEVEL2` exception; `nds/README.md` owns its self-contained NitroFS ROM, native 256x192 libnds path, and DeSmuME SDL/WebSocket acceptance harness.
+
 Useful hardware references:
 
 - `/home/john/work/CardPuterADV/esp-walkie-talkie`
@@ -130,8 +132,17 @@ Useful hardware references:
 
 ## Non-negotiable embedded contract
 
-- No project calls to `malloc`, `calloc`, `realloc`, `free`, C++ new/delete,
-  or hidden allocator-backed containers on target paths.
+- The target-side PAL/game/resource code must not call `malloc`, `calloc`,
+  `realloc`, `free`, C++ new/delete, or use wrappers and containers that hide
+  equivalent game-owned allocation. Game memory must instead have named fixed
+  owners or audited lifecycle arenas so its capacity and lifetime are
+  verifiable from the source plus ELF/map and fragmentation is impossible.
+  This is a game-memory ownership rule, not a ban on platform implementations:
+  allocations performed internally by the toolchain runtime, SDK, filesystem,
+  or other third-party platform libraries do not count, must not be rejected by
+  allocator call-graph inspection, and are not a reason to reimplement those
+  libraries. Project code must still not use such libraries as an indirect
+  general allocator for game or resource objects.
 - No runtime YJ1/YJ2/LZ4 or other asset decompression. Decode and convert on
   the host when building packs.
 - Follow `embedded/RESPONSIVE_RENDERING.md`. The only common full-canvas

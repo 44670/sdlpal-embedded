@@ -149,7 +149,7 @@ CORE_GLOBAL_MGO = frozenset(
 )
 CORE_STARTUP_MGO = frozenset({71, 73})
 CORE_PERSISTENT_MGO = CORE_GLOBAL_MGO | CORE_STARTUP_MGO
-OVERLAY_ARCHIVES: tuple[str, ...] = ("ABC", "GOP", "MAP", "MGO")
+OVERLAY_ARCHIVES: tuple[str, ...] = ("ABC", "FBP", "GOP", "MAP", "MGO")
 FULL_MIRROR_ARCHIVES: tuple[str, ...] = tuple(
     name
     for name, _archive_id in sorted(
@@ -159,6 +159,10 @@ FULL_MIRROR_ARCHIVES: tuple[str, ...] = tuple(
 )
 LEVEL2_LAYOUT_PATH = Path(__file__).with_name("pal_pack_layout_xiaomiao.json")
 ENDING_MGO = frozenset({571, 572, 635})
+# These four ending pictures are sampled on every substep while MGO #635 is
+# composited over the fade.  Keeping them in the final bundle avoids repeated
+# TF reads on the Level1 Cardputer without changing the complete-pack identity.
+ENDING_FADE_FBP = frozenset({49, 65, 67, 70})
 
 # PAL_InterpretInstruction normally advances to the next instruction.  These
 # operations can branch through the listed operand; following both sides is
@@ -258,6 +262,8 @@ class BundleClosure:
             return self.map_ids
         if name == "ABC":
             return self.abc_ids
+        if name == "FBP":
+            return ENDING_FADE_FBP if self.ending_mgo_ids else frozenset()
         if name == "MGO":
             return self.mgo_ids
         raise KeyError(name)
@@ -612,6 +618,11 @@ def close_bundle(
     mgo_ids.difference_update(CORE_PERSISTENT_MGO)
 
     validate_chunk_ids("ABC", abc_ids, archive_counts["ABC"])
+    validate_chunk_ids(
+        "FBP",
+        ENDING_FADE_FBP if ending_mgo else (),
+        archive_counts["FBP"],
+    )
     validate_chunk_ids("GOP", map_ids, archive_counts["GOP"])
     validate_chunk_ids("MAP", map_ids, archive_counts["MAP"])
     validate_chunk_ids("MGO", mgo_ids, archive_counts["MGO"])
@@ -1291,6 +1302,7 @@ def build_chapter_packs(
             "dynamic_map_opcode": "0099",
             "script_mgo_opcodes": ["0065", "00a5"],
             "direct_ending_mgo_ids": sorted(ENDING_MGO),
+            "cached_ending_fade_fbp_ids": sorted(ENDING_FADE_FBP),
             "core_global_mgo_ids": sorted(CORE_GLOBAL_MGO),
             "core_startup_mgo_ids": sorted(CORE_STARTUP_MGO),
         },

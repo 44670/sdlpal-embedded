@@ -26,7 +26,7 @@
 
 #if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
 #include "esp32s3/engine_bridge/pal_engine_pack_provider.h"
-#include "esp32s3/main/pal_target_memory.h"
+#include "pal_target_memory.h"
 #endif
 
 #ifdef PAL_NO_RUNTIME_DECOMPRESS
@@ -518,6 +518,191 @@ end:
    return 0;
 }
 
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+static VOID
+PAL_RLEBlitFullCanvasRow(
+   LPCBYTE           lpColors,
+   LPCBYTE           lpOpaque,
+   UINT               uiWidth,
+   UINT               uiSourceY,
+   INT                iCanvasY,
+   SDL_Surface       *lpDstSurface,
+   const int16_t     *rgMappedX
+)
+{
+   INT canvas_y = iCanvasY + (INT)uiSourceY;
+   uint32_t destination_first;
+   uint32_t destination_after_last;
+   uint32_t destination_y;
+
+   if (canvas_y < 0 || canvas_y >= 200 ||
+      !PalFullScreenStretch_DestinationRange((uint32_t)canvas_y,
+         200u, (uint32_t)lpDstSurface->h,
+         &destination_first, &destination_after_last))
+   {
+      return;
+   }
+
+   for (destination_y = destination_first;
+      destination_y < destination_after_last; destination_y++)
+   {
+      LPBYTE destination = (LPBYTE)lpDstSurface->pixels +
+         (size_t)destination_y * (size_t)lpDstSurface->pitch;
+      INT destination_x;
+
+      for (destination_x = 0;
+         destination_x < lpDstSurface->w; destination_x++)
+      {
+         INT source_x = rgMappedX[destination_x];
+
+         if (source_x >= 0 && (UINT)source_x < uiWidth &&
+            (lpOpaque[(UINT)source_x >> 3] &
+               (BYTE)(1u << ((UINT)source_x & 7u))) != 0u)
+         {
+            destination[destination_x] = lpColors[source_x];
+         }
+      }
+   }
+}
+
+INT
+PAL_RLEBlitToSurfaceFullCanvas(
+   LPCBITMAPRLE      lpBitmapRLE,
+   SDL_Surface      *lpDstSurface,
+   PAL_POS           pos,
+   INT               iVisibleHeight
+)
+/*++
+  Purpose:
+
+    Composite one DOS title/ending RLE layer in the same 320x200 canvas as
+    its FBP background. This is deliberately separate from the ordinary
+    sprite blitter: only cinematic layers registered to the full canvas use
+    the full-screen transform.
+
+--*/
+{
+   int16_t mapped_x[320];
+   BYTE opaque[(320u + 7u) / 8u];
+   LPCBYTE encoded;
+   UINT width;
+   UINT height;
+   UINT visible_height;
+   UINT source_y = 0u;
+   UINT source_x = 0u;
+   UINT remaining;
+   INT canvas_x = PAL_X(pos);
+   INT canvas_y = PAL_Y(pos);
+   INT destination_x;
+
+   if (lpBitmapRLE == NULL || lpDstSurface == NULL ||
+      lpDstSurface->pixels == NULL || lpDstSurface->w <= 0 ||
+      lpDstSurface->w > 320 || lpDstSurface->h <= 0 ||
+      lpDstSurface->h > 200 || lpDstSurface->pitch < lpDstSurface->w)
+   {
+      return -1;
+   }
+   if (lpBitmapRLE[0] == 0x02 && lpBitmapRLE[1] == 0x00 &&
+      lpBitmapRLE[2] == 0x00 && lpBitmapRLE[3] == 0x00)
+   {
+      lpBitmapRLE += 4;
+   }
+   width = lpBitmapRLE[0] | ((UINT)lpBitmapRLE[1] << 8);
+   height = lpBitmapRLE[2] | ((UINT)lpBitmapRLE[3] << 8);
+   if (width == 0u || width > PAL_EXTREME_FBP_SCANLINE_BYTES ||
+      height == 0u || height > UINT_MAX / width)
+   {
+      return -1;
+   }
+   visible_height = height;
+   if (iVisibleHeight >= 0 && (UINT)iVisibleHeight < visible_height)
+   {
+      visible_height = (UINT)iVisibleHeight;
+   }
+   if (visible_height == 0u)
+   {
+      return 0;
+   }
+   if (canvas_x + (INT)width <= 0 || canvas_x >= 320 ||
+      canvas_y + (INT)visible_height <= 0 || canvas_y >= 200)
+   {
+      return 0;
+   }
+
+   for (destination_x = 0;
+      destination_x < lpDstSurface->w; destination_x++)
+   {
+      uint32_t canvas_source_x = 0u;
+      INT local_x;
+
+      if (!PalFullScreenStretch_SourceCoordinate((uint32_t)destination_x,
+            (uint32_t)lpDstSurface->w, 320u, &canvas_source_x))
+      {
+         return -1;
+      }
+      local_x = (INT)canvas_source_x - canvas_x;
+      mapped_x[destination_x] =
+         local_x >= 0 && (UINT)local_x < width ? (int16_t)local_x : -1;
+   }
+
+   memset(opaque, 0, sizeof(opaque));
+   encoded = lpBitmapRLE + 4;
+   remaining = width * height;
+   while (remaining != 0u && source_y < visible_height)
+   {
+      BYTE token = *encoded++;
+      UINT run;
+      BOOL transparent;
+
+      if ((token & 0x80u) != 0u && token <= 0x80u + width)
+      {
+         run = token - 0x80u;
+         transparent = TRUE;
+      }
+      else
+      {
+         run = token;
+         transparent = FALSE;
+      }
+      if (run == 0u || run > remaining)
+      {
+         return -1;
+      }
+
+      while (run != 0u && source_y < visible_height)
+      {
+         UINT amount = min(run, width - source_x);
+
+         if (!transparent)
+         {
+            UINT i;
+
+            for (i = 0u; i < amount; i++)
+            {
+               pal_sram_fbp_scanline[source_x + i] = encoded[i];
+               opaque[(source_x + i) >> 3] |=
+                  (BYTE)(1u << ((source_x + i) & 7u));
+            }
+            encoded += amount;
+         }
+         source_x += amount;
+         run -= amount;
+         remaining -= amount;
+
+         if (source_x == width)
+         {
+            PAL_RLEBlitFullCanvasRow(pal_sram_fbp_scanline, opaque,
+               width, source_y, canvas_y, lpDstSurface, mapped_x);
+            source_x = 0u;
+            source_y++;
+            memset(opaque, 0, sizeof(opaque));
+         }
+      }
+   }
+   return source_y == visible_height ? 0 : -1;
+}
+#endif
+
 INT
 PAL_RLEBlitWithColorShift(
    LPCBITMAPRLE      lpBitmapRLE,
@@ -959,6 +1144,189 @@ PAL_FBPBlitToSurface(
 }
 
 #if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+typedef struct tagPALFBPSOURCE
+{
+   FILE *fp;
+   uint16_t chunk;
+} PALFBPSOURCE;
+
+static BOOL
+PAL_FBPSourceInitChunk(
+   PALFBPSOURCE      *source,
+   FILE              *fp,
+   UINT               uiChunkNum
+)
+{
+   if (source == NULL || fp == NULL || uiChunkNum > 0xffffu ||
+      PAL_EXTREME_FBP_SCANLINE_BYTES < 320u ||
+      PalEngineBridge_GetNativeChunkSize(fp, (uint16_t)uiChunkNum) !=
+         320 * 200)
+   {
+      return FALSE;
+   }
+   memset(source, 0, sizeof(*source));
+   source->fp = fp;
+   source->chunk = (uint16_t)uiChunkNum;
+   return TRUE;
+}
+
+static LPCBYTE
+PAL_FBPSourceGetRow(
+   PALFBPSOURCE      *source,
+   uint32_t           source_y
+)
+{
+   if (source == NULL || source_y >= 200u)
+   {
+      return NULL;
+   }
+   if (!PalEngineBridge_ReadNativeChunkRange(source->fp, source->chunk,
+         source_y * 320u, pal_sram_fbp_scanline, 320u))
+   {
+      return NULL;
+   }
+   return pal_sram_fbp_scanline;
+}
+
+static INT
+PAL_FBPBlitSourceToSurface(
+   PALFBPSOURCE      *source,
+   SDL_Surface       *lpDstSurface
+)
+{
+   int y;
+   uint32_t last_source_y = UINT32_MAX;
+   LPCBYTE source_row = NULL;
+
+   if (source == NULL || lpDstSurface == NULL ||
+      lpDstSurface->pixels == NULL || lpDstSurface->w <= 0 ||
+      lpDstSurface->h <= 0 || lpDstSurface->pitch < lpDstSurface->w)
+   {
+      return -1;
+   }
+   for (y = 0; y < lpDstSurface->h; y++)
+   {
+      uint32_t source_y = 0u;
+      LPBYTE destination =
+         (LPBYTE)lpDstSurface->pixels + y * lpDstSurface->pitch;
+
+      if (!PalFullScreenStretch_SourceCoordinate((uint32_t)y,
+            (uint32_t)lpDstSurface->h, 200u, &source_y))
+      {
+         return -1;
+      }
+      if (source_y != last_source_y)
+      {
+         source_row = PAL_FBPSourceGetRow(source, source_y);
+         if (source_row == NULL)
+         {
+            return -1;
+         }
+         last_source_y = source_y;
+      }
+      if (!PalFullScreenStretch_BlitIndexedRow(source_row,
+            320u, destination, (uint32_t)lpDstSurface->w))
+      {
+         return -1;
+      }
+   }
+   return 0;
+}
+
+static INT
+PAL_FBPAdvanceSourceVerticalTransition(
+   PALFBPSOURCE      *incoming,
+   SDL_Surface       *lpStateSurface,
+   UINT               uiPreviousProgress,
+   UINT               uiProgress,
+   BOOL               fScrollDown
+)
+{
+   uint32_t previous_offset;
+   uint32_t offset;
+   uint32_t delta;
+   uint32_t y;
+   LPBYTE pixels;
+
+   if (incoming == NULL || lpStateSurface == NULL ||
+      lpStateSurface->pixels == NULL || lpStateSurface->w <= 0 ||
+      lpStateSurface->h <= 0 || lpStateSurface->pitch < lpStateSurface->w ||
+      uiPreviousProgress > uiProgress || uiProgress > 200u)
+   {
+      return -1;
+   }
+   previous_offset = uiPreviousProgress == 200u ?
+      (uint32_t)lpStateSurface->h :
+      PalFullScreenStretch_LowerBound(uiPreviousProgress,
+         200u, (uint32_t)lpStateSurface->h);
+   offset = uiProgress == 200u ?
+      (uint32_t)lpStateSurface->h :
+      PalFullScreenStretch_LowerBound(uiProgress,
+         200u, (uint32_t)lpStateSurface->h);
+   if (offset < previous_offset)
+   {
+      return -1;
+   }
+   delta = offset - previous_offset;
+   if (delta == 0u)
+   {
+      return 0;
+   }
+
+   pixels = (LPBYTE)lpStateSurface->pixels;
+   if (fScrollDown)
+   {
+      memmove(pixels + (size_t)delta * (size_t)lpStateSurface->pitch,
+         pixels,
+         (size_t)((uint32_t)lpStateSurface->h - delta) *
+            (size_t)lpStateSurface->pitch);
+      for (y = 0u; y < delta; y++)
+      {
+         uint32_t incoming_y =
+            (uint32_t)lpStateSurface->h - offset + y;
+         uint32_t source_y = 0u;
+         LPCBYTE source_row;
+
+         if (!PalFullScreenStretch_SourceCoordinate(incoming_y,
+               (uint32_t)lpStateSurface->h, 200u, &source_y) ||
+            (source_row = PAL_FBPSourceGetRow(incoming, source_y)) == NULL ||
+            !PalFullScreenStretch_BlitIndexedRow(source_row, 320u,
+               pixels + (size_t)y * (size_t)lpStateSurface->pitch,
+               (uint32_t)lpStateSurface->w))
+         {
+            return -1;
+         }
+      }
+   }
+   else
+   {
+      memmove(pixels,
+         pixels + (size_t)delta * (size_t)lpStateSurface->pitch,
+         (size_t)((uint32_t)lpStateSurface->h - delta) *
+            (size_t)lpStateSurface->pitch);
+      for (y = 0u; y < delta; y++)
+      {
+         uint32_t destination_y =
+            (uint32_t)lpStateSurface->h - delta + y;
+         uint32_t incoming_y = previous_offset + y;
+         uint32_t source_y = 0u;
+         LPCBYTE source_row;
+
+         if (!PalFullScreenStretch_SourceCoordinate(incoming_y,
+               (uint32_t)lpStateSurface->h, 200u, &source_y) ||
+            (source_row = PAL_FBPSourceGetRow(incoming, source_y)) == NULL ||
+            !PalFullScreenStretch_BlitIndexedRow(source_row, 320u,
+               pixels + (size_t)destination_y *
+                  (size_t)lpStateSurface->pitch,
+               (uint32_t)lpStateSurface->w))
+         {
+            return -1;
+         }
+      }
+   }
+   return 0;
+}
+
 INT
 PAL_FBPBlitChunkToSurface(
    FILE              *fp,
@@ -978,40 +1346,27 @@ PAL_FBPBlitChunkToSurface(
 
 --*/
 {
-   int y;
-   uint32_t last_source_y = UINT32_MAX;
+   PALFBPSOURCE source;
 
-   if (fp == NULL || uiChunkNum > 0xffffu || lpDstSurface == NULL ||
-      lpDstSurface->pixels == NULL || lpDstSurface->w <= 0 ||
-      lpDstSurface->h <= 0 || lpDstSurface->pitch < lpDstSurface->w ||
-      PalEngineBridge_GetNativeChunkSize(fp, (uint16_t)uiChunkNum) !=
-         320 * 200)
-   {
-      return -1;
-   }
+   return PAL_FBPSourceInitChunk(&source, fp, uiChunkNum) ?
+      PAL_FBPBlitSourceToSurface(&source, lpDstSurface) : -1;
+}
 
-   for (y = 0; y < lpDstSurface->h; y++)
-   {
-      uint32_t source_y = 0u;
-      LPBYTE destination =
-         (LPBYTE)lpDstSurface->pixels + y * lpDstSurface->pitch;
+INT
+PAL_FBPAdvanceChunkVerticalTransition(
+   FILE              *fp,
+   UINT               uiChunkNum,
+   SDL_Surface       *lpStateSurface,
+   UINT               uiPreviousProgress,
+   UINT               uiProgress,
+   BOOL               fScrollDown
+)
+{
+   PALFBPSOURCE source;
 
-      if (!PalFullScreenStretch_SourceCoordinate((uint32_t)y,
-            (uint32_t)lpDstSurface->h, 200u, &source_y) ||
-         (source_y != last_source_y &&
-            !PalEngineBridge_ReadNativeChunkRange(fp,
-               (uint16_t)uiChunkNum,
-               source_y * PAL_EXTREME_FBP_SCANLINE_BYTES,
-               pal_sram_fbp_scanline,
-               PAL_EXTREME_FBP_SCANLINE_BYTES)) ||
-         !PalFullScreenStretch_BlitIndexedRow(pal_sram_fbp_scanline,
-            320u, destination, (uint32_t)lpDstSurface->w))
-      {
-         return -1;
-      }
-      last_source_y = source_y;
-   }
-   return 0;
+   return PAL_FBPSourceInitChunk(&source, fp, uiChunkNum) ?
+      PAL_FBPAdvanceSourceVerticalTransition(&source, lpStateSurface,
+         uiPreviousProgress, uiProgress, fScrollDown) : -1;
 }
 #endif
 

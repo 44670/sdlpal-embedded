@@ -31,7 +31,7 @@ class CPlayer {
 public:
    CPlayer(Copl *newopl);
 #ifdef PAL_NO_RUNTIME_HEAP
-   ~CPlayer();
+   ~CPlayer() = default;
 #else
    virtual ~CPlayer();
 #endif

@@ -126,7 +126,37 @@ PalContract_ReadLe32(
 #ifdef PAL_CONTRACT_TARGET_PACK_PROVIDER
 bool PalContract_TargetOpenNorPack(PalPack *pack);
 bool PalContract_TargetOpenTfPack(PalPack *pack);
+bool PalEngineBridge_MapNativeChunk(
+    uint16_t archive_id,
+    uint16_t chunk_id,
+    const uint8_t **data,
+    uint32_t *size);
 #endif
+
+static bool PalContract_OpenNorPack(void);
+
+static bool
+PalContract_MapNativeChunk(
+    uint16_t archive_id,
+    uint16_t chunk_id,
+    PalPackSpan *span)
+{
+    if (span == NULL) {
+        return false;
+    }
+#ifdef PAL_CONTRACT_TARGET_PACK_PROVIDER
+    memset(span, 0, sizeof(*span));
+    if (!PalEngineBridge_MapNativeChunk(
+            archive_id, chunk_id, &span->data, &span->size)) {
+        return false;
+    }
+    span->format = PAL_PACK_FORMAT_NATIVE;
+    return true;
+#else
+    return PalContract_OpenNorPack() &&
+        PalPack_MapConst(&pal_contract_nor_pack, archive_id, chunk_id, span);
+#endif
+}
 
 #ifndef PAL_CONTRACT_DISABLE_SFX
 static int16_t
@@ -782,12 +812,8 @@ VOID PAL_StartDialogWithOffset(BYTE bDialogLocation, BYTE bFontColor, INT iNumCh
     if (iNumCharFace > 0 &&
         (bDialogLocation == kDialogUpper ||
          bDialogLocation == kDialogLower) &&
-        PalContract_OpenNorPack() &&
-        PalPack_MapConst(
-            &pal_contract_nor_pack,
-            PAL_PACK_ARCHIVE_RGM,
-            (uint16_t)iNumCharFace,
-            &face_span) &&
+        PalContract_MapNativeChunk(
+            PAL_PACK_ARCHIVE_RGM, (uint16_t)iNumCharFace, &face_span) &&
         face_span.data != NULL) {
         PalNativeUiRect face_box = pal_contract_dialog_layout.portrait;
         PalNativeUiRect drawn;

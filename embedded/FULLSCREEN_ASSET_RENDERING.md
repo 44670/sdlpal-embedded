@@ -10,7 +10,9 @@ The currently audited asset classes are:
 - decoded `FBP` images, including battle backgrounds and the fixed
   opening/status/equipment/ending canvases;
 - `RNG` movies, whose delta command cursor addresses one logical 320x200
-  canvas across frames.
+  canvas across frames;
+- only the registered RLE layers composited in that same cinematic canvas:
+  opening-title `MGO` chunks 71/73 and ending `MGO` chunks 571/572/635.
 
 This list is an allowlist. Adding another asset class is a case-by-case design
 decision; dimensions or byte size alone never opt an asset into this path. Maps,
@@ -41,7 +43,26 @@ indexed blits, and indexed scanline blits.
 `PAL_FBPBlitToSurface` applies the common transform to a resident decoded FBP.
 `PAL_FBPBlitChunkToSurface` applies the same transform while retaining only one
 320-byte source row. A native logical screen must never be passed as the
-64,000-byte FBP input buffer.
+64,000-byte FBP input buffer. The title and ending scrolls keep a clean,
+incrementally shifted background in the auxiliary native screen; each frame
+copies it to the presented screen before wave and registered RLE layers are
+drawn. This uses exactly two mutable native screens and reads each newly
+exposed FBP row once. It never retains a pointer into the shared Level2
+transient-chunk owner across a frame, delay, audio pump, or resource lookup.
+
+`PAL_RLEBlitToSurfaceFullCanvas` is limited to the five MGO chunks named above.
+It decodes their transparency directly into the native destination using the
+same canonical-coordinate transform as their FBP background. It is not a
+replacement for the ordinary sprite blitter.
+
+An effect fade needs a clean blend state, a clean target, and a composited
+presentation. The first two are the native screens; the immutable target is
+mapped only for the immediate blit and is reacquired on every substep. The
+Cardputer final bundle therefore keeps FBP chunks 49/65/67/70 in NOR so this
+reacquisition never rereads their payload from TF. Level2 may use its existing
+transient chunk for that immediate source, but it is not a third mutable
+framebuffer. This is cache placement only; `pal_full.pak` and its pack-set
+identity remain unchanged.
 
 The RNG decoder retains the canonical 64,000-pixel command cursor, but each
 changed canonical pixel is written through the common inverse mapping into the
@@ -72,7 +93,9 @@ make -C esp32s3 cardputer-extreme-pack-smoke
 ```
 
 The first check exhaustively compares the forward and inverse mappings across
-small up/down/non-uniform dimensions. The RNG check compares resident and
-one-to-three-byte-window decoding under ASan/UBSan at 240x135, 160x128,
-320x200, and an enlarged surface. The real-pack smoke proves that an encoded
-RNG frame larger than the Cardputer auxiliary screen is read in bounded ranges.
+small up/down/non-uniform dimensions. The ESP32 full-screen gate also checks
+cinematic RLE transparency and both incremental scroll directions under
+ASan/UBSan at 240x135, 160x128, and 256x192. The RNG check compares resident
+and one-to-three-byte-window decoding at 240x135, 160x128, 320x200, and an
+enlarged surface. The real-pack smoke proves that an encoded RNG frame larger
+than the Cardputer auxiliary screen is read in bounded ranges.

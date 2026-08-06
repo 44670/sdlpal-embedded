@@ -22,6 +22,10 @@
 #include "main.h"
 #include <setjmp.h>
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+#include "embedded/pal_memory_profile.h"
+#endif
+
 #if defined(PAL_HAS_WS_SERVER)
 #include "unix/pal_ws_server.h"
 #endif
@@ -52,6 +56,56 @@ char gExecutablePath[PAL_MAX_PATH];
 #define SPRITENUM_SPLASH_TITLE      0x47
 #define SPRITENUM_SPLASH_CRANE      0x49
 #define NUM_RIX_TITLE               0x05
+
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+static BOOL
+PAL_SplashLoadNativeMgo(
+   LPCSPRITE      *lplpSprite,
+   WORD            wChunkNum,
+   LPBYTE          lpStorage,
+   UINT            uiStorageSize
+)
+{
+   if (lplpSprite == NULL)
+   {
+      return FALSE;
+   }
+#if defined(MEM_LEVEL2)
+   INT size;
+
+   size = PAL_MKFGetChunkSize(wChunkNum, gpGlobals->f.fpMGO);
+   if (lpStorage == NULL || size <= 0 || (UINT)size > uiStorageSize ||
+      PAL_MKFReadChunk(lpStorage, uiStorageSize,
+         wChunkNum, gpGlobals->f.fpMGO) != size)
+   {
+      return FALSE;
+   }
+   *lplpSprite = lpStorage;
+   return TRUE;
+#else
+   {
+      UINT mapped_size;
+
+      (void)lpStorage;
+      (void)uiStorageSize;
+      return PAL_MKFMapChunk(gpGlobals->f.fpMGO, wChunkNum,
+         lplpSprite, &mapped_size) && mapped_size != 0u;
+   }
+#endif
+}
+
+static INT
+PAL_SplashAdvanceTransition(
+   WORD             wChunkNum,
+   UINT             uiPreviousProgress,
+   UINT             uiProgress
+)
+{
+   return PAL_FBPAdvanceChunkVerticalTransition(gpGlobals->f.fpFBP,
+      wChunkNum, gpScreenBak,
+      uiPreviousProgress, uiProgress, TRUE);
+}
+#endif
 
 #if (defined(PAL_NO_RUNTIME_HEAP) || defined(PAL_NO_RUNTIME_DECOMPRESS)) && \
     !defined(PAL_EXTREME_TWO_SCREENS)
@@ -245,6 +299,193 @@ PAL_TrademarkScreen(
 #endif
 }
 
+#if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
+static VOID
+PAL_SplashScreenNative(
+   VOID
+)
+{
+   SDL_Color *palette = PAL_GetPalette(1, FALSE);
+   SDL_Color current_palette[256];
+   LPCSPRITE title_sprite = NULL;
+   LPCSPRITE crane_sprite = NULL;
+   LPCBITMAPRLE title_bitmap;
+   int crane_pos[9][3];
+   int image_pos = 200;
+   int crane_frame = 0;
+   int title_height;
+   int title_visible_height = 0;
+   UINT image_revealed = 0u;
+   int i;
+   DWORD begin_time;
+   BOOL use_cd = TRUE;
+
+   if (PAL_PlayAVI("2.avi"))
+   {
+      return;
+   }
+   if (palette == NULL)
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_SplashScreen(): palette 1 is unavailable\n");
+      return;
+   }
+
+#if defined(MEM_LEVEL2)
+   if (!PAL_SplashLoadNativeMgo(&title_sprite, SPRITENUM_SPLASH_TITLE,
+         pal_mem_level2_fight_effect,
+         PAL_MEM_LEVEL2_FIGHT_EFFECT_BYTES) ||
+      !PAL_SplashLoadNativeMgo(&crane_sprite, SPRITENUM_SPLASH_CRANE,
+         pal_mem_level2_fight_summon,
+         PAL_MEM_LEVEL2_FIGHT_SUMMON_BYTES))
+#else
+   if (!PAL_SplashLoadNativeMgo(&title_sprite, SPRITENUM_SPLASH_TITLE,
+         NULL, 0u) ||
+      !PAL_SplashLoadNativeMgo(&crane_sprite, SPRITENUM_SPLASH_CRANE,
+         NULL, 0u))
+#endif
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_SplashScreen(): native title sprites are unavailable\n");
+      return;
+   }
+   title_bitmap = PAL_SpriteGetFrame(title_sprite, 0);
+   if (title_bitmap == NULL || PAL_SpriteGetNumFrames(crane_sprite) < 8 ||
+      PAL_FBPBlitChunkToSurface(gpGlobals->f.fpFBP,
+         BITMAPNUM_SPLASH_DOWN, gpScreenBak) != 0 ||
+      PAL_MKFGetChunkSize(BITMAPNUM_SPLASH_UP,
+         gpGlobals->f.fpFBP) != 320 * 200)
+   {
+      UTIL_LogOutput(LOGLEVEL_ERROR,
+         "PAL_SplashScreen(): native title canvases are unavailable\n");
+      return;
+   }
+   title_height = PAL_RLEGetHeight(title_bitmap);
+   if (title_height <= 0)
+   {
+      return;
+   }
+
+   memset(current_palette, 0xff, sizeof(current_palette));
+   for (i = 0; i < 9; i++)
+   {
+      crane_pos[i][0] = RandomLong(300, 600);
+      crane_pos[i][1] = RandomLong(0, 80);
+      crane_pos[i][2] = RandomLong(0, 8);
+   }
+   if (!AUDIO_PlayCDTrack(7))
+   {
+      use_cd = FALSE;
+      AUDIO_PlayMusic(NUM_RIX_TITLE, TRUE, 2);
+   }
+
+   PAL_ProcessEvent();
+   PAL_ClearKeyState();
+   begin_time = SDL_GetTicks();
+
+   while (TRUE)
+   {
+      DWORD elapsed;
+
+      PAL_ProcessEvent();
+      elapsed = SDL_GetTicks() - begin_time;
+      if (elapsed < 15000u)
+      {
+         for (i = 0; i < 256; i++)
+         {
+            current_palette[i].r =
+               (BYTE)(palette[i].r * ((float)elapsed / 15000));
+            current_palette[i].g =
+               (BYTE)(palette[i].g * ((float)elapsed / 15000));
+            current_palette[i].b =
+               (BYTE)(palette[i].b * ((float)elapsed / 15000));
+         }
+      }
+      VIDEO_SetPalette(current_palette);
+
+      if (image_pos > 1)
+      {
+         image_pos--;
+      }
+      if (PAL_SplashAdvanceTransition(BITMAPNUM_SPLASH_UP, image_revealed,
+            (UINT)(200 - image_pos)) != 0)
+      {
+         UTIL_LogOutput(LOGLEVEL_ERROR,
+            "PAL_SplashScreen(): title FBP transition failed\n");
+         break;
+      }
+      image_revealed = (UINT)(200 - image_pos);
+      VIDEO_CopyEntireSurface(gpScreenBak, gpScreen);
+
+      for (i = 0; i < 9; i++)
+      {
+         LPCBITMAPRLE frame = PAL_SpriteGetFrame(crane_sprite,
+            crane_pos[i][2] =
+               (crane_pos[i][2] + (crane_frame & 1)) % 8);
+
+         crane_pos[i][1] +=
+            ((image_pos > 1) && (image_pos & 1)) ? 1 : 0;
+         PAL_RLEBlitToSurfaceFullCanvas(frame, gpScreen,
+            PAL_XY(crane_pos[i][0], crane_pos[i][1]), -1);
+         crane_pos[i][0]--;
+      }
+      crane_frame++;
+
+      if (title_visible_height < title_height)
+      {
+         title_visible_height++;
+      }
+      PAL_RLEBlitToSurfaceFullCanvas(title_bitmap, gpScreen,
+         PAL_XY(255, 10), title_visible_height);
+      VIDEO_UpdateScreen(NULL);
+
+      if (g_InputState.dwKeyPress & (kKeyMenu | kKeySearch))
+      {
+         BOOL was_fading = elapsed < 15000u;
+
+         title_visible_height = title_height;
+         PAL_RLEBlitToSurfaceFullCanvas(title_bitmap, gpScreen,
+            PAL_XY(255, 10), title_visible_height);
+         VIDEO_UpdateScreen(NULL);
+
+         while (elapsed < 15000u)
+         {
+            for (i = 0; i < 256; i++)
+            {
+               current_palette[i].r =
+                  (BYTE)(palette[i].r * ((float)elapsed / 15000));
+               current_palette[i].g =
+                  (BYTE)(palette[i].g * ((float)elapsed / 15000));
+               current_palette[i].b =
+                  (BYTE)(palette[i].b * ((float)elapsed / 15000));
+            }
+            VIDEO_SetPalette(current_palette);
+            UTIL_Delay(8);
+            elapsed += 250u;
+         }
+         if (was_fading)
+         {
+            UTIL_Delay(500);
+         }
+         break;
+      }
+
+      PAL_ProcessEvent();
+      while (SDL_GetTicks() - begin_time < elapsed + 85u)
+      {
+         SDL_Delay(1);
+         PAL_ProcessEvent();
+      }
+   }
+
+   if (!use_cd)
+   {
+      AUDIO_PlayMusic(0, FALSE, 1);
+   }
+   PAL_FadeOut(1);
+}
+#endif
+
 VOID
 PAL_SplashScreen(
    VOID
@@ -265,11 +506,7 @@ PAL_SplashScreen(
 --*/
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   /*
-    * The chapter pack intentionally omits the DOS title/splash assets. The
-    * first playable frame is the normal opening menu/game loop.
-    */
-   return;
+   PAL_SplashScreenNative();
 #else
    SDL_Color     *palette = PAL_GetPalette(1, FALSE);
    SDL_Color      rgCurrentPalette[256];

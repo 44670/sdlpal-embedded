@@ -95,6 +95,7 @@ CARDPUTER_EXTREME_NATIVE_FRAMES ?= 3000
 CARDPUTER_EXTREME_NATIVE_VIEW_240_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_native_view_240_test
 CARDPUTER_EXTREME_NATIVE_VIEW_160_TARGET ?= $(NATIVE_BUILD_DIR)/cardputer_extreme_native_view_160_test
 PAL_RNG_NATIVE_TEST_TARGET ?= $(NATIVE_BUILD_DIR)/pal_rng_native_test
+PAL_CINEMATIC_NATIVE_TEST_TARGET ?= $(NATIVE_BUILD_DIR)/pal_cinematic_native_test
 CARDPUTER_EXTREME_CACHE_LOGIC_TARGET ?= $(NATIVE_BUILD_DIR)/chapter_cache_logic_test
 CARDPUTER_EXTREME_EVENT_PAGER_TARGET ?= $(NATIVE_BUILD_DIR)/event_pager_logic_test
 CARDPUTER_EXTREME_MUSIC_STATE_TARGET ?= $(NATIVE_BUILD_DIR)/pal_engine_target_music_state_test
@@ -282,6 +283,7 @@ IDF_ENGINE_BRIDGE_SRCS = \
 	../embedded/pal_noheap.c \
 	../embedded/pal_memory_profile.c \
 	../embedded/pal_pack.c \
+	../embedded/pal_level2_resident_pack.c \
 	../embedded/pal_text_cache.c \
 	../embedded/pal_font_cache.c \
 	engine_bridge/pal_engine_pack_provider.c \
@@ -415,6 +417,7 @@ NATIVE_ENGINE_HOST_SRCS = \
 	../embedded/pal_noheap.c \
 	../embedded/pal_memory_profile.c \
 	../embedded/pal_pack.c \
+	../embedded/pal_level2_resident_pack.c \
 	../embedded/pal_text_cache.c \
 	../embedded/pal_font_cache.c \
 	engine_bridge/pal_engine_app_main.c \
@@ -805,8 +808,20 @@ $(PAL_RNG_NATIVE_TEST_TARGET): ../rngplay.c ../rngplay.h ../embedded/pal_fullscr
 		-Wl,--gc-sections -fsanitize=address,undefined $(SDL2_LIBS) \
 		-o "$@"
 
-cardputer-extreme-fullscreen-stretch-check:
+$(PAL_CINEMATIC_NATIVE_TEST_TARGET): ../palcommon.c ../palcommon.h ../embedded/pal_fullscreen_stretch.h ../tests/test_cinematic_native.c Makefile
+	mkdir -p "$(NATIVE_BUILD_DIR)"
+	$(CC) -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-sign-compare \
+		-ffunction-sections -fdata-sections -fsanitize=address,undefined \
+		-DPAL_EXTREME_TWO_SCREENS=1 -DPAL_NO_RUNTIME_DECOMPRESS=1 \
+		-DPAL_TARGET_CARDPUTER_ADV=1 \
+		-I .. -I main -I ../unix -I ../sdl_compat $(SDL2_CFLAGS) \
+		../palcommon.c ../tests/test_cinematic_native.c \
+		-Wl,--gc-sections -fsanitize=address,undefined $(SDL2_LIBS) -lm \
+		-o "$@"
+
+cardputer-extreme-fullscreen-stretch-check: $(PAL_CINEMATIC_NATIVE_TEST_TARGET)
 	$(MAKE) -C ../embedded fullscreen-stretch-check
+	ASAN_OPTIONS=detect_leaks=0 "$(PAL_CINEMATIC_NATIVE_TEST_TARGET)"
 
 cardputer-extreme-rng-decoder-check: cardputer-extreme-fullscreen-stretch-check $(PAL_RNG_NATIVE_TEST_TARGET)
 	ASAN_OPTIONS=detect_leaks=0 "$(PAL_RNG_NATIVE_TEST_TARGET)"

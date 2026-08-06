@@ -66,6 +66,7 @@ if(XIAOMIAO_WROVER)
         "xiaomiao_memory.c"
         "pal_guru_screen.c"
         "cardputer_extreme_native_view.c"
+        "../../embedded/pal_level2_resident_pack.c"
         "../../embedded/pal_font10_cache.c"
         "../../embedded/pal_native_ui.c"
         "../engine_bridge/pal_engine_guru.c"

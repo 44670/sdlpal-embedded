@@ -216,10 +216,28 @@ PAL_FBPBlitToSurface(
 
 #if defined(PAL_EXTREME_TWO_SCREENS) && defined(PAL_NO_RUNTIME_DECOMPRESS)
 INT
+PAL_RLEBlitToSurfaceFullCanvas(
+   LPCBITMAPRLE      lpBitmapRLE,
+   SDL_Surface      *lpDstSurface,
+   PAL_POS           pos,
+   INT               iVisibleHeight
+);
+
+INT
 PAL_FBPBlitChunkToSurface(
    FILE              *fp,
    UINT               uiChunkNum,
    SDL_Surface       *lpDstSurface
+);
+
+INT
+PAL_FBPAdvanceChunkVerticalTransition(
+   FILE              *fp,
+   UINT               uiChunkNum,
+   SDL_Surface       *lpStateSurface,
+   UINT               uiPreviousProgress,
+   UINT               uiProgress,
+   BOOL               fScrollDown
 );
 #endif
 

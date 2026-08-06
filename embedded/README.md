@@ -4,6 +4,8 @@ Use these documents as the current source of truth:
 
 - [`../esp32s3/README.md`](../esp32s3/README.md): boards, memory/storage
   profiles, data-pack generation, build, and flash commands.
+- [`../nds/README.md`](../nds/README.md): the self-contained Nintendo DS port
+  and its DeSmuME SDL/WebSocket acceptance path.
 - [`RESPONSIVE_RENDERING.md`](RESPONSIVE_RENDERING.md): native-framebuffer
   rendering, map viewports, text, and per-element UI rules.
 - [`FULLSCREEN_ASSET_RENDERING.md`](FULLSCREEN_ASSET_RENDERING.md): the narrow
@@ -29,6 +31,7 @@ make -C embedded contract-check
 make -C unix EMBEDDED_CONTRACT=1 contract-check
 make -C esp32s3 cardputer-adv-music-check
 make -C esp32s3 xiaomiao-check
+make -C nds check
 ```
 
 Use the narrower commands linked from the focused document while iterating.

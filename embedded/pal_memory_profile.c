@@ -35,7 +35,7 @@ uint8_t pal_mem_level2_fight_effect[
 uint8_t pal_mem_level2_fight_summon[
    PAL_MEM_LEVEL2_FIGHT_SUMMON_BYTES] PAL_MEM_LEVEL2_PSRAM;
 
-#if defined(PAL_STORAGE_SD_ONLY)
+#if defined(PAL_MEM_LEVEL2_STREAM_STORAGE)
 uint8_t pal_mem_level2_resident_pack[
    PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES] PAL_MEM_LEVEL2_PSRAM;
 uint8_t pal_mem_level2_tf_toc[
@@ -95,7 +95,7 @@ PAL_MemoryLevel2Touch(
    PAL_TOUCH(pal_mem_level2_battle_arena);
    PAL_TOUCH(pal_mem_level2_fight_effect);
    PAL_TOUCH(pal_mem_level2_fight_summon);
-#if defined(PAL_STORAGE_SD_ONLY)
+#if defined(PAL_MEM_LEVEL2_STREAM_STORAGE)
    PAL_TOUCH(pal_mem_level2_resident_pack);
    PAL_TOUCH(pal_mem_level2_tf_toc);
    PAL_TOUCH(pal_mem_level2_transient_chunk);

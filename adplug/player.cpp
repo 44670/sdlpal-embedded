@@ -42,8 +42,10 @@ CPlayer::CPlayer(Copl *newopl)
       : opl(newopl) {
 }
 
+#ifndef PAL_NO_RUNTIME_HEAP
 CPlayer::~CPlayer() {
 }
+#endif
 
 unsigned long CPlayer::songlength(int subsong) {
    CFakeopl tempopl;

@@ -152,9 +152,9 @@ CrixPlayer::CrixPlayer(Copl *newopl)
 {
 }
 
+#ifndef PAL_NO_RUNTIME_HEAP
 CrixPlayer::~CrixPlayer()
 {
-#ifndef PAL_NO_RUNTIME_HEAP
 #ifdef USE_RIX_MKF_FILE_BUFFER
     if (file_buffer)
         delete[] file_buffer;
@@ -167,8 +167,8 @@ CrixPlayer::~CrixPlayer()
   if (extra_regs) delete[] extra_regs;
   if (extra_vals) delete[] extra_vals;
 #endif
-#endif
 }
+#endif
 
 #if USE_RIX_EXTRA_INIT
 void CrixPlayer::set_extra_init(uint32_t* regs, uint8_t* datas, int n)

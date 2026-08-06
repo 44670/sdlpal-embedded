@@ -37,7 +37,11 @@ class CrixPlayer: public CPlayer
   static CPlayer *factory(Copl *newopl);
 
   CrixPlayer(Copl *newopl);
+#ifdef PAL_NO_RUNTIME_HEAP
+  ~CrixPlayer() = default;
+#else
   ~CrixPlayer();
+#endif
 
   bool load(const std::string &filename, const CFileProvider &fp);
 #ifdef PAL_NO_RUNTIME_HEAP
