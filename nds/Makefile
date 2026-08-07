@@ -16,6 +16,11 @@ GAME_SUBTITLE1 := Nintendo DS native port
 GAME_SUBTITLE2 := sdlpal-embedded
 NDS_MAKER_CODE := 00
 NDS_ROM_VERSION := 0
+# Keep the shipped image on the classic NTR path.  Calico's shared ARM9/ARM7
+# ELFs contain optional TWL program headers; ndstool only copies those sections
+# when the ROM header is larger than the legacy 0x200-byte NTR header.
+NDS_HEADER_SIZE := 0x200
+PAL_NDS_SILENT_DIAGNOSTIC ?= 0
 
 TARGET := sdlpal
 BUILD := build
@@ -53,6 +58,7 @@ PAL_DEFINES := \
    -DPAL_CONTRACT_NO_SFX=1 \
    -DPAL_ENGINE_BRIDGE_REQUIRE_TARGET_HOOKS=1 \
    -DPAL_TARGET_GURU_MEDITATION=1 \
+   -DPAL_NDS_SILENT_DIAGNOSTIC=$(PAL_NDS_SILENT_DIAGNOSTIC) \
    -DPAL_HAS_JOYSTICKS=0 \
    -DPAL_HAS_TOUCH=0 \
    -DPAL_HAS_MP3=0 \
@@ -76,7 +82,9 @@ CFLAGS := -g -Wall -Wextra -Os -ffunction-sections -fdata-sections \
    -fno-strict-aliasing $(ARCH) $(INCLUDE) -DARM9 $(PAL_DEFINES)
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-use-cxa-atexit
 ASFLAGS := -g $(ARCH)
-LDFLAGS := -specs=ds_arm9.specs -g $(ARCH) \
+# Calico's legacy ARM9 linker script omits the TWL loadlist and uses the
+# classic NTR main-RAM layout.  Pair it with the 0x200 NTR ROM header below.
+LDFLAGS := -specs=$(CALICO)/share/ds9-legacy.specs -g $(ARCH) \
    -Wl,-Map,$(PROJECT_DIR)/$(BUILD)/$(TARGET).map,--gc-sections \
    -Wl,--wrap=PAL_MKFOpenPackArchive \
    -Wl,--wrap=PAL_MKFIsPackArchive \
@@ -101,8 +109,8 @@ CFILES := \
    pal_music_cache.c \
    pal_engine_pack_provider.c pal_engine_posix_shims.c sdl_shim.c \
    nds_entry.c nds_memory.c nds_board.c nds_input.c nds_time.c \
-   nds_video.c nds_packs.c nds_guru.c nds_audio_stream.c nds_save.c
-CPPFILES := player.cpp rix.cpp pal_mame_opl2_static.cpp nds_music.cpp
+   nds_video.c nds_packs.c nds_guru.c nds_save.c
+CPPFILES := player.cpp rix.cpp nds_music.cpp
 SFILES :=
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -136,7 +144,7 @@ clean:
 else
 
 $(OUTPUT).nds: $(OUTPUT).elf $(NITRO_STAGE) $(GAME_ICON) $(PROJECT_DIR)/Makefile
-	$(SILENTCMD)ndstool -c $@ -9 $< $(_ARM7_ELF) \
+	$(SILENTCMD)ndstool -c $@ -h $(NDS_HEADER_SIZE) -9 $< $(_ARM7_ELF) \
 	   -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1);$(GAME_SUBTITLE2)" \
 	   $(_ADDFILES) -g '####' $(NDS_MAKER_CODE) "$(GAME_TITLE)" \
 	   $(NDS_ROM_VERSION)

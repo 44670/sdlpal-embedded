@@ -64,7 +64,18 @@ volatile BOOL g_bRenderPaused = FALSE;
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
 #include "pal_target_memory.h"
-void PalEngineBridge_RenderPresentIndexed(const void *pixels, int pitch, int w, int h, const void *palette_rgba);
+void PalEngineBridge_RenderPresentIndexed(
+   const void *pixels,
+   int pitch,
+   int w,
+   int h,
+   const void *palette_rgba,
+   int region_x,
+   int region_y,
+   int region_w,
+   int region_h);
+void PalEngineBridge_NotifyPaletteChanged(void);
+static BOOL pal_video_palette_dirty = TRUE;
 #else
 static uint8_t pal_sram_video_screen[320u * 200u] PAL_VIDEO_SRAM;
 static uint8_t pal_psram_video_screen_bak[320u * 200u] PAL_VIDEO_PSRAM;
@@ -220,6 +231,7 @@ VIDEO_Startup(
    }
    SDL_SetSurfacePalette(gpScreen, gpPalette);
    SDL_SetSurfacePalette(gpScreenBak, gpPalette);
+   pal_video_palette_dirty = TRUE;
    return 0;
 #else
 #if SDL_VERSION_ATLEAST(2,0,0)
@@ -593,14 +605,34 @@ VIDEO_UpdateScreen(
 --*/
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   (void)lpRect;
+   int region_x = -1;
+   int region_y = -1;
+   int region_w = -1;
+   int region_h = -1;
+
    if (!g_bRenderPaused && gpScreen != NULL && gpPalette != NULL)
    {
+      if (!pal_video_palette_dirty && lpRect != NULL &&
+         lpRect->x >= 0 && lpRect->y >= 0 && lpRect->w > 0 &&
+         lpRect->h > 0 && lpRect->x < gpScreen->w &&
+         lpRect->y < gpScreen->h && lpRect->w <= gpScreen->w - lpRect->x &&
+         lpRect->h <= gpScreen->h - lpRect->y)
+      {
+         region_x = lpRect->x;
+         region_y = lpRect->y;
+         region_w = lpRect->w;
+         region_h = lpRect->h;
+      }
       PalEngineBridge_RenderPresentIndexed(gpScreen->pixels,
          gpScreen->pitch,
          gpScreen->w,
          gpScreen->h,
-         gpPalette->colors);
+         gpPalette->colors,
+         region_x,
+         region_y,
+         region_w,
+         region_h);
+      pal_video_palette_dirty = FALSE;
 #if PAL_DETERMINISTIC
       /*
        * The target presents directly from the indexed screen.  Let the
@@ -746,9 +778,7 @@ VIDEO_SetPalette(
 --*/
 {
 #if defined(PAL_EXTREME_TWO_SCREENS)
-   SDL_SetPaletteColors(gpPalette, rgPalette, 0, 256);
-   SDL_SetSurfacePalette(gpScreen, gpPalette);
-   SDL_SetSurfacePalette(gpScreenBak, gpPalette);
+   VIDEO_SetPaletteDeferred(rgPalette);
    VIDEO_UpdateScreen(NULL);
 #else
 #if SDL_VERSION_ATLEAST(2,0,0)
@@ -783,11 +813,39 @@ VIDEO_SetPalette(
       static UINT32 time = 0;
       if (SDL_GetTicks() - time > 50)
       {
-	      SDL_UpdateRect(gpScreenReal, 0, 0, gpScreenReal->w, gpScreenReal->h);
-	      time = SDL_GetTicks();
+         SDL_UpdateRect(gpScreenReal, 0, 0, gpScreenReal->w, gpScreenReal->h);
+         time = SDL_GetTicks();
       }
    }
 # endif
+#endif
+#endif
+}
+
+VOID
+VIDEO_SetPaletteDeferred(
+   SDL_Color        rgPalette[256]
+)
+{
+#if defined(PAL_EXTREME_TWO_SCREENS)
+   SDL_SetPaletteColors(gpPalette, rgPalette, 0, 256);
+   SDL_SetSurfacePalette(gpScreen, gpPalette);
+   SDL_SetSurfacePalette(gpScreenBak, gpPalette);
+   pal_video_palette_dirty = TRUE;
+   PalEngineBridge_NotifyPaletteChanged();
+#else
+#if SDL_VERSION_ATLEAST(2,0,0)
+   SDL_SetPaletteColors(gpPalette, rgPalette, 0, 256);
+   SDL_SetSurfacePalette(gpScreen, gpPalette);
+   SDL_SetSurfacePalette(gpScreenBak, gpPalette);
+   SDL_SetSurfaceColorMod(gpScreen, 0, 0, 0);
+   SDL_SetSurfaceColorMod(gpScreen, 0xFF, 0xFF, 0xFF);
+   SDL_SetSurfaceColorMod(gpScreenBak, 0, 0, 0);
+   SDL_SetSurfaceColorMod(gpScreenBak, 0xFF, 0xFF, 0xFF);
+#else
+   SDL_SetPalette(gpScreen, SDL_LOGPAL | SDL_PHYSPAL, rgPalette, 0, 256);
+   SDL_SetPalette(gpScreenBak, SDL_LOGPAL | SDL_PHYSPAL, rgPalette, 0, 256);
+   SDL_SetPalette(gpScreenReal, SDL_LOGPAL | SDL_PHYSPAL, rgPalette, 0, 256);
 #endif
 #endif
 }

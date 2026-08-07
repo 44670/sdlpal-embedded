@@ -7,7 +7,7 @@ resource file. Mutable saves use the Slot-1 backup chip and are not part of the
 read-only ROM image.
 
 The port now builds and reaches real gameplay with native video, keys,
-RIX/OPL2 music, NitroFS resource streaming, and Slot-1 save code. `make -C nds
+RIX music on the DS sound channels, NitroFS resource streaming, and Slot-1 save code. `make -C nds
 check` is the authoritative build, ROM-content, and 4MB main-memory gate. Full
 acceptance is still open: it requires the DeSmuME harness described below,
 repeatable natural gameplay captures, save/reload coverage, and final DS/DS
@@ -81,17 +81,40 @@ Slot-1 image:
 python3 -B nds/make_slot1_save.py /path/to/1.rpg /path/to/sdlpal.sav
 ```
 
-The ROM header identifies the image as `SDLPAL`, maker `00`, with ndstool's
-`####` homebrew game code. The NTR header has no field for a Slot-1 backup-chip
-type or capacity: its device-capacity byte describes ROM capacity, while the
-DSi public/private save-size fields are for DSiWare and remain zero. Select
-`FLASH 8Mbit` explicitly in an emulator; for DeSmuME CLI this is
-`--save-type 7`.
+The shipped image is deliberately classic NTR-only: the build passes
+`ndstool -h 0x200`, so optional Calico TWL program headers are not copied into
+the ROM. The checker requires unit code `0x00`, a `0x200` header, and zero DSi
+extension fields. The ROM header identifies the image as `SDLPAL`, maker `00`,
+with ndstool's `####` homebrew game code. The NTR header has no field for a
+Slot-1 backup-chip type or capacity: its device-capacity byte describes ROM
+capacity. Select `FLASH 8Mbit` explicitly in an emulator; for DeSmuME CLI this
+is `--save-type 7`.
 
 A physical cartridge or flashcart must actually expose compatible writable
 Slot-1 backup storage. Running the `.nds` from a flashcart filesystem through
 DLDI may still be useful as a compatibility test, but it is not evidence for
 the direct Slot-1, no-external-resource contract.
+
+## RIX music on DS sound hardware
+
+ARM9 decodes the RIX command stream at 70Hz but no longer synthesizes a
+22.05kHz OPL2 PCM stream. OPL register state drives nine fixed PCM8 wave loops;
+rhythm mode reuses channels 6--8 for three fixed percussion loops. Calico's
+standard ARM7 sound service owns the actual DS mixer updates. The build gate
+also rejects the retired software-OPL state and PCM ring.
+
+This is a bounded hardware approximation rather than bit-identical OPL2.
+Pitch, key edges, operator multiplier/waveform, total level, rhythm triggers,
+looping, volume, and track fades are retained; detailed OPL envelopes are
+simplified. Final tone and speaker volume require a physical DS/DS Lite pass.
+
+The reusable host profiler reports the actual RIX workload:
+
+```sh
+make -C embedded nds-rix-profile
+embedded/build/pal_nds_rix_profile esp32s3/TF_datapak/pal_full.pak
+embedded/build/pal_nds_rix_profile esp32s3/TF_datapak/pal_full.pak --track 1
+```
 
 ## Primary emulator: DeSmuME SDL CLI
 
@@ -101,10 +124,9 @@ runs one `NDS_exec()` step on the emulator thread, and presents the two native
 GPU buffers through two SDL textures. This is the primary emulator and the
 only host frontend to extend for automated NDS acceptance.
 
-The audited checkout already has a Meson `desmume-cli` target, but it does not
-currently contain a WebSocket server or a true headless mode. It always
-creates an X11/SDL window, so window focus injection and desktop screenshots
-are not a repeatable control surface. The required host packages on Debian are:
+The audited checkout has a Meson `desmume-cli` target plus the loopback-only
+WebSocket/headless harness used by this repository. The required host packages
+on Debian are:
 
 ```sh
 sudo apt install meson ninja-build libglib2.0-dev libsdl2-dev \
@@ -146,10 +168,20 @@ window focus or a window manager so CI does not depend on `xdotool`, wall-clock
 sleeps, or guessed frame numbers. SDL remains the frontend's event, timing,
 and audio integration layer.
 
-The repository-side Python driver will launch an isolated DeSmuME config/save
-directory, speak this protocol, retain emulator logs, and write captures under
-`tmp_ui/nds/`. Existing captures made through a different emulator path are
-historical bring-up artifacts and are not final DeSmuME acceptance evidence.
+The repository-side driver launches an isolated DeSmuME config/save directory,
+uses exact emulated-frame actions, retains a bounded log, and writes captures
+under `tmp_ui/nds/`:
+
+```sh
+python3 -B tools/nds_desmume_ws.py nds/sdlpal.nds \
+  --session tmp_ui/nds/smoke \
+  --action run:600 --action status --action capture:title.png
+```
+
+`--audio-capture title.raw` selects SDL's disk audio backend and reports the
+captured and nonzero byte counts. Its raw format is 44.1kHz stereo signed
+PCM16. Existing captures made through a different emulator path remain
+historical bring-up artifacts, not final DeSmuME acceptance evidence.
 
 ## Acceptance boundary
 

@@ -12,6 +12,16 @@ static bool pal_engine_logged_bad_present;
 static uint32_t pal_engine_present_count;
 static int64_t pal_engine_present_max_us;
 
+#if defined(PAL_EXTREME_TWO_SCREENS)
+void
+PalEngineBridge_NotifyPaletteChanged(
+   void
+)
+{
+   PalTarget_NotifyPaletteChanged();
+}
+#endif
+
 void
 PalEngineBridge_RenderPresent(
    const void *pixels,
@@ -72,7 +82,11 @@ PalEngineBridge_RenderPresentIndexed(
    int pitch,
    int w,
    int h,
-   const void *palette_rgba
+   const void *palette_rgba,
+   int region_x,
+   int region_y,
+   int region_w,
+   int region_h
 )
 {
    int64_t start_us;
@@ -103,11 +117,31 @@ PalEngineBridge_RenderPresentIndexed(
    }
 
    start_us = esp_timer_get_time();
-   if (!PalTarget_FlushIndexedFramebuffer((const uint8_t *)pixels,
-      (uint16_t)pitch,
-      (const uint8_t *)palette_rgba))
+   if (region_x < 0 || region_y < 0 || region_w <= 0 || region_h <= 0)
    {
-      ESP_LOGE(TAG, "native indexed LCD present failed: w=%d h=%d pitch=%d", w, h, pitch);
+      if (!PalTarget_FlushIndexedFramebuffer((const uint8_t *)pixels,
+         (uint16_t)pitch,
+         (const uint8_t *)palette_rgba))
+      {
+         ESP_LOGE(TAG,
+            "native indexed LCD present failed: w=%d h=%d pitch=%d",
+            w, h, pitch);
+         return;
+      }
+   }
+   else if (!PalTarget_FlushIndexedFramebufferRegion(
+      (const uint8_t *)pixels,
+      (uint16_t)pitch,
+      (const uint8_t *)palette_rgba,
+      (uint16_t)region_x,
+      (uint16_t)region_y,
+      (uint16_t)region_w,
+      (uint16_t)region_h))
+   {
+      ESP_LOGE(TAG,
+         "native indexed LCD region present failed: frame=%dx%d "
+         "region=%d,%d %dx%d",
+         w, h, region_x, region_y, region_w, region_h);
       return;
    }
    flush_us = esp_timer_get_time() - start_us;

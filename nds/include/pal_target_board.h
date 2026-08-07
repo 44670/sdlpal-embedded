@@ -25,14 +25,7 @@ bool NdsTarget_FlushIndexedFramebuffer(
    uint16_t pitch,
    const uint8_t *palette_rgba);
 
-typedef void (*NdsTargetAudioRender)(
-   void *user,
-   int16_t *samples,
-   size_t sample_count);
-
-bool NdsTarget_AudioStart(NdsTargetAudioRender render, void *user);
 void NdsTarget_AudioPump(void);
-void NdsTarget_AudioStop(void);
 
 #define PalTarget_Begin NdsTarget_Begin
 #define PalTarget_ShowError NdsTarget_ShowError

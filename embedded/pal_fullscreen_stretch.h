@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /*
  * Full-canvas indexed materials fill the destination.  X and Y are sampled
@@ -121,6 +122,59 @@ PalFullScreenStretch_DestinationRange(
    return true;
 }
 
+typedef struct PalFullScreenStretchAxis
+{
+   uint32_t coordinate;
+   uint32_t step;
+   uint64_t error;
+   uint64_t denominator;
+   uint64_t remainder;
+} PalFullScreenStretchAxis;
+
+/*
+ * Initialize the pixel-centre sequence without dividing for every output
+ * coordinate.  If S = qD + r, the first sample is floor(S / (2D)) = q / 2;
+ * subsequent samples add q and carry 2r across the 2D denominator.
+ */
+static inline bool
+PalFullScreenStretch_AxisInit(
+   uint32_t source_extent,
+   uint32_t destination_extent,
+   PalFullScreenStretchAxis *axis
+)
+{
+   uint32_t step;
+   uint32_t remainder;
+
+   if (axis == NULL || source_extent == 0u || destination_extent == 0u)
+   {
+      return false;
+   }
+   step = source_extent / destination_extent;
+   remainder = source_extent - step * destination_extent;
+   axis->coordinate = step / 2u;
+   axis->step = step;
+   axis->denominator = (uint64_t)destination_extent * 2u;
+   axis->error = (uint64_t)source_extent -
+      (uint64_t)axis->coordinate * axis->denominator;
+   axis->remainder = (uint64_t)remainder * 2u;
+   return true;
+}
+
+static inline void
+PalFullScreenStretch_AxisAdvance(
+   PalFullScreenStretchAxis *axis
+)
+{
+   axis->coordinate += axis->step;
+   axis->error += axis->remainder;
+   if (axis->error >= axis->denominator)
+   {
+      axis->error -= axis->denominator;
+      axis->coordinate++;
+   }
+}
+
 static inline bool
 PalFullScreenStretch_BlitIndexedRow(
    const uint8_t *source,
@@ -129,6 +183,7 @@ PalFullScreenStretch_BlitIndexedRow(
    uint32_t       destination_width
 )
 {
+   PalFullScreenStretchAxis axis;
    uint32_t x;
 
    if (source == NULL || destination == NULL || source_width == 0u ||
@@ -136,16 +191,23 @@ PalFullScreenStretch_BlitIndexedRow(
    {
       return false;
    }
+   if (source_width == destination_width)
+   {
+      memmove(destination, source, source_width);
+      return true;
+   }
+   if (!PalFullScreenStretch_AxisInit(source_width, destination_width, &axis))
+   {
+      return false;
+   }
    for (x = 0u; x < destination_width; x++)
    {
-      uint32_t source_x = 0u;
-
-      if (!PalFullScreenStretch_SourceCoordinate(x, destination_width,
-         source_width, &source_x))
+      if (axis.coordinate >= source_width)
       {
          return false;
       }
-      destination[x] = source[source_x];
+      destination[x] = source[axis.coordinate];
+      PalFullScreenStretch_AxisAdvance(&axis);
    }
    return true;
 }
@@ -162,6 +224,8 @@ PalFullScreenStretch_BlitIndexed(
    size_t         destination_pitch
 )
 {
+   PalFullScreenStretchAxis x_axis;
+   PalFullScreenStretchAxis y_axis;
    uint32_t y;
 
    if (source == NULL || destination == NULL || source_width == 0u ||
@@ -171,20 +235,43 @@ PalFullScreenStretch_BlitIndexed(
    {
       return false;
    }
+   if (source_width == destination_width && source_height == destination_height)
+   {
+      for (y = 0u; y < destination_height; y++)
+      {
+         memmove(destination + (size_t)y * destination_pitch,
+            source + (size_t)y * source_pitch, source_width);
+      }
+      return true;
+   }
+   if (!PalFullScreenStretch_AxisInit(source_width, destination_width,
+         &x_axis) ||
+      !PalFullScreenStretch_AxisInit(source_height, destination_height,
+         &y_axis))
+   {
+      return false;
+   }
    for (y = 0u; y < destination_height; y++)
    {
-      uint32_t source_y = 0u;
+      uint32_t x;
+      PalFullScreenStretchAxis row_axis = x_axis;
 
-      if (!PalFullScreenStretch_SourceCoordinate(y, destination_height,
-         source_height, &source_y) ||
-         !PalFullScreenStretch_BlitIndexedRow(
-            source + (size_t)source_y * source_pitch,
-            source_width,
-            destination + (size_t)y * destination_pitch,
-            destination_width))
+      if (y_axis.coordinate >= source_height)
       {
          return false;
       }
+      for (x = 0u; x < destination_width; x++)
+      {
+         if (row_axis.coordinate >= source_width)
+         {
+            return false;
+         }
+         destination[(size_t)y * destination_pitch + x] =
+            source[(size_t)y_axis.coordinate * source_pitch +
+               row_axis.coordinate];
+         PalFullScreenStretch_AxisAdvance(&row_axis);
+      }
+      PalFullScreenStretch_AxisAdvance(&y_axis);
    }
    return true;
 }

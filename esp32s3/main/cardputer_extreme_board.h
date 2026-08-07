@@ -92,6 +92,14 @@ bool CardputerExtreme_FlushIndexedFramebuffer(
     const uint8_t *pixels,
     uint16_t pitch,
     const uint8_t *palette_rgba);
+bool CardputerExtreme_FlushIndexedFramebufferRegion(
+    const uint8_t *pixels,
+    uint16_t pitch,
+    const uint8_t *palette_rgba,
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height);
 bool CardputerExtreme_FlushArgb8888Texture(
     const void *pixels,
     uint16_t width,

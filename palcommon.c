@@ -591,6 +591,7 @@ PAL_RLEBlitToSurfaceFullCanvas(
    UINT source_y = 0u;
    UINT source_x = 0u;
    UINT remaining;
+   PalFullScreenStretchAxis x_axis;
    INT canvas_x = PAL_X(pos);
    INT canvas_y = PAL_Y(pos);
    INT destination_x;
@@ -629,20 +630,25 @@ PAL_RLEBlitToSurfaceFullCanvas(
       return 0;
    }
 
+   if (!PalFullScreenStretch_AxisInit(320u,
+         (uint32_t)lpDstSurface->w, &x_axis))
+   {
+      return -1;
+   }
+
    for (destination_x = 0;
       destination_x < lpDstSurface->w; destination_x++)
    {
-      uint32_t canvas_source_x = 0u;
       INT local_x;
 
-      if (!PalFullScreenStretch_SourceCoordinate((uint32_t)destination_x,
-            (uint32_t)lpDstSurface->w, 320u, &canvas_source_x))
+      if (x_axis.coordinate >= 320u)
       {
          return -1;
       }
-      local_x = (INT)canvas_source_x - canvas_x;
+      local_x = (INT)x_axis.coordinate - canvas_x;
       mapped_x[destination_x] =
          local_x >= 0 && (UINT)local_x < width ? (int16_t)local_x : -1;
+      PalFullScreenStretch_AxisAdvance(&x_axis);
    }
 
    memset(opaque, 0, sizeof(opaque));
@@ -1195,6 +1201,7 @@ PAL_FBPBlitSourceToSurface(
 )
 {
    int y;
+   PalFullScreenStretchAxis y_axis;
    uint32_t last_source_y = UINT32_MAX;
    LPCBYTE source_row = NULL;
 
@@ -1204,14 +1211,18 @@ PAL_FBPBlitSourceToSurface(
    {
       return -1;
    }
+   if (!PalFullScreenStretch_AxisInit(200u,
+         (uint32_t)lpDstSurface->h, &y_axis))
+   {
+      return -1;
+   }
    for (y = 0; y < lpDstSurface->h; y++)
    {
-      uint32_t source_y = 0u;
+      uint32_t source_y = y_axis.coordinate;
       LPBYTE destination =
          (LPBYTE)lpDstSurface->pixels + y * lpDstSurface->pitch;
 
-      if (!PalFullScreenStretch_SourceCoordinate((uint32_t)y,
-            (uint32_t)lpDstSurface->h, 200u, &source_y))
+      if (source_y >= 200u)
       {
          return -1;
       }
@@ -1229,6 +1240,7 @@ PAL_FBPBlitSourceToSurface(
       {
          return -1;
       }
+      PalFullScreenStretch_AxisAdvance(&y_axis);
    }
    return 0;
 }

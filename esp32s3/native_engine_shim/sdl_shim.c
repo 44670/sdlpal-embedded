@@ -667,13 +667,184 @@ void SDL_UnlockSurface(SDL_Surface *surface)
     (void)surface;
 }
 
+/*
+ * Copy an unscaled indexed surface without going through the generic pixel
+ * accessors.  SDL_BlitSurface is used for screen backup/restore on the
+ * embedded targets, so this path must also handle clipped rectangles and the
+ * (rare) case where source and destination overlap.
+ */
+static int blit_indexed_1to1(const SDL_Surface *src, const SDL_Rect *s,
+                             SDL_Surface *dst, const SDL_Rect *d)
+{
+    int64_t x_first;
+    int64_t x_after;
+    int64_t y_first;
+    int64_t y_after;
+    int y;
+    int y_step = 1;
+    int may_overlap = 0;
+
+    if (src == NULL || dst == NULL || s == NULL || d == NULL ||
+        src->format == NULL || dst->format == NULL ||
+        src->format->BytesPerPixel != 1 ||
+        dst->format->BytesPerPixel != 1 ||
+        src->pixels == NULL || dst->pixels == NULL ||
+        src->pitch < src->w || dst->pitch < dst->w ||
+        s->w != d->w || s->h != d->h || s->w <= 0 || s->h <= 0) {
+        return 0;
+    }
+
+    x_first = 0;
+    x_after = d->w;
+    if (-((int64_t)d->x) > x_first) {
+        x_first = -((int64_t)d->x);
+    }
+    if (-((int64_t)s->x) > x_first) {
+        x_first = -((int64_t)s->x);
+    }
+    if ((int64_t)dst->w - d->x < x_after) {
+        x_after = (int64_t)dst->w - d->x;
+    }
+    if ((int64_t)src->w - s->x < x_after) {
+        x_after = (int64_t)src->w - s->x;
+    }
+
+    y_first = 0;
+    y_after = d->h;
+    if (-((int64_t)d->y) > y_first) {
+        y_first = -((int64_t)d->y);
+    }
+    if (-((int64_t)s->y) > y_first) {
+        y_first = -((int64_t)s->y);
+    }
+    if ((int64_t)dst->h - d->y < y_after) {
+        y_after = (int64_t)dst->h - d->y;
+    }
+    if ((int64_t)src->h - s->y < y_after) {
+        y_after = (int64_t)src->h - s->y;
+    }
+
+    if (x_first >= x_after || y_first >= y_after) {
+        return 1;
+    }
+
+    if (src->pitch > 0 && dst->pitch > 0 && src->h > 0 && dst->h > 0) {
+        uintptr_t src_begin = (uintptr_t)src->pixels;
+        uintptr_t dst_begin = (uintptr_t)dst->pixels;
+        size_t src_span;
+        size_t dst_span;
+
+#if defined(__GNUC__)
+        if (__builtin_mul_overflow((size_t)src->h, (size_t)src->pitch,
+                &src_span) ||
+            __builtin_mul_overflow((size_t)dst->h, (size_t)dst->pitch,
+                &dst_span)) {
+            may_overlap = 1;
+        } else {
+            uintptr_t src_after = src_begin + src_span;
+            uintptr_t dst_after = dst_begin + dst_span;
+
+            if (src_after < src_begin || dst_after < dst_begin ||
+                (src_begin < dst_after && dst_begin < src_after)) {
+                may_overlap = 1;
+            }
+        }
+#else
+        may_overlap = 1;
+#endif
+    } else {
+        may_overlap = 1;
+    }
+
+    if (may_overlap) {
+        const Uint8 *src_first = (const Uint8 *)src->pixels +
+            (size_t)(s->y + (int)y_first) * (size_t)src->pitch +
+            (size_t)(s->x + (int)x_first);
+        const Uint8 *dst_first = (const Uint8 *)dst->pixels +
+            (size_t)(d->y + (int)y_first) * (size_t)dst->pitch +
+            (size_t)(d->x + (int)x_first);
+
+        /* Copy bottom-up when the destination starts below the source. */
+        if ((uintptr_t)dst_first > (uintptr_t)src_first) {
+            y_step = -1;
+        }
+    }
+
+    y = y_step > 0 ? (int)y_first : (int)y_after - 1;
+    for (;;) {
+        int sx = s->x + (int)x_first;
+        int dx = d->x + (int)x_first;
+        int sy = s->y + y;
+        int dy = d->y + y;
+        const Uint8 *source = (const Uint8 *)src->pixels +
+            (size_t)sy * (size_t)src->pitch + (size_t)sx;
+        Uint8 *destination = (Uint8 *)dst->pixels +
+            (size_t)dy * (size_t)dst->pitch + (size_t)dx;
+        size_t row_bytes = (size_t)(x_after - x_first);
+
+        if (may_overlap) {
+            memmove(destination, source, row_bytes);
+        } else {
+            memcpy(destination, source, row_bytes);
+        }
+
+        if (y_step > 0) {
+            y++;
+            if ((int64_t)y >= y_after) {
+                break;
+            }
+        } else {
+            y--;
+            if ((int64_t)y < y_first) {
+                break;
+            }
+        }
+    }
+    return 1;
+}
+
+static void fill_surface_row(Uint8 *destination, size_t pixels,
+                             Uint8 bytes_per_pixel, Uint32 color)
+{
+    size_t x;
+
+    if (bytes_per_pixel == 1) {
+        memset(destination, (Uint8)color, pixels);
+        return;
+    }
+    for (x = 0; x < pixels; x++) {
+        Uint8 *pixel = destination + x * bytes_per_pixel;
+
+        pixel[0] = (Uint8)color;
+        pixel[1] = (Uint8)(color >> 8);
+        if (bytes_per_pixel >= 4) {
+            pixel[2] = (Uint8)(color >> 16);
+            pixel[3] = (Uint8)(color >> 24);
+        }
+    }
+}
+
+static int advance_blit_coordinate(int coordinate, int step,
+                                   int remainder, int denominator,
+                                   uint32_t *error)
+{
+    coordinate += step;
+    if (remainder != 0) {
+        *error += (uint32_t)remainder;
+        if (*error >= (uint32_t)denominator) {
+            *error -= (uint32_t)denominator;
+            coordinate++;
+        }
+    }
+    return coordinate;
+}
+
 int SDL_FillRect(SDL_Surface *surface, const SDL_Rect *rect, Uint32 color)
 {
     int x0;
     int y0;
     int x1;
     int y1;
-    int x;
     int y;
     if (surface == NULL) {
         return -1;
@@ -694,9 +865,32 @@ int SDL_FillRect(SDL_Surface *surface, const SDL_Rect *rect, Uint32 color)
     if (y1 > surface->h) {
         y1 = surface->h;
     }
-    for (y = y0; y < y1; y++) {
-        for (x = x0; x < x1; x++) {
-            write_pixel(surface, x, y, color);
+
+    if (x0 >= x1 || y0 >= y1) {
+        return 0;
+    }
+
+    if (surface->pixels != NULL && surface->format != NULL &&
+        (surface->format->BytesPerPixel == 1 ||
+         surface->format->BytesPerPixel == 2 ||
+         surface->format->BytesPerPixel == 4) &&
+        surface->pitch >= surface->w) {
+        for (y = y0; y < y1; y++) {
+            Uint8 *destination = (Uint8 *)surface->pixels +
+                (size_t)y * (size_t)surface->pitch +
+                (size_t)x0 * surface->format->BytesPerPixel;
+            fill_surface_row(destination, (size_t)(x1 - x0),
+                surface->format->BytesPerPixel, color);
+        }
+        return 0;
+    }
+
+    {
+        int x;
+        for (y = y0; y < y1; y++) {
+            for (x = x0; x < x1; x++) {
+                write_pixel(surface, x, y, color);
+            }
         }
     }
     return 0;
@@ -706,8 +900,13 @@ int SDL_UpperBlit(SDL_Surface *src, const SDL_Rect *srcrect, SDL_Surface *dst, S
 {
     SDL_Rect s;
     SDL_Rect d;
-    int x;
     int y;
+    int x_step;
+    int x_remainder;
+    int y_step;
+    int y_remainder;
+    uint32_t y_error = 0;
+    int y_offset = 0;
     if (src == NULL || dst == NULL) {
         return -1;
     }
@@ -722,22 +921,42 @@ int SDL_UpperBlit(SDL_Surface *src, const SDL_Rect *srcrect, SDL_Surface *dst, S
     if (s.w <= 0 || s.h <= 0 || d.w <= 0 || d.h <= 0) {
         return 0;
     }
+
+    if (blit_indexed_1to1(src, &s, dst, &d)) {
+        return 0;
+    }
+
+    /* One division per axis initializes an exact nearest-neighbour walk. */
+    x_step = s.w / d.w;
+    x_remainder = s.w - x_step * d.w;
+    y_step = s.h / d.h;
+    y_remainder = s.h - y_step * d.h;
+
     for (y = 0; y < d.h; y++) {
-        int dy = d.y + y;
-        int sy = s.y + (int)((int64_t)y * s.h / d.h);
-        if (dy < 0 || dy >= dst->h || sy < 0 || sy >= src->h) {
-            continue;
-        }
-        for (x = 0; x < d.w; x++) {
-            int dx = d.x + x;
-            int sx = s.x + (int)((int64_t)x * s.w / d.w);
-            Uint32 value;
-            if (dx < 0 || dx >= dst->w || sx < 0 || sx >= src->w) {
-                continue;
+        int64_t dy = (int64_t)d.y + y;
+        int64_t sy = (int64_t)s.y + y_offset;
+
+        if (dy >= 0 && dy < dst->h && sy >= 0 && sy < src->h) {
+            int x;
+            int x_offset = 0;
+            uint32_t x_error = 0;
+
+            for (x = 0; x < d.w; x++) {
+                int64_t dx = (int64_t)d.x + x;
+                int64_t sx = (int64_t)s.x + x_offset;
+
+                if (dx >= 0 && dx < dst->w &&
+                    sx >= 0 && sx < src->w) {
+                    Uint32 value = read_pixel(src, (int)sx, (int)sy);
+                    write_pixel(dst, (int)dx, (int)dy,
+                        convert_pixel(src, dst, value));
+                }
+                x_offset = advance_blit_coordinate(x_offset, x_step,
+                    x_remainder, d.w, &x_error);
             }
-            value = read_pixel(src, sx, sy);
-            write_pixel(dst, dx, dy, convert_pixel(src, dst, value));
         }
+        y_offset = advance_blit_coordinate(y_offset, y_step,
+            y_remainder, d.h, &y_error);
     }
     return 0;
 }

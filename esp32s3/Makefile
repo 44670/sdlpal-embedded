@@ -104,6 +104,7 @@ CARDPUTER_EXTREME_SOURCE_INVENTORY ?= $(abspath cardputer_extreme_sources.json)
 CARDPUTER_EXTREME_MUSIC_SOURCE_INVENTORY ?= $(abspath cardputer_extreme_music_sources.json)
 NATIVE_ENGINE_SHIM_BUILD_DIR ?= native_engine_shim/build
 NATIVE_ENGINE_SHIM_LIB ?= $(NATIVE_ENGINE_SHIM_BUILD_DIR)/libsdlshim.a
+NATIVE_ENGINE_SHIM_TEST_TARGET ?= $(NATIVE_BUILD_DIR)/sdl_shim_test
 NATIVE_ENGINE_SHIM_SDL_CONFIG = $(PYTHON) ../esp32s3/native_engine_shim/sdl2_config.py
 NATIVE_ENGINE_BRIDGE_ROUTE ?= ../tools/deterministic_routes/newgame_walk.route
 NATIVE_ENGINE_BRIDGE_FRAMES ?= 3000
@@ -499,6 +500,10 @@ endif
 
 .PHONY: all build scaffold-build engine-port-check engine-host-build engine-host-check tf-datapack xiaomiao-build xiaomiao-tf xiaomiao-pack-check xiaomiao-guru-screen-check xiaomiao-native-smoke xiaomiao-check xiaomiao-prepare-tf unified-prepare-tf xiaomiao-flash xiaomiao-flash-app cardputer-adv-music-build cardputer-adv-music-check cardputer-adv-music-tf cardputer-adv-music-prepare-tf cardputer-adv-music-flash-app cardputer-adv-music-provision cardputer-extreme-build cardputer-extreme-music-build cardputer-extreme-chapter-cache-build cardputer-extreme-chapter-cache-check cardputer-extreme-chapter-cache-flash cardputer-extreme-chapter-pack-build cardputer-extreme-chapter-pack-check cardputer-extreme-chapter-prepare-tf cardputer-extreme-pack-build cardputer-extreme-music-pack-build cardputer-extreme-music-pack-check cardputer-extreme-pack-smoke cardputer-extreme-native-view-check cardputer-extreme-fullscreen-stretch-check cardputer-extreme-rng-decoder-check cardputer-extreme-chapter-cache-logic-check cardputer-extreme-event-pager-check cardputer-extreme-music-state-check cardputer-extreme-contract-unit-check cardputer-extreme-native-smoke cardputer-extreme-draw-stress-check cardputer-extreme-save-check cardputer-extreme-music-save-check cardputer-extreme-check cardputer-extreme-music-check cardputer-extreme-prepare-tf cardputer-extreme-music-prepare-tf cardputer-extreme-flash cardputer-extreme-music-flash cardputer-extreme-music-flash-all cardputer-extreme-flash-nor cardputer-extreme-music-flash-nor pack-build prepare-tf check native-smoke native-engine-smoke native-engine-bridge-smoke native-engine-host-smoke native-engine-host-parity-check native-engine-host-save-parity-check native-pack-provider-cache-smoke native-pack-provider-overlay-smoke native-pack-provider-sd-only-open-smoke engine-bridge-idf-compile engine-bridge-idf-link native-engine-parity-check native-engine-shim-parity-check native-engine-bridge-parity-check flash-app flash-scaffold flash-engine-host flash-engine-port engine-hardware-smoke flash-nor clean
 .PHONY: native-pack-provider-chapter-open-smoke
+.PHONY: native-engine-shim-test
+
+native-engine-shim-test: $(NATIVE_ENGINE_SHIM_TEST_TARGET)
+	"$(NATIVE_ENGINE_SHIM_TEST_TARGET)"
 
 all: build
 
@@ -1116,6 +1121,13 @@ $(NATIVE_ENGINE_SHIM_LIB): native_engine_shim/sdl_shim.c native_engine_shim/incl
 	mkdir -p "$(dir $(NATIVE_ENGINE_SHIM_LIB))"
 	$(CC) -std=c99 -Wall -Wextra -O2 -I native_engine_shim/include -c native_engine_shim/sdl_shim.c -o "$(dir $(NATIVE_ENGINE_SHIM_LIB))/sdl_shim.o"
 	$(AR) rcs "$(NATIVE_ENGINE_SHIM_LIB)" "$(dir $(NATIVE_ENGINE_SHIM_LIB))/sdl_shim.o"
+
+$(NATIVE_ENGINE_SHIM_TEST_TARGET): native_shim/sdl_shim_test.c native_engine_shim/sdl_shim.c native_engine_shim/include/SDL.h Makefile
+	mkdir -p "$(dir $(NATIVE_ENGINE_SHIM_TEST_TARGET))"
+	$(CC) -std=c99 -Wall -Wextra -Werror -O2 \
+		-I native_engine_shim/include \
+		native_engine_shim/sdl_shim.c native_shim/sdl_shim_test.c \
+		-o "$@"
 
 $(NATIVE_ENGINE_BRIDGE_TARGET): $(NATIVE_ENGINE_BRIDGE_SRCS) engine_bridge/include/pal_config.h $(NATIVE_ENGINE_SHIM_LIB) Makefile
 	mkdir -p "$(NATIVE_BUILD_DIR)"

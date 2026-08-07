@@ -13,6 +13,9 @@ bool CardputerExtreme_NativeViewValidate(
     uint16_t width,
     uint16_t height);
 
+/* Mark the indexed-to-RGB565 table dirty after SDL palette mutation. */
+void CardputerExtreme_NativeViewInvalidatePalette(void);
+
 /* Convert an already-native indexed framebuffer to one RGB565 DMA strip. */
 bool CardputerExtreme_CopyIndexedNativeStrip(
     const uint8_t *pixels,
@@ -21,6 +24,19 @@ bool CardputerExtreme_CopyIndexedNativeStrip(
     uint16_t width,
     uint16_t height,
     uint16_t destination_y,
+    uint16_t rows,
+    uint8_t *rgb565_be,
+    size_t rgb565_pitch_bytes,
+    size_t rgb565_capacity);
+bool CardputerExtreme_CopyIndexedNativeRegion(
+    const uint8_t *pixels,
+    uint16_t pitch,
+    const uint8_t *palette_rgba,
+    uint16_t screen_width,
+    uint16_t screen_height,
+    uint16_t source_x,
+    uint16_t destination_y,
+    uint16_t width,
     uint16_t rows,
     uint8_t *rgb565_be,
     size_t rgb565_pitch_bytes,

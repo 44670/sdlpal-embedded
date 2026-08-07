@@ -1,5 +1,9 @@
 #include "cardputer_extreme_native_view.h"
 
+static uint8_t native_palette_rgb565_be[256u * 2u];
+static const uint8_t *native_palette_source;
+static bool native_palette_valid;
+
 static void store_rgb565_be(
     uint8_t *destination,
     uint8_t r,
@@ -14,6 +18,28 @@ static void store_rgb565_be(
     destination[1] = (uint8_t)color;
 }
 
+void CardputerExtreme_NativeViewInvalidatePalette(void)
+{
+    native_palette_valid = false;
+    native_palette_source = NULL;
+}
+
+static void prepare_native_palette(const uint8_t *palette_rgba)
+{
+    uint16_t index;
+
+    if (native_palette_valid && native_palette_source == palette_rgba) {
+        return;
+    }
+    for (index = 0u; index < 256u; index++) {
+        const uint8_t *color = palette_rgba + (size_t)index * 4u;
+        store_rgb565_be(native_palette_rgb565_be + (size_t)index * 2u,
+            color[0], color[1], color[2]);
+    }
+    native_palette_source = palette_rgba;
+    native_palette_valid = true;
+}
+
 bool CardputerExtreme_NativeViewValidate(
     uint16_t width,
     uint16_t height)
@@ -21,13 +47,15 @@ bool CardputerExtreme_NativeViewValidate(
     return width != 0u && height != 0u;
 }
 
-bool CardputerExtreme_CopyIndexedNativeStrip(
+bool CardputerExtreme_CopyIndexedNativeRegion(
     const uint8_t *pixels,
     uint16_t pitch,
     const uint8_t *palette_rgba,
-    uint16_t width,
-    uint16_t height,
+    uint16_t screen_width,
+    uint16_t screen_height,
+    uint16_t source_x,
     uint16_t destination_y,
+    uint16_t width,
     uint16_t rows,
     uint8_t *rgb565_be,
     size_t rgb565_pitch_bytes,
@@ -38,8 +66,10 @@ bool CardputerExtreme_CopyIndexedNativeStrip(
     uint16_t row;
 
     if (pixels == NULL || palette_rgba == NULL || rgb565_be == NULL ||
-        width == 0u || height == 0u || pitch < width || rows == 0u ||
-        destination_y >= height || rows > height - destination_y ||
+        screen_width == 0u || screen_height == 0u || width == 0u ||
+        rows == 0u || pitch < screen_width || source_x >= screen_width ||
+        width > screen_width - source_x || destination_y >= screen_height ||
+        rows > screen_height - destination_y ||
         rgb565_pitch_bytes < row_bytes) {
         return false;
     }
@@ -55,6 +85,8 @@ bool CardputerExtreme_CopyIndexedNativeStrip(
         return false;
     }
 
+    prepare_native_palette(palette_rgba);
+
     for (row = 0; row < rows; row++) {
         const uint8_t *source = pixels +
             (size_t)(destination_y + row) * pitch;
@@ -65,12 +97,29 @@ bool CardputerExtreme_CopyIndexedNativeStrip(
         for (destination_x = 0;
              destination_x < width;
              destination_x++) {
-            const uint8_t *color = palette_rgba +
-                (size_t)source[destination_x] * 4u;
-            store_rgb565_be(
-                destination + (size_t)destination_x * 2u,
-                color[0], color[1], color[2]);
+            const uint8_t *color = native_palette_rgb565_be +
+                (size_t)source[source_x + destination_x] * 2u;
+            uint8_t *pixel = destination + (size_t)destination_x * 2u;
+            pixel[0] = color[0];
+            pixel[1] = color[1];
         }
     }
     return true;
+}
+
+bool CardputerExtreme_CopyIndexedNativeStrip(
+    const uint8_t *pixels,
+    uint16_t pitch,
+    const uint8_t *palette_rgba,
+    uint16_t width,
+    uint16_t height,
+    uint16_t destination_y,
+    uint16_t rows,
+    uint8_t *rgb565_be,
+    size_t rgb565_pitch_bytes,
+    size_t rgb565_capacity)
+{
+    return CardputerExtreme_CopyIndexedNativeRegion(
+        pixels, pitch, palette_rgba, width, height, 0u, destination_y,
+        width, rows, rgb565_be, rgb565_pitch_bytes, rgb565_capacity);
 }

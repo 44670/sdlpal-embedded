@@ -125,11 +125,15 @@ CardputerExtreme_PollKey(
    return false;
 }
 
-bool
-CardputerExtreme_FlushIndexedFramebuffer(
+static bool
+native_flush_indexed_region(
    const uint8_t *pixels,
    uint16_t pitch,
-   const uint8_t *palette_rgba
+   const uint8_t *palette_rgba,
+   uint16_t x,
+   uint16_t y,
+   uint16_t region_width,
+   uint16_t region_height
 )
 {
    const uint16_t width = PalNativeHost_LogicalWidth();
@@ -138,23 +142,25 @@ CardputerExtreme_FlushIndexedFramebuffer(
 
    if (pixels == NULL || palette_rgba == NULL ||
       width == 0u || height == 0u || width > CARDPUTER_EXTREME_LCD_WIDTH ||
-      height > CARDPUTER_EXTREME_LCD_HEIGHT || pitch < width)
+      height > CARDPUTER_EXTREME_LCD_HEIGHT || pitch < width ||
+      region_width == 0u || region_height == 0u || x >= width || y >= height ||
+      region_width > width - x || region_height > height - y)
    {
       return false;
    }
-   for (destination_y = 0;
-      destination_y < height;
+   for (destination_y = y;
+      destination_y < (uint16_t)(y + region_height);
       destination_y++)
    {
       uint16_t destination_x;
-      for (destination_x = 0;
-         destination_x < width;
+      for (destination_x = x;
+         destination_x < (uint16_t)(x + region_width);
          destination_x++)
       {
          const uint8_t *color;
          uint8_t *destination;
-         color = palette_rgba +
-            (size_t)pixels[(size_t)destination_y * pitch + destination_x] * 4u;
+         color = palette_rgba + (size_t)pixels[
+            (size_t)destination_y * pitch + destination_x] * 4u;
          destination = pal_native_cardputer_argb +
             ((size_t)destination_y * width +
              destination_x) * 4u;
@@ -169,6 +175,33 @@ CardputerExtreme_FlushIndexedFramebuffer(
       width,
       height,
       width * 4u);
+}
+
+bool
+CardputerExtreme_FlushIndexedFramebuffer(
+   const uint8_t *pixels,
+   uint16_t pitch,
+   const uint8_t *palette_rgba
+)
+{
+   return native_flush_indexed_region(
+      pixels, pitch, palette_rgba, 0u, 0u,
+      PalNativeHost_LogicalWidth(), PalNativeHost_LogicalHeight());
+}
+
+bool
+CardputerExtreme_FlushIndexedFramebufferRegion(
+   const uint8_t *pixels,
+   uint16_t pitch,
+   const uint8_t *palette_rgba,
+   uint16_t x,
+   uint16_t y,
+   uint16_t width,
+   uint16_t height
+)
+{
+   return native_flush_indexed_region(
+      pixels, pitch, palette_rgba, x, y, width, height);
 }
 
 void
@@ -238,6 +271,21 @@ Xiaomiao_FlushIndexedFramebuffer(
 {
    return CardputerExtreme_FlushIndexedFramebuffer(
       pixels, pitch, palette_rgba);
+}
+
+bool
+Xiaomiao_FlushIndexedFramebufferRegion(
+   const uint8_t *pixels,
+   uint16_t pitch,
+   const uint8_t *palette_rgba,
+   uint16_t x,
+   uint16_t y,
+   uint16_t width,
+   uint16_t height
+)
+{
+   return CardputerExtreme_FlushIndexedFramebufferRegion(
+      pixels, pitch, palette_rgba, x, y, width, height);
 }
 
 void

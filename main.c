@@ -401,7 +401,7 @@ PAL_SplashScreenNative(
                (BYTE)(palette[i].b * ((float)elapsed / 15000));
          }
       }
-      VIDEO_SetPalette(current_palette);
+      VIDEO_SetPaletteDeferred(current_palette);
 
       if (image_pos > 1)
       {

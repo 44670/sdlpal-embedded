@@ -23,7 +23,11 @@ PalEngineBridge_RenderPresentIndexed(
    int pitch,
    int w,
    int h,
-   const void *palette_rgba)
+   const void *palette_rgba,
+   int region_x,
+   int region_y,
+   int region_w,
+   int region_h)
 {
    if (pixels == NULL || palette_rgba == NULL || pitch != w ||
       w != (int)PAL_TARGET_LCD_WIDTH ||
@@ -35,4 +39,16 @@ PalEngineBridge_RenderPresentIndexed(
       (const uint8_t *)pixels,
       (uint16_t)pitch,
       (const uint8_t *)palette_rgba);
+   (void)region_x;
+   (void)region_y;
+   (void)region_w;
+   (void)region_h;
+}
+
+void
+PalEngineBridge_NotifyPaletteChanged(
+   void
+)
+{
+   /* The NDS path consumes the palette during its next indexed flush. */
 }

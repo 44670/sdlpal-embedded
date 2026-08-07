@@ -101,5 +101,40 @@ int main(void)
             sizeof(expected_wire_rgb565)) != 0) {
         return fail("RGB565 framebuffer is not MSB-first RGB wire order");
     }
+
+    memset(output, 0, sizeof(output));
+    pixels[0] = 2u;
+    pixels[1] = 0u;
+    pixels[2] = 1u;
+    pixels[3] = 2u;
+    if (!CardputerExtreme_CopyIndexedNativeRegion(
+            pixels, PAL_NATIVE_VIEW_TEST_WIDTH,
+            channel_palette,
+            PAL_NATIVE_VIEW_TEST_WIDTH, PAL_NATIVE_VIEW_TEST_HEIGHT,
+            1u, 0u, 3u, 1u, output, 3u * 2u, sizeof(output))) {
+        return fail("native region conversion failed");
+    }
+    if (memcmp(output, expected_wire_rgb565, sizeof(expected_wire_rgb565)) != 0) {
+        return fail("native region conversion used the wrong source offset");
+    }
+
+    palette[0] = 0xffu;
+    palette[1] = 0xffu;
+    palette[2] = 0xffu;
+    CardputerExtreme_NativeViewInvalidatePalette();
+    memset(output, 0, sizeof(output));
+    pixels[0] = 0u;
+    if (!CardputerExtreme_CopyIndexedNativeStrip(
+            pixels, PAL_NATIVE_VIEW_TEST_WIDTH,
+            palette,
+            PAL_NATIVE_VIEW_TEST_WIDTH, PAL_NATIVE_VIEW_TEST_HEIGHT,
+            0u, 1u, output,
+            PAL_NATIVE_VIEW_TEST_WIDTH * 2u,
+            sizeof(output))) {
+        return fail("palette invalidation conversion failed");
+    }
+    if (output[0] != 0xffu || output[1] != 0xffu) {
+        return fail("palette invalidation did not rebuild the LUT");
+    }
     return 0;
 }

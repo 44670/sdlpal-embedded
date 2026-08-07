@@ -209,17 +209,27 @@ lcd_set_window(
 }
 
 static bool
+lcd_send_region(
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t rows)
+{
+    if (!lcd_set_window(x, y, width, rows) ||
+        !log_error(esp_lcd_panel_io_tx_color(
+            lcd_io, LCD_CMD_RAMWR, pal_sram_display_dma,
+            (uint32_t)width * rows * 2u), "LCD strip")) {
+        return false;
+    }
+    return lcd_tx(-1, NULL, 0u, "wait LCD idle");
+}
+
+static bool
 lcd_send_strip(
     uint16_t y,
     uint16_t rows)
 {
-    if (!lcd_set_window(0u, y, XIAOMIAO_LCD_WIDTH, rows) ||
-        !log_error(esp_lcd_panel_io_tx_color(
-            lcd_io, LCD_CMD_RAMWR, pal_sram_display_dma,
-            (uint32_t)XIAOMIAO_LCD_WIDTH * rows * 2u), "LCD strip")) {
-        return false;
-    }
-    return lcd_tx(-1, NULL, 0u, "wait LCD idle");
+    return lcd_send_region(0u, y, XIAOMIAO_LCD_WIDTH, rows);
 }
 
 static bool
@@ -518,39 +528,75 @@ Xiaomiao_PollKey(
     return true;
 }
 
+static bool
+flush_indexed_framebuffer_region(
+    const uint8_t *pixels,
+    uint16_t pitch,
+    const uint8_t *palette_rgba,
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height)
+{
+    uint16_t max_rows;
+    size_t row_bytes;
+    uint16_t row;
+
+    if (lcd_io == NULL || pixels == NULL || palette_rgba == NULL ||
+        pitch < XIAOMIAO_LCD_WIDTH || width == 0u || height == 0u ||
+        x >= XIAOMIAO_LCD_WIDTH || y >= XIAOMIAO_LCD_HEIGHT ||
+        width > XIAOMIAO_LCD_WIDTH - x ||
+        height > XIAOMIAO_LCD_HEIGHT - y) {
+        return false;
+    }
+    max_rows = (uint16_t)(PAL_EXTREME_DISPLAY_DMA_BYTES / (width * 2u));
+    row_bytes = (size_t)width * 2u;
+    if (max_rows == 0u) {
+        return false;
+    }
+    for (row = y; row < (uint16_t)(y + height);) {
+        uint16_t rows = (uint16_t)(y + height - row);
+
+        if (rows > max_rows) {
+            rows = max_rows;
+        }
+        if (!CardputerExtreme_CopyIndexedNativeRegion(
+                pixels, pitch, palette_rgba,
+                XIAOMIAO_LCD_WIDTH, XIAOMIAO_LCD_HEIGHT,
+                x, row, width, rows,
+                pal_sram_display_dma, row_bytes,
+                PAL_EXTREME_DISPLAY_DMA_BYTES) ||
+            !lcd_send_region(x, row, width, rows)) {
+            return false;
+        }
+        row = (uint16_t)(row + rows);
+    }
+    return true;
+}
+
 bool
 Xiaomiao_FlushIndexedFramebuffer(
     const uint8_t *pixels,
     uint16_t pitch,
     const uint8_t *palette_rgba)
 {
-    const uint16_t max_rows = (uint16_t)(
-        PAL_EXTREME_DISPLAY_DMA_BYTES / (XIAOMIAO_LCD_WIDTH * 2u));
-    const size_t row_bytes = (size_t)XIAOMIAO_LCD_WIDTH * 2u;
-    uint16_t y;
+    return flush_indexed_framebuffer_region(
+        pixels, pitch, palette_rgba, 0u, 0u,
+        XIAOMIAO_LCD_WIDTH, XIAOMIAO_LCD_HEIGHT);
+}
 
-    if (lcd_io == NULL || pixels == NULL || palette_rgba == NULL ||
-        pitch < XIAOMIAO_LCD_WIDTH || max_rows == 0u) {
-        return false;
-    }
-    for (y = 0u; y < XIAOMIAO_LCD_HEIGHT;) {
-        uint16_t rows = (uint16_t)(XIAOMIAO_LCD_HEIGHT - y);
-
-        if (rows > max_rows) {
-            rows = max_rows;
-        }
-        if (!CardputerExtreme_CopyIndexedNativeStrip(
-                pixels, pitch, palette_rgba,
-                XIAOMIAO_LCD_WIDTH, XIAOMIAO_LCD_HEIGHT,
-                y, rows,
-                pal_sram_display_dma, row_bytes,
-                PAL_EXTREME_DISPLAY_DMA_BYTES) ||
-            !lcd_send_strip(y, rows)) {
-            return false;
-        }
-        y = (uint16_t)(y + rows);
-    }
-    return true;
+bool
+Xiaomiao_FlushIndexedFramebufferRegion(
+    const uint8_t *pixels,
+    uint16_t pitch,
+    const uint8_t *palette_rgba,
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height)
+{
+    return flush_indexed_framebuffer_region(
+        pixels, pitch, palette_rgba, x, y, width, height);
 }
 
 void

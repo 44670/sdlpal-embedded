@@ -40,6 +40,7 @@ RIX_MAME_OPL2_DECODER_OBJ := $(BUILD_DIR)/pal_rix_decoder.o
 RIX_MAME_OPL2_PACK_OBJ := $(BUILD_DIR)/pal_rix_pack.o
 RIX_MAME_OPL2_CACHE_OBJ := $(BUILD_DIR)/pal_rix_music_cache.o
 RIX_MAME_OPL2_NOHEAP_OBJ := $(BUILD_DIR)/pal_rix_noheap.o
+NDS_RIX_PROFILE := $(BUILD_DIR)/pal_nds_rix_profile
 RIX_EXPECTED_TRACKS ?= 86
 FONT10_SMOKE := $(BUILD_DIR)/pal_font10_cache_smoke
 NATIVE_UI_SMOKE := $(BUILD_DIR)/pal_native_ui_smoke
@@ -48,7 +49,7 @@ NATIVE_UI_FLASH_MAX ?= 8192
 NATIVE_UI_SRAM_MAX ?= 16
 FULLSCREEN_STRETCH_SMOKE := $(BUILD_DIR)/pal_fullscreen_stretch_smoke
 
-.PHONY: all clean check pack-build font10-pack-build font10-check realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check native-ui-check fullscreen-stretch-check
+.PHONY: all clean check pack-build font10-pack-build font10-check realdata-check artifact-check contract-check sanitize-check mame-opl2-static-check rix-mame-opl2-check nds-rix-profile native-ui-check fullscreen-stretch-check
 
 all: $(SMOKE) $(MEMORY_SMOKE) $(NATIVE_SDL_SMOKE) $(REALDATA_SDL_SMOKE) $(PACK_CHECK) $(NATIVE_UI_SMOKE) $(FULLSCREEN_STRETCH_SMOKE)
 
@@ -119,6 +120,11 @@ $(RIX_MAME_OPL2_NOHEAP_OBJ): pal_noheap.c | $(BUILD_DIR)
 
 $(RIX_MAME_OPL2_SMOKE): pal_rix_mame_opl2_smoke.cpp $(MAME_OPL2_STATIC_OBJ) $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(RIX_MAME_OPL2_PACK_OBJ) $(RIX_MAME_OPL2_CACHE_OBJ) $(RIX_MAME_OPL2_NOHEAP_OBJ) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -Wno-ignored-qualifiers -Wno-unused-parameter -Wno-unused-function -DPAL_NO_RUNTIME_HEAP=1 -DUSE_RIX_EXTRA_INIT=0 -DUSE_SDL3=0 -I../unix -I../sdl_compat -I.. pal_rix_mame_opl2_smoke.cpp $(MAME_OPL2_STATIC_OBJ) $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(RIX_MAME_OPL2_PACK_OBJ) $(RIX_MAME_OPL2_CACHE_OBJ) $(RIX_MAME_OPL2_NOHEAP_OBJ) -o $@ $(LDFLAGS) $(NOHEAP_LDFLAGS) $(SDL_LIBS)
+
+$(NDS_RIX_PROFILE): ../tools/pal_nds_rix_profile.cpp $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(RIX_MAME_OPL2_PACK_OBJ) $(RIX_MAME_OPL2_CACHE_OBJ) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(SDL_CFLAGS) -Wno-ignored-qualifiers -Wno-unused-parameter -Wno-unused-function -DPAL_NO_RUNTIME_HEAP=1 -DUSE_RIX_EXTRA_INIT=0 -DUSE_SDL3=0 -I../unix -I../sdl_compat -I.. $< $(RIX_MAME_OPL2_PLAYER_OBJ) $(RIX_MAME_OPL2_DECODER_OBJ) $(RIX_MAME_OPL2_PACK_OBJ) $(RIX_MAME_OPL2_CACHE_OBJ) -o $@ $(LDFLAGS) $(SDL_LIBS)
+
+nds-rix-profile: $(NDS_RIX_PROFILE)
 
 rix-mame-opl2-check: $(RIX_MAME_OPL2_SMOKE)
 	$(RIX_MAME_OPL2_SMOKE) $(PACK_NOR) $(RIX_EXPECTED_TRACKS)

@@ -80,6 +80,12 @@ VIDEO_SetPalette(
    SDL_Color        rgPalette[256]
 );
 
+/* Update the palette without forcing an immediate LCD present. */
+VOID
+VIDEO_SetPaletteDeferred(
+   SDL_Color        rgPalette[256]
+);
+
 VOID
 VIDEO_Resize(
    INT             w,

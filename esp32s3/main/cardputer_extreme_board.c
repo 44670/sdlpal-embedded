@@ -1013,39 +1013,51 @@ CardputerExtreme_PhysicalKeyMask(void)
     return physical_key_mask;
 }
 
-bool
-CardputerExtreme_FlushIndexedFramebuffer(
+static bool
+flush_indexed_framebuffer_region(
     const uint8_t *pixels,
     uint16_t pitch,
-    const uint8_t *palette_rgba)
+    const uint8_t *palette_rgba,
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height)
 {
-    const uint16_t max_rows =
-        (uint16_t)(PAL_EXTREME_DISPLAY_DMA_BYTES /
-                   (CARDPUTER_EXTREME_LCD_WIDTH * 2u));
-    const size_t lcd_pitch =
-        (size_t)CARDPUTER_EXTREME_LCD_WIDTH * 2u;
-    uint16_t y;
+    uint16_t max_rows;
+    size_t lcd_pitch;
+    uint16_t row;
 
     if (lcd_io == NULL || pixels == NULL || palette_rgba == NULL ||
         CARDPUTER_EXTREME_LCD_WIDTH * CARDPUTER_EXTREME_LCD_HEIGHT !=
             PAL_EXTREME_SCREEN_BYTES ||
-        pitch < CARDPUTER_EXTREME_LCD_WIDTH || max_rows == 0) {
+        pitch < CARDPUTER_EXTREME_LCD_WIDTH || width == 0u ||
+        height == 0u || x >= CARDPUTER_EXTREME_LCD_WIDTH ||
+        y >= CARDPUTER_EXTREME_LCD_HEIGHT ||
+        width > CARDPUTER_EXTREME_LCD_WIDTH - x ||
+        height > CARDPUTER_EXTREME_LCD_HEIGHT - y) {
+        return false;
+    }
+    max_rows = (uint16_t)(PAL_EXTREME_DISPLAY_DMA_BYTES / (width * 2u));
+    lcd_pitch = (size_t)width * 2u;
+    if (max_rows == 0u) {
         return false;
     }
 
-    for (y = 0; y < CARDPUTER_EXTREME_LCD_HEIGHT;) {
-        uint16_t rows = (uint16_t)(CARDPUTER_EXTREME_LCD_HEIGHT - y);
+    for (row = y; row < (uint16_t)(y + height);) {
+        uint16_t rows = (uint16_t)(y + height - row);
 
         if (rows > max_rows) {
             rows = max_rows;
         }
-        if (!CardputerExtreme_CopyIndexedNativeStrip(
+        if (!CardputerExtreme_CopyIndexedNativeRegion(
                 pixels,
                 pitch,
                 palette_rgba,
                 CARDPUTER_EXTREME_LCD_WIDTH,
                 CARDPUTER_EXTREME_LCD_HEIGHT,
-                y,
+                x,
+                row,
+                width,
                 rows,
                 pal_sram_display_dma,
                 lcd_pitch,
@@ -1053,13 +1065,38 @@ CardputerExtreme_FlushIndexedFramebuffer(
             return false;
         }
 
-        if (!lcd_send_strip(y, rows)) {
+        if (!lcd_send_region(x, row, width, rows)) {
             return false;
         }
-        y = (uint16_t)(y + rows);
+        row = (uint16_t)(row + rows);
     }
 
     return true;
+}
+
+bool
+CardputerExtreme_FlushIndexedFramebuffer(
+    const uint8_t *pixels,
+    uint16_t pitch,
+    const uint8_t *palette_rgba)
+{
+    return flush_indexed_framebuffer_region(
+        pixels, pitch, palette_rgba, 0u, 0u,
+        CARDPUTER_EXTREME_LCD_WIDTH, CARDPUTER_EXTREME_LCD_HEIGHT);
+}
+
+bool
+CardputerExtreme_FlushIndexedFramebufferRegion(
+    const uint8_t *pixels,
+    uint16_t pitch,
+    const uint8_t *palette_rgba,
+    uint16_t x,
+    uint16_t y,
+    uint16_t width,
+    uint16_t height)
+{
+    return flush_indexed_framebuffer_region(
+        pixels, pitch, palette_rgba, x, y, width, height);
 }
 
 bool

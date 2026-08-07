@@ -4,6 +4,7 @@
 #if defined(PAL_TARGET_XIAOMIAO)
 
 #include "xiaomiao_board.h"
+#include "cardputer_extreme_native_view.h"
 
 #define PAL_TARGET_LCD_WIDTH XIAOMIAO_LCD_WIDTH
 #define PAL_TARGET_LCD_HEIGHT XIAOMIAO_LCD_HEIGHT
@@ -13,11 +14,14 @@
 #define PalTarget_ShowError Xiaomiao_ShowError
 #define PalTarget_PollKey Xiaomiao_PollKey
 #define PalTarget_FlushIndexedFramebuffer Xiaomiao_FlushIndexedFramebuffer
+#define PalTarget_FlushIndexedFramebufferRegion Xiaomiao_FlushIndexedFramebufferRegion
+#define PalTarget_NotifyPaletteChanged CardputerExtreme_NativeViewInvalidatePalette
 #define PalTarget_GuruMeditation Xiaomiao_GuruMeditation
 
 #elif defined(PAL_TARGET_CARDPUTER_ADV)
 
 #include "cardputer_extreme_board.h"
+#include "cardputer_extreme_native_view.h"
 
 #define PAL_TARGET_LCD_WIDTH CARDPUTER_EXTREME_LCD_WIDTH
 #define PAL_TARGET_LCD_HEIGHT CARDPUTER_EXTREME_LCD_HEIGHT
@@ -27,6 +31,8 @@
 #define PalTarget_ShowError CardputerExtreme_ShowError
 #define PalTarget_PollKey CardputerExtreme_PollKey
 #define PalTarget_FlushIndexedFramebuffer CardputerExtreme_FlushIndexedFramebuffer
+#define PalTarget_FlushIndexedFramebufferRegion CardputerExtreme_FlushIndexedFramebufferRegion
+#define PalTarget_NotifyPaletteChanged CardputerExtreme_NativeViewInvalidatePalette
 
 #else
 

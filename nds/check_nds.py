@@ -29,10 +29,17 @@ EXPECTED_OWNERS = {
     "pal_mem_level2_tf_toc": 40 * 1024,
     "pal_mem_level2_transient_chunk": 64 * 1024,
     "pal_nds_track": 10108,
+    "pal_nds_voice_waves": 9 * 256,
+    "pal_nds_rhythm_waves": 3 * 256,
+    "pal_nds_sine": 256 * 2,
+    "pal_nds_base_timers": 1024 * 4,
+    "pal_nds_tl_volume": 64,
 }
 EXPECTED_GAME_TITLE = b"SDLPAL\0\0\0\0\0\0"
 EXPECTED_GAME_CODE = b"####"
 EXPECTED_MAKER_CODE = b"00"
+EXPECTED_UNIT_CODE = 0x00
+EXPECTED_HEADER_SIZE = 0x200
 
 
 def run(*args: str) -> str:
@@ -120,12 +127,25 @@ def check_nds_header(path: Path) -> list[str]:
         )
     if header[0x10:0x12] != EXPECTED_MAKER_CODE:
         errors.append(f"NDS maker code is {header[0x10:0x12]!r}, expected 00")
-    public_save, private_save = struct.unpack_from("<II", header, 0x238)
-    if public_save != 0 or private_save != 0:
+    if header[0x12] != EXPECTED_UNIT_CODE:
         errors.append(
-            "DSiWare public/private save sizes must remain zero for the "
-            "Slot-1 NTR save backend"
+            f"NDS unit code is 0x{header[0x12]:02x}, expected classic NTR 0x00"
         )
+    header_size = struct.unpack_from("<I", header, 0x84)[0]
+    if header_size != EXPECTED_HEADER_SIZE:
+        errors.append(
+            f"NDS header size is 0x{header_size:x}, "
+            f"expected classic NTR 0x{EXPECTED_HEADER_SIZE:x}"
+        )
+    if any(header[0x180:0x200]):
+        errors.append("DSi/TWL extended header fields must be zero for NTR-only ROM")
+    if header_size > EXPECTED_HEADER_SIZE:
+        public_save, private_save = struct.unpack_from("<II", header, 0x238)
+        if public_save != 0 or private_save != 0:
+            errors.append(
+                "DSiWare public/private save sizes must remain zero for the "
+                "Slot-1 NTR save backend"
+            )
     return errors
 
 
@@ -214,6 +234,10 @@ def main() -> int:
             errors.append(
                 f"{name} is {actual[1]} bytes, expected {expected_size}"
             )
+
+    for retired in ("pal_nds_audio_ring", "pal_mame_opl2_state"):
+        if retired in symbols:
+            errors.append(f"retired ARM9 PCM/OPL owner is still linked: {retired}")
 
     heap = symbols.get("__heap_start_ntr")
     if heap is None:
