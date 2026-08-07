@@ -834,19 +834,9 @@ VIDEO_SetPaletteDeferred(
    pal_video_palette_dirty = TRUE;
    PalEngineBridge_NotifyPaletteChanged();
 #else
-#if SDL_VERSION_ATLEAST(2,0,0)
-   SDL_SetPaletteColors(gpPalette, rgPalette, 0, 256);
-   SDL_SetSurfacePalette(gpScreen, gpPalette);
-   SDL_SetSurfacePalette(gpScreenBak, gpPalette);
-   SDL_SetSurfaceColorMod(gpScreen, 0, 0, 0);
-   SDL_SetSurfaceColorMod(gpScreen, 0xFF, 0xFF, 0xFF);
-   SDL_SetSurfaceColorMod(gpScreenBak, 0, 0, 0);
-   SDL_SetSurfaceColorMod(gpScreenBak, 0xFF, 0xFF, 0xFF);
-#else
-   SDL_SetPalette(gpScreen, SDL_LOGPAL | SDL_PHYSPAL, rgPalette, 0, 256);
-   SDL_SetPalette(gpScreenBak, SDL_LOGPAL | SDL_PHYSPAL, rgPalette, 0, 256);
-   SDL_SetPalette(gpScreenReal, SDL_LOGPAL | SDL_PHYSPAL, rgPalette, 0, 256);
-#endif
+   /* Only the native LCD targets defer the present; fall back to the
+      immediate update elsewhere. */
+   VIDEO_SetPalette(rgPalette);
 #endif
 }
 

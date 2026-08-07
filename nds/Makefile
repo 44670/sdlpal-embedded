@@ -20,7 +20,6 @@ NDS_ROM_VERSION := 0
 # ELFs contain optional TWL program headers; ndstool only copies those sections
 # when the ROM header is larger than the legacy 0x200-byte NTR header.
 NDS_HEADER_SIZE := 0x200
-PAL_NDS_SILENT_DIAGNOSTIC ?= 0
 
 TARGET := sdlpal
 BUILD := build
@@ -58,7 +57,6 @@ PAL_DEFINES := \
    -DPAL_CONTRACT_NO_SFX=1 \
    -DPAL_ENGINE_BRIDGE_REQUIRE_TARGET_HOOKS=1 \
    -DPAL_TARGET_GURU_MEDITATION=1 \
-   -DPAL_NDS_SILENT_DIAGNOSTIC=$(PAL_NDS_SILENT_DIAGNOSTIC) \
    -DPAL_HAS_JOYSTICKS=0 \
    -DPAL_HAS_TOUCH=0 \
    -DPAL_HAS_MP3=0 \

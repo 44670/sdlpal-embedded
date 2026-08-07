@@ -671,7 +671,9 @@ void SDL_UnlockSurface(SDL_Surface *surface)
  * Copy an unscaled indexed surface without going through the generic pixel
  * accessors.  SDL_BlitSurface is used for screen backup/restore on the
  * embedded targets, so this path must also handle clipped rectangles and the
- * (rare) case where source and destination overlap.
+ * (rare) case where source and destination overlap.  Per-row memmove plus a
+ * row direction derived from the first-row addresses keeps self-blits
+ * correct without a separate overlap pre-check.
  */
 static int blit_indexed_1to1(const SDL_Surface *src, const SDL_Rect *s,
                              SDL_Surface *dst, const SDL_Rect *d)
@@ -682,7 +684,6 @@ static int blit_indexed_1to1(const SDL_Surface *src, const SDL_Rect *s,
     int64_t y_after;
     int y;
     int y_step = 1;
-    int may_overlap = 0;
 
     if (src == NULL || dst == NULL || s == NULL || d == NULL ||
         src->format == NULL || dst->format == NULL ||
@@ -728,35 +729,7 @@ static int blit_indexed_1to1(const SDL_Surface *src, const SDL_Rect *s,
         return 1;
     }
 
-    if (src->pitch > 0 && dst->pitch > 0 && src->h > 0 && dst->h > 0) {
-        uintptr_t src_begin = (uintptr_t)src->pixels;
-        uintptr_t dst_begin = (uintptr_t)dst->pixels;
-        size_t src_span;
-        size_t dst_span;
-
-#if defined(__GNUC__)
-        if (__builtin_mul_overflow((size_t)src->h, (size_t)src->pitch,
-                &src_span) ||
-            __builtin_mul_overflow((size_t)dst->h, (size_t)dst->pitch,
-                &dst_span)) {
-            may_overlap = 1;
-        } else {
-            uintptr_t src_after = src_begin + src_span;
-            uintptr_t dst_after = dst_begin + dst_span;
-
-            if (src_after < src_begin || dst_after < dst_begin ||
-                (src_begin < dst_after && dst_begin < src_after)) {
-                may_overlap = 1;
-            }
-        }
-#else
-        may_overlap = 1;
-#endif
-    } else {
-        may_overlap = 1;
-    }
-
-    if (may_overlap) {
+    {
         const Uint8 *src_first = (const Uint8 *)src->pixels +
             (size_t)(s->y + (int)y_first) * (size_t)src->pitch +
             (size_t)(s->x + (int)x_first);
@@ -765,7 +738,7 @@ static int blit_indexed_1to1(const SDL_Surface *src, const SDL_Rect *s,
             (size_t)(d->x + (int)x_first);
 
         /* Copy bottom-up when the destination starts below the source. */
-        if ((uintptr_t)dst_first > (uintptr_t)src_first) {
+        if (dst_first > src_first) {
             y_step = -1;
         }
     }
@@ -782,11 +755,7 @@ static int blit_indexed_1to1(const SDL_Surface *src, const SDL_Rect *s,
             (size_t)dy * (size_t)dst->pitch + (size_t)dx;
         size_t row_bytes = (size_t)(x_after - x_first);
 
-        if (may_overlap) {
-            memmove(destination, source, row_bytes);
-        } else {
-            memcpy(destination, source, row_bytes);
-        }
+        memmove(destination, source, row_bytes);
 
         if (y_step > 0) {
             y++;

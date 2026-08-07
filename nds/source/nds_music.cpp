@@ -133,6 +133,15 @@ music_half_fade_ticks(FLOAT seconds)
 static void
 hardware_build_tables()
 {
+   /* Constant tables: built once, the fixed .bss owners keep them afterwards. */
+   static bool built = false;
+
+   if (built)
+   {
+      return;
+   }
+   built = true;
+
    int32_t sine = 0;
    int32_t cosine = 32767;
    uint32_t amplitude = 127u << 16;
@@ -324,11 +333,6 @@ public:
 
    void commit_tick(unsigned mixer_volume)
    {
-#if PAL_NDS_SILENT_DIAGNOSTIC == 4
-      constexpr unsigned commit_channels = 1u;
-#else
-      constexpr unsigned commit_channels = kMelodicChannels;
-#endif
       if (mixer_volume > 127u)
       {
          mixer_volume = 127u;
@@ -338,7 +342,7 @@ public:
          soundSetMixerVolume(mixer_volume);
          last_mixer_volume = mixer_volume;
       }
-      for (unsigned channel = 0u; channel < commit_channels; channel++)
+      for (unsigned channel = 0u; channel < kMelodicChannels; channel++)
       {
          HardwareVoice &voice = voices[channel];
 
@@ -372,9 +376,7 @@ public:
          update_voice_volume(channel, voice);
          clear_pending(voice);
       }
-#if PAL_NDS_SILENT_DIAGNOSTIC != 4 && PAL_NDS_SILENT_DIAGNOSTIC != 5
       play_pending_drums();
-#endif
       soundSynchronize();
    }
 
@@ -968,10 +970,6 @@ music_mixer_volume()
 static void
 music_tick()
 {
-#if PAL_NDS_SILENT_DIAGNOSTIC == 1
-   pal_nds_opl.silence();
-   return;
-#endif
    if (!pal_nds_music.enabled || music_clamped_config_volume() == 0)
    {
       pal_nds_opl.silence();
@@ -983,11 +981,6 @@ music_tick()
       (void)music_start_pending();
    }
    (void)music_advance_decoder();
-#if PAL_NDS_SILENT_DIAGNOSTIC == 2
-   pal_nds_opl.silence();
-   (void)music_advance_fade();
-   return;
-#endif
    pal_nds_opl.commit_tick(music_mixer_volume());
    if (music_advance_fade())
    {
@@ -1138,12 +1131,6 @@ AUDIO_PlayMusic(
    BOOL loop,
    FLOAT fade_time)
 {
-#if PAL_NDS_SILENT_DIAGNOSTIC == 1
-   (void)track;
-   (void)loop;
-   (void)fade_time;
-   return;
-#endif
    if (!gAudioDevice.fOpened || track > INT16_MAX)
    {
       return;
