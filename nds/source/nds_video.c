@@ -17,7 +17,7 @@ PalEngineBridge_RenderPresent(
    (void)h;
 }
 
-void
+bool
 PalEngineBridge_RenderPresentIndexed(
    const void *pixels,
    int pitch,
@@ -33,16 +33,16 @@ PalEngineBridge_RenderPresentIndexed(
       w != (int)PAL_TARGET_LCD_WIDTH ||
       h != (int)PAL_TARGET_LCD_HEIGHT)
    {
-      return;
+      return false;
    }
-   (void)NdsTarget_FlushIndexedFramebuffer(
-      (const uint8_t *)pixels,
-      (uint16_t)pitch,
-      (const uint8_t *)palette_rgba);
    (void)region_x;
    (void)region_y;
    (void)region_w;
    (void)region_h;
+   return NdsTarget_FlushIndexedFramebuffer(
+      (const uint8_t *)pixels,
+      (uint16_t)pitch,
+      (const uint8_t *)palette_rgba);
 }
 
 void

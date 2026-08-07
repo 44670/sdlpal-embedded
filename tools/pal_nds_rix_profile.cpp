@@ -29,6 +29,7 @@ namespace
 constexpr uint32_t kRixTicksPerSecond = 70u;
 constexpr uint32_t kMaximumTrackTicks = kRixTicksPerSecond * 60u * 10u + 1u;
 
+/* Keep these OPL2 operator slot maps in sync with nds/source/nds_music.cpp. */
 constexpr uint8_t kModulatorSlot[9] = {
    0u, 1u, 2u, 8u, 9u, 10u, 16u, 17u, 18u,
 };

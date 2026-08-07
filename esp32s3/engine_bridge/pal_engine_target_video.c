@@ -76,7 +76,7 @@ PalEngineBridge_RenderPresent(
 }
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
-void
+bool
 PalEngineBridge_RenderPresentIndexed(
    const void *pixels,
    int pitch,
@@ -113,7 +113,7 @@ PalEngineBridge_RenderPresentIndexed(
             target_width, target_height);
          pal_engine_logged_bad_present = true;
       }
-      return;
+      return false;
    }
 
    start_us = esp_timer_get_time();
@@ -126,7 +126,7 @@ PalEngineBridge_RenderPresentIndexed(
          ESP_LOGE(TAG,
             "native indexed LCD present failed: w=%d h=%d pitch=%d",
             w, h, pitch);
-         return;
+         return false;
       }
    }
    else if (!PalTarget_FlushIndexedFramebufferRegion(
@@ -142,7 +142,7 @@ PalEngineBridge_RenderPresentIndexed(
          "native indexed LCD region present failed: frame=%dx%d "
          "region=%d,%d %dx%d",
          w, h, region_x, region_y, region_w, region_h);
-      return;
+      return false;
    }
    flush_us = esp_timer_get_time() - start_us;
    pal_engine_present_count++;
@@ -166,5 +166,6 @@ PalEngineBridge_RenderPresentIndexed(
          (long long)flush_us,
          (long long)pal_engine_present_max_us);
    }
+   return true;
 }
 #endif

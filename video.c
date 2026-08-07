@@ -64,7 +64,7 @@ volatile BOOL g_bRenderPaused = FALSE;
 
 #if defined(PAL_EXTREME_TWO_SCREENS)
 #include "pal_target_memory.h"
-void PalEngineBridge_RenderPresentIndexed(
+bool PalEngineBridge_RenderPresentIndexed(
    const void *pixels,
    int pitch,
    int w,
@@ -613,26 +613,34 @@ VIDEO_UpdateScreen(
    if (!g_bRenderPaused && gpScreen != NULL && gpPalette != NULL)
    {
       if (!pal_video_palette_dirty && lpRect != NULL &&
-         lpRect->x >= 0 && lpRect->y >= 0 && lpRect->w > 0 &&
-         lpRect->h > 0 && lpRect->x < gpScreen->w &&
-         lpRect->y < gpScreen->h && lpRect->w <= gpScreen->w - lpRect->x &&
-         lpRect->h <= gpScreen->h - lpRect->y)
+         lpRect->w > 0 && lpRect->h > 0)
       {
-         region_x = lpRect->x;
-         region_y = lpRect->y;
-         region_w = lpRect->w;
-         region_h = lpRect->h;
+         int x1 = lpRect->x + lpRect->w;
+         int y1 = lpRect->y + lpRect->h;
+
+         region_x = lpRect->x > 0 ? lpRect->x : 0;
+         region_y = lpRect->y > 0 ? lpRect->y : 0;
+         region_w = (x1 < gpScreen->w ? x1 : gpScreen->w) - region_x;
+         region_h = (y1 < gpScreen->h ? y1 : gpScreen->h) - region_y;
+         if (region_w <= 0 || region_h <= 0)
+         {
+            region_x = -1;
+            region_y = -1;
+         }
       }
-      PalEngineBridge_RenderPresentIndexed(gpScreen->pixels,
-         gpScreen->pitch,
-         gpScreen->w,
-         gpScreen->h,
-         gpPalette->colors,
-         region_x,
-         region_y,
-         region_w,
-         region_h);
-      pal_video_palette_dirty = FALSE;
+      if (PalEngineBridge_RenderPresentIndexed(gpScreen->pixels,
+            gpScreen->pitch,
+            gpScreen->w,
+            gpScreen->h,
+            gpPalette->colors,
+            region_x,
+            region_y,
+            region_w,
+            region_h))
+      {
+         /* Keep the palette dirty until a present actually landed. */
+         pal_video_palette_dirty = FALSE;
+      }
 #if PAL_DETERMINISTIC
       /*
        * The target presents directly from the indexed screen.  Let the

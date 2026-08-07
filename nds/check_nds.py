@@ -51,7 +51,9 @@ def run(*args: str) -> str:
 
 
 def parse_symbols(elf: Path, nm: str) -> dict[str, tuple[int, int, str]]:
-    output = run(nm, "-S", "--defined-only", str(elf))
+    # Demangle C++ names so retired-owner checks see e.g.
+    # PalMameOpl2Core::pal_mame_opl2_state instead of the mangled spelling.
+    output = run(nm, "-C", "-S", "--defined-only", str(elf))
     symbols: dict[str, tuple[int, int, str]] = {}
     pattern = re.compile(
         r"^([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([A-Za-z])\s+(\S+)$"
@@ -236,7 +238,9 @@ def main() -> int:
             )
 
     for retired in ("pal_nds_audio_ring", "pal_mame_opl2_state"):
-        if retired in symbols:
+        if any(
+            name == retired or name.endswith("::" + retired) for name in symbols
+        ):
             errors.append(f"retired ARM9 PCM/OPL owner is still linked: {retired}")
 
     heap = symbols.get("__heap_start_ntr")

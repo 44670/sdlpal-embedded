@@ -69,9 +69,11 @@ constexpr uint8_t kMultiplierTimesTwo[16] = {
 constexpr uint8_t kDrumRhythmVoice[kDrumChannels] = {
    0u, 1u, 2u, 2u, 1u,
 };
+/* Hand-tuned hit lengths in 70 Hz ticks (about 114/71/143/171/43 ms). */
 constexpr uint8_t kDrumDurations[kDrumChannels] = {
    8u, 5u, 10u, 12u, 3u,
 };
+/* Hand-tuned playback rates for the kick/noise/metallic loops. */
 constexpr uint16_t kRhythmSampleRates[kRhythmVoices] = {
    8192u, 16000u, 12000u,
 };
@@ -85,7 +87,6 @@ struct HardwareVoice
    bool key_off_pending;
    bool wave_dirty;
    bool pitch_dirty;
-   bool volume_dirty;
 };
 
 static bool pal_nds_sound_ready;
@@ -182,12 +183,14 @@ hardware_build_tables()
 static void
 hardware_build_rhythm_waves()
 {
+   /* 16-bit LFSR noise; seed and tap polynomial are hand-tuned values. */
    uint16_t noise = 0x5a3du;
 
    for (unsigned i = 0u; i < kWaveBytes; i++)
    {
       const int kick = pal_nds_sine[(i * 4u) & 0xffu];
       const unsigned kick_envelope = kWaveBytes - i;
+      /* Hand-tuned metallic timbre: two gated square partials. */
       const int metallic =
          ((i * 5u) & 0x20u ? 70 : -70) +
          ((i * 7u) & 0x40u ? 42 : -42);
@@ -197,6 +200,7 @@ hardware_build_rhythm_waves()
       pal_nds_rhythm_waves[0][i] = static_cast<int8_t>(
          kick * static_cast<int>(kick_envelope) /
          static_cast<int>(kWaveBytes));
+      /* Hand-tuned -2.5 dB noise attenuation. */
       pal_nds_rhythm_waves[1][i] = static_cast<int8_t>(
          static_cast<int8_t>(noise & 0xffu) * 3 / 4);
       pal_nds_rhythm_waves[2][i] = static_cast<int8_t>(metallic);
@@ -382,6 +386,12 @@ public:
 
    void silence()
    {
+      /* Never touch the mixer before soundInit() has run. */
+      if (!pal_nds_sound_ready)
+      {
+         last_mixer_volume = 0u;
+         return;
+      }
       if (last_mixer_volume != 0u)
       {
          soundSetMixerVolume(0u);
@@ -404,7 +414,6 @@ private:
       voice.key_off_pending = false;
       voice.wave_dirty = false;
       voice.pitch_dirty = false;
-      voice.volume_dirty = false;
    }
 
    void mark_operator_change(unsigned reg)
@@ -433,10 +442,6 @@ private:
             if (group == 0x20u || group == 0xe0u)
             {
                voice.wave_dirty = true;
-            }
-            if (group == 0x40u)
-            {
-               voice.volume_dirty = true;
             }
             return;
          }
@@ -563,7 +568,6 @@ private:
          voice.active = true;
          voice.wave_dirty = true;
          voice.pitch_dirty = true;
-         voice.volume_dirty = true;
          prepare_voice(channel, voice, false);
       }
       else if (voice.key_off_pending && !voice.held && voice.active)
