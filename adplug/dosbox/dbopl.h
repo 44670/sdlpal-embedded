@@ -30,7 +30,22 @@
 #define WAVE_TABLEMUL	12
 
 //Select the type of wave generator routine
+#ifndef DBOPL_WAVE
 #define DBOPL_WAVE WAVE_TABLEMUL
+#endif
+
+#ifndef PAL_DBOPL_HOT_CODE
+#define PAL_DBOPL_HOT_CODE
+#endif
+#ifndef PAL_DBOPL_RESTRICT
+#define PAL_DBOPL_RESTRICT
+#endif
+
+#if defined(PAL_DBOPL_OPL2_ONLY)
+#define DBOPL_CHANNEL_COUNT 9
+#else
+#define DBOPL_CHANNEL_COUNT 18
+#endif
 
 //namespace DBOPL {
 
@@ -42,7 +57,11 @@ struct Channel;
 typedef Bits ( DB_FASTCALL *WaveHandler) ( Bitu i, Bitu volume );
 #endif
 
+#if defined(PAL_DBOPL_SIMPLE_VOLUME_HANDLER)
+typedef Bits ( *VolumeHandler) ( /*DBOPL::*/Operator* );
+#else
 typedef Bits ( /*DBOPL::*/Operator::*VolumeHandler) ( );
+#endif
 typedef Channel* ( /*DBOPL::*/Channel::*SynthHandler) ( Chip* chip, Bit32u samples, Bit32s* output );
 
 //Different synth modes that can generate blocks of data
@@ -146,11 +165,15 @@ public:
 	void KeyOff( Bit8u mask);
 
 	template< State state>
-	Bits TemplateVolume( );
+	PAL_DBOPL_HOT_CODE Bits TemplateVolume( );
 
 	Bit32s RateForward( Bit32u add );
 	Bitu ForwardWave();
 	Bitu ForwardVolume();
+#if defined(PAL_DBOPL_PRECALCULATE_ENVELOPES)
+	bool ConstantVolume( Bit16u& output ) const;
+	PAL_DBOPL_HOT_CODE void RenderVolumes( Bit16u* PAL_DBOPL_RESTRICT output, Bitu samples );
+#endif
 
 	Bits GetSample( Bits modulation );
 	Bits GetWave( Bitu index, Bitu vol );
@@ -190,7 +213,7 @@ struct Channel {
 
 	//Generate blocks of data in specific modes
 	template<SynthMode mode>
-	Channel* BlockTemplate( Chip* chip, Bit32u samples, Bit32s* output );
+	PAL_DBOPL_HOT_CODE Channel* BlockTemplate( Chip* chip, Bit32u samples, Bit32s* PAL_DBOPL_RESTRICT output );
 	Channel();
 };
 
@@ -211,8 +234,8 @@ struct Chip {
 	//Best match attack rates for the rate of this chip
 	Bit32u attackRates[76];
 
-	//18 channels with 2 operators each
-	Channel chan[18];
+	//OPL2 has nine channels; the combined OPL2/OPL3 core has eighteen.
+	Channel chan[DBOPL_CHANNEL_COUNT];
 
 	Bit8u reg104;
 	Bit8u reg08;
@@ -239,8 +262,10 @@ struct Chip {
 
 	Bit32u WriteAddr( Bit32u port, Bit8u val );
 
-	void GenerateBlock2( Bitu samples, Bit32s* output );
-	void GenerateBlock3( Bitu samples, Bit32s* output );
+	PAL_DBOPL_HOT_CODE void GenerateBlock2( Bitu samples, Bit32s* PAL_DBOPL_RESTRICT output );
+#if !defined(PAL_DBOPL_OPL2_ONLY)
+	void GenerateBlock3( Bitu samples, Bit32s* PAL_DBOPL_RESTRICT output );
+#endif
 
 	//Update the synth handlers in all channels
 	void UpdateSynths();

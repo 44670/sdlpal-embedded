@@ -124,15 +124,12 @@ DMA/SPI、VBlank、palette 更新、未变化帧各占多少时间。按目标�
 
 位置：`nds/source/nds_music.cpp`、`nds/source/nds_board.c`。
 
-已移除 ARM9 的 22.05kHz OPL2 逐样本合成、315-sample tick buffer 和 4096
-sample ring。ARM9 现在只以 70Hz 解码 RIX 寄存器流，把音高、按键边沿、
-音色和音量映射到九个固定 PCM8 波表；节奏模式复用三个声道。实际声道提交
-由 Calico ARM7 音频服务完成。波表、正弦表、timer 表和当前曲目均为命名
-固定 owner。
-
-DeSmuME SDL disk-audio 验证已捕获到连续非零 PCM；音色属于硬件近似，仍需
-真机听感验收。不要再恢复逐样本 PCM ring，也不需要为此引入自定义 ARM7
-内核。
+修正 SDL disk-audio 的实时录音节奏后，硬件基本波形近似因音色失真被否决。
+现在由同优先级 Calico ARM9 线程直接运行 OPL2-only DBOPL：游戏线程只排队
+70Hz RIX 寄存器流，音频线程逐样本合成名义 32.768kHz PCM16。热代码和固定
+表位于 ITCM/DTCM，256-sample block 的实测最坏旋律路径仍低于 7.81ms 硬件
+期限。RIX rhythm 模式的六 operator 打击乐超出 67MHz 预算，因此在载入时
+整曲拒绝并保持静音；目标二进制不链接该打击乐路径。
 
 #### 7. 资源读取批量化
 

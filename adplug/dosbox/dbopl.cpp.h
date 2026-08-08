@@ -50,6 +50,14 @@
 #define OPLRATE		((double)(14318180.0 / 288.0))
 #define TREMOLO_TABLE 52
 
+#ifndef PAL_DBOPL_HOT_DATA
+#define PAL_DBOPL_HOT_DATA
+#endif
+
+#ifndef PAL_DBOPL_MUL_DATA
+#define PAL_DBOPL_MUL_DATA
+#endif
+
 //Try to use most precision for frequencies
 //Else try to keep different waves in synch
 //#define WAVE_PRECISION	1
@@ -132,12 +140,17 @@ static const Bit8u EnvelopeIncreaseTable[13] = {
 };
 
 #if ( DBOPL_WAVE == WAVE_HANDLER ) || ( DBOPL_WAVE == WAVE_TABLELOG )
-static Bit16u ExpTable[ 256 ];
+static Bit16u ExpTable[ 256 ] PAL_DBOPL_HOT_DATA;
 #endif
 
 #if ( DBOPL_WAVE == WAVE_HANDLER )
 //PI table used by WAVEHANDLER
-static Bit16u SinTable[ 512 ];
+static Bit16u SinTable[ 512 ] PAL_DBOPL_HOT_DATA;
+#endif
+
+#if defined(PAL_DBOPL_PRECALCULATE_ENVELOPES)
+static Bit16u EnvelopeBuffer[2][PAL_DBOPL_ENVELOPE_BUFFER_SAMPLES]
+	PAL_DBOPL_HOT_DATA;
 #endif
 
 #if ( DBOPL_WAVE > WAVE_HANDLER )
@@ -150,13 +163,24 @@ static Bit16u SinTable[ 512 ];
 
 //6 is just 0 shifted and masked
 
-static Bit16s WaveTable[ 8 * 512 ];
+#if defined(PAL_DBOPL_OPL2_ONLY) && DBOPL_WAVE == WAVE_TABLEMUL
+static Bit16s WaveTable[ 4 * 512 ] PAL_DBOPL_HOT_DATA;
+#else
+static Bit16s WaveTable[ 8 * 512 ] PAL_DBOPL_HOT_DATA;
+#endif
 //Distance into WaveTable the wave starts
+#if defined(PAL_DBOPL_OPL2_ONLY) && DBOPL_WAVE == WAVE_TABLEMUL
+static const Bit16u WaveBaseTable[8] = {
+	0x000, 0x200, 0x200, 0x600,
+	0x000, 0x000, 0x000, 0x000,
+};
+#else
 static const Bit16u WaveBaseTable[8] = {
 	0x000, 0x200, 0x200, 0x800,
 	0xa00, 0xc00, 0x100, 0x400,
 
 };
+#endif
 //Mask the counter with this
 static const Bit16u WaveMaskTable[8] = {
 	1023, 1023, 511, 511,
@@ -171,7 +195,7 @@ static const Bit16u WaveStartTable[8] = {
 #endif
 
 #if ( DBOPL_WAVE == WAVE_TABLEMUL )
-static Bit16u MulTable[ 384 ];
+static Bit16u MulTable[ 384 ] PAL_DBOPL_MUL_DATA;
 #endif
 
 static Bit8u KslTable[ 8 * 16 ];
@@ -430,6 +454,20 @@ Bits Operator::TemplateVolume(  ) {
 	return vol;
 }
 
+#if defined(PAL_DBOPL_SIMPLE_VOLUME_HANDLER)
+template< Operator::State yes>
+static PAL_DBOPL_HOT_CODE Bits VolumeHandlerCall( Operator* op ) {
+	return op->TemplateVolume<yes>();
+}
+
+static const VolumeHandler VolumeHandlerTable[5] = {
+	&VolumeHandlerCall< Operator::OFF >,
+	&VolumeHandlerCall< Operator::RELEASE >,
+	&VolumeHandlerCall< Operator::SUSTAIN >,
+	&VolumeHandlerCall< Operator::DECAY >,
+	&VolumeHandlerCall< Operator::ATTACK >
+};
+#else
 static const VolumeHandler VolumeHandlerTable[5] = {
 	&Operator::TemplateVolume< Operator::OFF >,
 	&Operator::TemplateVolume< Operator::RELEASE >,
@@ -437,10 +475,105 @@ static const VolumeHandler VolumeHandlerTable[5] = {
 	&Operator::TemplateVolume< Operator::DECAY >,
 	&Operator::TemplateVolume< Operator::ATTACK >
 };
+#endif
 
 INLINE Bitu Operator::ForwardVolume() {
+#if defined(PAL_DBOPL_SIMPLE_VOLUME_HANDLER)
+	return currentLevel + volHandler(this);
+#else
 	return currentLevel + (this->*volHandler)();
+#endif
 }
+
+#if defined(PAL_DBOPL_PRECALCULATE_ENVELOPES)
+inline bool Operator::ConstantVolume( Bit16u& output ) const {
+	if ( state == OFF ) {
+		output = static_cast<Bit16u>(currentLevel + ENV_MAX);
+		return true;
+	}
+	if ( (state == ATTACK && attackAdd == 0) ||
+			(state == DECAY && decayAdd == 0 && volume < sustainLevel) ||
+			(state == SUSTAIN && ((reg20 & MASK_SUSTAIN) ||
+				(releaseAdd == 0 && volume < ENV_MAX))) ||
+			(state == RELEASE && releaseAdd == 0 && volume < ENV_MAX) ) {
+		output = static_cast<Bit16u>(currentLevel + volume);
+		return true;
+	}
+	return false;
+}
+
+void Operator::RenderVolumes( Bit16u* PAL_DBOPL_RESTRICT output, Bitu samples ) {
+	Bit32s localVolume = volume;
+	Bit32u localRateIndex = rateIndex;
+	Bit8u localState = state;
+	const Bit32u level = currentLevel;
+
+	for ( Bitu i = 0; i < samples; ++i ) {
+		Bit32s envelope;
+		switch ( localState ) {
+		case OFF:
+			envelope = ENV_MAX;
+			break;
+		case ATTACK: {
+			localRateIndex += attackAdd;
+			const Bit32s change = localRateIndex >> RATE_SH;
+			localRateIndex &= RATE_MASK;
+			if ( change ) {
+				localVolume += ((~localVolume) * change) >> 3;
+				if ( localVolume < ENV_MIN ) {
+					localVolume = ENV_MIN;
+					localRateIndex = 0;
+					localState = DECAY;
+				}
+			}
+			envelope = localVolume;
+			break;
+		}
+		case DECAY:
+			localRateIndex += decayAdd;
+			localVolume += localRateIndex >> RATE_SH;
+			localRateIndex &= RATE_MASK;
+			if ( GCC_UNLIKELY(localVolume >= sustainLevel) ) {
+				if ( GCC_UNLIKELY(localVolume >= ENV_MAX) ) {
+					localVolume = ENV_MAX;
+					localState = OFF;
+				} else {
+					localRateIndex = 0;
+					localState = SUSTAIN;
+				}
+			}
+			envelope = localVolume;
+			break;
+		case SUSTAIN:
+			if ( reg20 & MASK_SUSTAIN ) {
+				envelope = localVolume;
+				break;
+			}
+			// Fall through: non-sustaining operators use the release rate.
+		case RELEASE:
+			localRateIndex += releaseAdd;
+			localVolume += localRateIndex >> RATE_SH;
+			localRateIndex &= RATE_MASK;
+			if ( GCC_UNLIKELY(localVolume >= ENV_MAX) ) {
+				localVolume = ENV_MAX;
+				localState = OFF;
+			}
+			envelope = localVolume;
+			break;
+		default:
+			envelope = ENV_MAX;
+			break;
+		}
+		output[i] = static_cast<Bit16u>(level + envelope);
+	}
+	volume = localVolume;
+	rateIndex = localRateIndex;
+	if ( state != localState ) {
+		SetState( localState );
+	}
+}
+
+#endif
 
 
 INLINE Bitu Operator::ForwardWave() {
@@ -686,7 +819,11 @@ void Channel::WriteA0( const Chip* chip, Bit8u val ) {
 }
 
 void Channel::WriteB0( const Chip* chip, Bit8u val ) {
+#if defined(PAL_DBOPL_OPL2_ONLY)
+	Bit8u fourOp = 0;
+#else
 	Bit8u fourOp = chip->reg104 & chip->opl3Active & fourMask;
+#endif
 	//Don't handle writes to silent fourop channels
 	if ( fourOp > 0x80 )
 		return;
@@ -733,6 +870,20 @@ void Channel::WriteC0(const Chip* chip, Bit8u val) {
 }
 
 void Channel::UpdateSynth( const Chip* chip ) {
+#if defined(PAL_DBOPL_OPL2_ONLY)
+#if defined(PAL_DBOPL_DISABLE_PERCUSSION)
+	(void)chip;
+#else
+	if ( (fourMask & 0x40) && (chip->regBD & 0x20) ) {
+		return;
+	} else
+#endif
+	if ( regC0 & 1 ) {
+		synthHandler = &Channel::BlockTemplate< sm2AM >;
+	} else {
+		synthHandler = &Channel::BlockTemplate< sm2FM >;
+	}
+#else
 	//Select the new synth mode
 	if ( chip->opl3Active ) {
 		//4-op mode enabled for this channel
@@ -785,6 +936,7 @@ void Channel::UpdateSynth( const Chip* chip ) {
 			synthHandler = &Channel::BlockTemplate< sm2FM >;
 		}
 	}
+#endif
 }
 
 template< bool opl3Mode>
@@ -842,7 +994,7 @@ INLINE void Channel::GeneratePercussion( Chip* chip, Bit32s* output ) {
 }
 
 template<SynthMode mode>
-Channel* Channel::BlockTemplate( Chip* chip, Bit32u samples, Bit32s* output ) {
+Channel* Channel::BlockTemplate( Chip* chip, Bit32u samples, Bit32s* PAL_DBOPL_RESTRICT output ) {
 	switch( mode ) {
 	case sm2AM:
 	case sm3AM:
@@ -894,6 +1046,109 @@ Channel* Channel::BlockTemplate( Chip* chip, Bit32u samples, Bit32s* output ) {
 		Op( 4 )->Prepare( chip );
 		Op( 5 )->Prepare( chip );
 	}
+#if defined(PAL_DBOPL_PRECALCULATE_ENVELOPES) && DBOPL_WAVE == WAVE_TABLEMUL
+	if ( mode == sm2FM || mode == sm2AM ) {
+		Operator* modOp = Op(0);
+		Operator* carrierOp = Op(1);
+		Bit16u constantModVolume;
+		Bit16u constantCarrierVolume;
+		if ( modOp->ConstantVolume(constantModVolume) &&
+				carrierOp->ConstantVolume(constantCarrierVolume) ) {
+			Bit32u modWaveIndex = modOp->waveIndex;
+			Bit32u carrierWaveIndex = carrierOp->waveIndex;
+			const Bit32u modWaveCurrent = modOp->waveCurrent;
+			const Bit32u carrierWaveCurrent = carrierOp->waveCurrent;
+			const Bit16s* const modWaveBase = modOp->waveBase;
+			const Bit16s* const carrierWaveBase = carrierOp->waveBase;
+			const Bit32u modWaveMask = modOp->waveMask;
+			const Bit32u carrierWaveMask = carrierOp->waveMask;
+			Bit32s feedback0 = old[0];
+			Bit32s feedback1 = old[1];
+			for ( Bitu i = 0; i < samples; i++ ) {
+				const Bit32s modulation =
+					(Bit32u)(feedback0 + feedback1) >> feedback;
+				feedback0 = feedback1;
+				modWaveIndex += modWaveCurrent;
+				if ( ENV_SILENT(constantModVolume) ) {
+					feedback1 = 0;
+				} else {
+					const Bitu index =
+						(modWaveIndex >> WAVE_SH) + modulation;
+					feedback1 =
+						(modWaveBase[index & modWaveMask] *
+							MulTable[constantModVolume >> ENV_EXTRA]) >> MUL_SH;
+				}
+				carrierWaveIndex += carrierWaveCurrent;
+				Bit32s sample = 0;
+				if ( !ENV_SILENT(constantCarrierVolume) ) {
+					const Bitu index =
+						(carrierWaveIndex >> WAVE_SH) +
+							(mode == sm2FM ? feedback0 : 0);
+					sample =
+						(carrierWaveBase[index & carrierWaveMask] *
+							MulTable[constantCarrierVolume >> ENV_EXTRA]) >> MUL_SH;
+				}
+				if ( mode == sm2AM ) {
+					sample += feedback0;
+				}
+				output[i] += sample;
+			}
+			modOp->waveIndex = modWaveIndex;
+			carrierOp->waveIndex = carrierWaveIndex;
+			old[0] = feedback0;
+			old[1] = feedback1;
+			return (this + 1);
+		}
+		modOp->RenderVolumes( EnvelopeBuffer[0], samples );
+		carrierOp->RenderVolumes( EnvelopeBuffer[1], samples );
+		Bit32u modWaveIndex = modOp->waveIndex;
+		Bit32u carrierWaveIndex = carrierOp->waveIndex;
+		const Bit32u modWaveCurrent = modOp->waveCurrent;
+		const Bit32u carrierWaveCurrent = carrierOp->waveCurrent;
+		const Bit16s* const modWaveBase = modOp->waveBase;
+		const Bit16s* const carrierWaveBase = carrierOp->waveBase;
+		const Bit32u modWaveMask = modOp->waveMask;
+		const Bit32u carrierWaveMask = carrierOp->waveMask;
+		Bit32s feedback0 = old[0];
+		Bit32s feedback1 = old[1];
+		for ( Bitu i = 0; i < samples; i++ ) {
+			const Bit32s modulation =
+				(Bit32u)(feedback0 + feedback1) >> feedback;
+			feedback0 = feedback1;
+			modWaveIndex += modWaveCurrent;
+			const Bitu modVolume = EnvelopeBuffer[0][i];
+			if ( ENV_SILENT(modVolume) ) {
+				feedback1 = 0;
+			} else {
+				const Bitu index =
+					(modWaveIndex >> WAVE_SH) + modulation;
+				feedback1 =
+					(modWaveBase[index & modWaveMask] *
+						MulTable[modVolume >> ENV_EXTRA]) >> MUL_SH;
+			}
+			carrierWaveIndex += carrierWaveCurrent;
+			const Bitu carrierVolume = EnvelopeBuffer[1][i];
+			Bit32s sample = 0;
+			if ( !ENV_SILENT(carrierVolume) ) {
+				const Bitu index =
+					(carrierWaveIndex >> WAVE_SH) +
+						(mode == sm2FM ? feedback0 : 0);
+				sample =
+					(carrierWaveBase[index & carrierWaveMask] *
+						MulTable[carrierVolume >> ENV_EXTRA]) >> MUL_SH;
+			}
+			if ( mode == sm2AM ) {
+				sample += feedback0;
+			}
+			output[i] += sample;
+		}
+		modOp->waveIndex = modWaveIndex;
+		carrierOp->waveIndex = carrierWaveIndex;
+		old[0] = feedback0;
+		old[1] = feedback1;
+		return (this + 1);
+	}
+#endif
 	for ( Bitu i = 0; i < samples; i++ ) {
 		//Early out for percussion handlers
 		if ( mode == sm2Percussion ) {
@@ -1019,6 +1274,10 @@ INLINE Bit32u Chip::ForwardLFO( Bit32u samples ) {
 
 
 void Chip::WriteBD( Bit8u val ) {
+#if defined(PAL_DBOPL_DISABLE_PERCUSSION)
+	// Melodic-only targets retain the global vibrato/tremolo depth bits.
+	val &= 0xc0;
+#endif
 	Bit8u change = regBD ^ val;
 	if ( !change )
 		return;
@@ -1026,14 +1285,19 @@ void Chip::WriteBD( Bit8u val ) {
 	//TODO could do this with shift and xor?
 	vibratoStrength = (val & 0x40) ? 0x00 : 0x01;
 	tremoloStrength = (val & 0x80) ? 0x00 : 0x02;
+#if !defined(PAL_DBOPL_DISABLE_PERCUSSION)
 	if ( val & 0x20 ) {
 		//Drum was just enabled, make sure channel 6 has the right synth
 		if ( change & 0x20 ) {
+#if defined(PAL_DBOPL_OPL2_ONLY)
+			chan[6].synthHandler = &Channel::BlockTemplate< sm2Percussion >;
+#else
 			if ( opl3Active ) {
 				chan[6].synthHandler = &Channel::BlockTemplate< sm3Percussion >; 
 			} else {
 				chan[6].synthHandler = &Channel::BlockTemplate< sm2Percussion >; 
 			}
+#endif
 		}
 		//Bass Drum
 		if ( val & 0x10 ) {
@@ -1079,6 +1343,7 @@ void Chip::WriteBD( Bit8u val ) {
 		chan[8].op[0].KeyOff( 0x2 );
 		chan[8].op[1].KeyOff( 0x2 );
 	}
+#endif
 }
 
 
@@ -1098,7 +1363,11 @@ void Chip::WriteBD( Bit8u val ) {
 
 //Update the 0xc0 register for all channels to signal the switch to mono/stereo handlers
 void Chip::UpdateSynths() {
+#if defined(PAL_DBOPL_OPL2_ONLY)
+	for (int i = 0; i < 9; i++) {
+#else
 	for (int i = 0; i < 18; i++) {
+#endif
 		chan[i].UpdateSynth(this);
 	}
 }
@@ -1110,6 +1379,7 @@ void Chip::WriteReg( Bit32u reg, Bit8u val ) {
 	case 0x00 >> 4:
 		if ( reg == 0x01 ) {
 			waveFormMask = ( val & 0x20 ) ? 0x7 : 0x0; 
+#if !defined(PAL_DBOPL_OPL2_ONLY)
 		} else if ( reg == 0x104 ) {
 			//Only detect changes in lowest 6 bits
 			if ( !((reg104 ^ val) & 0x3f) )
@@ -1126,6 +1396,7 @@ void Chip::WriteReg( Bit32u reg, Bit8u val ) {
 			//Just tupdate the synths now that opl3 most have been enabled
 			//This isn't how the real card handles it but need to switch to stereo generating handlers
 			UpdateSynths();
+#endif
 		} else if ( reg == 0x08 ) {
 			reg08 = val;
 		}
@@ -1174,15 +1445,19 @@ Bit32u Chip::WriteAddr( Bit32u port, Bit8u val ) {
 	case 0:
 		return val;
 	case 2:
+#if defined(PAL_DBOPL_OPL2_ONLY)
+		return val;
+#else
 		if ( opl3Active || (val == 0x05) )
 			return 0x100 | val;
 		else 
 			return val;
+#endif
 	}
 	return 0;
 }
 
-void Chip::GenerateBlock2( Bitu total, Bit32s* output ) {
+void Chip::GenerateBlock2( Bitu total, Bit32s* PAL_DBOPL_RESTRICT output ) {
 	while ( total > 0 ) {
 		Bit32u samples = ForwardLFO( total );
 		memset(output, 0, sizeof(Bit32s) * samples);
@@ -1196,7 +1471,8 @@ void Chip::GenerateBlock2( Bitu total, Bit32s* output ) {
 	}
 }
 
-void Chip::GenerateBlock3( Bitu total, Bit32s* output  ) {
+#if !defined(PAL_DBOPL_OPL2_ONLY)
+void Chip::GenerateBlock3( Bitu total, Bit32s* PAL_DBOPL_RESTRICT output  ) {
 	while ( total > 0 ) {
 		Bit32u samples = ForwardLFO( total );
 		memset(output, 0, sizeof(Bit32s) * samples *2);
@@ -1209,6 +1485,7 @@ void Chip::GenerateBlock3( Bitu total, Bit32s* output  ) {
 		output += samples * 2;
 	}
 }
+#endif
 
 void Chip::Setup( Bit32u rate ) {
 	double original = OPLRATE;
@@ -1307,18 +1584,21 @@ void Chip::Setup( Bit32u rate ) {
 	chan[ 4].fourMask = 0x00 | ( 1 << 2 );
 	chan[ 5].fourMask = 0x80 | ( 1 << 2 );
 
+#if !defined(PAL_DBOPL_OPL2_ONLY)
 	chan[ 9].fourMask = 0x00 | ( 1 << 3 );
 	chan[10].fourMask = 0x80 | ( 1 << 3 );
 	chan[11].fourMask = 0x00 | ( 1 << 4 );
 	chan[12].fourMask = 0x80 | ( 1 << 4 );
 	chan[13].fourMask = 0x00 | ( 1 << 5 );
 	chan[14].fourMask = 0x80 | ( 1 << 5 );
+#endif
 
 	//mark the percussion channels
 	chan[ 6].fourMask = 0x40;
 	chan[ 7].fourMask = 0x40;
 	chan[ 8].fourMask = 0x40;
 
+#if !defined(PAL_DBOPL_OPL2_ONLY)
 	//Clear Everything in opl3 mode
 	WriteReg( 0x105, 0x1 );
 	for ( int i = 0; i < 512; i++ ) {
@@ -1328,6 +1608,7 @@ void Chip::Setup( Bit32u rate ) {
 		WriteReg( i, 0x0 );
 	}
 	WriteReg( 0x105, 0x0 );
+#endif
 	//Clear everything in opl2 mode
 	for ( int i = 0; i < 255; i++ ) {
 		WriteReg( i, 0xff );
@@ -1367,11 +1648,13 @@ bool InitTables( void ) {
 		WaveTable[ 0x0200 + i ] = (Bit16s)(sin( (i + 0.5) * (PI / 512.0) ) * 4084);
 		WaveTable[ 0x0000 + i ] = -WaveTable[ 0x200 + i ];
 	}
+#if !defined(PAL_DBOPL_OPL2_ONLY)
 	//Exponential wave
 	for ( int i = 0; i < 256; i++ ) {
 		WaveTable[ 0x700 + i ] = (Bit16s)( 0.5 + ( pow(2.0, -1.0 + ( 255 - i * 8) * ( 1.0 /256 ) ) ) * 4085 );
 		WaveTable[ 0x6ff - i ] = -WaveTable[ 0x700 + i ];
 	}
+#endif
 #endif
 #if ( DBOPL_WAVE == WAVE_TABLELOG )
 	//Sine Wave Base
@@ -1391,6 +1674,16 @@ bool InitTables( void ) {
 	//	|06  |0126|27  |7   |3   |4   |4 5 |5   |
 
 #if (( DBOPL_WAVE == WAVE_TABLELOG ) || ( DBOPL_WAVE == WAVE_TABLEMUL ))
+#if defined(PAL_DBOPL_OPL2_ONLY) && DBOPL_WAVE == WAVE_TABLEMUL
+	for ( int i = 0; i < 256; i++ ) {
+		// OPL2 exposes waveforms 0--3 only.  Relocate waveform 3 so the
+		// complete bit-exact table fits in 4 KiB instead of 8 KiB.
+		WaveTable[ 0x400 + i ] = WaveTable[0];
+		WaveTable[ 0x500 + i ] = WaveTable[0];
+		WaveTable[ 0x600 + i ] = WaveTable[ 0x200 + i ];
+		WaveTable[ 0x700 + i ] = WaveTable[0];
+	}
+#else
 	for ( int i = 0; i < 256; i++ ) {
 		//Fill silence gaps
 		WaveTable[ 0x400 + i ] = WaveTable[0];
@@ -1406,6 +1699,7 @@ bool InitTables( void ) {
 		WaveTable[ 0xe00 + i ] = WaveTable[ 0x200 + i * 2 ];
 		WaveTable[ 0xf00 + i ] = WaveTable[ 0x200 + i * 2 ];
 	} 
+#endif
 #endif
 
 	//Create the ksl table
@@ -1429,6 +1723,12 @@ bool InitTables( void ) {
 	/*DBOPL::*/Chip* chip = 0;
 	for ( Bitu i = 0; i < 32; i++ ) {
 		Bitu index = i & 0xf;
+	#if defined(PAL_DBOPL_OPL2_ONLY)
+		if ( i >= 16 ) {
+			ChanOffsetTable[i] = 0;
+			continue;
+		}
+	#endif
 		if ( index >= 9 ) {
 			ChanOffsetTable[i] = 0;
 			continue;

@@ -18,6 +18,8 @@ enum {
 static PrintConsole pal_nds_console;
 static int pal_nds_bg;
 static unsigned pal_nds_visible_page;
+volatile uint32_t pal_nds_present_count
+   __attribute__((section(".bss.pal_nds_video")));
 static uint16_t pal_nds_palette[256] __attribute__((aligned(4)));
 static bool pal_nds_started;
 
@@ -27,6 +29,19 @@ NdsTarget_Begin(
 {
    powerOn(POWER_ALL_2D);
    lcdMainOnTop();
+
+   /* Bring up the sub-screen console first so every later boot stage can
+      report progress or a failure on real hardware. */
+   videoSetModeSub(MODE_0_2D);
+   vramSetBankC(VRAM_C_SUB_BG);
+   consoleInit(&pal_nds_console, 0, BgType_Text4bpp,
+      BgSize_T_256x256, 31, 0, false, true);
+   consoleSelect(&pal_nds_console);
+   consoleClear();
+   iprintf("SDLPAL Nintendo DS\n");
+   iprintf("commit %s\n", NDS_GIT_REVISION);
+   iprintf("mode: %s\n\n", isDSiMode() ? "TWL (DSi)" : "NTR (DS)");
+   iprintf("console ok\n");
 
    videoSetMode(MODE_5_2D);
    vramSetBankA(VRAM_A_MAIN_BG);
@@ -40,18 +55,19 @@ NdsTarget_Begin(
    dmaFillWords(0, BG_PALETTE, 512u);
    bgSetPriority(pal_nds_bg, 0);
    pal_nds_visible_page = 0u;
-
-   videoSetModeSub(MODE_0_2D);
-   vramSetBankC(VRAM_C_SUB_BG);
-   consoleInit(&pal_nds_console, 0, BgType_Text4bpp,
-      BgSize_T_256x256, 31, 0, false, true);
-   consoleSelect(&pal_nds_console);
-   consoleClear();
-   iprintf("SDLPAL Nintendo DS\n");
-   iprintf("initializing...\n");
+   pal_nds_present_count = 0u;
+   iprintf("main display ok\n");
 
    pal_nds_started = true;
    return true;
+}
+
+void
+NdsTarget_BootLog(
+   const char *line)
+{
+   consoleSelect(&pal_nds_console);
+   iprintf("%s\n", line != NULL ? line : "?");
 }
 
 void
@@ -81,19 +97,16 @@ NdsTarget_ShowReady(
       return;
    }
    consoleSelect(&pal_nds_console);
-   consoleClear();
-   iprintf("SDLPAL Nintendo DS\n\n");
-   iprintf("ROM  NitroFS pal_full.pak\n");
+   iprintf("\nROM  NitroFS pal_full.pak\n");
    if (save_available)
    {
-      iprintf("SAVE Slot-1 FLASH %lu KiB\n",
+      iprintf("SAVE DLDI FAT /sdlpal %lu KiB\n",
          (unsigned long)(save_bytes / 1024u));
    }
    else
    {
-      iprintf("SAVE unavailable type=%d %lu KiB\n",
-         save_type, (unsigned long)(save_bytes / 1024u));
-      iprintf("     needs 1 MiB Slot-1 FLASH\n");
+      iprintf("SAVE unavailable backend=%d\n", save_type);
+      iprintf("     needs a writable DLDI device\n");
    }
    iprintf("\nA confirm   B menu/back\n");
    iprintf("D-pad move  X status\n");
@@ -152,11 +165,12 @@ NdsTarget_FlushIndexedFramebuffer(
          color[0] >> 3, color[1] >> 3, color[2] >> 3);
    }
 
-   swiWaitForVBlank();
+   threadWaitForVBlank();
    dmaCopy(pixels, hidden, PAL_NDS_VISIBLE_BYTES);
    dmaCopy(pal_nds_palette, BG_PALETTE, sizeof(pal_nds_palette));
    bgSetMapBase(pal_nds_bg,
       hidden_page != 0u ? PAL_NDS_SECOND_PAGE_MAP_BASE : 0u);
    pal_nds_visible_page = hidden_page;
+   pal_nds_present_count++;
    return true;
 }

@@ -15,6 +15,7 @@
 #include <unistd.h>
 
 #define PAL_NDS_PACK_PATH "nitro:/pal_full.pak"
+#define PAL_NDS_PACK_READ_SLICE 1024u
 
 static int pal_nds_pack_fd = -1;
 static const char *pal_nds_pack_error = "resource pack initialization failed";
@@ -43,13 +44,17 @@ pal_nds_pack_read_at(
    }
    while (done < size)
    {
-      ssize_t got = read(fd, dst + done, (size_t)(size - done));
+      uint32_t remaining = size - done;
+      size_t request = remaining > PAL_NDS_PACK_READ_SLICE
+         ? PAL_NDS_PACK_READ_SLICE : (size_t)remaining;
+      ssize_t got = read(fd, dst + done, request);
 
       if (got <= 0)
       {
          return false;
       }
       done += (uint32_t)got;
+      NdsTarget_AudioPump();
    }
    return true;
 }

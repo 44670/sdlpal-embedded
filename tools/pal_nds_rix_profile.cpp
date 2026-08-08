@@ -54,6 +54,11 @@ struct TrackStats
    uint64_t live_operator_writes;
    uint64_t live_groups[5];
    uint64_t rhythm_writes;
+   uint64_t held_channel_ticks;
+   uint64_t ticks_with_held_channels;
+   uint8_t maximum_held_channels;
+   uint16_t current_tick_writes;
+   uint16_t maximum_tick_writes;
 };
 
 class ProfileOpl final : public Copl
@@ -82,6 +87,10 @@ public:
       const uint8_t byte = static_cast<uint8_t>(value);
       const uint8_t old = regs[reg];
 
+      if (stats.current_tick_writes != UINT16_MAX)
+      {
+         stats.current_tick_writes++;
+      }
       regs[reg] = byte;
       if (reg >= 0xb0u && reg <= 0xb8u)
       {
@@ -121,6 +130,27 @@ public:
    bool getstereo() override
    {
       return false;
+   }
+
+   void finish_tick()
+   {
+      uint8_t count = 0u;
+
+      for (bool channel_held : held)
+      {
+         count += channel_held ? 1u : 0u;
+      }
+      stats.held_channel_ticks += count;
+      stats.ticks_with_held_channels += count != 0u ? 1u : 0u;
+      if (count > stats.maximum_held_channels)
+      {
+         stats.maximum_held_channels = count;
+      }
+      if (stats.current_tick_writes > stats.maximum_tick_writes)
+      {
+         stats.maximum_tick_writes = stats.current_tick_writes;
+      }
+      stats.current_tick_writes = 0u;
    }
 
    TrackStats stats;
@@ -251,7 +281,8 @@ main(int argc, char **argv)
    }
 
    printf("track\tbytes\tticks\tseconds\tpatches\tnote_on\tpitch\t"
-      "live_op\tlive_20\tlive_40\tlive_60\tlive_80\tlive_e0\trhythm\n");
+      "live_op\tlive_20\tlive_40\tlive_60\tlive_80\tlive_e0\trhythm\t"
+      "held_ch_ticks\theld_ticks\tmax_held\tmax_tick_writes\n");
    for (uint16_t track_number = 0u;
       track_number < chunk_count;
       track_number++)
@@ -275,6 +306,7 @@ main(int argc, char **argv)
       }
       while (ticks < kMaximumTrackTicks && decoder.update())
       {
+         opl.finish_tick();
          ticks++;
       }
       if (ticks == kMaximumTrackTicks)
@@ -284,7 +316,7 @@ main(int argc, char **argv)
       }
 
       printf("%u\t%u\t%llu\t%.3f\t%zu\t%llu\t%llu\t%llu\t"
-         "%llu\t%llu\t%llu\t%llu\t%llu\t%llu\n",
+         "%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\n",
          track_number,
          track.size,
          static_cast<unsigned long long>(ticks),
@@ -298,7 +330,11 @@ main(int argc, char **argv)
          static_cast<unsigned long long>(opl.stats.live_groups[2]),
          static_cast<unsigned long long>(opl.stats.live_groups[3]),
          static_cast<unsigned long long>(opl.stats.live_groups[4]),
-         static_cast<unsigned long long>(opl.stats.rhythm_writes));
+         static_cast<unsigned long long>(opl.stats.rhythm_writes),
+         static_cast<unsigned long long>(opl.stats.held_channel_ticks),
+         static_cast<unsigned long long>(opl.stats.ticks_with_held_channels),
+         opl.stats.maximum_held_channels,
+         opl.stats.maximum_tick_writes);
 
       all_patches.insert(opl.patches.begin(), opl.patches.end());
       total_ticks += ticks;
@@ -306,6 +342,10 @@ main(int argc, char **argv)
       total_stats.pitch_writes += opl.stats.pitch_writes;
       total_stats.live_operator_writes += opl.stats.live_operator_writes;
       total_stats.rhythm_writes += opl.stats.rhythm_writes;
+      if (opl.stats.maximum_tick_writes > total_stats.maximum_tick_writes)
+      {
+         total_stats.maximum_tick_writes = opl.stats.maximum_tick_writes;
+      }
       for (unsigned group = 0u; group < 5u; group++)
       {
          total_stats.live_groups[group] += opl.stats.live_groups[group];
@@ -322,7 +362,7 @@ main(int argc, char **argv)
       "tracks=%u ticks=%llu seconds=%.3f unique_patches=%zu "
       "note_on=%llu pitch=%llu live_op=%llu "
       "live_20=%llu live_40=%llu live_60=%llu live_80=%llu live_e0=%llu "
-      "rhythm=%llu max_track=%u max_seconds=%.3f\n",
+      "rhythm=%llu max_tick_writes=%u max_track=%u max_seconds=%.3f\n",
       mapped_tracks,
       static_cast<unsigned long long>(total_ticks),
       static_cast<double>(total_ticks) / kRixTicksPerSecond,
@@ -336,8 +376,21 @@ main(int argc, char **argv)
       static_cast<unsigned long long>(total_stats.live_groups[3]),
       static_cast<unsigned long long>(total_stats.live_groups[4]),
       static_cast<unsigned long long>(total_stats.rhythm_writes),
+      total_stats.maximum_tick_writes,
       maximum_track,
       static_cast<double>(maximum_ticks) / kRixTicksPerSecond);
+
+   if (track_filter >= 0)
+   {
+      for (const Patch &patch : all_patches)
+      {
+         fprintf(stderr,
+            "patch %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x c0=%02x\n",
+            patch.bytes[0], patch.bytes[1], patch.bytes[2], patch.bytes[3],
+            patch.bytes[4], patch.bytes[5], patch.bytes[6], patch.bytes[7],
+            patch.bytes[8], patch.bytes[9], patch.bytes[10]);
+      }
+   }
 
    munmap(const_cast<uint8_t *>(image), static_cast<size_t>(status.st_size));
    return mapped_tracks != 0u ? 0 : 7;

@@ -1,18 +1,10 @@
-/*
- * RIX sequencer backed by the Nintendo DS sound channels.
- *
- * ARM9 still decodes the small 70 Hz RIX command stream.  It no longer renders
- * 22.05 kHz OPL PCM.  Instead, OPL register writes update nine compact FM-like
- * wavetables and the Calico ARM7 sound service drives the DS PCM channels.
- * OPL rhythm mode reuses channels 6--8 for three fixed PCM8 percussion loops.
- * This keeps all target memory statically owned and removes sample-by-sample
- * synthesis from the game thread.
- */
+/* Fixed-memory RIX/DBOPL2 music produced by a peer-priority ARM9 thread. */
 
 #include "../../audio.h"
 #include "../../palcfg.h"
 #include "../../palcommon.h"
 #include "../../adplug/rix.h"
+#include "nds_dbopl2.h"
 #include "pal_target_memory.h"
 
 #include <calico.h>
@@ -25,71 +17,189 @@ extern "C"
 {
 uint8_t pal_nds_track[PAL_NDS_RIX_TRACK_BYTES]
    __attribute__((aligned(4), section(".bss.pal_nds_music")));
-int8_t pal_nds_voice_waves
-   [PAL_NDS_RIX_MELODIC_CHANNELS][PAL_NDS_RIX_WAVE_BYTES]
-   __attribute__((aligned(ARM_CACHE_LINE_SZ), section(".bss.pal_nds_music")));
-int8_t pal_nds_rhythm_waves
-   [PAL_NDS_RIX_RHYTHM_VOICES][PAL_NDS_RIX_WAVE_BYTES]
-   __attribute__((aligned(ARM_CACHE_LINE_SZ), section(".bss.pal_nds_music")));
-int16_t pal_nds_sine[PAL_NDS_RIX_SINE_ENTRIES]
+PalNdsOplWrite pal_nds_opl_staging[PAL_NDS_OPL_WRITES_PER_TICK]
    __attribute__((aligned(4), section(".bss.pal_nds_music")));
-uint32_t pal_nds_base_timers[PAL_NDS_RIX_TIMER_ENTRIES]
+PalNdsOplTick pal_nds_opl_tick_queue[PAL_NDS_OPL_TICK_QUEUE_LENGTH]
    __attribute__((aligned(4), section(".bss.pal_nds_music")));
-uint8_t pal_nds_tl_volume[PAL_NDS_RIX_TL_ENTRIES]
-   __attribute__((aligned(4), section(".bss.pal_nds_music")));
+volatile uint32_t pal_nds_opl_queue_overruns
+   __attribute__((section(".bss.pal_nds_music")));
+volatile uint32_t pal_nds_opl_queue_underruns
+   __attribute__((section(".bss.pal_nds_music")));
+volatile uint32_t pal_nds_dbopl_render_ticks_total
+   __attribute__((section(".bss.pal_nds_music")));
+volatile uint32_t pal_nds_dbopl_render_ticks_max
+   __attribute__((section(".bss.pal_nds_music")));
+volatile uint32_t pal_nds_dbopl_render_ticks_min
+   __attribute__((section(".bss.pal_nds_music")));
+volatile uint32_t pal_nds_dbopl_render_calls
+   __attribute__((section(".bss.pal_nds_music")));
 }
 
 namespace
 {
 
-constexpr uint32_t kRixTicksPerSecond = 70u;
+constexpr uint32_t kRixTicksPerSecond = PAL_NDS_OPL_TICK_RATE;
+constexpr size_t kOplTickSamples = PAL_NDS_OPL_TICK_SAMPLES;
+constexpr size_t kAudioTickSamples = PAL_NDS_AUDIO_TICK_SAMPLES;
+constexpr uint16_t kProducerTicksPerPump = PAL_NDS_OPL_PRODUCER_BATCH;
 constexpr uint32_t kMaximumHalfFadeTicks = kRixTicksPerSecond * 30u;
 constexpr int kEmptyMusTrack = 29;
-constexpr unsigned kMelodicChannels = PAL_NDS_RIX_MELODIC_CHANNELS;
-constexpr unsigned kDrumChannels = PAL_NDS_RIX_DRUM_CHANNELS;
-constexpr unsigned kRhythmVoices = PAL_NDS_RIX_RHYTHM_VOICES;
-constexpr unsigned kWaveBytes = PAL_NDS_RIX_WAVE_BYTES;
-constexpr unsigned kWaveCycles = 2u;
-constexpr uint32_t kOplInternalRate = 49716u;
 
-static_assert((kWaveBytes & 3u) == 0u, "PCM8 loop must be word aligned");
-static_assert(SOUND_NUM_CHANNELS == 16u,
-   "native RIX voice map assumes the 16-channel DS mixer");
+static_assert(
+   PAL_NDS_AUDIO_SAMPLE_RATE == PAL_NDS_OPL_SAMPLE_RATE &&
+      kOplTickSamples ==
+         (PAL_NDS_OPL_SAMPLE_RATE + kRixTicksPerSecond - 1u) /
+            kRixTicksPerSecond,
+   "DBOPL2 must render every 32.768 kHz PCM frame directly");
+static_assert(
+   kAudioTickSamples == 256u,
+   "the fixed PCM ring uses native 256-frame service blocks");
+static_assert(
+   (PAL_NDS_OPL_TICK_QUEUE_LENGTH &
+      (PAL_NDS_OPL_TICK_QUEUE_LENGTH - 1u)) == 0u,
+   "OPL tick queue length must remain a power of two");
+static_assert(
+   kProducerTicksPerPump <= PAL_NDS_OPL_TICK_QUEUE_LENGTH &&
+      PAL_NDS_OPL_STARTUP_TICKS <= PAL_NDS_OPL_TICK_QUEUE_LENGTH,
+   "bounded RIX production must fit the fixed OPL queue");
+static_assert(
+   sizeof(PalNdsOplTick) ==
+      4u + PAL_NDS_OPL_WRITES_PER_TICK * sizeof(PalNdsOplWrite),
+   "OPL tick queue layout changed unexpectedly");
 
-constexpr uint8_t kModulatorSlot[kMelodicChannels] = {
-   0u, 1u, 2u, 8u, 9u, 10u, 16u, 17u, 18u,
-};
-constexpr uint8_t kCarrierSlot[kMelodicChannels] = {
-   3u, 4u, 5u, 11u, 12u, 13u, 19u, 20u, 21u,
-};
-constexpr uint8_t kMultiplierTimesTwo[16] = {
-   1u, 2u, 4u, 6u, 8u, 10u, 12u, 14u,
-   16u, 18u, 20u, 20u, 24u, 24u, 30u, 30u,
-};
-constexpr uint8_t kDrumRhythmVoice[kDrumChannels] = {
-   0u, 1u, 2u, 2u, 1u,
-};
-/* Hand-tuned hit lengths in 70 Hz ticks (about 114/71/143/171/43 ms). */
-constexpr uint8_t kDrumDurations[kDrumChannels] = {
-   8u, 5u, 10u, 12u, 3u,
-};
-/* Hand-tuned playback rates for the kick/noise/metallic loops. */
-constexpr uint16_t kRhythmSampleRates[kRhythmVoices] = {
-   8192u, 16000u, 12000u,
-};
-struct HardwareVoice
+static volatile uint32_t pal_nds_opl_queue_head;
+static volatile uint32_t pal_nds_opl_queue_tail;
+
+class PalNdsQueuedOpl final : public Copl
 {
-   uint16_t last_volume;
-   uint16_t last_timer;
-   bool held;
-   bool active;
-   bool key_on_pending;
-   bool key_off_pending;
-   bool wave_dirty;
-   bool pitch_dirty;
+public:
+   PalNdsQueuedOpl() : Copl(TYPE_OPL2) {}
+
+   void clear()
+   {
+      staging_count_ = 0u;
+      reset_pending_ = false;
+      staging_overflow_ = false;
+   }
+
+   void init() override
+   {
+      staging_count_ = 0u;
+      reset_pending_ = true;
+      staging_overflow_ = false;
+   }
+
+   void write(int reg, int value) override
+   {
+      if (staging_count_ >= PAL_NDS_OPL_WRITES_PER_TICK)
+      {
+         staging_overflow_ = true;
+         return;
+      }
+      pal_nds_opl_staging[staging_count_].reg = static_cast<uint8_t>(reg);
+      pal_nds_opl_staging[staging_count_].value = static_cast<uint8_t>(value);
+      staging_count_++;
+   }
+
+   void update(short *samples, int frames) override
+   {
+      (void)samples;
+      (void)frames;
+   }
+
+   bool getstereo() override
+   {
+      return false;
+   }
+
+   void commit_tick(unsigned volume)
+   {
+      const uint32_t head = pal_nds_opl_queue_head;
+      PalNdsOplTick *tick;
+
+      if (head - pal_nds_opl_queue_tail >= PAL_NDS_OPL_TICK_QUEUE_LENGTH)
+      {
+         pal_nds_opl_queue_overruns++;
+         staging_count_ = 0u;
+         staging_overflow_ = false;
+         return;
+      }
+      tick = &pal_nds_opl_tick_queue[
+         head & (PAL_NDS_OPL_TICK_QUEUE_LENGTH - 1u)];
+      if (staging_overflow_)
+      {
+         /* An incomplete OPL transaction is worse than a silent reset. */
+         tick->count = 0u;
+         tick->reset = 1u;
+         tick->volume = 0u;
+      }
+      else
+      {
+         tick->count = staging_count_;
+         tick->reset = reset_pending_ ? 1u : 0u;
+         tick->volume = static_cast<uint8_t>(volume > 127u ? 127u : volume);
+         memcpy(
+            tick->writes,
+            pal_nds_opl_staging,
+            staging_count_ * sizeof(pal_nds_opl_staging[0]));
+      }
+      armCompilerBarrier();
+      pal_nds_opl_queue_head = head + 1u;
+      staging_count_ = 0u;
+      reset_pending_ = false;
+      staging_overflow_ = false;
+   }
+
+private:
+   uint16_t staging_count_ = 0u;
+   bool reset_pending_ = false;
+   bool staging_overflow_ = false;
 };
 
-static bool pal_nds_sound_ready;
+enum class FadeState : uint8_t
+{
+   None,
+   Out,
+   In,
+};
+
+struct MusicRuntime
+{
+   volatile uint16_t pending_ticks;
+   int current_track;
+   int pending_track;
+   bool current_loop;
+   bool pending_loop;
+   bool playing;
+   bool enabled;
+   bool pumping;
+   FadeState fade;
+   uint32_t fade_remaining;
+   uint32_t fade_total;
+   uint32_t fade_in_ticks;
+   uint32_t fade_level_q16;
+   uint32_t fade_step_q16;
+};
+
+static PalNdsQueuedOpl pal_nds_opl;
+static CrixPlayer pal_nds_decoder(&pal_nds_opl);
+static MusicRuntime pal_nds_music;
+static uint8_t pal_nds_worker_volume;
+static uint32_t pal_nds_rix_sample_phase;
+static uint32_t pal_nds_rix_samples_remaining;
+
+constexpr uint32_t kAudioTimer =
+   soundTimerFromHz(PAL_NDS_AUDIO_SAMPLE_RATE);
+constexpr uint32_t kRixSampleDenominator =
+   kAudioTimer * kRixTicksPerSecond;
+constexpr uint32_t kRixSampleBase =
+   SOUND_CLOCK / kRixSampleDenominator;
+constexpr uint32_t kRixSampleRemainder =
+   SOUND_CLOCK % kRixSampleDenominator;
+
+static_assert(
+   kRixSampleBase != 0u && kRixSampleBase + 1u <= kOplTickSamples,
+   "one physical 70 Hz RIX interval must fit the fixed OPL scratch owner");
 
 static int
 music_clamped_config_volume()
@@ -130,621 +240,6 @@ music_half_fade_ticks(FLOAT seconds)
    }
    return static_cast<uint32_t>(ticks + 0.5f);
 }
-
-static void
-hardware_build_tables()
-{
-   /* Constant tables: built once, the fixed .bss owners keep them afterwards. */
-   static bool built = false;
-
-   if (built)
-   {
-      return;
-   }
-   built = true;
-
-   int32_t sine = 0;
-   int32_t cosine = 32767;
-   uint32_t amplitude = 127u << 16;
-   const uint32_t timer_numerator = static_cast<uint32_t>(
-      ((static_cast<uint64_t>(SOUND_CLOCK) << 13) +
-       kOplInternalRate / 2u) / kOplInternalRate);
-
-   /* Q15 rotation by 2*pi/256; no target-side libm or generated table. */
-   for (unsigned i = 0u; i < 256u; i++)
-   {
-      const int32_t next_sine =
-         (sine * 32758 + cosine * 804 + 16384) >> 15;
-      const int32_t next_cosine =
-         (cosine * 32758 - sine * 804 + 16384) >> 15;
-
-      pal_nds_sine[i] = static_cast<int16_t>(sine >> 8);
-      sine = next_sine;
-      cosine = next_cosine;
-   }
-
-   /* One startup division per F-number; pitch updates become lookup + shift. */
-   pal_nds_base_timers[0] = 0u;
-   for (unsigned f_number = 1u; f_number < 1024u; f_number++)
-   {
-      pal_nds_base_timers[f_number] =
-         (timer_numerator + f_number / 2u) / f_number;
-   }
-
-   /* 0.75 dB per OPL total-level step, approximated in Q16. */
-   for (unsigned level = 0u; level < 64u; level++)
-   {
-      pal_nds_tl_volume[level] = static_cast<uint8_t>(
-         (amplitude + (1u << 15)) >> 16);
-      amplitude = (amplitude * 60097u + (1u << 15)) >> 16;
-   }
-}
-
-static void
-hardware_build_rhythm_waves()
-{
-   /* 16-bit LFSR noise; seed and tap polynomial are hand-tuned values. */
-   uint16_t noise = 0x5a3du;
-
-   for (unsigned i = 0u; i < kWaveBytes; i++)
-   {
-      const int kick = pal_nds_sine[(i * 4u) & 0xffu];
-      const unsigned kick_envelope = kWaveBytes - i;
-      /* Hand-tuned metallic timbre: two gated square partials. */
-      const int metallic =
-         ((i * 5u) & 0x20u ? 70 : -70) +
-         ((i * 7u) & 0x40u ? 42 : -42);
-
-      noise = static_cast<uint16_t>(
-         (noise >> 1) ^ ((0u - (noise & 1u)) & 0xb400u));
-      pal_nds_rhythm_waves[0][i] = static_cast<int8_t>(
-         kick * static_cast<int>(kick_envelope) /
-         static_cast<int>(kWaveBytes));
-      /* Hand-tuned -2.5 dB noise attenuation. */
-      pal_nds_rhythm_waves[1][i] = static_cast<int8_t>(
-         static_cast<int8_t>(noise & 0xffu) * 3 / 4);
-      pal_nds_rhythm_waves[2][i] = static_cast<int8_t>(metallic);
-   }
-   armDCacheFlush(pal_nds_rhythm_waves, sizeof(pal_nds_rhythm_waves));
-}
-
-static int
-hardware_wave_sample(
-   unsigned waveform,
-   unsigned phase)
-{
-   const unsigned index = phase & 0xffu;
-   const int value = pal_nds_sine[index];
-
-   switch (waveform & 3u)
-   {
-   case 1u:
-      return index < 128u ? value : 0;
-   case 2u:
-      return value < 0 ? -value : value;
-   case 3u:
-      return (index & 64u) == 0u
-         ? (value < 0 ? -value : value) : 0;
-   default:
-      return value;
-   }
-}
-
-class PalNdsHardwareOpl final : public Copl
-{
-public:
-   PalNdsHardwareOpl() : Copl(TYPE_OPL2), pending_drums(0u),
-      last_mixer_volume(UINT_MAX), rhythm(false)
-   {
-      memset(regs, 0, sizeof(regs));
-      memset(voices, 0, sizeof(voices));
-      memset(rhythm_ticks, 0, sizeof(rhythm_ticks));
-   }
-
-   void init() override
-   {
-      if (pal_nds_sound_ready)
-      {
-         soundStop((1u << SOUND_NUM_CHANNELS) - 1u);
-      }
-      memset(regs, 0, sizeof(regs));
-      memset(voices, 0, sizeof(voices));
-      memset(rhythm_ticks, 0, sizeof(rhythm_ticks));
-      for (unsigned channel = 0u; channel < kMelodicChannels; channel++)
-      {
-         voices[channel].last_volume = UINT16_MAX;
-         voices[channel].last_timer = UINT16_MAX;
-      }
-      pending_drums = 0u;
-      last_mixer_volume = UINT_MAX;
-      rhythm = false;
-   }
-
-   void write(int register_value, int value) override
-   {
-      const unsigned reg = static_cast<unsigned>(register_value) & 0xffu;
-      const uint8_t byte = static_cast<uint8_t>(value);
-      const uint8_t old = regs[reg];
-
-      if (old == byte)
-      {
-         return;
-      }
-      regs[reg] = byte;
-
-      if (reg >= 0xa0u && reg <= 0xa8u)
-      {
-         voices[reg - 0xa0u].pitch_dirty = true;
-         return;
-      }
-      if (reg >= 0xb0u && reg <= 0xb8u)
-      {
-         HardwareVoice &voice = voices[reg - 0xb0u];
-         const bool old_held = (old & 0x20u) != 0u;
-         const bool new_held = (byte & 0x20u) != 0u;
-
-         voice.pitch_dirty = true;
-         voice.held = new_held;
-         if (new_held && !old_held)
-         {
-            voice.key_on_pending = true;
-         }
-         else if (!new_held && old_held)
-         {
-            voice.key_off_pending = true;
-         }
-         return;
-      }
-      if (reg == 0xbdu)
-      {
-         const bool old_rhythm = (old & 0x20u) != 0u;
-         rhythm = (byte & 0x20u) != 0u;
-         if (rhythm)
-         {
-            pending_drums |= static_cast<uint8_t>(
-               byte & static_cast<uint8_t>(~old) & 0x1fu);
-         }
-         if (rhythm != old_rhythm)
-         {
-            memset(rhythm_ticks, 0, sizeof(rhythm_ticks));
-            for (unsigned channel = 6u;
-               channel < kMelodicChannels; channel++)
-            {
-               voices[channel].wave_dirty = true;
-               if (!rhythm && voices[channel].held)
-               {
-                  voices[channel].key_on_pending = true;
-               }
-            }
-         }
-         return;
-      }
-      if (reg >= 0xc0u && reg <= 0xc8u)
-      {
-         voices[reg - 0xc0u].wave_dirty = true;
-         return;
-      }
-
-      mark_operator_change(reg);
-   }
-
-   void update(short *, int) override {}
-
-   bool getstereo() override
-   {
-      return false;
-   }
-
-   void commit_tick(unsigned mixer_volume)
-   {
-      if (mixer_volume > 127u)
-      {
-         mixer_volume = 127u;
-      }
-      if (mixer_volume != last_mixer_volume)
-      {
-         soundSetMixerVolume(mixer_volume);
-         last_mixer_volume = mixer_volume;
-      }
-      for (unsigned channel = 0u; channel < kMelodicChannels; channel++)
-      {
-         HardwareVoice &voice = voices[channel];
-
-         if (rhythm && channel >= 6u)
-         {
-            if (voice.active)
-            {
-               soundStop(1u << channel);
-               voice.active = false;
-            }
-            clear_pending(voice);
-            continue;
-         }
-
-         apply_note_edges(channel, voice);
-         if (voice.active && voice.wave_dirty)
-         {
-            soundStop(1u << channel);
-            prepare_voice(channel, voice, true);
-         }
-         else if (voice.active && voice.pitch_dirty)
-         {
-            const uint16_t timer = voice_timer(channel);
-
-            if (timer != 0u && timer != voice.last_timer)
-            {
-               soundChSetTimer(channel, timer);
-               voice.last_timer = timer;
-            }
-         }
-         update_voice_volume(channel, voice);
-         clear_pending(voice);
-      }
-      play_pending_drums();
-      soundSynchronize();
-   }
-
-   void silence()
-   {
-      /* Never touch the mixer before soundInit() has run. */
-      if (!pal_nds_sound_ready)
-      {
-         last_mixer_volume = 0u;
-         return;
-      }
-      if (last_mixer_volume != 0u)
-      {
-         soundSetMixerVolume(0u);
-         soundSynchronize();
-         last_mixer_volume = 0u;
-      }
-   }
-
-private:
-   uint8_t regs[256];
-   HardwareVoice voices[kMelodicChannels];
-   uint8_t pending_drums;
-   uint8_t rhythm_ticks[kRhythmVoices];
-   unsigned last_mixer_volume;
-   bool rhythm;
-
-   static void clear_pending(HardwareVoice &voice)
-   {
-      voice.key_on_pending = false;
-      voice.key_off_pending = false;
-      voice.wave_dirty = false;
-      voice.pitch_dirty = false;
-   }
-
-   void mark_operator_change(unsigned reg)
-   {
-      const unsigned group = reg & 0xe0u;
-      const unsigned slot = reg & 0x1fu;
-
-      if (group != 0x20u && group != 0x40u && group != 0xe0u)
-      {
-         return;
-      }
-      for (unsigned channel = 0u; channel < kMelodicChannels; channel++)
-      {
-         HardwareVoice &voice = voices[channel];
-
-         if (slot == kModulatorSlot[channel])
-         {
-            if (group == 0x20u || group == 0x40u || group == 0xe0u)
-            {
-               voice.wave_dirty = true;
-            }
-            return;
-         }
-         if (slot == kCarrierSlot[channel])
-         {
-            if (group == 0x20u || group == 0xe0u)
-            {
-               voice.wave_dirty = true;
-            }
-            return;
-         }
-      }
-   }
-
-   uint8_t operator_register(
-      unsigned base,
-      unsigned channel,
-      bool carrier) const
-   {
-      return regs[base + (carrier
-         ? kCarrierSlot[channel] : kModulatorSlot[channel])];
-   }
-
-   uint16_t voice_timer(unsigned channel) const
-   {
-      const unsigned f_number = regs[0xa0u + channel] |
-         ((static_cast<unsigned>(regs[0xb0u + channel]) & 3u) << 8);
-      const unsigned block =
-         (static_cast<unsigned>(regs[0xb0u + channel]) >> 2) & 7u;
-      uint32_t timer;
-
-      if (f_number == 0u)
-      {
-         return 0u;
-      }
-      timer = pal_nds_base_timers[f_number];
-      if (block != 0u)
-      {
-         timer = (timer + (1u << (block - 1u))) >> block;
-      }
-      if (timer < 2u)
-      {
-         timer = 2u;
-      }
-      else if (timer > UINT16_MAX)
-      {
-         timer = UINT16_MAX;
-      }
-      return static_cast<uint16_t>(timer);
-   }
-
-   int waveform_value(unsigned channel, unsigned sample) const
-   {
-      const uint8_t mod20 = operator_register(0x20u, channel, false);
-      const uint8_t car20 = operator_register(0x20u, channel, true);
-      const uint8_t mod40 = operator_register(0x40u, channel, false);
-      const uint8_t mod_e0 = operator_register(0xe0u, channel, false);
-      const uint8_t car_e0 = operator_register(0xe0u, channel, true);
-      const uint8_t connection = regs[0xc0u + channel];
-      const unsigned base_phase = sample * kWaveCycles;
-      const unsigned mod_phase =
-         (base_phase * kMultiplierTimesTwo[mod20 & 0x0fu]) >> 1;
-      const int modulator = hardware_wave_sample(mod_e0, mod_phase);
-      const unsigned modulation_depth =
-         (63u - (mod40 & 0x3fu)) + ((connection >> 1) & 7u) * 4u;
-      const int phase_modulation =
-         (modulator * static_cast<int>(modulation_depth)) >> 5;
-      const unsigned carrier_phase = static_cast<unsigned>(
-         static_cast<int>(
-            (base_phase * kMultiplierTimesTwo[car20 & 0x0fu]) >> 1) +
-         phase_modulation);
-      int output = hardware_wave_sample(car_e0, carrier_phase);
-
-      if ((connection & 1u) != 0u)
-      {
-         output += modulator / 2;
-      }
-      return output;
-   }
-
-   void rebuild_wave(unsigned channel)
-   {
-      int32_t sum = 0;
-      int maximum = 1;
-
-      for (unsigned i = 0u; i < kWaveBytes; i++)
-      {
-         sum += waveform_value(channel, i);
-      }
-      const int mean = static_cast<int>(sum / static_cast<int>(kWaveBytes));
-      for (unsigned i = 0u; i < kWaveBytes; i++)
-      {
-         int value = waveform_value(channel, i) - mean;
-         const int magnitude = value < 0 ? -value : value;
-
-         if (magnitude > maximum)
-         {
-            maximum = magnitude;
-         }
-      }
-      const int scale_q8 = (120 << 8) / maximum;
-      for (unsigned i = 0u; i < kWaveBytes; i++)
-      {
-         int value =
-            ((waveform_value(channel, i) - mean) * scale_q8) >> 8;
-
-         if (value < -127)
-         {
-            value = -127;
-         }
-         else if (value > 127)
-         {
-            value = 127;
-         }
-         pal_nds_voice_waves[channel][i] = static_cast<int8_t>(value);
-      }
-      armDCacheFlush(
-         pal_nds_voice_waves[channel],
-         sizeof(pal_nds_voice_waves[channel]));
-   }
-
-   void apply_note_edges(
-      unsigned channel,
-      HardwareVoice &voice)
-   {
-      if (voice.key_on_pending && voice.held)
-      {
-         if (voice.active)
-         {
-            soundStop(1u << channel);
-         }
-         voice.active = true;
-         voice.wave_dirty = true;
-         voice.pitch_dirty = true;
-         prepare_voice(channel, voice, false);
-      }
-      else if (voice.key_off_pending && !voice.held && voice.active)
-      {
-         soundStop(1u << channel);
-         voice.active = false;
-      }
-   }
-
-   void prepare_voice(
-      unsigned channel,
-      HardwareVoice &voice,
-      bool restart)
-   {
-      const uint16_t timer = voice_timer(channel);
-
-      if (timer == 0u)
-      {
-         return;
-      }
-      if (restart || voice.wave_dirty)
-      {
-         rebuild_wave(channel);
-      }
-      voice.last_timer = timer;
-      voice.last_volume = UINT16_MAX;
-      soundPreparePcm(
-         channel | SOUND_START,
-         0u,
-         64u,
-         timer,
-         SoundMode_Repeat,
-         SoundFmt_Pcm8,
-         pal_nds_voice_waves[channel],
-         0u,
-         kWaveBytes / 4u);
-      voice.wave_dirty = false;
-      voice.pitch_dirty = false;
-   }
-
-   void update_voice_volume(unsigned channel, HardwareVoice &voice)
-   {
-      const uint8_t car40 = operator_register(0x40u, channel, true);
-      uint32_t volume;
-
-      if (!voice.active)
-      {
-         return;
-      }
-      volume = static_cast<uint32_t>(pal_nds_tl_volume[car40 & 0x3fu]) << 4;
-      if (volume != voice.last_volume)
-      {
-         soundChSetVolume(channel, volume);
-         voice.last_volume = static_cast<uint16_t>(volume);
-      }
-   }
-
-   uint16_t drum_volume(unsigned drum) const
-   {
-      static constexpr uint8_t drum_channels[kDrumChannels] = {
-         6u, 7u, 8u, 8u, 7u,
-      };
-      static constexpr bool use_carrier[kDrumChannels] = {
-         true, true, false, true, false,
-      };
-      const uint8_t level = operator_register(
-         0x40u, drum_channels[drum], use_carrier[drum]);
-
-      return static_cast<uint16_t>(
-         static_cast<uint32_t>(pal_nds_tl_volume[level & 0x3fu]) *
-         16u);
-   }
-
-   void play_pending_drums()
-   {
-      static constexpr uint8_t bits[kDrumChannels] = {
-         0x10u, 0x08u, 0x04u, 0x02u, 0x01u,
-      };
-      uint8_t selected_drums[kRhythmVoices] = {
-         UINT8_MAX, UINT8_MAX, UINT8_MAX,
-      };
-      uint32_t stop_mask = 0u;
-
-      if (!rhythm)
-      {
-         for (unsigned voice = 0u; voice < kRhythmVoices; voice++)
-         {
-            if (rhythm_ticks[voice] != 0u)
-            {
-               stop_mask |= 1u << (6u + voice);
-            }
-         }
-         if (stop_mask != 0u)
-         {
-            soundStop(stop_mask);
-         }
-         memset(rhythm_ticks, 0, sizeof(rhythm_ticks));
-         pending_drums = 0u;
-         return;
-      }
-
-      for (unsigned voice = 0u; voice < kRhythmVoices; voice++)
-      {
-         if (rhythm_ticks[voice] != 0u && --rhythm_ticks[voice] == 0u)
-         {
-            stop_mask |= 1u << (6u + voice);
-         }
-      }
-      for (unsigned drum = 0u; drum < kDrumChannels; drum++)
-      {
-         if ((pending_drums & bits[drum]) != 0u)
-         {
-            const unsigned voice = kDrumRhythmVoice[drum];
-
-            selected_drums[voice] = static_cast<uint8_t>(drum);
-            stop_mask |= 1u << (6u + voice);
-         }
-      }
-      if (stop_mask != 0u)
-      {
-         soundStop(stop_mask);
-      }
-
-      for (unsigned voice = 0u; voice < kRhythmVoices; voice++)
-      {
-         const unsigned drum = selected_drums[voice];
-
-         if (drum == UINT8_MAX)
-         {
-            continue;
-         }
-         soundPreparePcm(
-            (6u + voice) | SOUND_START,
-            0u,
-            64u,
-            soundTimerFromHz(kRhythmSampleRates[voice]),
-            SoundMode_Repeat,
-            SoundFmt_Pcm8,
-            pal_nds_rhythm_waves[voice],
-            0u,
-            kWaveBytes / 4u);
-         soundChSetVolume(6u + voice, drum_volume(drum));
-         rhythm_ticks[voice] = kDrumDurations[drum];
-      }
-      pending_drums = 0u;
-   }
-};
-
-enum class FadeState : uint8_t
-{
-   None,
-   Out,
-   In,
-};
-
-struct MusicRuntime
-{
-   TickTask tick_task;
-   volatile uint16_t pending_ticks;
-   int current_track;
-   int pending_track;
-   bool current_loop;
-   bool pending_loop;
-   bool playing;
-   bool enabled;
-   bool pumping;
-   FadeState fade;
-   uint32_t fade_remaining;
-   uint32_t fade_total;
-   uint32_t fade_in_ticks;
-   uint32_t fade_level_q16;
-   uint32_t fade_step_q16;
-};
-
-static PalNdsHardwareOpl pal_nds_opl;
-static CrixPlayer pal_nds_decoder(&pal_nds_opl);
-static MusicRuntime pal_nds_music;
 
 static void
 music_clear_fade()
@@ -808,7 +303,12 @@ music_load_track(int track)
       sizeof(pal_nds_track),
       static_cast<uint16_t>(track),
       mus);
-   return size > 0 && pal_nds_decoder.load_buffer(
+   /*
+    * RIX byte 2 selects OPL2 rhythm mode.  Its six-operator percussion
+    * renderer exceeds the ARM9 budget, so this target rejects those tracks
+    * before any OPL writes reach the audio worker.
+    */
+   return size > 2 && pal_nds_track[2] == 0u && pal_nds_decoder.load_buffer(
       pal_nds_track, static_cast<uint32_t>(size));
 }
 
@@ -976,7 +476,7 @@ music_tick()
 {
    if (!pal_nds_music.enabled || music_clamped_config_volume() == 0)
    {
-      pal_nds_opl.silence();
+      pal_nds_opl.commit_tick(0u);
       return;
    }
    if (pal_nds_music.fade == FadeState::Out &&
@@ -992,13 +492,105 @@ music_tick()
    }
 }
 
-static void
-music_tick_irq(TickTask *)
+static bool
+music_worker_pop_tick()
 {
-   if (pal_nds_music.pending_ticks != UINT16_MAX)
+   const uint32_t tail = pal_nds_opl_queue_tail;
+   PalNdsOplTick *tick;
+   uint16_t count;
+
+   if (tail == pal_nds_opl_queue_head)
    {
-      pal_nds_music.pending_ticks++;
+      pal_nds_opl_queue_underruns++;
+      return false;
    }
+   armCompilerBarrier();
+   tick = &pal_nds_opl_tick_queue[
+      tail & (PAL_NDS_OPL_TICK_QUEUE_LENGTH - 1u)];
+   count = tick->count;
+   if (tick->reset != 0u)
+   {
+      NdsDbOpl2_Reset();
+   }
+   for (uint16_t i = 0u; i < count; i++)
+   {
+      NdsDbOpl2_Write(tick->writes[i].reg, tick->writes[i].value);
+   }
+   pal_nds_worker_volume = tick->volume;
+   armCompilerBarrier();
+   pal_nds_opl_queue_tail = tail + 1u;
+   return true;
+}
+
+static uint32_t
+music_next_rix_sample_count()
+{
+   uint32_t result = kRixSampleBase;
+
+   pal_nds_rix_sample_phase += kRixSampleRemainder;
+   if (pal_nds_rix_sample_phase >= kRixSampleDenominator)
+   {
+      pal_nds_rix_sample_phase -= kRixSampleDenominator;
+      result++;
+   }
+   return result;
+}
+
+static void
+music_request_ticks(uint16_t count)
+{
+   ArmIrqState irq_state = armIrqLockByPsr();
+   const uint16_t available = static_cast<uint16_t>(
+      UINT16_MAX - pal_nds_music.pending_ticks);
+
+   pal_nds_music.pending_ticks += count > available ? available : count;
+   armIrqUnlockByPsr(irq_state);
+}
+
+static void
+music_stream_render(
+   void *user,
+   int16_t *samples,
+   size_t sample_count)
+{
+   uint32_t render_ticks_total = 0u;
+
+   (void)user;
+   if (sample_count % kAudioTickSamples != 0u)
+   {
+      memset(samples, 0, sample_count * sizeof(*samples));
+      return;
+   }
+   while (sample_count != 0u)
+   {
+      size_t amount;
+      const uint64_t render_start = tickGetCount();
+
+      if (pal_nds_rix_samples_remaining == 0u)
+      {
+         (void)music_worker_pop_tick();
+         music_request_ticks(1u);
+         pal_nds_rix_samples_remaining = music_next_rix_sample_count();
+      }
+      amount = sample_count < pal_nds_rix_samples_remaining
+         ? sample_count : pal_nds_rix_samples_remaining;
+      NdsDbOpl2_Render(samples, amount, pal_nds_worker_volume);
+      render_ticks_total += static_cast<uint32_t>(
+         tickGetCount() - render_start);
+      pal_nds_rix_samples_remaining -= static_cast<uint32_t>(amount);
+      samples += amount;
+      sample_count -= amount;
+   }
+   pal_nds_dbopl_render_ticks_total += render_ticks_total;
+   if (render_ticks_total > pal_nds_dbopl_render_ticks_max)
+   {
+      pal_nds_dbopl_render_ticks_max = render_ticks_total;
+   }
+   if (render_ticks_total < pal_nds_dbopl_render_ticks_min)
+   {
+      pal_nds_dbopl_render_ticks_min = render_ticks_total;
+   }
+   pal_nds_dbopl_render_calls++;
 }
 
 } // namespace
@@ -1019,7 +611,11 @@ NdsTarget_AudioPump(void)
    }
    irq_state = armIrqLockByPsr();
    ticks = pal_nds_music.pending_ticks;
-   pal_nds_music.pending_ticks = 0u;
+   if (ticks > kProducerTicksPerPump)
+   {
+      ticks = kProducerTicksPerPump;
+   }
+   pal_nds_music.pending_ticks -= ticks;
    armIrqUnlockByPsr(irq_state);
 
    pal_nds_music.pumping = true;
@@ -1040,8 +636,20 @@ AUDIO_OpenDevice(VOID)
    memset(&gAudioDevice, 0, sizeof(gAudioDevice));
    memset(&pal_nds_music, 0, sizeof(pal_nds_music));
    memset(pal_nds_track, 0, sizeof(pal_nds_track));
-   memset(pal_nds_voice_waves, 0, sizeof(pal_nds_voice_waves));
-   memset(pal_nds_rhythm_waves, 0, sizeof(pal_nds_rhythm_waves));
+   memset(pal_nds_opl_staging, 0, sizeof(pal_nds_opl_staging));
+   memset(pal_nds_opl_tick_queue, 0, sizeof(pal_nds_opl_tick_queue));
+   pal_nds_opl_queue_head = 0u;
+   pal_nds_opl_queue_tail = 0u;
+   pal_nds_opl_queue_overruns = 0u;
+   pal_nds_opl_queue_underruns = 0u;
+   pal_nds_dbopl_render_ticks_total = 0u;
+   pal_nds_dbopl_render_ticks_max = 0u;
+   pal_nds_dbopl_render_ticks_min = UINT32_MAX;
+   pal_nds_dbopl_render_calls = 0u;
+   pal_nds_worker_volume = 0u;
+   pal_nds_rix_sample_phase = 0u;
+   pal_nds_rix_samples_remaining = 0u;
+   pal_nds_opl.clear();
 
    pal_nds_music.current_track = -1;
    pal_nds_music.pending_track = -1;
@@ -1049,21 +657,13 @@ AUDIO_OpenDevice(VOID)
    pal_nds_music.fade_level_q16 = 127u << 16;
    gConfig.iMusicVolume = music_clamped_config_volume();
 
-   tickInit();
-   soundInit();
-   soundSetPower(true);
-   soundSetMixerSleep(false);
-   soundSetMixerVolume(127u);
-   hardware_build_tables();
-   hardware_build_rhythm_waves();
-   pal_nds_sound_ready = true;
-   pal_nds_opl.init();
+   NdsDbOpl2_Init();
 
-   gAudioDevice.spec.freq = static_cast<int>(kRixTicksPerSecond);
+   gAudioDevice.spec.freq = static_cast<int>(PAL_NDS_AUDIO_SAMPLE_RATE);
    gAudioDevice.spec.format = AUDIO_S16SYS;
    gAudioDevice.spec.channels = 1;
 #if !SDL_VERSION_ATLEAST(3, 0, 0)
-   gAudioDevice.spec.samples = 1u;
+   gAudioDevice.spec.samples = static_cast<Uint16>(kAudioTickSamples);
 #endif
    gAudioDevice.iMusicVolume = music_sdl_volume();
    gAudioDevice.iSoundVolume = 0;
@@ -1071,12 +671,16 @@ AUDIO_OpenDevice(VOID)
    gAudioDevice.fMusicEnabled = TRUE;
    gAudioDevice.fOpened = TRUE;
 
-   pal_nds_music.pending_ticks = 1u;
-   tickTaskStart(
-      &pal_nds_music.tick_task,
-      music_tick_irq,
-      ticksFromHz(kRixTicksPerSecond),
-      ticksFromHz(kRixTicksPerSecond));
+   /* Seed a bounded 20-tick lookahead before the worker starts. */
+   pal_nds_music.pending_ticks = PAL_NDS_OPL_STARTUP_TICKS;
+   NdsTarget_AudioPump();
+
+   if (!NdsTarget_AudioStart(music_stream_render, nullptr))
+   {
+      gAudioDevice.fOpened = FALSE;
+      gAudioDevice.fMusicEnabled = FALSE;
+      return -1;
+   }
    return 0;
 }
 
@@ -1093,11 +697,7 @@ AUDIO_CloseDevice(VOID)
    {
       return;
    }
-   tickTaskStop(&pal_nds_music.tick_task);
-   music_stop_now();
-   soundStop((1u << SOUND_NUM_CHANNELS) - 1u);
-   soundSynchronize();
-   pal_nds_sound_ready = false;
+   NdsTarget_AudioStop();
    gAudioDevice.fOpened = FALSE;
    gAudioDevice.fMusicEnabled = FALSE;
 }
@@ -1163,10 +763,6 @@ AUDIO_EnableMusic(BOOL enable)
 {
    gAudioDevice.fMusicEnabled = enable ? TRUE : FALSE;
    pal_nds_music.enabled = enable != FALSE;
-   if (!pal_nds_music.enabled)
-   {
-      pal_nds_opl.silence();
-   }
 }
 
 BOOL

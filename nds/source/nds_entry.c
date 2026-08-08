@@ -30,12 +30,16 @@ main(
    {
       NdsTarget_FatalAt(__FILE__, __LINE__, "video initialization failed");
    }
+   NdsTarget_BootLog("touching reserved buffers");
    PalTarget_TouchReservedBuffers();
    PAL_MemoryLevel2Touch();
+   NdsTarget_BootLog("resident buffers ok");
+   NdsTarget_BootLog("opening pack provider");
    if (!PalEngineBridge_TargetInitPacks())
    {
       NdsTarget_FatalAt(__FILE__, __LINE__, NdsTarget_PackError());
    }
+   NdsTarget_BootLog("pack provider ok");
    NdsTarget_ShowReady(
       PalTargetSave_Init(),
       PalTargetSave_Type(),

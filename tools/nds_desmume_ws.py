@@ -187,6 +187,23 @@ def json_reply(opcode: int, payload: bytes) -> dict[str, object]:
     return reply
 
 
+def memory_reply(opcode: int, payload: bytes) -> dict[str, object]:
+    """Decode the debug harness' intentionally hex-formatted word list."""
+    prefix = b'{"ok":true,"words":['
+    if opcode != 1 or not payload.startswith(prefix):
+        raise HarnessError(f"invalid memory reply: {payload!r}")
+    body = payload[len(prefix):]
+    if not body.endswith(b"]}"):
+        raise HarnessError(f"invalid memory reply: {payload!r}")
+    body = body[:-2]
+    words = [] if not body else body.split(b",")
+    if any(len(word) != 8 or any(
+        byte not in b"0123456789abcdefABCDEF" for byte in word
+    ) for word in words):
+        raise HarnessError(f"invalid memory reply: {payload!r}")
+    return {"ok": True, "words": [f"0x{word.decode()}" for word in words]}
+
+
 def execute_action(ws: WebSocket, action: str, root: Path) -> dict[str, object]:
     fields = action.split(":")
     name = fields[0]
@@ -210,6 +227,12 @@ def execute_action(ws: WebSocket, action: str, root: Path) -> dict[str, object]:
         ))
     elif name in ("status", "pause", "resume") and len(fields) == 1:
         reply = json_reply(*ws.command({"cmd": name}))
+    elif name == "mem" and len(fields) == 3:
+        reply = memory_reply(*ws.command({
+            "cmd": "mem",
+            "address": int(fields[1], 0),
+            "length": int(fields[2], 0),
+        }))
     elif name == "capture" and len(fields) in (2, 3):
         screen = fields[2] if len(fields) == 3 else "main"
         if screen not in ("main", "touch", "both"):
@@ -280,7 +303,8 @@ def main() -> int:
     parser.add_argument(
         "--action", action="append", default=[],
         help=("ordered action: run:N, tap:KEY[:N], down:KEY, up:KEY, status, "
-              "pause, resume, or capture:FILE[:main|touch|both]"),
+              "pause, resume, mem:ADDRESS:LENGTH, or "
+              "capture:FILE[:main|touch|both]"),
     )
     parser.add_argument(
         "--audio-capture", type=Path,
@@ -319,11 +343,21 @@ def main() -> int:
     })
     if audio_path is not None:
         environment["SDL_DISKAUDIOFILE"] = str(audio_path)
-        environment["SDL_DISKAUDIODELAY"] = "0"
+        # Let SDL's disk backend consume at device speed.  With delay disabled
+        # it drains buffers as fast as the host can call the callback, creating
+        # minutes of silence around a few seconds of emulated signal and making
+        # the recording unsuitable for timing or waveform analysis.
+        # DeSmuME requests 2940 stereo frames per callback: 66.7 ms at
+        # 44.1 kHz.  Match that cadence so the raw file duration tracks the
+        # emulated real-time run instead of accumulating callback-rate silence.
+        environment["SDL_DISKAUDIODELAY"] = "67"
+        environment["DESMUME_WS_REALTIME"] = "1"
     command = [
-        str(args.desmume), "--start-paused", "--disable-limiter",
-        "--nojoy", "--save-type", "7", str(args.rom.resolve()),
+        str(args.desmume), "--start-paused",
     ]
+    if audio_path is None:
+        command.append("--disable-limiter")
+    command.extend(("--nojoy", str(args.rom.resolve())))
     log: BinaryIO = log_path.open("wb")
     process = subprocess.Popen(command, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, env=environment)

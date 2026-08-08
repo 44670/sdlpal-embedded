@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 bool NdsTarget_Begin(void);
+void NdsTarget_BootLog(const char *line);
 void NdsTarget_ShowError(const char *title, const char *detail);
 void NdsTarget_ShowReady(
    bool save_available, int save_type, uint32_t save_bytes);
@@ -25,7 +26,13 @@ bool NdsTarget_FlushIndexedFramebuffer(
    uint16_t pitch,
    const uint8_t *palette_rgba);
 
+typedef void (*NdsTargetAudioRender)(
+   void *user, int16_t *samples, size_t sample_count);
+
+bool NdsTarget_AudioStart(NdsTargetAudioRender render, void *user);
+void NdsTarget_AudioStop(void);
 void NdsTarget_AudioPump(void);
+uint32_t NdsTarget_AudioDeadlineMisses(void);
 
 #define PalTarget_Begin NdsTarget_Begin
 #define PalTarget_ShowError NdsTarget_ShowError

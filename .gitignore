@@ -37,8 +37,9 @@ unix/sdlpal-embedded-contract
 unix/sdlpal-embedded-contract-noaudio
 unix/sdlpal-embedded-contract-noaudio-deterministic
 unix/sdlpal-deterministic
-nds/sdlpal.elf
-nds/sdlpal.nds
+nds/*.elf
+nds/*.nds
+nds/*.nds.ini
 
 # Visual Studio Code files
 .vscode/

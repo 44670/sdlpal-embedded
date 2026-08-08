@@ -16,16 +16,16 @@ GAME_SUBTITLE1 := Nintendo DS native port
 GAME_SUBTITLE2 := sdlpal-embedded
 NDS_MAKER_CODE := 00
 NDS_ROM_VERSION := 0
-# Keep the shipped image on the classic NTR path.  Calico's shared ARM9/ARM7
-# ELFs contain optional TWL program headers; ndstool only copies those sections
-# when the ROM header is larger than the legacy 0x200-byte NTR header.
-NDS_HEADER_SIZE := 0x200
 
 TARGET := sdlpal
 BUILD := build
 PROJECT_DIR ?= $(CURDIR)
 PAL_FULL_PACK ?= $(abspath ../esp32s3/TF_datapak/pal_full.pak)
 NITRO_STAGE := $(PROJECT_DIR)/$(BUILD)/nitrofiles/pal_full.pak
+NDS_RIX_PROFILE := $(abspath ../embedded/build/pal_nds_rix_profile)
+NDS_DBOPL_DIFF := $(PROJECT_DIR)/$(BUILD)/pal_nds_dbopl_diff
+NDS_DBOPL_DIFF_SRC := $(abspath ../tools/pal_nds_dbopl_diff.cpp)
+HOST_CXX ?= g++
 
 SOURCES := source .. ../embedded ../adplug ../sdl_compat ../unix \
    ../esp32s3/engine_bridge ../esp32s3/native_engine_shim
@@ -80,9 +80,7 @@ CFLAGS := -g -Wall -Wextra -Os -ffunction-sections -fdata-sections \
    -fno-strict-aliasing $(ARCH) $(INCLUDE) -DARM9 $(PAL_DEFINES)
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -fno-use-cxa-atexit
 ASFLAGS := -g $(ARCH)
-# Calico's legacy ARM9 linker script omits the TWL loadlist and uses the
-# classic NTR main-RAM layout.  Pair it with the 0x200 NTR ROM header below.
-LDFLAGS := -specs=$(CALICO)/share/ds9-legacy.specs -g $(ARCH) \
+LDFLAGS := -specs=ds_arm9.specs -g $(ARCH) \
    -Wl,-Map,$(PROJECT_DIR)/$(BUILD)/$(TARGET).map,--gc-sections \
    -Wl,--wrap=PAL_MKFOpenPackArchive \
    -Wl,--wrap=PAL_MKFIsPackArchive \
@@ -107,8 +105,9 @@ CFILES := \
    pal_music_cache.c \
    pal_engine_pack_provider.c pal_engine_posix_shims.c sdl_shim.c \
    nds_entry.c nds_memory.c nds_board.c nds_input.c nds_time.c \
+   nds_audio_stream.c \
    nds_video.c nds_packs.c nds_guru.c nds_save.c
-CPPFILES := player.cpp rix.cpp nds_music.cpp
+CPPFILES := player.cpp rix.cpp nds_dbopl2.itcm.cpp nds_music.cpp
 SFILES :=
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -132,21 +131,31 @@ $(BUILD):
 	@mkdir -p $@
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(PROJECT_DIR)/Makefile
 
-check: all
+check: all $(NDS_DBOPL_DIFF)
+	@$(NDS_DBOPL_DIFF)
+	@$(MAKE) --no-print-directory -C ../embedded \
+	   CC=gcc CXX=g++ nds-rix-profile
 	@python3 -B check_nds.py --elf $(TARGET).elf --nds $(TARGET).nds \
-	   --pack $(PAL_FULL_PACK)
+	   --pack $(PAL_FULL_PACK) --rix-profiler $(NDS_RIX_PROFILE)
+
+$(NDS_DBOPL_DIFF): $(NDS_DBOPL_DIFF_SRC) \
+   $(PROJECT_DIR)/../adplug/dosbox/dbopl.h \
+   $(PROJECT_DIR)/../adplug/dosbox/dbopl.cpp.h
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) -std=c++17 -O2 -w -o $@ $(NDS_DBOPL_DIFF_SRC) -lm
 
 clean:
-	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).nds
+	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).nds $(TARGET).nds.ini
 
 else
 
 $(OUTPUT).nds: $(OUTPUT).elf $(NITRO_STAGE) $(GAME_ICON) $(PROJECT_DIR)/Makefile
-	$(SILENTCMD)ndstool -c $@ -h $(NDS_HEADER_SIZE) -9 $< $(_ARM7_ELF) \
+	$(SILENTCMD)ndstool -c $@ -9 $< $(_ARM7_ELF) \
 	   -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1);$(GAME_SUBTITLE2)" \
 	   $(_ADDFILES) -g '####' $(NDS_MAKER_CODE) "$(GAME_TITLE)" \
 	   $(NDS_ROM_VERSION)
 	$(SILENTMSG) built ... $(notdir $@)
+	@printf '[GAMESETTINGS]\nDSI_MODE = 0\n' > $@.ini
 $(OUTPUT).elf: $(OFILES)
 
 $(NITRO_STAGE): $(PAL_FULL_PACK)
@@ -154,6 +163,7 @@ $(NITRO_STAGE): $(PAL_FULL_PACK)
 	cp --reflink=auto $< $@
 
 main.o: CFLAGS += -Dmain=PAL_EngineMain
+nds_dbopl2.itcm.o: CXXFLAGS += -O3 -fstrict-aliasing
 
 -include $(DEPSDIR)/*.d
 

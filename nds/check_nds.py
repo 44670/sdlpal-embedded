@@ -13,6 +13,11 @@ from pathlib import Path
 
 MAIN_RAM_LIMIT = 0x02380000
 MIN_UNUSED_MAIN_RAM = 256 * 1024
+ITCM_START = 0x01FF8000
+ITCM_LIMIT = 0x02000000
+DTCM_START = 0x02FF0000
+DTCM_LIMIT = 0x02FF3E80
+MIN_UNUSED_DTCM = 3 * 1024
 PACK_ARCHIVE_ENTRY_SIZE = 12
 PACK_CHUNK_ENTRY_SIZE = 16
 MGO_ARCHIVE_ID = 9
@@ -29,17 +34,46 @@ EXPECTED_OWNERS = {
     "pal_mem_level2_tf_toc": 40 * 1024,
     "pal_mem_level2_transient_chunk": 64 * 1024,
     "pal_nds_track": 10108,
-    "pal_nds_voice_waves": 9 * 256,
-    "pal_nds_rhythm_waves": 3 * 256,
-    "pal_nds_sine": 256 * 2,
-    "pal_nds_base_timers": 1024 * 4,
-    "pal_nds_tl_volume": 64,
+    "pal_nds_opl_staging": 256 * 2,
+    "pal_nds_opl_tick_queue": 32 * (4 + 256 * 2),
+    "pal_nds_audio_ring": 16 * 512 * 2,
+    "pal_nds_audio_thread_stack": 6 * 1024,
+    "pal_nds_opl_queue_overruns": 4,
+    "pal_nds_opl_queue_underruns": 4,
+    "pal_nds_audio_deadline_misses": 4,
+    "pal_nds_present_count": 4,
+    "pal_nds_dbopl_render_ticks_total": 4,
+    "pal_nds_dbopl_render_ticks_max": 4,
+    "pal_nds_dbopl_render_ticks_min": 4,
+    "pal_nds_dbopl_render_calls": 4,
+    "PalNdsDbOpl2Core::pal_nds_dbopl2_state": 2472,
+    "PalNdsDbOpl2Core::pal_nds_dbopl2_reset_state": 2472,
+    "PalNdsDbOpl2Core::pal_nds_dbopl2_scratch": 256 * 4,
+    "PalNdsDbOpl2Core::EnvelopeBuffer": 2 * 256 * 2,
+    "PalNdsDbOpl2Core::WaveTable": 4 * 512 * 2,
+    "PalNdsDbOpl2Core::MulTable": 384 * 2,
+    "PalNdsDbOpl2Core::KslTable": 128,
+    "PalNdsDbOpl2Core::TremoloTable": 52,
+    "PalNdsDbOpl2Core::ChanOffsetTable": 32 * 2,
+    "PalNdsDbOpl2Core::OpOffsetTable": 64 * 2,
 }
+EXPECTED_DTCM_OWNERS = (
+    "PalNdsDbOpl2Core::pal_nds_dbopl2_state",
+    "PalNdsDbOpl2Core::pal_nds_dbopl2_scratch",
+    "PalNdsDbOpl2Core::EnvelopeBuffer",
+    "PalNdsDbOpl2Core::WaveTable",
+    "PalNdsDbOpl2Core::MulTable",
+)
 EXPECTED_GAME_TITLE = b"SDLPAL\0\0\0\0\0\0"
 EXPECTED_GAME_CODE = b"####"
 EXPECTED_MAKER_CODE = b"00"
-EXPECTED_UNIT_CODE = 0x00
-EXPECTED_HEADER_SIZE = 0x200
+# Ship the TWL-aware image (unit code 0x02, full 0x4000 header with the TWL
+# loadlist): the NTR-only image (ndstool -h 0x200, unit 0x00) white-screens
+# on the accepted real-hardware boot path (TWiLight Menu / nds-bootstrap),
+# verified against a known-good on-device binary.
+EXPECTED_UNIT_CODE = 0x02
+EXPECTED_HEADER_SIZE = 0x4000
+MAX_OPL_WRITES_PER_TICK = 256
 
 
 def run(*args: str) -> str:
@@ -114,6 +148,31 @@ def hash_extent(path: Path, start: int, size: int) -> str:
     return digest.hexdigest()
 
 
+def profile_rix_writes(profiler: Path, pack: Path) -> tuple[int, int]:
+    output = run(str(profiler), str(pack))
+    header: list[str] | None = None
+    maximum = 0
+    maximum_track = 0
+    for line in output.splitlines():
+        fields = line.split("\t")
+        if "max_tick_writes" in fields:
+            header = fields
+            continue
+        if header is None or len(fields) != len(header):
+            continue
+        try:
+            track = int(fields[0])
+            writes = int(fields[header.index("max_tick_writes")])
+        except ValueError:
+            continue
+        if writes > maximum:
+            maximum = writes
+            maximum_track = track
+    if header is None:
+        raise ValueError("RIX profiler did not return its tabular header")
+    return maximum, maximum_track
+
+
 def check_nds_header(path: Path) -> list[str]:
     with path.open("rb") as source:
         header = source.read(0x240)
@@ -131,23 +190,21 @@ def check_nds_header(path: Path) -> list[str]:
         errors.append(f"NDS maker code is {header[0x10:0x12]!r}, expected 00")
     if header[0x12] != EXPECTED_UNIT_CODE:
         errors.append(
-            f"NDS unit code is 0x{header[0x12]:02x}, expected classic NTR 0x00"
+            f"NDS unit code is 0x{header[0x12]:02x}, "
+            f"expected TWL-aware 0x{EXPECTED_UNIT_CODE:02x}"
         )
     header_size = struct.unpack_from("<I", header, 0x84)[0]
     if header_size != EXPECTED_HEADER_SIZE:
         errors.append(
             f"NDS header size is 0x{header_size:x}, "
-            f"expected classic NTR 0x{EXPECTED_HEADER_SIZE:x}"
+            f"expected full 0x{EXPECTED_HEADER_SIZE:x} with the TWL loadlist"
         )
-    if any(header[0x180:0x200]):
-        errors.append("DSi/TWL extended header fields must be zero for NTR-only ROM")
-    if header_size > EXPECTED_HEADER_SIZE:
-        public_save, private_save = struct.unpack_from("<II", header, 0x238)
-        if public_save != 0 or private_save != 0:
-            errors.append(
-                "DSiWare public/private save sizes must remain zero for the "
-                "Slot-1 NTR save backend"
-            )
+    public_save, private_save = struct.unpack_from("<II", header, 0x238)
+    if header_size >= 0x240 and (public_save != 0 or private_save != 0):
+        errors.append(
+            "DSiWare public/private save sizes must remain zero for the "
+            "DLDI FAT save backend"
+        )
     return errors
 
 
@@ -216,13 +273,14 @@ def main() -> int:
     parser.add_argument("--elf", type=Path, required=True)
     parser.add_argument("--nds", type=Path, required=True)
     parser.add_argument("--pack", type=Path, required=True)
+    parser.add_argument("--rix-profiler", type=Path, required=True)
     parser.add_argument(
         "--tool-prefix", default="/opt/devkitpro/devkitARM/bin/arm-none-eabi-"
     )
     parser.add_argument("--ndstool", default="/opt/devkitpro/tools/bin/ndstool")
     args = parser.parse_args()
 
-    for path in (args.elf, args.nds, args.pack):
+    for path in (args.elf, args.nds, args.pack, args.rix_profiler):
         if not path.is_file():
             raise SystemExit(f"missing required artifact: {path}")
 
@@ -237,11 +295,47 @@ def main() -> int:
                 f"{name} is {actual[1]} bytes, expected {expected_size}"
             )
 
-    for retired in ("pal_nds_audio_ring", "pal_mame_opl2_state"):
+    for retired in (
+        "pal_nds_voice_waves",
+        "pal_nds_rhythm_waves",
+        "pal_nds_sine",
+        "pal_nds_base_timers",
+        "pal_nds_tl_volume",
+        "pal_mame_opl2_state",
+    ):
         if any(
             name == retired or name.endswith("::" + retired) for name in symbols
         ):
-            errors.append(f"retired ARM9 PCM/OPL owner is still linked: {retired}")
+            errors.append(f"retired NDS music owner is still linked: {retired}")
+
+    opl_render = symbols.get("NdsDbOpl2_Render")
+    if opl_render is None:
+        errors.append("missing NdsDbOpl2_Render")
+    elif not (ITCM_START <= opl_render[0] < ITCM_LIMIT):
+        errors.append(
+            f"NdsDbOpl2_Render is at {opl_render[0]:#010x}, outside ARM9 ITCM"
+        )
+
+    for name in EXPECTED_DTCM_OWNERS:
+        owner = symbols.get(name)
+        if owner is not None and not (
+            DTCM_START <= owner[0] and owner[0] + owner[1] <= DTCM_LIMIT
+        ):
+            errors.append(
+                f"{name} is at {owner[0]:#010x}, outside ARM9 DTCM"
+            )
+
+    dtcm_bss_end = symbols.get("__dtcm_bss_end")
+    if dtcm_bss_end is None:
+        errors.append("missing __dtcm_bss_end")
+        unused_dtcm = 0
+    else:
+        unused_dtcm = DTCM_LIMIT - dtcm_bss_end[0]
+        if unused_dtcm < MIN_UNUSED_DTCM:
+            errors.append(
+                f"unused ARM9 DTCM user-stack space is {unused_dtcm}, "
+                f"minimum {MIN_UNUSED_DTCM}"
+            )
 
     heap = symbols.get("__heap_start_ntr")
     if heap is None:
@@ -295,6 +389,15 @@ def main() -> int:
     if source_hash != embedded_hash:
         errors.append("embedded pal_full.pak SHA-256 differs from its source")
 
+    maximum_writes, maximum_write_track = profile_rix_writes(
+        args.rix_profiler, args.pack
+    )
+    if maximum_writes > MAX_OPL_WRITES_PER_TICK:
+        errors.append(
+            f"RIX track {maximum_write_track} writes {maximum_writes} OPL "
+            f"registers in one tick, exceeds {MAX_OPL_WRITES_PER_TICK}"
+        )
+
     if errors:
         for error in errors:
             print(f"error: {error}")
@@ -307,6 +410,11 @@ def main() -> int:
         f"unused={unused} bytes"
     )
     print(f"  fixed_owners={fixed_bytes} bytes, native_screens=2x256x192x8")
+    print(f"  unused_DTCM_user_stack={unused_dtcm} bytes")
+    print(
+        f"  max_opl_writes_per_tick={maximum_writes} "
+        f"(track {maximum_write_track}), capacity={MAX_OPL_WRITES_PER_TICK}"
+    )
     print(
         f"  ROM={args.nds.stat().st_size} bytes, pal_full.pak={pack_size} bytes, "
         f"pack_set={pack_set:#010x}"
