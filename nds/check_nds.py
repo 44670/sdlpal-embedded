@@ -308,6 +308,15 @@ def main() -> int:
         ):
             errors.append(f"retired NDS music owner is still linked: {retired}")
 
+    for retired in ("fatInitDefault", "nitroFSInit"):
+        if retired in symbols:
+            errors.append(
+                f"whole-device filesystem probe is still linked: {retired}"
+            )
+    for required in ("dvmProbeMountDiscIface", "nitroFSMount"):
+        if required not in symbols:
+            errors.append(f"missing selective NitroFS mount symbol: {required}")
+
     opl_render = symbols.get("NdsDbOpl2_Render")
     if opl_render is None:
         errors.append("missing NdsDbOpl2_Render")

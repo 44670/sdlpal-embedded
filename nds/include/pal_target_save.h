@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 bool PalTargetSave_Init(void);
+void NdsTargetSave_SetMountedVolume(const char *volume_name);
 bool PalTargetSave_Available(void);
 int PalTargetSave_Type(void);
 uint32_t PalTargetSave_Capacity(void);

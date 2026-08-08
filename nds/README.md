@@ -3,11 +3,11 @@
 This directory owns the classic Nintendo DS/DS Lite port. The target is one
 self-contained `.nds`: ARM9 code and the complete native `pal_full.pak` are in
 the cartridge image, and gameplay never opens an external TF resource file.
-Mutable saves are ordinary files on the loader's DLDI device (SD) and are not
+Mutable saves are ordinary files on the writable launch volume and are not
 part of the read-only ROM image.
 
 The port now builds and reaches real gameplay with native video, keys,
-NitroFS resource streaming, DLDI FAT save code, and a threaded full-rate
+NitroFS resource streaming, FAT save code, and a threaded full-rate
 software RIX/OPL2 music backend. `make -C nds check` is the authoritative
 build, ROM-content, audio-equivalence, and 4MB main-memory gate. Full
 acceptance is still open: it requires the DeSmuME harness described below,
@@ -18,8 +18,8 @@ Lite hardware testing.
 
 - Build with devkitARM, libnds, `MEM_LEVEL2`, `PAL_NO_RUNTIME_HEAP`, and
   `PAL_NO_RUNTIME_DECOMPRESS`.
-- Run the engine on ARM9. Use libnds directly for video, keys, timing, direct
-  Slot-1 ROM access, and the Calico ARM7 sound service; SDL is only a
+- Run the engine on ARM9. Use libnds directly for video, keys, timing,
+  NitroROM access, and the Calico ARM7 sound service; SDL is only a
   compile-time API shim on the target.
 - Keep the legacy 320x200 space as a gameplay/resource coordinate contract.
   Render maps and UI directly at native 256x192 geometry; never resize a
@@ -59,12 +59,15 @@ the source of truth for sizes; do not copy measured byte counts into prose.
 ## ROM resources and save storage
 
 The build stages the complete pack at `build/nitrofiles/pal_full.pak` and lets
-`ndstool` append it as NitroFS. At runtime `nitroFSInit(NULL)` mounts direct
-Slot-1 and the provider performs bounded `lseek`/`read` operations on
-`nitro:/pal_full.pak`. The pack remains in ROM rather than becoming ARM9
-`.rodata`; `pal_core.pak`, chapter bundles, and `PALSET.BIN` are not part of
-this target. The DLDI interface (`fatInitDefault()`) is used only for the
-save files described below, never for resources.
+`ndstool` append it as NitroFS. At runtime the provider mounts only the launch
+medium: internal SD in TWL mode or DLDI in NTR mode. It then uses
+`nitroromGetSelf()` plus `nitroFSMount()` to open the executable named by the
+loader's `argv[0]`; direct-card emulator launches without an argv use Calico's
+card path. The provider performs bounded `lseek`/`read` operations on
+`nitro:/pal_full.pak`. It deliberately does not call `nitroFSInit(NULL)`,
+because that wrapper first calls `fatInitDefault()` and probes unrelated block
+devices. The pack remains in ROM rather than becoming ARM9 `.rodata`;
+`pal_core.pak`, chapter bundles, and `PALSET.BIN` are not part of this target.
 
 At boot, the provider derives the fixed resident Level2 view from the complete
 pack while retaining bounded streaming access to all other chunks. The main
@@ -72,10 +75,11 @@ RAM owners include the scene, player, battle, and two fight arenas, one
 resident-pack owner, one TOC owner, one transient chunk owner, and two
 256x192x8 logical screens. The physical main-engine BG pages remain display
 storage, not general RAM. A selected RIX track streams directly from Slot-1
-into its fixed current-track owner; it never uses the shared transient chunk.
+or the launch-file NitroROM into its fixed current-track owner; it never uses
+the shared transient chunk.
 
-PAL saves are files on the DLDI device: five fixed slots at
-`fat:/sdlpal/N.sav`, each a 192KiB image with a per-slot CRC payload and a
+PAL saves are files on the already-mounted launch volume: five fixed slots at
+`<launch>:/sdlpal/N.sav`, each a 192KiB image with a per-slot CRC payload and a
 commit footer at the fixed tail offset. A write goes to `N.tmp`, is read back
 and verified, and is renamed over the live slot last, so a power loss
 mid-write keeps the previous committed save. This backend is deliberate: a
@@ -94,23 +98,25 @@ checker requires unit code `0x02`, a `0x4000` header, and zero DSiWare
 public/private save fields. The ROM header identifies the image as `SDLPAL`,
 maker `00`, with ndstool's `####` homebrew game code.
 
-## Forced DS (NTR) mode under TWiLight Menu
+## TWiLight Menu launch mode
 
 TWiLight Menu classifies homebrew by the ARM9 boot-code signature, unit code,
 and ARM7 address — never by game code — and direct-boots "modern" homebrew in
-DSi mode, bypassing nds-bootstrap. To run this port in forced DS (NTR) mode
-without losing the TWL header that the direct boot path requires, the build
-emits `sdlpal.nds.ini` next to the ROM. Copy it to the TWiLight per-game
-settings directory with a name matching the ROM file:
+DSi mode. That TWL direct path is the accepted hardware launch mode. Do not
+install the former per-game file containing `DSI_MODE = 0`; remove it if it is
+already present:
 
 ```sh
-cp nds/sdlpal.nds.ini <sd>/_nds/TWiLightMenu/gamesettings/sdlpal.nds.ini
+rm <sd>/_nds/TWiLightMenu/gamesettings/sdlpal.nds.ini
 ```
 
-`DSI_MODE = 0` routes the launch through nds-bootstrap with DS mode forced
-(67MHz, 4MB view); the touch-screen boot log then prints `mode: NTR (DS)`.
-Without the ini the same ROM boots in DSi mode and prints `mode: TWL (DSi)`.
-Emulators and flashcart kernels that load the `.nds` directly ignore the ini.
+The touch-screen log must print `mode: TWL (DSi)`, followed by
+`storage: mounting TWL SD` and `storage: TWL SD ok`. The target still obeys
+the classic 4MB fixed-owner memory gate; TWL mode is used for a compatible
+launch and storage path, not as permission to add DSi-only game memory.
+Forced NTR mode has been observed to fail Calico's self-ROM NitroFS mount on
+this nds-bootstrap path. Emulators that expose the image as a direct Slot-1
+card continue to use that path without mounting host storage.
 
 ## Threaded RIX/OPL2 music
 
@@ -302,7 +308,7 @@ only route, or synthesizing screenshots is not natural-route proof.
 
 For each changed screen, keep exact emulator framebuffer captures under
 `tmp_ui/nds/` and perform the normal human review. DeSmuME proves emulator
-integration; it has no DLDI device, so save I/O reports unavailable there and
+integration; it has no writable launch volume, so save I/O reports unavailable there and
 save/reload acceptance runs on hardware. Final sound timing, save-file
 behavior, controls, and visual output still require a 4MB Nintendo DS or DS
 Lite.

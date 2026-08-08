@@ -155,7 +155,6 @@ $(OUTPUT).nds: $(OUTPUT).elf $(NITRO_STAGE) $(GAME_ICON) $(PROJECT_DIR)/Makefile
 	   $(_ADDFILES) -g '####' $(NDS_MAKER_CODE) "$(GAME_TITLE)" \
 	   $(NDS_ROM_VERSION)
 	$(SILENTMSG) built ... $(notdir $@)
-	@printf '[GAMESETTINGS]\nDSI_MODE = 0\n' > $@.ini
 $(OUTPUT).elf: $(OFILES)
 
 $(NITRO_STAGE): $(PAL_FULL_PACK)

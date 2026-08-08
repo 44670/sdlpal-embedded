@@ -2,9 +2,6 @@
 
 #include "pal_target_board.h"
 
-#include <nds.h>
-#include <fat.h>
-
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -24,11 +21,9 @@ enum {
    PAL_NDS_SAVE_COMMITTED = 0x53415645u,
 };
 
-#define PAL_NDS_SAVE_DIR "fat:/sdlpal"
-
 /*
- * Saves are ordinary files on the loader's DLDI device (SD on the accepted
- * TWiLight Menu boot path).  This is the only writable storage a homebrew
+ * Saves are ordinary files on the launch FAT volume (the internal SD card in
+ * the accepted TWiLight Menu TWL path).  This is the writable storage a homebrew
  * launched from SD can rely on: the Slot-1 backup chip that retail games use
  * does not exist behind a software loader, and nds-bootstrap only patches
  * cardEeprom* for retail ROMs, never for homebrew.  Each slot is one file
@@ -56,6 +51,26 @@ static const uint8_t pal_nds_save_magic[8] = {
 static uint8_t pal_nds_save_verify[PAL_NDS_SAVE_IO_BYTES]
    __attribute__((aligned(4), section(".bss.pal_nds_save")));
 static bool pal_nds_save_available;
+static const char *pal_nds_save_dir;
+
+void
+NdsTargetSave_SetMountedVolume(
+   const char *volume_name)
+{
+   pal_nds_save_available = false;
+   if (volume_name != NULL && strcmp(volume_name, "fat") == 0)
+   {
+      pal_nds_save_dir = "fat:/sdlpal";
+   }
+   else if (volume_name != NULL && strcmp(volume_name, "sd") == 0)
+   {
+      pal_nds_save_dir = "sd:/sdlpal";
+   }
+   else
+   {
+      pal_nds_save_dir = NULL;
+   }
+}
 
 static void
 pal_nds_save_log(
@@ -122,7 +137,7 @@ pal_nds_save_slot_path(
       return false;
    }
    length = snprintf(path, capacity, "%s/%d.%s",
-      PAL_NDS_SAVE_DIR, slot, temporary ? "tmp" : "sav");
+      pal_nds_save_dir, slot, temporary ? "tmp" : "sav");
    return length > 0 && (size_t)length < capacity;
 }
 
@@ -167,18 +182,19 @@ bool
 PalTargetSave_Init(
    void)
 {
-   pal_nds_save_available = fatInitDefault();
-   if (pal_nds_save_available)
+   if (pal_nds_save_dir != NULL)
    {
-      if (mkdir(PAL_NDS_SAVE_DIR, 0777) != 0)
+      if (mkdir(pal_nds_save_dir, 0777) != 0)
       {
          /* EEXIST is fine; any other error surfaces on the first slot I/O. */
       }
-      pal_nds_save_log("save: dldi fat ok");
+      pal_nds_save_available = true;
+      pal_nds_save_log("save: launch fat ok");
    }
    else
    {
-      pal_nds_save_log("save: dldi fat init failed");
+      pal_nds_save_available = false;
+      pal_nds_save_log("save: no writable launch fat");
    }
    return pal_nds_save_available;
 }
@@ -194,7 +210,7 @@ int
 PalTargetSave_Type(
    void)
 {
-   /* Backend 0 is the DLDI FAT file store; the retired Slot-1 types 1-3 no
+   /* Backend 0 is the launch FAT file store; the retired Slot-1 types 1-3 no
       longer exist on this target. */
    return 0;
 }

@@ -3,20 +3,21 @@
 Near-term work items for this target. Each entry lists the current state and
 what "done" means. Keep this file short; delete entries as they land.
 
-## 1. DLDI FAT saves
+## 1. Launch-volume FAT saves
 
 State: implemented in `source/nds_save.c` (five fixed slots at
-`fat:/sdlpal/N.sav`, tmp-write + read-back verify + rename commit). The
+`<launch>:/sdlpal/N.sav`, tmp-write + read-back verify + rename commit). The
 retired Slot-1 EEPROM backend could not persist on the accepted TWiLight
 Menu boot path — nds-bootstrap only patches `cardEeprom*` for retail ROMs,
 never for homebrew.
 
 Remaining:
 
-- Real-hardware acceptance: boot the TWL-header build, confirm the touch
-  console prints `save: dldi fat ok`, save in-game, and check that
+- Real-hardware acceptance: boot the TWL-header build without a forced-NTR
+  per-game ini, confirm the console prints `mode: TWL (DSi)`,
+  `storage: TWL SD ok`, and `save: launch fat ok`, save in-game, and check that
   `/sdlpal/1.sav` appears on the SD card and reloads after power-cycle.
-- DeSmuME has no DLDI device, so save/reload acceptance is hardware-only;
+- DeSmuME has no writable launch volume, so save/reload acceptance is hardware-only;
   the emulator path intentionally reports saves unavailable and continues.
 
 ## 2. Accept threaded full-rate RIX music

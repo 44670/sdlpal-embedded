@@ -100,7 +100,7 @@ NdsTarget_ShowReady(
    iprintf("\nROM  NitroFS pal_full.pak\n");
    if (save_available)
    {
-      iprintf("SAVE DLDI FAT /sdlpal %lu KiB\n",
+      iprintf("SAVE FAT /sdlpal %lu KiB\n",
          (unsigned long)(save_bytes / 1024u));
    }
    else

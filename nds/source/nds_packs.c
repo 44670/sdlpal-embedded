@@ -4,8 +4,12 @@
 #include "pal_level2_resident_pack.h"
 #include "pal_memory_profile.h"
 #include "pal_target_board.h"
+#include "pal_target_save.h"
 
+#include <calico/dev/blk.h>
+#include <dvm.h>
 #include <filesystem.h>
+#include <nds.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -19,6 +23,114 @@
 
 static int pal_nds_pack_fd = -1;
 static const char *pal_nds_pack_error = "resource pack initialization failed";
+static const char *pal_nds_launch_path;
+static BlkDevice pal_nds_storage_device;
+
+enum {
+   PAL_NDS_FAT_CACHE_PAGES = 4u,
+   PAL_NDS_FAT_SECTORS_PER_PAGE = 8u,
+};
+
+static bool
+pal_nds_storage_startup(
+   void)
+{
+   blkInit();
+   return blkDevInit(pal_nds_storage_device);
+}
+
+static bool
+pal_nds_storage_inserted(
+   void)
+{
+   return blkDevIsPresent(pal_nds_storage_device);
+}
+
+static bool
+pal_nds_storage_read(
+   sec_t first_sector,
+   sec_t sector_count,
+   void *buffer)
+{
+   return blkDevReadSectors(
+      pal_nds_storage_device, buffer, first_sector, sector_count);
+}
+
+static bool
+pal_nds_storage_write(
+   sec_t first_sector,
+   sec_t sector_count,
+   const void *buffer)
+{
+   return blkDevWriteSectors(
+      pal_nds_storage_device, buffer, first_sector, sector_count);
+}
+
+static bool
+pal_nds_storage_ok(
+   void)
+{
+   return true;
+}
+
+static DISC_INTERFACE pal_nds_storage_iface = {
+   .ioType = 0x4c415050u,
+   .features = FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE,
+   .startup = pal_nds_storage_startup,
+   .isInserted = pal_nds_storage_inserted,
+   .readSectors = pal_nds_storage_read,
+   .writeSectors = pal_nds_storage_write,
+   .clearStatus = pal_nds_storage_ok,
+   .shutdown = pal_nds_storage_ok,
+};
+
+void
+NdsTarget_SetLaunchPath(
+   const char *path)
+{
+   pal_nds_launch_path = path;
+}
+
+static const char *
+pal_nds_launch_volume(
+   void)
+{
+   if (pal_nds_launch_path != NULL &&
+      strncmp(pal_nds_launch_path, "sd:/", 4u) == 0)
+   {
+      return "sd";
+   }
+   return "fat";
+}
+
+static bool
+pal_nds_mount_launch_storage(
+   void)
+{
+   const char *volume;
+
+   if (pal_nds_launch_path == NULL || pal_nds_launch_path[0] == '\0')
+   {
+      return false;
+   }
+   volume = pal_nds_launch_volume();
+   pal_nds_storage_device = isDSiMode()
+      ? BlkDevice_TwlSdCard : BlkDevice_Dldi;
+   NdsTarget_BootLog(isDSiMode()
+      ? "storage: mounting TWL SD" : "storage: mounting NTR DLDI");
+   if (dvmProbeMountDiscIface(
+         volume,
+         &pal_nds_storage_iface,
+         PAL_NDS_FAT_CACHE_PAGES,
+         PAL_NDS_FAT_SECTORS_PER_PAGE) == 0u)
+   {
+      return false;
+   }
+   NdsTargetSave_SetMountedVolume(volume);
+   NdsTarget_BootLog(isDSiMode()
+      ? "storage: TWL SD ok" : "storage: NTR DLDI ok");
+   return true;
+}
 
 const char *
 NdsTarget_PackError(
@@ -69,11 +181,21 @@ PalEngineBridge_TargetInitPacks(
    PalFont10Cache font10;
    uint32_t resident_size;
    uint32_t full_size;
+   NitroRom *rom;
 
    PalEngineBridge_ClearPacks();
-   if (!nitroFSInit(NULL))
+   NdsTargetSave_SetMountedVolume(NULL);
+   if (pal_nds_launch_path != NULL &&
+      !pal_nds_mount_launch_storage())
    {
-      pal_nds_pack_error = "NitroFS direct Slot-1 mount failed";
+      pal_nds_pack_error = isDSiMode()
+         ? "TWL SD mount failed" : "NTR DLDI mount failed";
+      return false;
+   }
+   rom = nitroromGetSelf();
+   if (rom == NULL || !nitroFSMount(rom))
+   {
+      pal_nds_pack_error = "NitroFS self-ROM mount failed";
       return false;
    }
    pal_nds_pack_fd = open(PAL_NDS_PACK_PATH, O_RDONLY);
