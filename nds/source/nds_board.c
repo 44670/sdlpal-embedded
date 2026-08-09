@@ -40,7 +40,7 @@ NdsTarget_Begin(
    consoleClear();
    iprintf("SDLPAL Nintendo DS\n");
    iprintf("commit %s\n", NDS_GIT_REVISION);
-   iprintf("mode: %s\n\n", isDSiMode() ? "TWL (DSi)" : "NTR (DS)");
+   iprintf("mode: %s\n\n", isDSiMode() ? "TWL rejected" : "NTR only");
    iprintf("console ok\n");
 
    videoSetMode(MODE_5_2D);
@@ -100,13 +100,13 @@ NdsTarget_ShowReady(
    iprintf("\nROM  NitroFS pal_full.pak\n");
    if (save_available)
    {
-      iprintf("SAVE FAT /sdlpal %lu KiB\n",
+      iprintf("SAVE Slot-1 type %d %lu KiB\n", save_type,
          (unsigned long)(save_bytes / 1024u));
    }
    else
    {
       iprintf("SAVE unavailable backend=%d\n", save_type);
-      iprintf("     needs a writable DLDI device\n");
+      iprintf("     needs a 1MiB retail save\n");
    }
    iprintf("\nA confirm   B menu/back\n");
    iprintf("D-pad move  X status\n");

@@ -188,7 +188,21 @@ def json_reply(opcode: int, payload: bytes) -> dict[str, object]:
 
 
 def memory_reply(opcode: int, payload: bytes) -> dict[str, object]:
-    """Decode the debug harness' intentionally hex-formatted word list."""
+    """Decode current JSON memory replies and the legacy bare-hex form."""
+    if opcode == 1:
+        try:
+            reply = json.loads(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        else:
+            words = reply.get("words") if isinstance(reply, dict) else None
+            if (reply.get("ok") and isinstance(words, list)
+                    and all(isinstance(word, str)
+                            and word.startswith("0x")
+                            and len(word) == 10 for word in words)):
+                return reply
+            raise HarnessError(f"invalid memory reply: {payload!r}")
+
     prefix = b'{"ok":true,"words":['
     if opcode != 1 or not payload.startswith(prefix):
         raise HarnessError(f"invalid memory reply: {payload!r}")
@@ -225,13 +239,16 @@ def execute_action(ws: WebSocket, action: str, root: Path) -> dict[str, object]:
         reply = json_reply(*ws.command(
             {"cmd": "input", "key": key, "action": name}
         ))
-    elif name in ("status", "pause", "resume") and len(fields) == 1:
+    elif name in (
+        "status", "pause", "resume", "regs", "flush-save", "reset"
+    ) and len(fields) == 1:
         reply = json_reply(*ws.command({"cmd": name}))
-    elif name == "mem" and len(fields) == 3:
+    elif name in ("mem", "mem7") and len(fields) == 3:
         reply = memory_reply(*ws.command({
             "cmd": "mem",
             "address": int(fields[1], 0),
             "length": int(fields[2], 0),
+            "cpu": "arm7" if name == "mem7" else "arm9",
         }))
     elif name == "capture" and len(fields) in (2, 3):
         screen = fields[2] if len(fields) == 3 else "main"
@@ -274,6 +291,7 @@ def copy_emulator_log(
     destination: BinaryIO,
     process: subprocess.Popen[bytes],
     fatal: threading.Event,
+    stop_on_fatal: bool,
 ) -> None:
     written = 0
     while True:
@@ -287,9 +305,9 @@ def copy_emulator_log(
             written += amount
         if any(marker in block for marker in FATAL_LOG_MARKERS):
             fatal.set()
-            if process.poll() is None:
+            if stop_on_fatal and process.poll() is None:
                 process.kill()
-            return
+                return
 
 
 def main() -> int:
@@ -303,14 +321,32 @@ def main() -> int:
     parser.add_argument(
         "--action", action="append", default=[],
         help=("ordered action: run:N, tap:KEY[:N], down:KEY, up:KEY, status, "
-              "pause, resume, mem:ADDRESS:LENGTH, or "
+              "pause, resume, regs, flush-save, reset, mem:ADDRESS:LENGTH, "
+              "mem7:ADDRESS:LENGTH, or "
               "capture:FILE[:main|touch|both]"),
     )
     parser.add_argument(
         "--audio-capture", type=Path,
         help="write DeSmuME's raw SDL audio stream under the session directory",
     )
+    parser.add_argument(
+        "--desmume-arg", action="append", default=[],
+        help="additional DeSmuME argument inserted before the ROM (repeatable)",
+    )
+    cflash = parser.add_mutually_exclusive_group()
+    cflash.add_argument(
+        "--cflash-path", type=Path,
+        help="mount this host directory as the emulated Slot-2 FAT volume",
+    )
+    cflash.add_argument(
+        "--cflash-image", type=Path,
+        help="mount this persistent FAT image as the emulated Slot-2 volume",
+    )
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--allow-cpu-failure", action="store_true",
+        help="retain diagnostic control after an emulated CPU failure",
+    )
     args = parser.parse_args()
 
     if not args.rom.is_file():
@@ -357,7 +393,17 @@ def main() -> int:
     ]
     if audio_path is None:
         command.append("--disable-limiter")
-    command.extend(("--nojoy", str(args.rom.resolve())))
+    command.append("--nojoy")
+    if args.cflash_path is not None:
+        if not args.cflash_path.is_dir():
+            raise SystemExit(f"missing cflash directory: {args.cflash_path}")
+        command.extend(("--cflash-path", str(args.cflash_path.resolve())))
+    if args.cflash_image is not None:
+        if not args.cflash_image.is_file():
+            raise SystemExit(f"missing cflash image: {args.cflash_image}")
+        command.extend(("--cflash-image", str(args.cflash_image.resolve())))
+    command.extend(args.desmume_arg)
+    command.append(str(args.rom.resolve()))
     log: BinaryIO = log_path.open("wb")
     process = subprocess.Popen(command, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, env=environment)
@@ -365,7 +411,7 @@ def main() -> int:
     fatal_log = threading.Event()
     log_thread = threading.Thread(
         target=copy_emulator_log,
-        args=(process.stdout, log, process, fatal_log),
+        args=(process.stdout, log, process, fatal_log, not args.allow_cpu_failure),
         name="desmume-log",
         daemon=True,
     )
@@ -403,7 +449,7 @@ def main() -> int:
         log.close()
         if temporary is not None:
             temporary.cleanup()
-    if fatal_log.is_set():
+    if fatal_log.is_set() and not args.allow_cpu_failure:
         raise HarnessError(f"DeSmuME reported an emulated CPU failure; see {log_path}")
     if audio_path is not None:
         if not audio_path.is_file():

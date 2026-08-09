@@ -1,25 +1,31 @@
 # Nintendo DS native port
 
-This directory owns the classic Nintendo DS/DS Lite port. The target is one
-self-contained `.nds`: ARM9 code and the complete native `pal_full.pak` are in
-the cartridge image, and gameplay never opens an external TF resource file.
-Mutable saves are ordinary files on the writable launch volume and are not
-part of the read-only ROM image.
+This directory owns the classic Nintendo DS/DS Lite port. The accepted target
+is one self-contained, NTR-only retail-style `.nds`. ARM9 code and the complete
+native `pal_full.pak` are in the ROM image. The game has no TWL mode, homebrew
+boot path, DLDI target, launch-volume filesystem dependency, or flashcart-
+specific protocol.
 
-The port now builds and reaches real gameplay with native video, keys,
-NitroFS resource streaming, FAT save code, and a threaded full-rate
-software RIX/OPL2 music backend. `make -C nds check` is the authoritative
-build, ROM-content, audio-equivalence, and 4MB main-memory gate. Full
-acceptance is still open: it requires the DeSmuME harness described below,
-repeatable natural gameplay captures, save/reload coverage, and final DS/DS
-Lite hardware testing.
+The ROM exposes Nintendo SDK-shaped CARD, IRQ, NitroFS, and backup-device
+surfaces so an ordinary retail loader can discover and redirect it. It does
+not know whether that loader is nds-bootstrap, a flashcart kernel, or another
+retail-compatible implementation. Official nds-bootstrap v2.16.0 is the
+minimum verified loader: it boots the ROM, redirects reads beyond 32MiB, and
+persists/reloads the 1MiB save sidecar. `make -C nds check` is authoritative
+for the ROM surfaces, audio equivalence, and 4MB memory bounds.
 
 ## Target contract
 
+- Produce an NTR-only retail-style image: unit code `0x00`, no TWL header
+  extensions or load lists, no DLDI patch target, and no homebrew loader ABI.
+  NTR-only is an image property, not a TWiLight per-game mode override.
+- Target the retail CARD/backup contract, not R4, DSpico, or another device's
+  private API. Compatible loaders adapt themselves by applying their normal
+  retail-ROM and save redirection.
 - Build with devkitARM, libnds, `MEM_LEVEL2`, `PAL_NO_RUNTIME_HEAP`, and
   `PAL_NO_RUNTIME_DECOMPRESS`.
 - Run the engine on ARM9. Use libnds directly for video, keys, timing,
-  NitroROM access, and the Calico ARM7 sound service; SDL is only a
+  NTR Slot-1 card access, and the Calico ARM7 sound service; SDL is only a
   compile-time API shim on the target.
 - Keep the legacy 320x200 space as a gameplay/resource coordinate contract.
   Render maps and UI directly at native 256x192 geometry; never resize a
@@ -53,20 +59,20 @@ make -C nds PAL_FULL_PACK=/path/to/pal_full.pak check
 
 The gate checks every named fixed owner, leaves a required ARM9 main-RAM
 margin, verifies that NitroFS contains only `/pal_full.pak`, and compares that
-ROM extent byte-for-byte with the selected source pack. Its current output is
-the source of truth for sizes; do not copy measured byte counts into prose.
+ROM extent byte-for-byte with the selected source pack. It also requires unit
+code `0x00`, a zeroed TWL header area, the retail classifier and ARM7/ARM9 SDK
+patch surfaces, valid header and secure-area CRCs, a trimmed NTR image, bounded
+ARM7 relocation/WRAM ranges, and no DLDI or retired homebrew-storage symbols.
+Its current output is the source of truth for sizes.
 
 ## ROM resources and save storage
 
 The build stages the complete pack at `build/nitrofiles/pal_full.pak` and lets
-`ndstool` append it as NitroFS. At runtime the provider mounts only the launch
-medium: internal SD in TWL mode or DLDI in NTR mode. It then uses
-`nitroromGetSelf()` plus `nitroFSMount()` to open the executable named by the
-loader's `argv[0]`; direct-card emulator launches without an argv use Calico's
-card path. The provider performs bounded `lseek`/`read` operations on
-`nitro:/pal_full.pak`. It deliberately does not call `nitroFSInit(NULL)`,
-because that wrapper first calls `fatInitDefault()` and probes unrelated block
-devices. The pack remains in ROM rather than becoming ARM9 `.rodata`;
+`ndstool` append it as NitroFS. A loader must expose the selected image through
+ordinary retail CARD reads. Runtime code parses that ROM's FNT/FAT directly;
+it never discovers the ROM through `argv[0]`, opens the `.nds` as a FAT file,
+calls `fatInitDefault()`, or uses DLDI. The pack remains in ROM rather than
+becoming ARM9 `.rodata`;
 `pal_core.pak`, chapter bundles, and `PALSET.BIN` are not part of this target.
 
 At boot, the provider derives the fixed resident Level2 view from the complete
@@ -75,48 +81,51 @@ RAM owners include the scene, player, battle, and two fight arenas, one
 resident-pack owner, one TOC owner, one transient chunk owner, and two
 256x192x8 logical screens. The physical main-engine BG pages remain display
 storage, not general RAM. A selected RIX track streams directly from Slot-1
-or the launch-file NitroROM into its fixed current-track owner; it never uses
-the shared transient chunk.
+into its fixed current-track owner; it never uses the shared transient chunk.
 
-PAL saves are files on the already-mounted launch volume: five fixed slots at
-`<launch>:/sdlpal/N.sav`, each a 192KiB image with a per-slot CRC payload and a
-commit footer at the fixed tail offset. A write goes to `N.tmp`, is read back
-and verified, and is renamed over the live slot last, so a power loss
-mid-write keeps the previous committed save. This backend is deliberate: a
-homebrew launched from SD has no Slot-1 backup chip behind it, and
-nds-bootstrap only redirects `cardEeprom*` for retail ROMs it recognizes by
-Nintendo SDK signatures — never for homebrew — so the retired Slot-1 EEPROM
-backend could not persist anything on the accepted TWiLight Menu boot path.
-`make_slot1_save.py` is retired with that backend.
+Saves use the retail backup-device path. The loader redirects the game's
+ordinary backup accesses to one 1MiB sidecar `.sav`; the game does not create
+files or mount a FAT volume. The five fixed 192KiB PAL slots fit in that image
+and retain their per-slot CRC and commit footer.
+`make_slot1_save.py` defines the pre-provisioned image layout. Retail software
+knows its backup protocol: this title always uses type-3, three-byte-address
+flash and does not probe a chip type or size at runtime. Each write erases its
+three 64KiB sectors, writes the payload, and writes the footer last. The load
+path validates the footer and complete payload CRC.
 
-The shipped image keeps Calico's default TWL-aware ARM9/ARM7 ELFs and the
-full `0x4000` ROM header with the TWL loadlist (unit code `0x02`). The
-NTR-only image (`ndstool -h 0x200`, unit code `0x00`) white-screens on the
-accepted real-hardware boot path (TWiLight Menu / nds-bootstrap); this was
-verified by byte-comparing against a known-good on-device binary. The
-checker requires unit code `0x02`, a `0x4000` header, and zero DSiWare
-public/private save fields. The ROM header identifies the image as `SDLPAL`,
-maker `00`, with ndstool's `####` homebrew game code.
-
-## TWiLight Menu launch mode
-
-TWiLight Menu classifies homebrew by the ARM9 boot-code signature, unit code,
-and ARM7 address — never by game code — and direct-boots "modern" homebrew in
-DSi mode. That TWL direct path is the accepted hardware launch mode. Do not
-install the former per-game file containing `DSI_MODE = 0`; remove it if it is
-already present:
+Provision a known PAL save into the required raw sidecar before first launch:
 
 ```sh
-rm <sd>/_nds/TWiLightMenu/gamesettings/sdlpal.nds.ini
+python3 -B nds/make_slot1_save.py /path/to/0.RPG /path/to/sdlpal.sav
 ```
 
-The touch-screen log must print `mode: TWL (DSi)`, followed by
-`storage: mounting TWL SD` and `storage: TWL SD ok`. The target still obeys
-the classic 4MB fixed-owner memory gate; TWL mode is used for a compatible
-launch and storage path, not as permission to add DSi-only game memory.
-Forced NTR mode has been observed to fail Calico's self-ROM NitroFS mount on
-this nds-bootstrap path. Emulators that expose the image as a direct Slot-1
-card continue to use that path without mounting host storage.
+Use the sidecar name and location required by the selected loader.
+
+The final ROM header must identify an NTR title with a unique game code and a
+retail classifier signature, while retaining the normal `0x4000` NTR header
+area and valid header/secure-area CRCs. It must not contain TWL metadata or a
+DLDI patch target. This is a retail-loader contract, not a claim that the image
+is an officially signed Nintendo release.
+
+## Retail-loader route
+
+The ROM contains no R4, DSpico, or other flashcart-specific implementation.
+Those products can support it only by recognizing the ROM as a retail NTR title
+and providing their normal CARD and backup-device redirection. A DLDI/homebrew
+launch is not a supported fallback.
+
+Official nds-bootstrap v2.16.0 is the verified baseline. It finds the SDK-style
+ARM9 CARD/IRQ surface and ARM7 universal-backup surface, installs its card
+engines, maps the selected ROM as Slot-1, and redirects the 1MiB save. The
+Calico ARM7 build uses a small NTR retail startup because its normal homebrew
+startup clears `0x02FFD000`, which is loader-owned memory. The replacement
+loads only the declared sections and joins the loader-patched IRQ tables to
+Calico's live dispatchers.
+
+The test happens to launch official nds-bootstrap through DeSmuME's emulated
+R4 device. That device is only the environment running the loader; it is not a
+target API and no R4 code is linked into the game. Physical loader, controls,
+and audio acceptance remain separate hardware work.
 
 ## Threaded RIX/OPL2 music
 
@@ -233,7 +242,7 @@ ninja -C build-sdl
 The resulting executable is `build-sdl/cli/desmume-cli`. Meson currently
 requires libpcap even with Wi-Fi disabled.
 
-### Local CPU interpreter fix (required)
+### Local emulator fixes (required)
 
 The audited checkout carries a local fix in `src/arm_instructions.cpp`: the
 `LDM{IB,IA,DA,DB}2(_W)` handlers (exception-return `ldm{.., pc}^`) must align
@@ -248,6 +257,19 @@ aborts). Real hardware is unaffected.
 The checkout also exposes two debug-only WebSocket commands, `regs` (ARM7/ARM9
 pc/lr/sp/cpsr) and `mem` (bounded 32-bit reads), used only by the bring-up
 harness.
+
+The audited checkout also fixes AUXSPI transaction boundaries in `src/MMU.cpp`
+and `src/mc.cpp`. Chip select is held only while backup SPI mode is enabled,
+and a pending command reset is applied before the first byte of the next
+transaction. Without both changes, DeSmuME consumes the next retail-save
+command as data from the preceding command: reads begin at the wrong address,
+and `WREN` swallows the page program. This is an emulator fix; the ROM uses the
+SDK-shaped retail backup calls with a direct libnds cartridge fallback.
+
+DeSmuME still reports the three standard `D8` sector-erase commands as
+unhandled, but its byte-backed page program overwrites the affected data. The
+acceptance run therefore verifies the resulting payload/footer CRCs and a
+relaunch load; actual erase behavior remains part of physical-cart acceptance.
 
 ### WebSocket + SDL harness contract
 
@@ -287,9 +309,10 @@ PCM16. Existing captures made through a different emulator path remain
 historical bring-up artifacts, not final DeSmuME acceptance evidence.
 
 `mem:ADDRESS:LENGTH` forwards the harness's bounded ARM9 debug read and prints
-the returned words as hexadecimal strings. Resolve diagnostic-owner addresses
-from the current ELF with `arm-none-eabi-nm`; addresses are intentionally not
-hard-coded in the driver.
+the returned words as hexadecimal strings. `regs`, `flush-save`, and `reset`
+expose the corresponding emulator-thread commands. Resolve diagnostic-owner
+addresses from the current ELF with `arm-none-eabi-nm`; addresses are
+intentionally not hard-coded in the driver.
 
 For timing-valid disk capture, the local CLI frontend must honor
 `DESMUME_WS_REALTIME` when applying its headless defaults instead of forcing
@@ -308,7 +331,21 @@ only route, or synthesizing screenshots is not natural-route proof.
 
 For each changed screen, keep exact emulator framebuffer captures under
 `tmp_ui/nds/` and perform the normal human review. DeSmuME proves emulator
-integration; it has no writable launch volume, so save I/O reports unavailable there and
-save/reload acceptance runs on hardware. Final sound timing, save-file
-behavior, controls, and visual output still require a 4MB Nintendo DS or DS
-Lite.
+integration and direct Slot-1 ROM reads. Running the official nds-bootstrap
+binary additionally proves that a retail loader finds these patch surfaces and
+redirects the ROM/save in this environment. Final sound timing, controls, and
+loader behavior still require a 4MB Nintendo DS or DS Lite.
+
+The NTR retail/save acceptance run is under
+`tmp_ui/nds/ntr-retail-slot1-save-final4-20260809/`. It starts from a 1MiB raw
+sidecar containing stock `0.RPG`, discovers save count 4, loads it through
+AUXSPI, saves count 5, validates the persisted payload and footer CRCs, then
+relaunches and loads count 5. These are natural menu/input operations through
+the real gameplay loop, not injected ARM9 state.
+
+The nds-bootstrap v2.16.0 acceptance is under
+`tmp_ui/nds/bootstrap-v2.16.0-retail-20260809/`. The final save run is
+`bootstrap-save-final4/`: it loads count 4, saves count 5, and its extracted
+1MiB sidecar has valid generation-2 payload/footer CRCs. After copying that
+sidecar back into the emulated card, `bootstrap-reload-final/` relaunches the
+loader, shows count 5, and loads the map through natural menu input.

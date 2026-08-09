@@ -4,132 +4,32 @@
 #include "pal_level2_resident_pack.h"
 #include "pal_memory_profile.h"
 #include "pal_target_board.h"
-#include "pal_target_save.h"
-
-#include <calico/dev/blk.h>
-#include <dvm.h>
-#include <filesystem.h>
+#include "nds_retail.h"
 #include <nds.h>
 
-#include <errno.h>
-#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <string.h>
 
-#define PAL_NDS_PACK_PATH "nitro:/pal_full.pak"
 #define PAL_NDS_PACK_READ_SLICE 1024u
+#define PAL_NDS_PACK_NAME "pal_full.pak"
 
-static int pal_nds_pack_fd = -1;
 static const char *pal_nds_pack_error = "resource pack initialization failed";
-static const char *pal_nds_launch_path;
-static BlkDevice pal_nds_storage_device;
+static uint32_t pal_nds_pack_rom_offset;
+static uint32_t pal_nds_pack_size;
 
 enum {
-   PAL_NDS_FAT_CACHE_PAGES = 4u,
-   PAL_NDS_FAT_SECTORS_PER_PAGE = 8u,
+   PAL_NDS_NITRO_ROOT_DIR_BYTES = 8u,
+   PAL_NDS_NITRO_FAT_ENTRY_BYTES = 8u,
 };
 
 static bool
-pal_nds_storage_startup(
-   void)
+pal_nds_card_read(
+   uint32_t offset,
+   void *dst,
+   uint32_t size)
 {
-   blkInit();
-   return blkDevInit(pal_nds_storage_device);
-}
-
-static bool
-pal_nds_storage_inserted(
-   void)
-{
-   return blkDevIsPresent(pal_nds_storage_device);
-}
-
-static bool
-pal_nds_storage_read(
-   sec_t first_sector,
-   sec_t sector_count,
-   void *buffer)
-{
-   return blkDevReadSectors(
-      pal_nds_storage_device, buffer, first_sector, sector_count);
-}
-
-static bool
-pal_nds_storage_write(
-   sec_t first_sector,
-   sec_t sector_count,
-   const void *buffer)
-{
-   return blkDevWriteSectors(
-      pal_nds_storage_device, buffer, first_sector, sector_count);
-}
-
-static bool
-pal_nds_storage_ok(
-   void)
-{
-   return true;
-}
-
-static DISC_INTERFACE pal_nds_storage_iface = {
-   .ioType = 0x4c415050u,
-   .features = FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE,
-   .startup = pal_nds_storage_startup,
-   .isInserted = pal_nds_storage_inserted,
-   .readSectors = pal_nds_storage_read,
-   .writeSectors = pal_nds_storage_write,
-   .clearStatus = pal_nds_storage_ok,
-   .shutdown = pal_nds_storage_ok,
-};
-
-void
-NdsTarget_SetLaunchPath(
-   const char *path)
-{
-   pal_nds_launch_path = path;
-}
-
-static const char *
-pal_nds_launch_volume(
-   void)
-{
-   if (pal_nds_launch_path != NULL &&
-      strncmp(pal_nds_launch_path, "sd:/", 4u) == 0)
-   {
-      return "sd";
-   }
-   return "fat";
-}
-
-static bool
-pal_nds_mount_launch_storage(
-   void)
-{
-   const char *volume;
-
-   if (pal_nds_launch_path == NULL || pal_nds_launch_path[0] == '\0')
-   {
-      return false;
-   }
-   volume = pal_nds_launch_volume();
-   pal_nds_storage_device = isDSiMode()
-      ? BlkDevice_TwlSdCard : BlkDevice_Dldi;
-   NdsTarget_BootLog(isDSiMode()
-      ? "storage: mounting TWL SD" : "storage: mounting NTR DLDI");
-   if (dvmProbeMountDiscIface(
-         volume,
-         &pal_nds_storage_iface,
-         PAL_NDS_FAT_CACHE_PAGES,
-         PAL_NDS_FAT_SECTORS_PER_PAGE) == 0u)
-   {
-      return false;
-   }
-   NdsTargetSave_SetMountedVolume(volume);
-   NdsTarget_BootLog(isDSiMode()
-      ? "storage: TWL SD ok" : "storage: NTR DLDI ok");
-   return true;
+   return NdsRetail_CardRead(offset, dst, size);
 }
 
 const char *
@@ -146,28 +46,82 @@ pal_nds_pack_read_at(
    uint8_t *dst,
    uint32_t size)
 {
-   int fd = *(const int *)user;
    uint32_t done = 0u;
 
-   if (fd < 0 || (dst == NULL && size != 0u) ||
-      lseek(fd, (off_t)offset, SEEK_SET) != (off_t)offset)
+   (void)user;
+   if ((dst == NULL && size != 0u) || offset > pal_nds_pack_size ||
+      size > pal_nds_pack_size - offset)
    {
       return false;
    }
    while (done < size)
    {
       uint32_t remaining = size - done;
-      size_t request = remaining > PAL_NDS_PACK_READ_SLICE
-         ? PAL_NDS_PACK_READ_SLICE : (size_t)remaining;
-      ssize_t got = read(fd, dst + done, request);
+      uint32_t request = remaining > PAL_NDS_PACK_READ_SLICE
+         ? PAL_NDS_PACK_READ_SLICE : remaining;
 
-      if (got <= 0)
+      if (!pal_nds_card_read(
+            pal_nds_pack_rom_offset + offset + done, dst + done, request))
       {
          return false;
       }
-      done += (uint32_t)got;
+      done += request;
       NdsTarget_AudioPump();
    }
+   return true;
+}
+
+static bool
+pal_nds_find_pack(
+   const EnvNdsHeader *header,
+   uint32_t card_size)
+{
+   uint8_t root[PAL_NDS_NITRO_ROOT_DIR_BYTES];
+   uint8_t name_entry[1u + sizeof(PAL_NDS_PACK_NAME)];
+   uint8_t fat_entry[PAL_NDS_NITRO_FAT_ENTRY_BYTES];
+   uint32_t root_subtable;
+   uint32_t start;
+   uint32_t end;
+   uint16_t root_file_id;
+   uint16_t dir_count;
+
+   if (header == NULL || header->unitcode != 0u ||
+      header->fnt_size < sizeof(root) ||
+      header->fat_size != sizeof(fat_entry) ||
+      header->fnt_size > card_size ||
+      header->fat_size > card_size ||
+      header->fnt_rom_offset > card_size - header->fnt_size ||
+      header->fat_rom_offset > card_size - header->fat_size ||
+      !pal_nds_card_read(header->fnt_rom_offset, root, sizeof(root)))
+   {
+      return false;
+   }
+   memcpy(&root_subtable, root, sizeof(root_subtable));
+   memcpy(&root_file_id, root + 4u, sizeof(root_file_id));
+   memcpy(&dir_count, root + 6u, sizeof(dir_count));
+   if (root_subtable > header->fnt_size - sizeof(name_entry) ||
+      root_file_id != 0u || dir_count != 1u ||
+      !pal_nds_card_read(
+         header->fnt_rom_offset + root_subtable,
+         name_entry,
+         sizeof(name_entry)) ||
+      name_entry[0] != sizeof(PAL_NDS_PACK_NAME) - 1u ||
+      memcmp(name_entry + 1u, PAL_NDS_PACK_NAME,
+         sizeof(PAL_NDS_PACK_NAME) - 1u) != 0 ||
+      name_entry[sizeof(name_entry) - 1u] != 0u ||
+      !pal_nds_card_read(
+         header->fat_rom_offset, fat_entry, sizeof(fat_entry)))
+   {
+      return false;
+   }
+   memcpy(&start, fat_entry, sizeof(start));
+   memcpy(&end, fat_entry + 4u, sizeof(end));
+   if (start >= end || end > card_size)
+   {
+      return false;
+   }
+   pal_nds_pack_rom_offset = start;
+   pal_nds_pack_size = end - start;
    return true;
 }
 
@@ -175,41 +129,46 @@ bool
 PalEngineBridge_TargetInitPacks(
    void)
 {
-   struct stat st;
+   EnvNdsHeader header;
    PalPackToc full_toc;
    PalPack resident;
    PalFont10Cache font10;
    uint32_t resident_size;
    uint32_t full_size;
-   NitroRom *rom;
+   uint32_t card_size;
 
    PalEngineBridge_ClearPacks();
-   NdsTargetSave_SetMountedVolume(NULL);
-   if (pal_nds_launch_path != NULL &&
-      !pal_nds_mount_launch_storage())
+   pal_nds_pack_rom_offset = 0u;
+   pal_nds_pack_size = 0u;
+   if (isDSiMode())
    {
-      pal_nds_pack_error = isDSiMode()
-         ? "TWL SD mount failed" : "NTR DLDI mount failed";
+      pal_nds_pack_error = "TWL mode is not supported";
       return false;
    }
-   rom = nitroromGetSelf();
-   if (rom == NULL || !nitroFSMount(rom))
+   NdsTarget_BootLog("storage: opening retail CARD/NitroFS");
+   /* Retail CARD reads cannot access the protected 0x0000..0x7fff region.
+    * The boot firmware/kernel has already copied the application header to
+    * the standard environment slot; use it to locate the FNT/FAT, then read
+    * all file data through the SDK-shaped CARD path. Bytes 0x70 onward may
+    * overlap environment data, so use the nominal cartridge capacity. */
+   memcpy(&header, g_envAppNdsHeader, sizeof(header));
+   if (header.device_capacity >= 15u)
    {
-      pal_nds_pack_error = "NitroFS self-ROM mount failed";
+      pal_nds_pack_error = "NTR Slot-1 capacity is invalid";
       return false;
    }
-   pal_nds_pack_fd = open(PAL_NDS_PACK_PATH, O_RDONLY);
-   if (pal_nds_pack_fd < 0 || fstat(pal_nds_pack_fd, &st) != 0 ||
-      st.st_size < 32 || (uint64_t)st.st_size > UINT32_MAX)
+   card_size = 0x20000u << header.device_capacity;
+   if (!pal_nds_find_pack(&header, card_size))
    {
-      pal_nds_pack_error = "open nitro:/pal_full.pak failed";
+      pal_nds_pack_error = "Slot-1 NitroFS layout is invalid";
       return false;
    }
-   full_size = (uint32_t)st.st_size;
+   NdsTarget_BootLog("storage: retail NitroFS map ok");
+   full_size = pal_nds_pack_size;
    if (!PalPack_OpenTocRead(
          &full_toc,
          pal_nds_pack_read_at,
-         &pal_nds_pack_fd,
+         NULL,
          full_size,
          pal_mem_level2_tf_toc,
          PAL_MEM_LEVEL2_TF_TOC_BYTES))
@@ -224,7 +183,7 @@ PalEngineBridge_TargetInitPacks(
             PAL_LEVEL2_RESIDENT_ARCHIVE_BIT(PAL_PACK_ARCHIVE_TEXT) |
             PAL_LEVEL2_RESIDENT_ARCHIVE_BIT(PAL_PACK_ARCHIVE_FONT),
          pal_nds_pack_read_at,
-         &pal_nds_pack_fd,
+         NULL,
          pal_mem_level2_resident_pack,
          PAL_MEM_LEVEL2_RESIDENT_PACK_BYTES,
          &resident_size))
@@ -251,9 +210,9 @@ PalEngineBridge_TargetInitPacks(
       return false;
    }
    if (!PalEngineBridge_SetTfPackReadAt(
-         full_size, pal_nds_pack_read_at, &pal_nds_pack_fd))
+         full_size, pal_nds_pack_read_at, NULL))
    {
-      pal_nds_pack_error = "NitroFS stream provider setup failed";
+      pal_nds_pack_error = "Slot-1 stream provider setup failed";
       return false;
    }
    pal_nds_pack_error = NULL;

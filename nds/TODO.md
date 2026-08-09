@@ -3,22 +3,20 @@
 Near-term work items for this target. Each entry lists the current state and
 what "done" means. Keep this file short; delete entries as they land.
 
-## 1. Launch-volume FAT saves
+## 1. Validate the retail-loader contract on physical NTR hardware
 
-State: implemented in `source/nds_save.c` (five fixed slots at
-`<launch>:/sdlpal/N.sav`, tmp-write + read-back verify + rename commit). The
-retired Slot-1 EEPROM backend could not persist on the accepted TWiLight
-Menu boot path — nds-bootstrap only patches `cardEeprom*` for retail ROMs,
-never for homebrew.
+State: the software route is complete. The NTR-only image has no TWL, DLDI,
+self-ROM lookup, launch-volume FAT path, or device-specific flashcart code. It
+exports SDK-shaped CARD/IRQ and universal-backup surfaces. Official
+nds-bootstrap v2.16.0 boots it, reads the embedded pack, loads save count 4,
+writes count 5 to the redirected 1MiB sidecar with valid CRCs, then relaunches
+and loads count 5 through natural menus.
 
 Remaining:
 
-- Real-hardware acceptance: boot the TWL-header build without a forced-NTR
-  per-game ini, confirm the console prints `mode: TWL (DSi)`,
-  `storage: TWL SD ok`, and `save: launch fat ok`, save in-game, and check that
-  `/sdlpal/1.sav` appears on the SD card and reloads after power-cycle.
-- DeSmuME has no writable launch volume, so save/reload acceptance is hardware-only;
-  the emulator path intentionally reports saves unavailable and continues.
+- Run a retail-compatible loader on a DS/DS Lite, then verify the same read
+  beyond 32MiB and save/reload after a power cycle. Compatibility belongs to
+  the loader; do not add its private storage protocol to this ROM.
 
 ## 2. Accept threaded full-rate RIX music
 

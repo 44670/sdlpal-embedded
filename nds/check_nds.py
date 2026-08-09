@@ -13,6 +13,10 @@ from pathlib import Path
 
 MAIN_RAM_LIMIT = 0x02380000
 MIN_UNUSED_MAIN_RAM = 256 * 1024
+ARM7_RAW_START = 0x02380000
+ARM7_RAW_LIMIT = 0x023F0000
+ARM7_MAIN_RESERVED_START = 0x02FF0000
+ARM7_CARDENGINE_START = 0x0380E700
 ITCM_START = 0x01FF8000
 ITCM_LIMIT = 0x02000000
 DTCM_START = 0x02FF0000
@@ -65,15 +69,27 @@ EXPECTED_DTCM_OWNERS = (
     "PalNdsDbOpl2Core::MulTable",
 )
 EXPECTED_GAME_TITLE = b"SDLPAL\0\0\0\0\0\0"
-EXPECTED_GAME_CODE = b"####"
+EXPECTED_GAME_CODE = b"ZPLE"
 EXPECTED_MAKER_CODE = b"00"
-# Ship the TWL-aware image (unit code 0x02, full 0x4000 header with the TWL
-# loadlist): the NTR-only image (ndstool -h 0x200, unit 0x00) white-screens
-# on the accepted real-hardware boot path (TWiLight Menu / nds-bootstrap),
-# verified against a known-good on-device binary.
-EXPECTED_UNIT_CODE = 0x02
+EXPECTED_UNIT_CODE = 0x00
 EXPECTED_HEADER_SIZE = 0x4000
+DECRYPTED_SECURE_MARKER = b"\xFF\xDE\xFF\xE7\xFF\xDE\xFF\xE7"
+DLDI_MAGIC = b"\xED\xA5\x8D\xBF Chishm"
 MAX_OPL_WRITES_PER_TICK = 256
+SDK_IRQ_ENABLE_SIGNATURE = struct.pack(
+    "<IIII", 0xE59FC028, 0xE3A01000, 0xE1DC30B0, 0xE59F2020
+)
+SDK_IRQ_HANDLER_SIGNATURE = struct.pack(
+    "<IIIII", 0xE92D4000, 0xE3A0C301, 0xE28CCE21, 0xE51C1008,
+    0xE3510000,
+)
+SDK_BACKUP_READ_SIGNATURE = struct.pack(
+    "<III", 0xE592000C, 0xE5921010, 0xE5922014
+)
+SDK_BACKUP_WRITE_SIGNATURE = struct.pack(
+    "<III", 0xE5920010, 0xE592100C, 0xE5922014
+)
+SDK_BACKUP_ERASE_SIGNATURE = struct.pack("<II", 0xE5920010, 0xE5921014)
 
 
 def run(*args: str) -> str:
@@ -108,6 +124,31 @@ def parse_symbols(elf: Path, nm: str) -> dict[str, tuple[int, int, str]]:
                 int(match.group(1), 16), 0, match.group(2)
             )
     return symbols
+
+
+def parse_sections(elf: Path, readelf: str) -> dict[str, tuple[int, int]]:
+    output = run(readelf, "-SW", str(elf))
+    sections: dict[str, tuple[int, int]] = {}
+    pattern = re.compile(
+        r"^\s*\[\s*\d+\]\s+(\S+)\s+\S+\s+"
+        r"([0-9a-fA-F]+)\s+[0-9a-fA-F]+\s+([0-9a-fA-F]+)\s+"
+    )
+    for line in output.splitlines():
+        match = pattern.match(line)
+        if match:
+            sections[match.group(1)] = (
+                int(match.group(2), 16), int(match.group(3), 16)
+            )
+    return sections
+
+
+def crc16(data: bytes, initial: int = 0xFFFF) -> int:
+    value = initial
+    for byte in data:
+        value ^= byte
+        for _ in range(8):
+            value = (value >> 1) ^ (0xA001 if value & 1 else 0)
+    return value
 
 
 def parse_nitro_listing(nds: Path, ndstool: str) -> tuple[int, int, int]:
@@ -173,38 +214,119 @@ def profile_rix_writes(profiler: Path, pack: Path) -> tuple[int, int]:
     return maximum, maximum_track
 
 
-def check_nds_header(path: Path) -> list[str]:
+def check_nds_header(path: Path, ndstool: str) -> list[str]:
     with path.open("rb") as source:
-        header = source.read(0x240)
-    if len(header) != 0x240:
-        return ["NDS header is shorter than 0x240 bytes"]
+        header = source.read(0x8000)
+    if len(header) != 0x8000:
+        return ["NDS image is shorter than the NTR secure area"]
 
     errors = []
     if header[0x00:0x0C] != EXPECTED_GAME_TITLE:
         errors.append(f"NDS game title is {header[0x00:0x0C]!r}, expected SDLPAL")
     if header[0x0C:0x10] != EXPECTED_GAME_CODE:
         errors.append(
-            f"NDS game code is {header[0x0C:0x10]!r}, expected homebrew ####"
+            f"NDS game code is {header[0x0C:0x10]!r}, "
+            f"expected retail-route {EXPECTED_GAME_CODE!r}"
         )
     if header[0x10:0x12] != EXPECTED_MAKER_CODE:
         errors.append(f"NDS maker code is {header[0x10:0x12]!r}, expected 00")
     if header[0x12] != EXPECTED_UNIT_CODE:
         errors.append(
             f"NDS unit code is 0x{header[0x12]:02x}, "
-            f"expected TWL-aware 0x{EXPECTED_UNIT_CODE:02x}"
+            f"expected NTR-only 0x{EXPECTED_UNIT_CODE:02x}"
         )
     header_size = struct.unpack_from("<I", header, 0x84)[0]
     if header_size != EXPECTED_HEADER_SIZE:
         errors.append(
             f"NDS header size is 0x{header_size:x}, "
-            f"expected full 0x{EXPECTED_HEADER_SIZE:x} with the TWL loadlist"
+            f"expected NTR header area 0x{EXPECTED_HEADER_SIZE:x}"
         )
-    public_save, private_save = struct.unpack_from("<II", header, 0x238)
-    if header_size >= 0x240 and (public_save != 0 or private_save != 0):
+    if any(header[0x160:EXPECTED_HEADER_SIZE]):
         errors.append(
-            "DSiWare public/private save sizes must remain zero for the "
-            "DLDI FAT save backend"
+            "TWL/extended header area 0x160..0x3fff must be zero"
         )
+    arm9_rom, arm9_entry, arm9_ram, arm9_size = struct.unpack_from(
+        "<IIII", header, 0x20
+    )
+    arm7_rom, arm7_entry, arm7_ram, arm7_size = struct.unpack_from(
+        "<IIII", header, 0x30
+    )
+    if not arm9_ram <= arm9_entry < arm9_ram + arm9_size:
+        errors.append("ARM9 entrypoint lies outside the ARM9 binary")
+    else:
+        entry_offset = arm9_rom + arm9_entry - arm9_ram
+        with path.open("rb") as source:
+            source.seek(entry_offset)
+            entry = source.read(8)
+        if len(entry) != 8:
+            errors.append("ARM9 entry signature lies outside the ROM")
+        else:
+            first, metadata_magic = struct.unpack_from("<II", entry)
+            if not 0xEA000000 <= first < 0xEC000000:
+                errors.append(f"ARM9 entry word is not a branch: {first:#010x}")
+            if metadata_magic != 0x39444F4D:
+                errors.append(
+                    "ARM9 entry lacks the Calico MOD9 metadata marker"
+                )
+    if arm7_ram != ARM7_RAW_START:
+        errors.append(
+            f"ARM7 raw image starts at {arm7_ram:#010x}, "
+            f"expected {ARM7_RAW_START:#010x}"
+        )
+    if not arm7_ram <= arm7_entry < arm7_ram + arm7_size:
+        errors.append("ARM7 entrypoint lies outside the ARM7 binary")
+    if arm7_ram + arm7_size > ARM7_RAW_LIMIT:
+        errors.append(
+            f"ARM7 raw image ends at {arm7_ram + arm7_size:#010x}, "
+            f"overlaps loader space at {ARM7_RAW_LIMIT:#010x}"
+        )
+    with path.open("rb") as source:
+        source.seek(arm9_rom)
+        arm9_binary = source.read(arm9_size)
+        source.seek(arm7_rom)
+        arm7_binary = source.read(arm7_size)
+    if len(arm9_binary) != arm9_size or len(arm7_binary) != arm7_size:
+        errors.append("ARM9 or ARM7 binary extent lies outside the ROM")
+    else:
+        for label, signature in (
+            ("CARD IRQ-enable", SDK_IRQ_ENABLE_SIGNATURE),
+            ("ARM9 IRQ dispatcher", SDK_IRQ_HANDLER_SIGNATURE),
+        ):
+            if signature not in arm9_binary:
+                errors.append(f"ARM9 lacks the Nintendo SDK {label} surface")
+        for label, signature in (
+            ("backup read", SDK_BACKUP_READ_SIGNATURE),
+            ("backup write/program/verify", SDK_BACKUP_WRITE_SIGNATURE),
+            ("backup erase", SDK_BACKUP_ERASE_SIGNATURE),
+            ("ARM7 IRQ dispatcher", SDK_IRQ_HANDLER_SIGNATURE),
+        ):
+            if signature not in arm7_binary:
+                errors.append(f"ARM7 lacks the Nintendo SDK {label} surface")
+    if header[0x4000:0x4008] != DECRYPTED_SECURE_MARKER:
+        errors.append("NTR secure area lacks the decrypted retail-ROM marker")
+    ndstool_info = run(ndstool, "-i", str(path))
+    if not re.search(
+        r"Secure area CRC\s+0x[0-9A-Fa-f]+ \(OK, decrypted\)",
+        ndstool_info,
+    ):
+        errors.append(
+            "ndstool does not accept the decrypted retail secure-area CRC"
+        )
+    header_crc = struct.unpack_from("<H", header, 0x15E)[0]
+    expected_header_crc = crc16(header[:0x15E])
+    if header_crc != expected_header_crc:
+        errors.append(
+            f"header CRC is {header_crc:#06x}, expected {expected_header_crc:#06x}"
+        )
+    ntr_end = struct.unpack_from("<I", header, 0x80)[0]
+    expected_file_size = (ntr_end + 0x1FF) & ~0x1FF
+    if path.stat().st_size != expected_file_size:
+        errors.append(
+            f"NTR ROM is {path.stat().st_size} bytes, expected trimmed "
+            f"size {expected_file_size}"
+        )
+    if DLDI_MAGIC in path.read_bytes():
+        errors.append("NTR ROM still contains a DLDI patch target")
     return errors
 
 
@@ -271,6 +393,7 @@ def pack_chunk_sizes(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--elf", type=Path, required=True)
+    parser.add_argument("--arm7-elf", type=Path, required=True)
     parser.add_argument("--nds", type=Path, required=True)
     parser.add_argument("--pack", type=Path, required=True)
     parser.add_argument("--rix-profiler", type=Path, required=True)
@@ -280,12 +403,19 @@ def main() -> int:
     parser.add_argument("--ndstool", default="/opt/devkitpro/tools/bin/ndstool")
     args = parser.parse_args()
 
-    for path in (args.elf, args.nds, args.pack, args.rix_profiler):
+    for path in (
+        args.elf, args.arm7_elf, args.nds, args.pack, args.rix_profiler
+    ):
         if not path.is_file():
             raise SystemExit(f"missing required artifact: {path}")
 
     symbols = parse_symbols(args.elf, args.tool_prefix + "nm")
-    errors = check_nds_header(args.nds)
+    sections = parse_sections(args.elf, args.tool_prefix + "readelf")
+    arm7_symbols = parse_symbols(args.arm7_elf, args.tool_prefix + "nm")
+    arm7_sections = parse_sections(
+        args.arm7_elf, args.tool_prefix + "readelf"
+    )
+    errors = check_nds_header(args.nds, args.ndstool)
     for name, expected_size in EXPECTED_OWNERS.items():
         actual = symbols.get(name)
         if actual is None:
@@ -308,14 +438,100 @@ def main() -> int:
         ):
             errors.append(f"retired NDS music owner is still linked: {retired}")
 
-    for retired in ("fatInitDefault", "nitroFSInit"):
-        if retired in symbols:
+    for retired in (
+        "fatInitDefault",
+        "nitroFSInit",
+        "nitroFSMount",
+        "nitroromGetSelf",
+        "dvmProbeMountDiscIface",
+        "blkInit",
+        "NdsTarget_SetLaunchPath",
+        "NdsTargetSave_SetMountedVolume",
+        "cardEepromGetType",
+        "cardEepromGetSize",
+    ):
+        if retired in symbols or retired in arm7_symbols:
             errors.append(
-                f"whole-device filesystem probe is still linked: {retired}"
+                f"retired homebrew storage path is still linked: {retired}"
             )
-    for required in ("dvmProbeMountDiscIface", "nitroFSMount"):
+    for required in (
+        "ntrcardOpen",
+        "ntrcardGetMode",
+        "ntrcardRomRead",
+        "NdsRetail_CardReadSdk",
+        "NdsRetail_CardIrqEnableSdk",
+        "NdsRetail_IrqBridgeArm9IpcSync",
+        "g_nds_retail_arm9_irq_handler",
+        "g_nds_retail_arm9_irq_table",
+    ):
         if required not in symbols:
-            errors.append(f"missing selective NitroFS mount symbol: {required}")
+            errors.append(f"missing NTR retail-card symbol: {required}")
+    for required in (
+        "crt0Startup",
+        "NdsRetailBackup_ReadSdk",
+        "NdsRetailBackup_WriteSdk",
+        "NdsRetailBackup_ProgSdk",
+        "NdsRetailBackup_VerifySdk",
+        "NdsRetailBackup_EraseSdk",
+        "NdsRetail_IrqBridgeVBlank",
+        "NdsRetail_IrqBridgeIpcSync",
+        "g_nds_retail_arm7_irq_handler",
+        "g_nds_retail_arm7_irq_table",
+        "__irq_table",
+        "cardReadEeprom",
+        "cardWriteEeprom",
+        "cardEepromSectorErase",
+    ):
+        if required not in arm7_symbols:
+            errors.append(f"missing ARM7 retail-card symbol: {required}")
+    for wrapper, minimum_size in (
+        ("NdsRetailBackup_ReadSdk", 0x1C),
+        ("NdsRetailBackup_WriteSdk", 0x1C),
+        ("NdsRetailBackup_ProgSdk", 0x1C),
+        ("NdsRetailBackup_VerifySdk", 0x1C),
+        ("NdsRetailBackup_EraseSdk", 0x18),
+    ):
+        symbol = arm7_symbols.get(wrapper)
+        if symbol is not None and symbol[1] < minimum_size:
+            errors.append(
+                f"{wrapper} is not interworking-safe: {symbol[1]} bytes"
+            )
+    if "crt0FillMem32" in arm7_symbols:
+        errors.append("ARM7 linked the homebrew high-RAM clearing startup")
+    for section in (".dldi", ".twl", ".twl.rw", ".twl.bss"):
+        if sections.get(section, (0, 0))[1] != 0:
+            errors.append(
+                f"ARM9 ELF contains nonempty forbidden section {section}: "
+                f"{sections[section][1]} bytes"
+            )
+
+    arm7_crt0 = arm7_sections.get(".crt0")
+    if arm7_crt0 is None or arm7_crt0[0] != ARM7_RAW_START:
+        errors.append("ARM7 .crt0 does not start at the NTR load address")
+    elif arm7_crt0[0] + arm7_crt0[1] > ARM7_RAW_LIMIT:
+        errors.append("ARM7 .crt0 overlaps the loader-reserved high region")
+    for section_name in (
+        ".main", ".main.rw", ".main.bss", ".eh_frame", ".init_array",
+        ".fini_array",
+    ):
+        section = arm7_sections.get(section_name)
+        if section is not None and section[0] + section[1] > ARM7_MAIN_RESERVED_START:
+            errors.append(
+                f"ARM7 {section_name} ends at {section[0] + section[1]:#010x}, "
+                "overlapping loader-reserved main RAM"
+            )
+    arm7_wram_end = 0
+    for section_name in (".wram", ".wram.rw", ".wram.bss"):
+        section = arm7_sections.get(section_name)
+        if section is not None:
+            arm7_wram_end = max(arm7_wram_end, section[0] + section[1])
+    if arm7_wram_end == 0:
+        errors.append("ARM7 ELF lacks its WRAM image")
+    elif arm7_wram_end > ARM7_CARDENGINE_START:
+        errors.append(
+            f"ARM7 WRAM ends at {arm7_wram_end:#010x}, overlapping "
+            f"nds-bootstrap cardengine at {ARM7_CARDENGINE_START:#010x}"
+        )
 
     opl_render = symbols.get("NdsDbOpl2_Render")
     if opl_render is None:
@@ -397,6 +613,8 @@ def main() -> int:
     embedded_hash = hash_extent(args.nds, start, nitro_size)
     if source_hash != embedded_hash:
         errors.append("embedded pal_full.pak SHA-256 differs from its source")
+    if start + nitro_size <= 32 * 1024 * 1024:
+        errors.append("embedded pack does not exercise Slot-1 reads beyond 32MiB")
 
     maximum_writes, maximum_write_track = profile_rix_writes(
         args.rix_profiler, args.pack
@@ -420,6 +638,10 @@ def main() -> int:
     )
     print(f"  fixed_owners={fixed_bytes} bytes, native_screens=2x256x192x8")
     print(f"  unused_DTCM_user_stack={unused_dtcm} bytes")
+    print(
+        f"  ARM7_wram_end={arm7_wram_end:#010x}, "
+        f"cardengine_floor={ARM7_CARDENGINE_START:#010x}"
+    )
     print(
         f"  max_opl_writes_per_tick={maximum_writes} "
         f"(track {maximum_write_track}), capacity={MAX_OPL_WRITES_PER_TICK}"
