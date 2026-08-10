@@ -28,6 +28,9 @@ NDS_DBOPL_DIFF := $(PROJECT_DIR)/$(BUILD)/pal_nds_dbopl_diff
 NDS_DBOPL_DIFF_SRC := $(abspath ../tools/pal_nds_dbopl_diff.cpp)
 NDS_NTR_POSTPROCESS := $(PROJECT_DIR)/make_ntr_retail.py
 NDS_NTR_RAW := $(PROJECT_DIR)/$(BUILD)/$(TARGET).raw.nds
+NDS_SAVE_TOOL := $(PROJECT_DIR)/make_slot1_save.py
+NDS_BLANK_SAVE := $(PROJECT_DIR)/$(BUILD)/$(TARGET).sav
+NDS_TWILIGHT_BUNDLE := $(PROJECT_DIR)/$(BUILD)/twilight
 NDS_ARM7_SOURCE_DIR := $(PROJECT_DIR)/arm7
 NDS_ARM7_BUILD_DIR := $(PROJECT_DIR)/$(BUILD)/arm7
 NDS_ARM7_ELF := $(NDS_ARM7_BUILD_DIR)/sdlpal_arm7.elf
@@ -133,9 +136,9 @@ export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 export LD := $(CXX)
 export OFILES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 
-.PHONY: all clean check $(BUILD)
+.PHONY: all clean check twilight-bundle $(BUILD)
 
-all: $(BUILD)
+all: $(BUILD) $(NDS_BLANK_SAVE)
 
 $(BUILD):
 	@mkdir -p $@
@@ -146,8 +149,21 @@ check: all $(NDS_DBOPL_DIFF)
 	@$(MAKE) --no-print-directory -C ../embedded \
 	   CC=gcc CXX=g++ nds-rix-profile
 	@python3 -B check_nds.py --elf $(TARGET).elf --nds $(TARGET).nds \
-	   --arm7-elf $(NDS_ARM7_ELF) --pack $(PAL_FULL_PACK) \
+	   --arm7-elf $(NDS_ARM7_ELF) --save $(NDS_BLANK_SAVE) \
+	   --pack $(PAL_FULL_PACK) \
 	   --rix-profiler $(NDS_RIX_PROFILE)
+
+$(NDS_BLANK_SAVE): $(NDS_SAVE_TOOL)
+	@mkdir -p $(dir $@)
+	@python3 -B $(NDS_SAVE_TOOL) --blank $@
+
+twilight-bundle: all
+	@mkdir -p $(NDS_TWILIGHT_BUNDLE)/roms/nds/saves
+	cp --reflink=auto $(TARGET).nds \
+	   $(NDS_TWILIGHT_BUNDLE)/roms/nds/$(TARGET).nds
+	cp --reflink=auto $(NDS_BLANK_SAVE) \
+	   $(NDS_TWILIGHT_BUNDLE)/roms/nds/saves/$(TARGET).sav
+	@echo "TWiLight bundle: $(NDS_TWILIGHT_BUNDLE)/roms/nds"
 
 $(NDS_DBOPL_DIFF): $(NDS_DBOPL_DIFF_SRC) \
    $(PROJECT_DIR)/../adplug/dosbox/dbopl.h \

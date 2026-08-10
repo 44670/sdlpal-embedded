@@ -73,8 +73,11 @@ EXPECTED_GAME_CODE = b"ZPLE"
 EXPECTED_MAKER_CODE = b"00"
 EXPECTED_UNIT_CODE = 0x00
 EXPECTED_HEADER_SIZE = 0x4000
+CLASSIFIER_VENEER_OFFSET = 0x47E0
 DECRYPTED_SECURE_MARKER = b"\xFF\xDE\xFF\xE7\xFF\xDE\xFF\xE7"
 DLDI_MAGIC = b"\xED\xA5\x8D\xBF Chishm"
+SDK_CLASSIFIER_TAIL = (0xE58CC208, 0xE1DC00B6, 0xE3500000)
+SAVE_BYTES = 1024 * 1024
 MAX_OPL_WRITES_PER_TICK = 256
 SDK_IRQ_ENABLE_SIGNATURE = struct.pack(
     "<IIII", 0xE59FC028, 0xE3A01000, 0xE1DC30B0, 0xE59F2020
@@ -149,6 +152,15 @@ def crc16(data: bytes, initial: int = 0xFFFF) -> int:
         for _ in range(8):
             value = (value >> 1) ^ (0xA001 if value & 1 else 0)
     return value
+
+
+def arm_branch_target(source: int, instruction: int) -> int | None:
+    if instruction & 0xFF000000 != 0xEA000000:
+        return None
+    words = instruction & 0x00FFFFFF
+    if words & 0x00800000:
+        words -= 1 << 24
+    return source + 8 + words * 4
 
 
 def parse_nitro_listing(nds: Path, ndstool: str) -> tuple[int, int, int]:
@@ -257,17 +269,44 @@ def check_nds_header(path: Path, ndstool: str) -> list[str]:
         entry_offset = arm9_rom + arm9_entry - arm9_ram
         with path.open("rb") as source:
             source.seek(entry_offset)
-            entry = source.read(8)
-        if len(entry) != 8:
+            entry = source.read(16)
+        if len(entry) != 16:
             errors.append("ARM9 entry signature lies outside the ROM")
         else:
-            first, metadata_magic = struct.unpack_from("<II", entry)
-            if not 0xEA000000 <= first < 0xEC000000:
-                errors.append(f"ARM9 entry word is not a branch: {first:#010x}")
-            if metadata_magic != 0x39444F4D:
+            first, *tail = struct.unpack_from("<IIII", entry)
+            calico_entry_offset = arm_branch_target(entry_offset, first)
+            if entry_offset != CLASSIFIER_VENEER_OFFSET:
                 errors.append(
-                    "ARM9 entry lacks the Calico MOD9 metadata marker"
+                    f"ARM9 retail classifier is at {entry_offset:#x}, "
+                    f"expected {CLASSIFIER_VENEER_OFFSET:#x}"
                 )
+            if tuple(tail) != SDK_CLASSIFIER_TAIL:
+                errors.append(
+                    "ARM9 entry does not match TWiLight's SDK 3 retail "
+                    "classifier"
+                )
+            if calico_entry_offset is None:
+                errors.append("ARM9 retail classifier does not branch to Calico")
+            elif not arm9_rom <= calico_entry_offset < arm9_rom + arm9_size:
+                errors.append("ARM9 retail classifier target is out of range")
+            else:
+                with path.open("rb") as source:
+                    source.seek(calico_entry_offset)
+                    calico_entry = source.read(8)
+                if len(calico_entry) != 8:
+                    errors.append("Calico ARM9 entry lies outside the ROM")
+                else:
+                    calico_first, metadata_magic = struct.unpack(
+                        "<II", calico_entry
+                    )
+                    if not 0xEA000000 <= calico_first < 0xEC000000:
+                        errors.append(
+                            "retail classifier target is not Calico's branch"
+                        )
+                    if metadata_magic != 0x39444F4D:
+                        errors.append(
+                            "retail classifier target lacks Calico MOD9 metadata"
+                        )
     if arm7_ram != ARM7_RAW_START:
         errors.append(
             f"ARM7 raw image starts at {arm7_ram:#010x}, "
@@ -395,6 +434,7 @@ def main() -> int:
     parser.add_argument("--elf", type=Path, required=True)
     parser.add_argument("--arm7-elf", type=Path, required=True)
     parser.add_argument("--nds", type=Path, required=True)
+    parser.add_argument("--save", type=Path, required=True)
     parser.add_argument("--pack", type=Path, required=True)
     parser.add_argument("--rix-profiler", type=Path, required=True)
     parser.add_argument(
@@ -404,7 +444,8 @@ def main() -> int:
     args = parser.parse_args()
 
     for path in (
-        args.elf, args.arm7_elf, args.nds, args.pack, args.rix_profiler
+        args.elf, args.arm7_elf, args.nds, args.save, args.pack,
+        args.rix_profiler
     ):
         if not path.is_file():
             raise SystemExit(f"missing required artifact: {path}")
@@ -416,6 +457,14 @@ def main() -> int:
         args.arm7_elf, args.tool_prefix + "readelf"
     )
     errors = check_nds_header(args.nds, args.ndstool)
+    save_image = args.save.read_bytes()
+    if len(save_image) != SAVE_BYTES:
+        errors.append(
+            f"retail save sidecar is {len(save_image)} bytes, "
+            f"expected {SAVE_BYTES}"
+        )
+    elif save_image != b"\xFF" * SAVE_BYTES:
+        errors.append("default retail save sidecar is not fully erased")
     for name, expected_size in EXPECTED_OWNERS.items():
         actual = symbols.get(name)
         if actual is None:
@@ -650,6 +699,7 @@ def main() -> int:
         f"  ROM={args.nds.stat().st_size} bytes, pal_full.pak={pack_size} bytes, "
         f"pack_set={pack_set:#010x}"
     )
+    print(f"  retail_save={args.save.stat().st_size} bytes")
     print(f"  pal_full.pak_sha256={source_hash}")
     return 0
 

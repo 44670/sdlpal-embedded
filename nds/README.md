@@ -9,10 +9,11 @@ specific protocol.
 The ROM exposes Nintendo SDK-shaped CARD, IRQ, NitroFS, and backup-device
 surfaces so an ordinary retail loader can discover and redirect it. It does
 not know whether that loader is nds-bootstrap, a flashcart kernel, or another
-retail-compatible implementation. Official nds-bootstrap v2.16.0 is the
-minimum verified loader: it boots the ROM, redirects reads beyond 32MiB, and
-persists/reloads the 1MiB save sidecar. `make -C nds check` is authoritative
-for the ROM surfaces, audio equivalence, and 4MB memory bounds.
+retail-compatible implementation. TWiLight Menu++ v27.24.1 classifies the
+image as retail and selects official nds-bootstrap v2.16.0, which boots the
+ROM, redirects reads beyond 32MiB, and persists/reloads the 1MiB save sidecar.
+`make -C nds check` is authoritative for the ROM surfaces, bundle save image,
+audio equivalence, and 4MB memory bounds.
 
 ## Target contract
 
@@ -49,6 +50,14 @@ The default data source is the shared generated complete pack at
 ```sh
 make -C nds
 make -C nds check
+make -C nds twilight-bundle
+```
+
+The last command writes the two files that must be copied together:
+
+```text
+nds/build/twilight/roms/nds/sdlpal.nds
+nds/build/twilight/roms/nds/saves/sdlpal.sav
 ```
 
 Override it only with another complete, structurally compatible pack:
@@ -93,6 +102,15 @@ flash and does not probe a chip type or size at runtime. Each write erases its
 three 64KiB sectors, writes the payload, and writes the footer last. The load
 path validates the footer and complete payload CRC.
 
+The NTR header has no standard field for backup capacity. TWiLight's retail
+save-size table is keyed by known game codes, and its fallback for this unique
+`ZPLE` code is 512KiB. The ROM therefore does not impersonate another title to
+obtain a larger automatic save. A normal build instead creates an erased,
+exactly 1MiB `build/sdlpal.sav`, and `twilight-bundle` places it in TWiLight's
+standard sibling `saves/` directory. TWiLight preserves that existing size and
+passes the path to nds-bootstrap. Copying only the `.nds` is incomplete
+installation for this title.
+
 Provision a known PAL save into the required raw sidecar before first launch:
 
 ```sh
@@ -103,9 +121,12 @@ Use the sidecar name and location required by the selected loader.
 
 The final ROM header must identify an NTR title with a unique game code and a
 retail classifier signature, while retaining the normal `0x4000` NTR header
-area and valid header/secure-area CRCs. It must not contain TWL metadata or a
-DLDI patch target. This is a retail-loader contract, not a claim that the image
-is an officially signed Nintendo release.
+area and valid header/secure-area CRCs. A 16-byte entry veneer occupies unused
+zero fill at ROM offset `0x47e0`: its four words match TWiLight's Nintendo SDK
+3 classifier and its first instruction branches to the untouched Calico
+`MOD9` entry at `0x4800`. No SDK runtime or loader ABI is added. The image must
+not contain TWL metadata or a DLDI patch target. This is a retail-loader
+contract, not a claim that the image is an officially signed Nintendo release.
 
 ## Retail-loader route
 
@@ -114,18 +135,31 @@ Those products can support it only by recognizing the ROM as a retail NTR title
 and providing their normal CARD and backup-device redirection. A DLDI/homebrew
 launch is not a supported fallback.
 
-Official nds-bootstrap v2.16.0 is the verified baseline. It finds the SDK-style
-ARM9 CARD/IRQ surface and ARM7 universal-backup surface, installs its card
-engines, maps the selected ROM as Slot-1, and redirects the 1MiB save. The
+Official TWiLight Menu++ v27.24.1 reads the four ARM9 entry words and records
+`HOMEBREW_BOOTSTRAP = 0` for this image. Its generated
+`fat:/_nds/nds-bootstrap.ini` names `sdlpal.nds`, the existing 1MiB
+`saves/sdlpal.sav`, and `DSI_MODE = 0`; it chooses
+`nds-bootstrap-release.nds`, not the `hb-` binary. No per-game override or
+loader-private file is shipped by this target.
+
+Official nds-bootstrap v2.16.0 is the verified retail backend. It finds the
+SDK-style ARM9 CARD/IRQ surface and ARM7 universal-backup surface, installs its
+card engines, maps the selected ROM as Slot-1, and redirects the 1MiB save. The
 Calico ARM7 build uses a small NTR retail startup because its normal homebrew
 startup clears `0x02FFD000`, which is loader-owned memory. The replacement
 loads only the declared sections and joins the loader-patched IRQ tables to
 Calico's live dispatchers.
 
-The test happens to launch official nds-bootstrap through DeSmuME's emulated
-R4 device. That device is only the environment running the loader; it is not a
-target API and no R4 code is linked into the game. Physical loader, controls,
-and audio acceptance remain separate hardware work.
+The test happens to run the official menu and backend through DeSmuME's
+emulated R4 device. That device is only the environment running the loaders;
+it is not a target API and no R4 code is linked into the game. DeSmuME does not
+complete TWiLight's hardware-style reboot/chainload in the same emulator
+process, so acceptance is split at the card boundary: the official menu writes
+and dumps its classifier result and bootstrap INI, then the exact official
+retail bootstrap binary is launched against that dumped configuration and
+sidecar. This proves both halves of the handoff but does not turn the R4 test
+fixture into a supported target. Physical loader, controls, and audio
+acceptance remain separate hardware work.
 
 ## Threaded RIX/OPL2 music
 
@@ -349,3 +383,15 @@ The nds-bootstrap v2.16.0 acceptance is under
 1MiB sidecar has valid generation-2 payload/footer CRCs. After copying that
 sidecar back into the emulated card, `bootstrap-reload-final/` relaunches the
 loader, shows count 5, and loads the map through natural menu input.
+
+The automatic TWiLight classification rerun uses official TWiLight Menu++
+v27.24.1 and official nds-bootstrap v2.16.0. The selected-title capture is
+under `tmp_ui/nds/twilight-v27.24.1-dsimenu-nav2-20260810/`; the dumped settings
+and generated INI under
+`tmp_ui/nds/twilight-v27.24.1-retail-configure-20260810/` record
+`HOMEBREW_BOOTSTRAP = 0` and name the 1MiB sidecar. The retail-backend save and
+reload captures are under
+`tmp_ui/nds/twilight-v27.24.1-save-route-20260810/` and
+`tmp_ui/nds/twilight-v27.24.1-reload-route-20260810/`. They load count 4, save
+count 5, validate the resulting 1MiB generation-2 payload/footer CRCs, then
+relaunch and load count 5 through natural menu input.

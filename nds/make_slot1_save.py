@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wrap one standard PAL RPG save in the NDS Slot-1 save layout."""
+"""Create a blank or preloaded 1MiB NDS retail-save sidecar."""
 
 from __future__ import annotations
 
@@ -38,33 +38,53 @@ def footer(slot: int, payload: bytes) -> bytes:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("rpg", type=Path)
-    parser.add_argument("output", type=Path)
+    parser.add_argument("rpg", type=Path, nargs="?")
+    parser.add_argument("output", type=Path, nargs="?")
+    parser.add_argument(
+        "--blank", type=Path, metavar="OUTPUT",
+        help="write an erased 1MiB sidecar without a PAL save slot",
+    )
     parser.add_argument("--slot", type=int, default=1)
     args = parser.parse_args()
 
+    if args.blank is not None:
+        if args.rpg is not None or args.output is not None:
+            parser.error("--blank cannot be combined with RPG or OUTPUT")
+        output = args.blank
+        payload = None
+    else:
+        if args.rpg is None or args.output is None:
+            parser.error("RPG and OUTPUT are required unless --blank is used")
+        output = args.output
+        payload = args.rpg.read_bytes()
+
     if not 1 <= args.slot <= SLOT_COUNT:
         raise SystemExit(f"--slot must be between 1 and {SLOT_COUNT}")
-    payload = args.rpg.read_bytes()
-    if len(payload) < 2 or len(payload) > FOOTER_OFFSET:
+    if payload is not None and (
+        len(payload) < 2 or len(payload) > FOOTER_OFFSET
+    ):
         raise SystemExit(
             f"RPG save is {len(payload)} bytes; capacity is {FOOTER_OFFSET}"
         )
 
     image = bytearray(b"\xFF" * SAVE_BYTES)
-    base = (args.slot - 1) * SLOT_BYTES
-    image[base : base + len(payload)] = payload
-    image[
-        base + FOOTER_OFFSET : base + SLOT_BYTES
-    ] = footer(args.slot, payload)
+    if payload is not None:
+        base = (args.slot - 1) * SLOT_BYTES
+        image[base : base + len(payload)] = payload
+        image[
+            base + FOOTER_OFFSET : base + SLOT_BYTES
+        ] = footer(args.slot, payload)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(image)
-    saved_times = struct.unpack_from("<H", payload)[0]
-    print(
-        f"wrote {args.output}: slot={args.slot}, bytes={len(payload)}, "
-        f"saved_times={saved_times}"
-    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(image)
+    if payload is None:
+        print(f"wrote {output}: erased 1MiB retail save")
+    else:
+        saved_times = struct.unpack_from("<H", payload)[0]
+        print(
+            f"wrote {output}: slot={args.slot}, bytes={len(payload)}, "
+            f"saved_times={saved_times}"
+        )
     return 0
 
 

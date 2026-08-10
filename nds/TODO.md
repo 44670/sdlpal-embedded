@@ -6,11 +6,15 @@ what "done" means. Keep this file short; delete entries as they land.
 ## 1. Validate the retail-loader contract on physical NTR hardware
 
 State: the software route is complete. The NTR-only image has no TWL, DLDI,
-self-ROM lookup, launch-volume FAT path, or device-specific flashcart code. It
-exports SDK-shaped CARD/IRQ and universal-backup surfaces. Official
-nds-bootstrap v2.16.0 boots it, reads the embedded pack, loads save count 4,
-writes count 5 to the redirected 1MiB sidecar with valid CRCs, then relaunches
-and loads count 5 through natural menus.
+self-ROM lookup, launch-volume FAT path, or device-specific flashcart code. Its
+minimal ARM9 entry veneer matches the retail classifier in official TWiLight
+Menu++ v27.24.1, which records `HOMEBREW_BOOTSTRAP = 0` and selects the retail
+nds-bootstrap v2.16.0 binary. The generated bundle supplies the required
+erased 1MiB sidecar because an NTR header does not encode backup capacity and
+TWiLight's unknown-game fallback is only 512KiB. Official nds-bootstrap boots
+the ROM, reads the embedded pack, loads save count 4, writes count 5 to that
+redirected sidecar with valid CRCs, then relaunches and loads count 5 through
+natural menus.
 
 Remaining:
 

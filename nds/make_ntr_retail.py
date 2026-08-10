@@ -15,9 +15,12 @@ HEADER_CRC_END = 0x15E
 TWL_HEADER_START = 0x160
 SECURE_AREA_START = 0x4000
 SECURE_AREA_END = 0x8000
+SECURE_PREFIX_END = 0x4800
+CLASSIFIER_VENEER_OFFSET = SECURE_PREFIX_END - 0x20
 ROM_ALIGNMENT = 0x200
 DECRYPTED_SECURE_MARKER = b"\xFF\xDE\xFF\xE7\xFF\xDE\xFF\xE7"
 DLDI_MAGIC = b"\xED\xA5\x8D\xBF Chishm"
+SDK_CLASSIFIER_TAIL = (0xE58CC208, 0xE1DC00B6, 0xE3500000)
 
 
 def crc16(data: bytes | bytearray, initial: int = 0xFFFF) -> int:
@@ -31,6 +34,16 @@ def crc16(data: bytes | bytearray, initial: int = 0xFFFF) -> int:
 
 def align_up(value: int, alignment: int) -> int:
     return (value + alignment - 1) & -alignment
+
+
+def arm_branch(source: int, target: int) -> int:
+    displacement = target - (source + 8)
+    if displacement % 4:
+        raise SystemExit("ARM9 classifier branch target is not word-aligned")
+    words = displacement // 4
+    if not -(1 << 23) <= words < (1 << 23):
+        raise SystemExit("ARM9 classifier branch target is out of range")
+    return 0xEA000000 | (words & 0x00FFFFFF)
 
 
 def encrypted_secure_crc(image: bytearray, ndstool: Path) -> int:
@@ -80,20 +93,29 @@ def main() -> int:
     arm9_rom, arm9_entry, arm9_ram = struct.unpack_from("<III", image, 0x20)
     ntr_end = struct.unpack_from("<I", image, 0x80)[0]
     header_size = struct.unpack_from("<I", image, 0x84)[0]
-    entry_offset = arm9_rom + arm9_entry - arm9_ram
+    arm9_size = struct.unpack_from("<I", image, 0x2C)[0]
+    calico_entry_offset = arm9_rom + arm9_entry - arm9_ram
     if header_size != HEADER_SIZE or arm9_rom < HEADER_SIZE:
         raise SystemExit("ndstool did not produce a full 0x4000 NTR header")
-    if not arm9_ram <= arm9_entry < arm9_ram + struct.unpack_from(
-        "<I", image, 0x2C
-    )[0]:
+    if not arm9_ram <= arm9_entry < arm9_ram + arm9_size:
         raise SystemExit("ARM9 entrypoint lies outside the ARM9 binary")
-    if entry_offset + 8 > len(image):
+    if calico_entry_offset + 8 > len(image):
         raise SystemExit("ARM9 entrypoint lies outside the ROM")
-    first_word, second_word = struct.unpack_from("<II", image, entry_offset)
+    first_word, second_word = struct.unpack_from(
+        "<II", image, calico_entry_offset
+    )
     if not 0xEA000000 <= first_word < 0xEC000000 or second_word != 0x39444F4D:
         raise SystemExit("unexpected Calico ARM9 boot signature")
-    if entry_offset < SECURE_AREA_START + len(DECRYPTED_SECURE_MARKER):
+    if calico_entry_offset < SECURE_PREFIX_END:
         raise SystemExit("ARM9 entrypoint leaves no decrypted secure-area marker")
+    if not (
+        arm9_rom <= CLASSIFIER_VENEER_OFFSET
+        and CLASSIFIER_VENEER_OFFSET + 16 <= arm9_rom + arm9_size
+        and CLASSIFIER_VENEER_OFFSET + 16 <= calico_entry_offset
+    ):
+        raise SystemExit("ARM9 image leaves no room for the retail classifier")
+    if any(image[CLASSIFIER_VENEER_OFFSET : CLASSIFIER_VENEER_OFFSET + 16]):
+        raise SystemExit("ARM9 retail classifier would overwrite secure data")
     if not SECURE_AREA_END <= ntr_end <= len(image):
         raise SystemExit("invalid NTR application end offset")
     image[0x0C:0x10] = game_code
@@ -102,6 +124,18 @@ def main() -> int:
     image[
         SECURE_AREA_START : SECURE_AREA_START + len(DECRYPTED_SECURE_MARKER)
     ] = DECRYPTED_SECURE_MARKER
+    classifier_entry = arm9_ram + CLASSIFIER_VENEER_OFFSET - arm9_rom
+    classifier_branch = arm_branch(
+        CLASSIFIER_VENEER_OFFSET, calico_entry_offset
+    )
+    struct.pack_into(
+        "<IIII",
+        image,
+        CLASSIFIER_VENEER_OFFSET,
+        classifier_branch,
+        *SDK_CLASSIFIER_TAIL,
+    )
+    struct.pack_into("<I", image, 0x24, classifier_entry)
 
     final_size = align_up(ntr_end, ROM_ALIGNMENT)
     image = image[:final_size]
@@ -113,9 +147,10 @@ def main() -> int:
     # Retail headers store the CRC of the encrypted secure area even when the
     # distributed dump itself carries the standard decrypted marker. Reuse
     # ndstool's KEY1 implementation on a temporary copy; the final ROM remains
-    # decrypted. The linked module parameters and CARD/backup routines provide
-    # the retail classifier and patch surfaces; Calico's entry metadata stays
-    # intact.
+    # decrypted. The entry veneer presents the exact SDK 3 classifier consumed
+    # by TWiLight Menu, then branches to Calico's untouched MOD9 entry. The
+    # linked module parameters and CARD/backup routines remain the loader patch
+    # surfaces.
     secure_crc = encrypted_secure_crc(image, args.ndstool)
     struct.pack_into("<H", image, 0x6C, secure_crc)
     header_crc = crc16(image[:HEADER_CRC_END])
@@ -125,7 +160,9 @@ def main() -> int:
     args.output.write_bytes(image)
     print(
         f"NTR retail image: game={args.game_code}, bytes={len(image)}, "
-        f"entry={entry_offset:#x}, secure_crc={secure_crc:#06x}, "
+        f"entry={CLASSIFIER_VENEER_OFFSET:#x}, "
+        f"calico_entry={calico_entry_offset:#x}, "
+        f"secure_crc={secure_crc:#06x}, "
         f"header_crc={header_crc:#06x}"
     )
     return 0
