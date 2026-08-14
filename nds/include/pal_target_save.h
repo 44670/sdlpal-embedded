@@ -11,6 +11,7 @@ extern "C" {
 
 bool PalTargetSave_Init(void);
 void NdsTargetSave_SetDldiReady(bool ready);
+void NdsTargetSave_SetRetailReady(bool ready);
 bool PalTargetSave_Available(void);
 int PalTargetSave_Type(void);
 uint32_t PalTargetSave_Capacity(void);

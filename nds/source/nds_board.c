@@ -37,7 +37,26 @@ enum {
    PAL_NDS_MINIMAP_MARKER_CENTER = 4u,
    PAL_NDS_MAP_BLOCKED = 0x2000u,
    PAL_NDS_MINIMAP_MAX_OBSTACLES = 128u,
+   PAL_NDS_MINIMAP_PALETTE_GRAY = 0u,
+   PAL_NDS_MINIMAP_PALETTE_YELLOW = 1u,
+   PAL_NDS_MINIMAP_PALETTE_GREEN = 2u,
+   PAL_NDS_MINIMAP_SCRIPT_SCAN_LIMIT = 512u,
 };
+
+_Static_assert(
+   PAL_NDS_MINIMAP_TILEMAP_ENTRIES >=
+      PAL_NDS_MINIMAP_RAW_COLUMNS * PAL_NDS_MINIMAP_RAW_ROWS *
+      PAL_NDS_MINIMAP_RAW_HALVES,
+   "minimap tilemap cannot serve as the component queue");
+_Static_assert(
+   sizeof(pal_nds_minimap_pattern_tiles) >=
+      PAL_NDS_MINIMAP_TOPOLOGY_BYTES,
+   "minimap pattern owner cannot serve as the terminal mask");
+/* Four central occupancy bits each expose two independent outside edges:
+ * sum(C(4, n) * 4^n) == 5^4 == 625 normalized patterns. */
+_Static_assert(
+   PAL_NDS_MINIMAP_TILE_COUNT >= 625u,
+   "minimap tile dictionary cannot represent every component boundary");
 
 /* Transparent tile 0 plus one small red point. */
 static const uint8_t pal_nds_minimap_marker_tiles[2][32]
@@ -79,6 +98,12 @@ static uint16_t pal_nds_palette[256] __attribute__((aligned(4)));
 static bool pal_nds_started;
 static int pal_nds_minimap_map = -1;
 static int pal_nds_minimap_pending_map = -1;
+static int pal_nds_minimap_pending_scene = -1;
+static int pal_nds_minimap_component_seed_column = -1;
+static int pal_nds_minimap_component_seed_row = -1;
+static uint32_t pal_nds_minimap_pending_portal_signature;
+static uint32_t pal_nds_minimap_generation;
+static uint32_t pal_nds_minimap_pending_generation;
 static unsigned pal_nds_minimap_min_column;
 static unsigned pal_nds_minimap_min_row;
 static unsigned pal_nds_minimap_width_pixels;
@@ -94,6 +119,119 @@ static int pal_nds_minimap_pending_marker_x = -1;
 static int pal_nds_minimap_pending_marker_y = -1;
 static unsigned pal_nds_minimap_tile_count;
 static unsigned pal_nds_minimap_obstacle_count;
+static bool pal_nds_minimap_pending_visible;
+
+static bool
+pal_nds_minimap_script_changes_scene(
+   WORD script_entry)
+{
+   unsigned scanned = 0u;
+
+   while (script_entry != 0u &&
+      (unsigned)script_entry < (unsigned)gpGlobals->g.nScriptEntry &&
+      scanned++ < PAL_NDS_MINIMAP_SCRIPT_SCAN_LIMIT)
+   {
+      const SCRIPTENTRY *script =
+         gpGlobals->g.lprgScriptEntry + script_entry;
+
+      if (script->wOperation == 0x0059u)
+      {
+         return true;
+      }
+      if (script->wOperation == 0x0000u ||
+         script->wOperation == 0x0001u ||
+         script->wOperation == 0x0002u)
+      {
+         return false;
+      }
+      if (script->wOperation == 0x0003u &&
+         script->rgwOperand[1] == 0u)
+      {
+         script_entry = script->rgwOperand[0];
+      }
+      else
+      {
+         script_entry++;
+      }
+   }
+   return false;
+}
+
+static bool
+pal_nds_minimap_event_is_touch_exit(
+   const EVENTOBJECT *event_object)
+{
+   return event_object != NULL &&
+      event_object->sVanishTime == 0 &&
+      event_object->sState > kObjStateHidden &&
+      event_object->wTriggerMode >= kTriggerTouchNear &&
+      event_object->wTriggerScript != 0u &&
+      pal_nds_minimap_script_changes_scene(
+         event_object->wTriggerScript);
+}
+
+static uint32_t
+pal_nds_minimap_portal_signature(
+   const EVENTOBJECT *event_objects,
+   unsigned event_object_count)
+{
+   uint32_t signature = 2166136261u;
+   unsigned i;
+
+   for (i = 0u; i < event_object_count; i++)
+   {
+      const EVENTOBJECT *event_object = event_objects + i;
+
+      if (!pal_nds_minimap_event_is_touch_exit(event_object))
+      {
+         continue;
+      }
+#define PAL_NDS_MINIMAP_HASH(value) do { \
+      signature ^= (uint32_t)(value);       \
+      signature *= 16777619u;               \
+   } while (0)
+      PAL_NDS_MINIMAP_HASH(i);
+      PAL_NDS_MINIMAP_HASH(event_object->x);
+      PAL_NDS_MINIMAP_HASH(event_object->y);
+      PAL_NDS_MINIMAP_HASH(event_object->sState);
+      PAL_NDS_MINIMAP_HASH(event_object->wTriggerMode);
+      PAL_NDS_MINIMAP_HASH(event_object->wTriggerScript);
+#undef PAL_NDS_MINIMAP_HASH
+   }
+   return signature;
+}
+
+static int
+pal_nds_minimap_event_palette(
+   const EVENTOBJECT *event_object)
+{
+   if (event_object->sVanishTime != 0 ||
+      event_object->sState <= kObjStateHidden)
+   {
+      return -1;
+   }
+   if (event_object->wTriggerMode != kTriggerNone &&
+      event_object->wTriggerScript != 0u &&
+      pal_nds_minimap_script_changes_scene(
+         event_object->wTriggerScript))
+   {
+      return PAL_NDS_MINIMAP_PALETTE_YELLOW;
+   }
+   if (event_object->nSpriteFrames == 3u)
+   {
+      return -1;
+   }
+   if (event_object->sState >= kObjStateBlocker)
+   {
+      return PAL_NDS_MINIMAP_PALETTE_GRAY;
+   }
+   if (event_object->wTriggerMode != kTriggerNone &&
+      event_object->wTriggerScript != 0u)
+   {
+      return PAL_NDS_MINIMAP_PALETTE_GREEN;
+   }
+   return -1;
+}
 
 static void
 pal_nds_show_console(
@@ -125,6 +263,8 @@ pal_nds_minimap_world_to_cell(
    int raw_x;
    int raw_y;
    int half;
+   int residual_x;
+   int residual_y;
 
    if (world_x < 0 || world_y < 0 || column == NULL || row == NULL)
    {
@@ -132,7 +272,29 @@ pal_nds_minimap_world_to_cell(
    }
    raw_x = world_x / 32;
    raw_y = world_y / 16;
-   half = (world_x & 31) != 0 ? 1 : 0;
+   residual_x = world_x % 32;
+   residual_y = world_y % 16;
+   half = 0;
+   if (residual_x + residual_y * 2 >= 16)
+   {
+      if (residual_x + residual_y * 2 >= 48)
+      {
+         raw_x++;
+         raw_y++;
+      }
+      else if (32 - residual_x + residual_y * 2 < 16)
+      {
+         raw_x++;
+      }
+      else if (32 - residual_x + residual_y * 2 < 48)
+      {
+         half = 1;
+      }
+      else
+      {
+         raw_y++;
+      }
+   }
    *column = raw_x + raw_y + half;
    *row = raw_y - raw_x + PAL_NDS_MINIMAP_DIAGONAL_ORIGIN;
    return *column >= 0 && *row >= 0 &&
@@ -158,6 +320,17 @@ pal_nds_minimap_topology_get(
 }
 
 static void
+pal_nds_minimap_topology_clear(
+   unsigned column,
+   unsigned row)
+{
+   unsigned bit = row * PAL_NDS_MINIMAP_LOGICAL_COLUMNS + column;
+
+   pal_nds_minimap_topology[bit >> 3] &=
+      (uint8_t)~(uint8_t)(1u << (bit & 7u));
+}
+
+static void
 pal_nds_minimap_topology_set(
    unsigned column,
    unsigned row)
@@ -166,6 +339,121 @@ pal_nds_minimap_topology_set(
 
    pal_nds_minimap_topology[bit >> 3] |=
       (uint8_t)(1u << (bit & 7u));
+}
+
+/* The pattern dictionary is not initialized until after the closure has
+ * been selected, so its first topology-sized extent is the terminal mask
+ * during that bounded preparation phase. */
+static bool
+pal_nds_minimap_terminal_get(
+   unsigned column,
+   unsigned row)
+{
+   const uint8_t *terminal =
+      (const uint8_t *)pal_nds_minimap_pattern_tiles;
+   unsigned bit;
+
+   if (column >= PAL_NDS_MINIMAP_LOGICAL_COLUMNS ||
+      row >= PAL_NDS_MINIMAP_LOGICAL_ROWS)
+   {
+      return false;
+   }
+   bit = row * PAL_NDS_MINIMAP_LOGICAL_COLUMNS + column;
+   return (terminal[bit >> 3] &
+      (uint8_t)(1u << (bit & 7u))) != 0u;
+}
+
+static void
+pal_nds_minimap_terminal_set(
+   unsigned column,
+   unsigned row)
+{
+   uint8_t *terminal = (uint8_t *)pal_nds_minimap_pattern_tiles;
+   unsigned bit = row * PAL_NDS_MINIMAP_LOGICAL_COLUMNS + column;
+
+   terminal[bit >> 3] |= (uint8_t)(1u << (bit & 7u));
+}
+
+static bool
+pal_nds_minimap_topology_near(
+   int column,
+   int row)
+{
+   static const int offsets[5][2] = {
+      { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
+   };
+   unsigned i;
+
+   for (i = 0u; i < 5u; i++)
+   {
+      int neighbor_column = column + offsets[i][0];
+      int neighbor_row = row + offsets[i][1];
+
+      if (neighbor_column >= 0 && neighbor_row >= 0 &&
+         pal_nds_minimap_topology_get(
+            (unsigned)neighbor_column, (unsigned)neighbor_row))
+      {
+         return true;
+      }
+   }
+   return false;
+}
+
+static bool
+pal_nds_minimap_find_touch_terminal_marker(
+   const EVENTOBJECT *event_object,
+   int *column,
+   int *row)
+{
+   int center_column;
+   int center_row;
+   int maximum_steps;
+   int steps;
+
+   if (event_object == NULL || column == NULL || row == NULL ||
+      event_object->wTriggerMode < kTriggerTouchNear ||
+      !pal_nds_minimap_world_to_cell(
+         event_object->x, event_object->y,
+         &center_column, &center_row))
+   {
+      return false;
+   }
+   maximum_steps =
+      (int)event_object->wTriggerMode - (int)kTriggerTouchNear;
+   for (steps = 0; steps <= maximum_steps; steps++)
+   {
+      int row_offset;
+
+      for (row_offset = -steps; row_offset <= steps; row_offset++)
+      {
+         int column_offset = steps -
+            (row_offset < 0 ? -row_offset : row_offset);
+         int candidate_column = center_column + column_offset;
+         int candidate_row = center_row + row_offset;
+
+         if (candidate_column >= 0 && candidate_row >= 0 &&
+            pal_nds_minimap_topology_get(
+               (unsigned)candidate_column, (unsigned)candidate_row))
+         {
+            *column = candidate_column;
+            *row = candidate_row;
+            return true;
+         }
+         if (column_offset != 0)
+         {
+            candidate_column = center_column - column_offset;
+            if (candidate_column >= 0 && candidate_row >= 0 &&
+               pal_nds_minimap_topology_get(
+                  (unsigned)candidate_column, (unsigned)candidate_row))
+            {
+               *column = candidate_column;
+               *row = candidate_row;
+               return true;
+            }
+         }
+      }
+   }
+   return false;
 }
 
 static uint16_t
@@ -266,25 +554,172 @@ pal_nds_minimap_make_tile(
    }
 }
 
+static bool
+pal_nds_minimap_cell_is_terminal(
+   int world_x,
+   int world_y,
+   const EVENTOBJECT *event_objects,
+   unsigned portal_count)
+{
+   unsigned portal;
+
+   for (portal = 0u; portal < portal_count; portal++)
+   {
+      const EVENTOBJECT *event_object = event_objects +
+         pal_nds_minimap_tilemap[portal];
+      int delta_x = (int)event_object->x - world_x;
+      int delta_y = (int)event_object->y - world_y;
+      uint32_t distance;
+      uint32_t trigger_distance;
+
+      delta_x = delta_x < 0 ? -delta_x : delta_x;
+      delta_y = delta_y < 0 ? -delta_y : delta_y;
+      distance = (uint32_t)delta_x + (uint32_t)delta_y * 2u;
+      trigger_distance =
+         ((uint32_t)event_object->wTriggerMode -
+            (uint32_t)kTriggerTouchNear) * 32u + 16u;
+      if (distance < trigger_distance)
+      {
+         return true;
+      }
+   }
+   return false;
+}
+
+static bool
+pal_nds_minimap_select_component(
+   int seed_column,
+   int seed_row,
+   unsigned *min_column,
+   unsigned *max_column,
+   unsigned *min_row,
+   unsigned *max_row)
+{
+   static const int offsets[4][2] = {
+      { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
+   };
+   unsigned head = 0u;
+   unsigned tail = 0u;
+   unsigned column;
+   unsigned row;
+
+   /* Scripts can place the party outside ordinary floor topology. Guessing
+    * the nearest cell can select an unrelated exterior component, so fail
+    * closed until the party reaches a real nonblocking MAP cell. */
+   if (seed_column < 0 || seed_row < 0 ||
+      !pal_nds_minimap_topology_get(
+         (unsigned)seed_column, (unsigned)seed_row))
+   {
+      return false;
+   }
+
+   pal_nds_minimap_tilemap[tail++] = (uint16_t)(
+      (unsigned)seed_row * PAL_NDS_MINIMAP_LOGICAL_COLUMNS +
+      (unsigned)seed_column);
+   pal_nds_minimap_topology_clear(
+      (unsigned)seed_column, (unsigned)seed_row);
+   while (head < tail)
+   {
+      unsigned cell = pal_nds_minimap_tilemap[head++];
+      int cell_column = (int)(cell % PAL_NDS_MINIMAP_LOGICAL_COLUMNS);
+      int cell_row = (int)(cell / PAL_NDS_MINIMAP_LOGICAL_COLUMNS);
+      unsigned i;
+
+      /* A touch-triggered scene exit is reachable floor, but the engine
+       * executes its scene-change script before the following manual step. */
+      if (pal_nds_minimap_terminal_get(
+            (unsigned)cell_column, (unsigned)cell_row))
+      {
+         continue;
+      }
+
+      for (i = 0u; i < 4u; i++)
+      {
+         int neighbor_column = cell_column + offsets[i][0];
+         int neighbor_row = cell_row + offsets[i][1];
+
+         if (neighbor_column < 0 || neighbor_row < 0 ||
+            !pal_nds_minimap_topology_get(
+               (unsigned)neighbor_column, (unsigned)neighbor_row))
+         {
+            continue;
+         }
+         if (tail >= PAL_NDS_MINIMAP_TILEMAP_ENTRIES)
+         {
+            NdsTarget_FatalAt(__FILE__, __LINE__,
+               "minimap component queue overflow");
+         }
+         pal_nds_minimap_tilemap[tail++] = (uint16_t)(
+            (unsigned)neighbor_row * PAL_NDS_MINIMAP_LOGICAL_COLUMNS +
+            (unsigned)neighbor_column);
+         pal_nds_minimap_topology_clear(
+            (unsigned)neighbor_column, (unsigned)neighbor_row);
+      }
+   }
+
+   memset(pal_nds_minimap_topology, 0,
+      sizeof(pal_nds_minimap_topology));
+   *min_column = PAL_NDS_MINIMAP_LOGICAL_COLUMNS;
+   *max_column = 0u;
+   *min_row = PAL_NDS_MINIMAP_LOGICAL_ROWS;
+   *max_row = 0u;
+   for (head = 0u; head < tail; head++)
+   {
+      unsigned cell = pal_nds_minimap_tilemap[head];
+
+      column = cell % PAL_NDS_MINIMAP_LOGICAL_COLUMNS;
+      row = cell / PAL_NDS_MINIMAP_LOGICAL_COLUMNS;
+      pal_nds_minimap_topology_set(column, row);
+      *min_column = column < *min_column ? column : *min_column;
+      *max_column = column > *max_column ? column : *max_column;
+      *min_row = row < *min_row ? row : *min_row;
+      *max_row = row > *max_row ? row : *max_row;
+   }
+   return tail != 0u;
+}
+
 static void
 pal_nds_minimap_prepare(
-   const uint32_t *map_tiles)
+   const uint32_t *map_tiles,
+   const EVENTOBJECT *event_objects,
+   unsigned event_object_count,
+   int seed_column,
+   int seed_row)
 {
    unsigned min_column = PAL_NDS_MINIMAP_LOGICAL_COLUMNS;
    unsigned max_column = 0u;
    unsigned min_row = PAL_NDS_MINIMAP_LOGICAL_ROWS;
    unsigned max_row = 0u;
+   unsigned portal_count = 0u;
    unsigned raw_y;
-   bool any = false;
+   bool any;
 
    memset(pal_nds_minimap_topology, 0,
       sizeof(pal_nds_minimap_topology));
-   memset(pal_nds_minimap_tilemap, 0, sizeof(pal_nds_minimap_tilemap));
-   memset(pal_nds_minimap_pattern_tiles, 0xff,
-      sizeof(pal_nds_minimap_pattern_tiles));
-   memset(pal_nds_minimap_tiles, 0, 64u);
-   pal_nds_minimap_pattern_tiles[0] = 0u;
-   pal_nds_minimap_tile_count = 1u;
+   memset(pal_nds_minimap_pattern_tiles, 0,
+      PAL_NDS_MINIMAP_TOPOLOGY_BYTES);
+
+   /* Keep only current, automatic scene exits. Their event indices occupy
+    * the queue owner only until topology construction starts. */
+   if (event_objects != NULL)
+   {
+      unsigned i;
+
+      for (i = 0u; i < event_object_count; i++)
+      {
+         if (!pal_nds_minimap_event_is_touch_exit(event_objects + i))
+         {
+            continue;
+         }
+         if (portal_count >= PAL_NDS_MINIMAP_TILEMAP_ENTRIES ||
+            i > UINT16_MAX)
+         {
+            NdsTarget_FatalAt(__FILE__, __LINE__,
+               "minimap scene-exit profile overflow");
+         }
+         pal_nds_minimap_tilemap[portal_count++] = (uint16_t)i;
+      }
+   }
 
    /* MAP records are stored in an isometric (x, y, half-tile) lattice. */
    for (raw_y = 0u; raw_y < PAL_NDS_MINIMAP_RAW_ROWS; raw_y++)
@@ -304,7 +739,9 @@ pal_nds_minimap_prepare(
             unsigned column;
             unsigned row;
 
-            if (tile == 0u || (tile & PAL_NDS_MAP_BLOCKED) != 0u)
+            /* Match PAL_MapTileIsBlocked(): visual tile indices, including
+             * DWORD zero/GOP frame zero, do not participate in collision. */
+            if ((tile & PAL_NDS_MAP_BLOCKED) != 0u)
             {
                continue;
             }
@@ -312,17 +749,39 @@ pal_nds_minimap_prepare(
             row = (unsigned)((int)raw_y - (int)raw_x +
                PAL_NDS_MINIMAP_DIAGONAL_ORIGIN);
             pal_nds_minimap_topology_set(column, row);
-            min_column = column < min_column ? column : min_column;
-            max_column = column > max_column ? column : max_column;
-            min_row = row < min_row ? row : min_row;
-            max_row = row > max_row ? row : max_row;
-            any = true;
+            if (portal_count != 0u &&
+               pal_nds_minimap_cell_is_terminal(
+                  (int)(raw_x * 32u + half * 16u),
+                  (int)(raw_y * 16u + half * 8u),
+                  event_objects, portal_count))
+            {
+               pal_nds_minimap_terminal_set(column, row);
+            }
          }
       }
    }
 
+   any = seed_column >= 0 && seed_row >= 0 &&
+      pal_nds_minimap_select_component(
+         seed_column, seed_row,
+         &min_column, &max_column, &min_row, &max_row);
+   memset(pal_nds_minimap_tilemap, 0, sizeof(pal_nds_minimap_tilemap));
+   memset(pal_nds_minimap_pattern_tiles, 0xff,
+      sizeof(pal_nds_minimap_pattern_tiles));
+   memset(pal_nds_minimap_tiles, 0, 64u);
+   pal_nds_minimap_pattern_tiles[0] = 0u;
+   pal_nds_minimap_tile_count = 1u;
+
    if (any)
    {
+      /* One empty cell keeps blocked stair/event markers adjacent to the
+       * reachable component inside the cropped floor-plan extent. */
+      min_column = min_column > 0u ? min_column - 1u : min_column;
+      min_row = min_row > 0u ? min_row - 1u : min_row;
+      max_column = max_column + 1u < PAL_NDS_MINIMAP_LOGICAL_COLUMNS ?
+         max_column + 1u : max_column;
+      max_row = max_row + 1u < PAL_NDS_MINIMAP_LOGICAL_ROWS ?
+         max_row + 1u : max_row;
       unsigned width = max_column - min_column + 1u;
       unsigned height = max_row - min_row + 1u;
       unsigned tile_columns = (width + 1u) / 2u;
@@ -371,24 +830,34 @@ pal_nds_minimap_prepare(
       pal_nds_minimap_height_pixels = 0u;
       pal_nds_minimap_has_cells = false;
    }
+   pal_nds_minimap_pending_generation++;
 }
 
 static void
 pal_nds_minimap_present(
    void)
 {
+   if (!pal_nds_minimap_pending_visible)
+   {
+      oamDisable(&oamSub);
+      bgHide(pal_nds_minimap_marker_bg);
+      bgHide(pal_nds_minimap_bg);
+      return;
+   }
    if (pal_nds_minimap_pending_map < 0)
    {
       return;
    }
 
-   if (pal_nds_minimap_map != pal_nds_minimap_pending_map)
+   if (pal_nds_minimap_map != pal_nds_minimap_pending_map ||
+      pal_nds_minimap_generation != pal_nds_minimap_pending_generation)
    {
       dmaCopy(pal_nds_minimap_tiles, bgGetGfxPtr(pal_nds_minimap_bg),
          pal_nds_minimap_tile_count * 64u);
       dmaCopy(pal_nds_minimap_tilemap, bgGetMapPtr(pal_nds_minimap_bg),
          sizeof(pal_nds_minimap_tilemap));
       pal_nds_minimap_map = pal_nds_minimap_pending_map;
+      pal_nds_minimap_generation = pal_nds_minimap_pending_generation;
    }
    if (pal_nds_minimap_view_x != pal_nds_minimap_pending_view_x ||
       pal_nds_minimap_view_y != pal_nds_minimap_pending_view_y)
@@ -432,6 +901,13 @@ pal_nds_minimap_present(
    bgShow(pal_nds_minimap_bg);
 }
 
+void
+NdsTarget_MinimapSetVisible(
+   bool visible)
+{
+   pal_nds_minimap_pending_visible = visible;
+}
+
 static void
 pal_nds_minimap_update_obstacles(
    const EVENTOBJECT *event_objects,
@@ -447,6 +923,7 @@ pal_nds_minimap_update_obstacles(
       for (i = 0u; i < event_object_count; i++)
       {
          const EVENTOBJECT *event_object = event_objects + i;
+         int palette;
          int column;
          int row;
          int source_x;
@@ -454,13 +931,35 @@ pal_nds_minimap_update_obstacles(
          int screen_x;
          int screen_y;
 
-         if (event_object->sState < kObjStateBlocker ||
+         /* Walking characters do not belong on the floor plan. */
+         palette = pal_nds_minimap_event_palette(event_object);
+         if (palette < 0 ||
             !pal_nds_minimap_world_to_cell(
-               event_object->x, event_object->y, &column, &row) ||
+               event_object->x, event_object->y, &column, &row))
+         {
+            continue;
+         }
+         if (palette == PAL_NDS_MINIMAP_PALETTE_YELLOW &&
+            event_object->wTriggerMode >= kTriggerTouchNear &&
+            !pal_nds_minimap_topology_near(column, row) &&
+            !pal_nds_minimap_find_touch_terminal_marker(
+               event_object, &column, &row))
+         {
+            continue;
+         }
+         if (
             column < (int)pal_nds_minimap_min_column ||
             row < (int)pal_nds_minimap_min_row ||
-            !pal_nds_minimap_topology_get(
-               (unsigned)column, (unsigned)row))
+            (unsigned)(column - (int)pal_nds_minimap_min_column) *
+               PAL_NDS_MINIMAP_CELL_PIXELS >=
+               pal_nds_minimap_width_pixels ||
+            (unsigned)(row - (int)pal_nds_minimap_min_row) *
+               PAL_NDS_MINIMAP_CELL_PIXELS >=
+               pal_nds_minimap_height_pixels ||
+            (palette == PAL_NDS_MINIMAP_PALETTE_GRAY ?
+               !pal_nds_minimap_topology_get(
+                  (unsigned)column, (unsigned)row) :
+               !pal_nds_minimap_topology_near(column, row)))
          {
             continue;
          }
@@ -484,7 +983,7 @@ pal_nds_minimap_update_obstacles(
          }
          oamSet(&oamSub, (int)obstacle_count,
             screen_x - 4, screen_y - 4,
-            0, 0, SpriteSize_8x8, SpriteColorFormat_16Color,
+            0, palette, SpriteSize_8x8, SpriteColorFormat_16Color,
             SPRITE_GFX_SUB, -1, false, false,
             false, false, false);
          obstacle_count++;
@@ -546,7 +1045,12 @@ NdsTarget_Begin(
       sizeof(pal_nds_minimap_obstacle_tile));
    dmaCopy(pal_nds_minimap_obstacle_tile, SPRITE_GFX_SUB,
       sizeof(pal_nds_minimap_obstacle_tile));
-   SPRITE_PALETTE_SUB[1] = RGB15(15, 15, 15);
+   SPRITE_PALETTE_SUB[PAL_NDS_MINIMAP_PALETTE_GRAY * 16u + 1u] =
+      RGB15(15, 15, 15);
+   SPRITE_PALETTE_SUB[PAL_NDS_MINIMAP_PALETTE_YELLOW * 16u + 1u] =
+      RGB15(31, 31, 0);
+   SPRITE_PALETTE_SUB[PAL_NDS_MINIMAP_PALETTE_GREEN * 16u + 1u] =
+      RGB15(0, 31, 0);
    bgSetPriority(pal_nds_minimap_marker_bg, 0);
    bgSetPriority(pal_nds_minimap_bg, 1);
    bgSetScroll(pal_nds_minimap_marker_bg,
@@ -616,17 +1120,33 @@ NdsTarget_ShowReady(
       return;
    }
    pal_nds_show_console();
-   (void)save_type;
-   iprintf("\nROM  DLDI self-ROM NitroFS\n");
-   if (save_available)
+   if (save_type == 3)
    {
-      iprintf("SAVE DLDI FAT 5 x %lu KiB\n",
-         (unsigned long)(save_bytes / (5u * 1024u)));
+      iprintf("\nROM  Slot-1 NitroFS\n");
+      if (save_available)
+      {
+         iprintf("SAVE SPI FLASH %lu KiB\n",
+            (unsigned long)(save_bytes / 1024u));
+      }
+      else
+      {
+         iprintf("SAVE SPI FLASH unavailable\n");
+         iprintf("     needs 1 MiB type-3\n");
+      }
    }
    else
    {
-      iprintf("SAVE unavailable backend=%d\n", save_type);
-      iprintf("     needs writable DLDI FAT\n");
+      iprintf("\nROM  DLDI self-ROM NitroFS\n");
+      if (save_available)
+      {
+         iprintf("SAVE DLDI FAT 5 x %lu KiB\n",
+            (unsigned long)(save_bytes / (5u * 1024u)));
+      }
+      else
+      {
+         iprintf("SAVE DLDI FAT unavailable\n");
+         iprintf("     needs writable DLDI FAT\n");
+      }
    }
    iprintf("\nA confirm   B menu/back\n");
    iprintf("D-pad move  X status\n");
@@ -635,36 +1155,67 @@ NdsTarget_ShowReady(
 void
 NdsTarget_MinimapSetMap(
    int map_number,
+   int scene_number,
    const uint32_t *map_tiles,
    const struct tagEVENTOBJECT *event_objects,
    unsigned event_object_count,
    int world_x,
    int world_y)
 {
-   int column;
-   int row;
+   int column = -1;
+   int row = -1;
    int source_x = -1;
    int source_y = -1;
    int view_x = 0;
    int view_y = 0;
    int marker_x = -1;
    int marker_y = -1;
+   bool player_cell_valid;
+   uint32_t portal_signature;
+   bool component_missing;
+   bool component_seed_changed;
 
-   if (!pal_nds_started || map_number < 0 || map_tiles == NULL)
+   if (!pal_nds_started || map_number < 0 || scene_number <= 0 ||
+      map_tiles == NULL ||
+      (event_object_count != 0u && event_objects == NULL))
    {
       return;
    }
-   if (pal_nds_minimap_pending_map != map_number)
+   portal_signature = pal_nds_minimap_portal_signature(
+      event_objects, event_object_count);
+   player_cell_valid = world_x >= 0 && world_y >= 0 &&
+      pal_nds_minimap_world_to_cell(
+         world_x, world_y, &column, &row);
+   component_missing = player_cell_valid &&
+      (!pal_nds_minimap_has_cells ||
+         !pal_nds_minimap_topology_get(
+            (unsigned)column, (unsigned)row));
+   component_seed_changed = player_cell_valid &&
+      (column != pal_nds_minimap_component_seed_column ||
+         row != pal_nds_minimap_component_seed_row);
+   if (pal_nds_minimap_pending_map != map_number ||
+      pal_nds_minimap_pending_scene != scene_number ||
+      pal_nds_minimap_pending_portal_signature != portal_signature ||
+      (component_missing && component_seed_changed))
    {
-      pal_nds_minimap_prepare(map_tiles);
+      pal_nds_minimap_prepare(
+         map_tiles,
+         event_objects,
+         event_object_count,
+         player_cell_valid ? column : -1,
+         player_cell_valid ? row : -1);
       pal_nds_minimap_pending_map = map_number;
+      pal_nds_minimap_pending_scene = scene_number;
+      pal_nds_minimap_pending_portal_signature = portal_signature;
+      pal_nds_minimap_component_seed_column =
+         player_cell_valid ? column : -1;
+      pal_nds_minimap_component_seed_row =
+         player_cell_valid ? row : -1;
    }
 
-   if (world_x >= 0 && world_y >= 0 && pal_nds_minimap_has_cells)
+   if (player_cell_valid && pal_nds_minimap_has_cells)
    {
-      if (pal_nds_minimap_world_to_cell(
-            world_x, world_y, &column, &row) &&
-         column >= (int)pal_nds_minimap_min_column &&
+      if (column >= (int)pal_nds_minimap_min_column &&
          row >= (int)pal_nds_minimap_min_row &&
          column < (int)PAL_NDS_MINIMAP_LOGICAL_COLUMNS &&
          row < (int)PAL_NDS_MINIMAP_LOGICAL_ROWS)

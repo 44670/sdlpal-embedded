@@ -34,8 +34,8 @@ Remaining:
 - Verify physical DSpico reads beyond 32MiB reach the title and New Game path.
 - Save to `fat:/sdlpal/N.rpg`, power-cycle, and reload the same slot.
 - Retain the exact release versions and physical observations as acceptance
-  evidence. Do not add DSpico-private I/O or restore a CARD/SPI fallback to
-  make the test pass.
+  evidence. Do not add DSpico-private I/O or route this physical DLDI test
+  through the emulator-only Slot-1/SPI fallback.
 
 ## 2. Accept threaded RIX music
 
@@ -54,22 +54,27 @@ Remaining:
 
 ## 3. Accept the touch-screen full map
 
-State: when a MAP chunk becomes active, ARM9 converts its nonzero, nonblocking
-isometric tile records into a complete orthogonal walkable floor plan. It crops
-that topology into a fixed 1024x1024 tiled address space at exactly four pixels
-per logical grid cell. Adjacent walkable cells share uninterrupted blue fill;
-one-pixel white lines appear only at region boundaries. One VBlank DMA uploads
-the 16-bit tile map and its deduplicated tile patterns. The sub 2D affine engine
+State: when a MAP chunk becomes active, ARM9 converts its nonblocking
+isometric tile records into an orthogonal walkable topology (including valid
+bottom-tile index zero terrain), then keeps only
+the four-neighbor closure containing the player. Dynamic event blockers are
+ignored by that closure. Active automatic transition zones are reachable
+terminal cells, matching the engine's trigger-before-next-step ordering, so
+the closure cannot leak through a doorway into disconnected zero-filled MAP
+space. Ordinary movement does not recompute it. The selected result is cropped
+into a fixed 1024x1024 tiled address space at exactly four pixels per logical
+grid cell. Adjacent walkable cells share uninterrupted blue fill; one-pixel
+white lines appear only at region boundaries. One VBlank DMA uploads the
+16-bit tile map and its deduplicated tile patterns. The sub 2D affine engine
 centers small maps and scrolls larger maps without rotation, while a small red
-point shows the current position. Active event-object blockers appear as gray
-four-pixel cells and disappear immediately when a script removes their blocker
-state. There is no exploration state.
+point shows the current position. There is no exploration state.
 
 Remaining:
 
 - Inspect the lower screen through real gameplay and confirm that native MAP
-  topology produces useful scrollable floor plans on representative indoor and
-  outdoor scenes, including a large town map.
+  topology produces useful connected floor plans on representative indoor and
+  outdoor scenes, including a same-MAP floor transition and a large town map.
 - Confirm the orthogonal four-pixel pitch, merged blue walkable regions, white
-  boundaries, gray event blockers, and small red point on a physical DS/DS
-  Lite LCD.
+  boundaries, gray non-character blockers, yellow stairs/exits, green event
+  points, omitted walking characters, and the small red point on a physical
+  DS/DS Lite LCD.

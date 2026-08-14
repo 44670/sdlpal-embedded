@@ -48,6 +48,17 @@ PalEngineBridge_RenderPresentIndexed(
    (void)region_h;
    if (map != NULL)
    {
+      bool scene_transition =
+         gpGlobals->fEnteringScene || gpGlobals->fNeedToFadeIn;
+
+      NdsTarget_MinimapSetVisible(!scene_transition);
+      if (scene_transition)
+      {
+         return NdsTarget_FlushIndexedFramebuffer(
+            (const uint8_t *)pixels,
+            (uint16_t)pitch,
+            (const uint8_t *)palette_rgba);
+      }
       if (gpGlobals->wNumScene > 0 &&
          gpGlobals->wNumScene < MAX_SCENES)
       {
@@ -64,6 +75,7 @@ PalEngineBridge_RenderPresentIndexed(
       }
       NdsTarget_MinimapSetMap(
          map->iMapNum,
+         gpGlobals->wNumScene,
          (const uint32_t *)map->Tiles,
          event_objects,
          event_object_count,

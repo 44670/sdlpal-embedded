@@ -143,6 +143,15 @@ pal_nds_mount_self_rom(
 }
 
 static bool
+pal_nds_mount_slot1_rom(
+   void)
+{
+   NitroRom *rom = nitroromGetSelf();
+
+   return rom != NULL && nitroFSMount(rom);
+}
+
+static bool
 pal_nds_pack_read_at(
    void *user,
    uint32_t offset,
@@ -187,34 +196,46 @@ PalEngineBridge_TargetInitPacks(
 
    PalEngineBridge_ClearPacks();
    NdsTargetSave_SetDldiReady(false);
+   NdsTargetSave_SetRetailReady(false);
    if (isDSiMode())
    {
       pal_nds_pack_error = "TWL mode is not supported";
       return false;
    }
-   if (pal_nds_launch_path == NULL ||
-      strncmp(pal_nds_launch_path, "fat:/", 5u) != 0)
+   if (pal_nds_launch_path != NULL &&
+      strncmp(pal_nds_launch_path, "fat:/", 5u) == 0)
    {
-      pal_nds_pack_error = "DLDI launch path is missing";
-      return false;
-   }
+      NdsTarget_BootLog("storage: mounting DLDI FAT");
+      if (!fatInitDefault())
+      {
+         pal_nds_pack_error = "DLDI FAT mount failed";
+         return false;
+      }
+      NdsTargetSave_SetDldiReady(true);
+      NdsTarget_BootLog("storage: DLDI FAT ok");
 
-   NdsTarget_BootLog("storage: mounting DLDI FAT");
-   if (!fatInitDefault())
-   {
-      pal_nds_pack_error = "DLDI FAT mount failed";
-      return false;
+      /* Pico Loader supplies argv[0] as fat:/path/to/sdlpal.nds. Open it
+       * explicitly through the mounted DLDI volume and mount its embedded
+       * NitroFS. */
+      if (!pal_nds_mount_self_rom(pal_nds_launch_path))
+      {
+         pal_nds_pack_error = "DLDI self-ROM NitroFS mount failed";
+         return false;
+      }
    }
-   NdsTargetSave_SetDldiReady(true);
-   NdsTarget_BootLog("storage: DLDI FAT ok");
-
-   /* Pico Loader supplies argv[0] as fat:/path/to/sdlpal.nds. Open it
-    * explicitly through the mounted DLDI volume and mount its embedded
-    * NitroFS. There is deliberately no Slot-1 fallback. */
-   if (!pal_nds_mount_self_rom(pal_nds_launch_path))
+   else
    {
-      pal_nds_pack_error = "DLDI self-ROM NitroFS mount failed";
-      return false;
+      /* With no argv[0], Calico uses the Slot-1 boot source and ntrcard to
+       * access the application's own NitroFS. This is the emulator retail
+       * path; it deliberately does not initialize DLDI. */
+      NdsTarget_BootLog("storage: mounting Slot-1 NitroFS");
+      if (!pal_nds_mount_slot1_rom())
+      {
+         pal_nds_pack_error = "Slot-1 self-ROM NitroFS mount failed";
+         return false;
+      }
+      NdsTargetSave_SetRetailReady(true);
+      NdsTarget_BootLog("storage: Slot-1 NitroFS ok");
    }
    pal_nds_pack_fd = open(PAL_NDS_PACK_PATH, O_RDONLY);
    if (pal_nds_pack_fd < 0 || fstat(pal_nds_pack_fd, &st) != 0 ||

@@ -21,11 +21,13 @@ void NdsTarget_ShowReady(
    bool save_available, int save_type, uint32_t save_bytes);
 void NdsTarget_MinimapSetMap(
    int map_number,
+   int scene_number,
    const uint32_t *map_tiles,
    const struct tagEVENTOBJECT *event_objects,
    unsigned event_object_count,
    int world_x,
    int world_y);
+void NdsTarget_MinimapSetVisible(bool visible);
 void NdsTarget_FatalAt(
    const char *file,
    uint32_t line,

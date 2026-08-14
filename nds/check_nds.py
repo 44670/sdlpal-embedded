@@ -35,6 +35,7 @@ EXPECTED_OWNERS = {
     "pal_nds_minimap_tilemap": 128 * 128 * 2,
     "pal_nds_minimap_marker_tiles": 64,
     "pal_nds_minimap_obstacle_tile": 32,
+    "pal_nds_save_verify": 256,
     "pal_mem_level2_scene_arena": 256 * 1024,
     "pal_mem_level2_player_arena": 128 * 1024,
     "pal_mem_level2_battle_arena": 512 * 1024,
@@ -85,7 +86,20 @@ DLDI_RUNTIME_ADDRESS = 0x0380B000
 DECRYPTED_SECURE_MARKER = b"\xFF\xDE\xFF\xE7" * 2
 MAX_OPL_WRITES_PER_TICK = 256
 MINIMAP_TILE_CAPACITY = 1024
-MINIMAP_OBSTACLE_CAPACITY = 128
+MINIMAP_OVERLAY_CAPACITY = 128
+MINIMAP_LOGICAL_COLUMNS = 193
+MINIMAP_LOGICAL_ROWS = 191
+MINIMAP_VISIBLE_COLUMNS = 66
+MINIMAP_VISIBLE_ROWS = 50
+MINIMAP_SCRIPT_SCAN_LIMIT = 512
+PINNED_PAL_DOS_PACK_SHA256 = (
+    "9c01aec3be2f9a9404551c27ec1bb3c7d580c10accd4b3b8d254d05c9c4cfb71"
+)
+PINNED_PAL_DOS_MINIMAP_CLOSURES = (
+    # scene, MAP, (orthogonal column, row), cells, DWORD-zero cells
+    (4, 1, (95, 80), 5766, 1944),
+    (3, 10, (132, 114), 481, 0),
+)
 
 
 def run(*args: str) -> str:
@@ -440,8 +454,120 @@ def pack_chunk_payload(path: Path, archive_id: int, chunk_id: int) -> bytes:
     raise ValueError(f"PAL pack is missing archive {archive_id}")
 
 
-def pack_minimap_blocker_peak(path: Path) -> tuple[int, int]:
-    """Bound event objects that can explicitly acquire blocker state."""
+def minimap_world_to_cell(world_x: int, world_y: int) -> tuple[int, int]:
+    """Mirror PAL_CheckObstacleWithRange's isometric diamond selection."""
+    raw_x, residual_x = divmod(world_x, 32)
+    raw_y, residual_y = divmod(world_y, 16)
+    half = 0
+    if residual_x + residual_y * 2 >= 16:
+        if residual_x + residual_y * 2 >= 48:
+            raw_x += 1
+            raw_y += 1
+        elif 32 - residual_x + residual_y * 2 < 16:
+            raw_x += 1
+        elif 32 - residual_x + residual_y * 2 < 48:
+            half = 1
+        else:
+            raw_y += 1
+    return raw_x + raw_y + half, raw_y - raw_x + 63
+
+
+def minimap_script_changes_scene(
+    scripts: list[tuple[int, int, int, int]], script_entry: int
+) -> bool:
+    """Mirror the bounded runtime classifier for automatic transitions."""
+    scanned = 0
+    while (
+        script_entry != 0
+        and script_entry < len(scripts)
+        and scanned < MINIMAP_SCRIPT_SCAN_LIMIT
+    ):
+        operation, operand0, operand1, _operand2 = scripts[script_entry]
+        scanned += 1
+        if operation == 0x0059:
+            return True
+        if operation in (0x0000, 0x0001, 0x0002):
+            return False
+        if operation == 0x0003 and operand1 == 0:
+            script_entry = operand0
+        else:
+            script_entry += 1
+    return False
+
+
+def minimap_pattern_key_space() -> int:
+    """Prove the dictionary bound for arbitrary selected-component edges."""
+    normalized: set[int] = set()
+    for key in range(1 << 12):
+        relevant = 0x000F
+        relevant |= ((1 << 4) | (1 << 6)) if key & (1 << 0) else 0
+        relevant |= ((1 << 5) | (1 << 8)) if key & (1 << 1) else 0
+        relevant |= ((1 << 7) | (1 << 10)) if key & (1 << 2) else 0
+        relevant |= ((1 << 9) | (1 << 11)) if key & (1 << 3) else 0
+        normalized.add(key & relevant)
+    return len(normalized)
+
+
+def pack_minimap_overlay_peak(path: Path) -> tuple[int, int]:
+    """Conservatively bound every event object in one visible map window."""
+    event_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 0)
+    scene_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 1)
+    if len(event_data) == 0 or len(event_data) % 32:
+        raise ValueError("SSS event-object chunk is malformed")
+    if len(scene_data) < 16 or len(scene_data) % 8:
+        raise ValueError("SSS scene chunk is malformed")
+
+    events = list(struct.iter_unpack("<16H", event_data))
+    scenes = list(struct.iter_unpack("<4H", scene_data))
+
+    peak = (0, -1)
+    for scene_number in range(1, len(scenes)):
+        first = scenes[scene_number - 1][3]
+        end = scenes[scene_number][3]
+        if first > end or end > len(events):
+            raise ValueError(f"SSS scene {scene_number} has an invalid event range")
+        grid = [0] * (MINIMAP_LOGICAL_COLUMNS * MINIMAP_LOGICAL_ROWS)
+        for event in events[first:end]:
+            column, row = minimap_world_to_cell(event[1], event[2])
+            if (
+                0 <= column < MINIMAP_LOGICAL_COLUMNS
+                and 0 <= row < MINIMAP_LOGICAL_ROWS
+            ):
+                grid[row * MINIMAP_LOGICAL_COLUMNS + column] += 1
+
+        prefix_width = MINIMAP_LOGICAL_COLUMNS + 1
+        prefix = [0] * (prefix_width * (MINIMAP_LOGICAL_ROWS + 1))
+        for row in range(MINIMAP_LOGICAL_ROWS):
+            row_sum = 0
+            for column in range(MINIMAP_LOGICAL_COLUMNS):
+                row_sum += grid[row * MINIMAP_LOGICAL_COLUMNS + column]
+                prefix[(row + 1) * prefix_width + column + 1] = (
+                    prefix[row * prefix_width + column + 1] + row_sum
+                )
+        for top in range(MINIMAP_LOGICAL_ROWS):
+            bottom = min(top + MINIMAP_VISIBLE_ROWS, MINIMAP_LOGICAL_ROWS)
+            for left in range(MINIMAP_LOGICAL_COLUMNS):
+                right = min(
+                    left + MINIMAP_VISIBLE_COLUMNS,
+                    MINIMAP_LOGICAL_COLUMNS,
+                )
+                count = (
+                    prefix[bottom * prefix_width + right]
+                    - prefix[top * prefix_width + right]
+                    - prefix[bottom * prefix_width + left]
+                    + prefix[top * prefix_width + left]
+                )
+                if count > peak[0]:
+                    peak = (count, scene_number)
+    return peak
+
+
+def pack_minimap_terminal_closure(
+    path: Path,
+    scene_number: int,
+    seed: tuple[int, int],
+) -> tuple[int, int, int]:
+    """Run the runtime's transition-terminal closure on pinned PAL data."""
     event_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 0)
     scene_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 1)
     script_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 4)
@@ -454,35 +580,72 @@ def pack_minimap_blocker_peak(path: Path) -> tuple[int, int]:
 
     events = list(struct.iter_unpack("<16H", event_data))
     scenes = list(struct.iter_unpack("<4H", scene_data))
-    possible = {
-        event_id
-        for event_id, event in enumerate(events, 1)
-        if event[6] >= 2
-    }
-    for operation, operand0, operand1, operand2 in struct.iter_unpack(
-        "<4H", script_data
-    ):
-        if operation == 0x0049 and operand0 != 0 and operand1 >= 2:
-            if not 0 < operand0 <= len(events):
-                raise ValueError("SSS opcode 0049 has an invalid event-object ID")
-            possible.add(operand0)
-        elif operation == 0x009A and operand2 >= 2:
-            if not 0 < operand0 <= operand1 <= len(events):
-                raise ValueError("SSS opcode 009a has an invalid event-object range")
-            possible.update(range(operand0, operand1 + 1))
+    scripts = list(struct.iter_unpack("<4H", script_data))
+    if not 0 < scene_number < len(scenes):
+        raise ValueError(f"invalid minimap fixture scene {scene_number}")
+    map_number = scenes[scene_number - 1][0]
+    first = scenes[scene_number - 1][3]
+    end = scenes[scene_number][3]
+    if first > end or end > len(events):
+        raise ValueError(f"SSS scene {scene_number} has an invalid event range")
 
-    peak = (0, -1)
-    for scene_number in range(1, len(scenes)):
-        first = scenes[scene_number - 1][3]
-        end = scenes[scene_number][3]
-        if first > end or end > len(events):
-            raise ValueError(f"SSS scene {scene_number} has an invalid event range")
-        count = sum(
-            event_id in possible for event_id in range(first + 1, end + 1)
+    portals = []
+    for event in events[first:end]:
+        vanish_time = event[0] - 0x10000 if event[0] & 0x8000 else event[0]
+        state = event[6] - 0x10000 if event[6] & 0x8000 else event[6]
+        if (
+            vanish_time == 0
+            and state > 0
+            and event[7] >= 4
+            and event[4] != 0
+            and minimap_script_changes_scene(scripts, event[4])
+        ):
+            portals.append(event)
+
+    payload = pack_chunk_payload(path, MAP_ARCHIVE_ID, map_number)
+    if len(payload) != 128 * 64 * 2 * 4:
+        raise ValueError(f"MAP chunk {map_number} is malformed")
+    topology: dict[tuple[int, int], tuple[int, int]] = {}
+    zero_tiles: set[tuple[int, int]] = set()
+    for record, (tile,) in enumerate(struct.iter_unpack("<I", payload)):
+        if tile & 0x2000:
+            continue
+        raw_y, within_row = divmod(record, 64 * 2)
+        raw_x, half = divmod(within_row, 2)
+        cell = raw_x + raw_y + half, raw_y - raw_x + 63
+        topology[cell] = raw_x * 32 + half * 16, raw_y * 16 + half * 8
+        if tile == 0:
+            zero_tiles.add(cell)
+
+    terminals = {
+        cell
+        for cell, (world_x, world_y) in topology.items()
+        if any(
+            abs(event[1] - world_x) + 2 * abs(event[2] - world_y)
+            < (event[7] - 4) * 32 + 16
+            for event in portals
         )
-        if count > peak[0]:
-            peak = (count, scene_number)
-    return peak
+    }
+    if seed not in topology:
+        raise ValueError(
+            f"scene {scene_number} minimap seed {seed} is not nonblocking"
+        )
+    selected = {seed}
+    queue = [seed]
+    for cell in queue:
+        if cell in terminals:
+            continue
+        column, row = cell
+        for neighbor in (
+            (column - 1, row),
+            (column + 1, row),
+            (column, row - 1),
+            (column, row + 1),
+        ):
+            if neighbor in topology and neighbor not in selected:
+                selected.add(neighbor)
+                queue.append(neighbor)
+    return map_number, len(selected), len(selected & zero_tiles)
 
 
 def pack_map_pattern_peak(path: Path) -> tuple[int, int]:
@@ -516,7 +679,9 @@ def pack_map_pattern_peak(path: Path) -> tuple[int, int]:
             payload = source.read(size)
             topology: set[tuple[int, int]] = set()
             for record, (tile,) in enumerate(struct.iter_unpack("<I", payload)):
-                if tile == 0 or tile & 0x2000:
+                # Bottom tile index zero is valid terrain. Runtime collision
+                # excludes only records carrying the MAP block flag.
+                if tile & 0x2000:
                     continue
                 raw_y, within_row = divmod(record, 64 * 2)
                 raw_x, half = divmod(within_row, 2)
@@ -604,29 +769,21 @@ def main() -> int:
         "fatInitDefault",
         "nitroFSMount",
         "nitroromOpen",
+        "nitroromGetSelf",
+        "cardReadEeprom",
+        "cardWriteEeprom",
+        "cardEepromSectorErase",
         "NdsTarget_SetLaunchPath",
         "NdsTargetSave_SetDldiReady",
+        "NdsTargetSave_SetRetailReady",
         "PalTargetSave_ReadSlot",
         "PalTargetSave_WriteSlot",
     ):
         if required not in symbols:
-            errors.append(f"missing DLDI homebrew symbol: {required}")
-    retired_exact = {
-        "nitroromGetSelf",
-        "nitroFSInit",
-        "cardReadEeprom",
-        "cardWriteEeprom",
-        "cardEepromSectorErase",
-        "dvmProbeMountDiscIface",
-    }
+            errors.append(f"missing dual-storage symbol: {required}")
     for symbol in symbols:
-        if (
-            symbol in retired_exact
-            or symbol.startswith("ntrcard")
-            or symbol.startswith("NdsRetail")
-            or symbol.startswith("cardEeprom")
-        ):
-            errors.append(f"retired CARD/SPI storage symbol is linked: {symbol}")
+        if symbol == "dvmProbeMountDiscIface" or symbol.startswith("NdsRetail"):
+            errors.append(f"retired storage shim is linked: {symbol}")
     dldi_section = sections.get(".dldi")
     if dldi_section != (DLDI_RUNTIME_ADDRESS, DLDI_RESERVED_BYTES):
         errors.append(
@@ -684,6 +841,7 @@ def main() -> int:
 
     start, _end, nitro_size = parse_nitro_listing(args.nds, args.ndstool)
     pack_set, pack_size = pack_identity(args.pack)
+    source_hash = hash_extent(args.pack, 0, pack_size)
     cinematic_mgo = pack_chunk_sizes(
         args.pack, MGO_ARCHIVE_ID, (71, 73, 571, 572, 635)
     )
@@ -710,15 +868,49 @@ def main() -> int:
                 f"{maximum_minimap_tiles} minimap tiles, exceeds "
                 f"{MINIMAP_TILE_CAPACITY}"
             )
-    maximum_minimap_blockers, maximum_minimap_blocker_scene = (
-        pack_minimap_blocker_peak(args.pack)
-    )
-    if maximum_minimap_blockers > MINIMAP_OBSTACLE_CAPACITY:
+    minimap_pattern_keys = minimap_pattern_key_space()
+    if minimap_pattern_keys > MINIMAP_TILE_CAPACITY:
         errors.append(
-            f"scene {maximum_minimap_blocker_scene} can contain "
-            f"{maximum_minimap_blockers} minimap blockers, exceeds "
-            f"{MINIMAP_OBSTACLE_CAPACITY} OBJ slots"
+            f"arbitrary connected minimap boundaries can require "
+            f"{minimap_pattern_keys} tiles, exceeds {MINIMAP_TILE_CAPACITY}"
         )
+    maximum_minimap_overlays, maximum_minimap_overlay_scene = (
+        pack_minimap_overlay_peak(args.pack)
+    )
+    if maximum_minimap_overlays > MINIMAP_OVERLAY_CAPACITY:
+        errors.append(
+            f"scene {maximum_minimap_overlay_scene} can contain "
+            f"{maximum_minimap_overlays} visible minimap overlays, exceeds "
+            f"{MINIMAP_OVERLAY_CAPACITY} OBJ slots"
+        )
+    pinned_minimap_closures: list[str] = []
+    if source_hash == PINNED_PAL_DOS_PACK_SHA256:
+        for (
+            scene_number,
+            expected_map,
+            seed,
+            expected_cells,
+            expected_zero_cells,
+        ) in PINNED_PAL_DOS_MINIMAP_CLOSURES:
+            map_number, cells, zero_cells = pack_minimap_terminal_closure(
+                args.pack, scene_number, seed
+            )
+            pinned_minimap_closures.append(
+                f"scene{scene_number}/map{map_number}="
+                f"{cells}cells/{zero_cells}zero"
+            )
+            if (
+                map_number != expected_map
+                or cells != expected_cells
+                or zero_cells != expected_zero_cells
+            ):
+                errors.append(
+                    "pinned PAL_DOS minimap closure mismatch: "
+                    f"scene {scene_number}, map {map_number}, seed {seed}, "
+                    f"got {cells} cells/{zero_cells} DWORD-zero cells; "
+                    f"expected map {expected_map}, {expected_cells}/"
+                    f"{expected_zero_cells}"
+                )
     oversized_mus = [
         (chunk_id, size)
         for chunk_id, size in mus_sizes.items()
@@ -748,7 +940,6 @@ def main() -> int:
         errors.append(
             f"embedded pal_full.pak is {nitro_size} bytes, source is {pack_size}"
         )
-    source_hash = hash_extent(args.pack, 0, pack_size)
     embedded_hash = hash_extent(args.nds, start, nitro_size)
     if source_hash != embedded_hash:
         errors.append("embedded pal_full.pak SHA-256 differs from its source")
@@ -785,10 +976,19 @@ def main() -> int:
         f"(map {maximum_minimap_map}), capacity={MINIMAP_TILE_CAPACITY}"
     )
     print(
-        f"  max_minimap_blockers={maximum_minimap_blockers} "
-        f"(scene {maximum_minimap_blocker_scene}), "
-        f"capacity={MINIMAP_OBSTACLE_CAPACITY}"
+        f"  minimap_boundary_key_space={minimap_pattern_keys}, "
+        f"capacity={MINIMAP_TILE_CAPACITY}"
     )
+    print(
+        f"  max_minimap_overlays={maximum_minimap_overlays} "
+        f"(scene {maximum_minimap_overlay_scene}), "
+        f"capacity={MINIMAP_OVERLAY_CAPACITY}"
+    )
+    if pinned_minimap_closures:
+        print(
+            "  pinned_PAL_DOS_minimap_closures="
+            + ",".join(pinned_minimap_closures)
+        )
     print(
         f"  max_opl_writes_per_tick={maximum_writes} "
         f"(track {maximum_write_track}), capacity={MAX_OPL_WRITES_PER_TICK}"
@@ -797,7 +997,8 @@ def main() -> int:
         f"  ROM={args.nds.stat().st_size} bytes, pal_full.pak={pack_size} bytes, "
         f"pack_set={pack_set:#010x}"
     )
-    print("  save_backend=fat:/sdlpal/N.rpg (DLDI FAT)")
+    print("  resource_backends=DLDI-self-ROM,Slot-1-NitroFS")
+    print("  save_backends=fat:/sdlpal/N.rpg,SPI-FLASH-1MiB")
     print(f"  pal_full.pak_sha256={source_hash}")
     return 0
 
