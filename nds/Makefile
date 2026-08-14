@@ -15,7 +15,6 @@ GAME_TITLE := SDLPAL
 GAME_SUBTITLE1 := Nintendo DS native port
 GAME_SUBTITLE2 := sdlpal-embedded
 NDS_MAKER_CODE := 00
-NDS_GAME_CODE := ZPLE
 NDS_ROM_VERSION := 0
 
 TARGET := sdlpal
@@ -26,18 +25,10 @@ NITRO_STAGE := $(PROJECT_DIR)/$(BUILD)/nitrofiles/pal_full.pak
 NDS_RIX_PROFILE := $(abspath ../embedded/build/pal_nds_rix_profile)
 NDS_DBOPL_DIFF := $(PROJECT_DIR)/$(BUILD)/pal_nds_dbopl_diff
 NDS_DBOPL_DIFF_SRC := $(abspath ../tools/pal_nds_dbopl_diff.cpp)
-NDS_NTR_POSTPROCESS := $(PROJECT_DIR)/make_ntr_retail.py
+NDS_NTR_POSTPROCESS := $(PROJECT_DIR)/make_ntr_homebrew.py
 NDS_NTR_RAW := $(PROJECT_DIR)/$(BUILD)/$(TARGET).raw.nds
-NDS_SAVE_TOOL := $(PROJECT_DIR)/make_slot1_save.py
-NDS_BLANK_SAVE := $(PROJECT_DIR)/$(BUILD)/$(TARGET).sav
-NDS_TWILIGHT_BUNDLE := $(PROJECT_DIR)/$(BUILD)/twilight
-NDS_ARM7_SOURCE_DIR := $(PROJECT_DIR)/arm7
-NDS_ARM7_BUILD_DIR := $(PROJECT_DIR)/$(BUILD)/arm7
-NDS_ARM7_ELF := $(NDS_ARM7_BUILD_DIR)/sdlpal_arm7.elf
 NDS_TOOL ?= $(DEVKITPRO)/tools/bin/ndstool
 HOST_CXX ?= g++
-
-_ARM7_ELF := -7 $(NDS_ARM7_ELF)
 
 SOURCES := source .. ../embedded ../adplug ../sdl_compat ../unix \
    ../esp32s3/engine_bridge ../esp32s3/native_engine_shim
@@ -103,7 +94,7 @@ LDFLAGS := -specs=ds_arm9.specs -g $(ARCH) \
    -Wl,--wrap=access \
    -Wl,--wrap=fclose
 
-LIBS := -lnds9 -lm
+LIBS := -lfilesystem -lfat -lnds9 -lm
 LIBDIRS := $(LIBNDS) $(PORTLIBS)
 
 CFILES := \
@@ -118,10 +109,9 @@ CFILES := \
    pal_engine_pack_provider.c pal_engine_posix_shims.c sdl_shim.c \
    nds_entry.c nds_memory.c nds_board.c nds_input.c nds_time.c \
    nds_audio_stream.c \
-   nds_video.c nds_retail_card.c nds_retail_backup.c \
-   nds_packs.c nds_guru.c nds_save.c
+   nds_video.c nds_packs.c nds_guru.c nds_save.c
 CPPFILES := player.cpp rix.cpp nds_dbopl2.itcm.cpp nds_music.cpp
-SFILES := nds_retail_card_sdk.s
+SFILES :=
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -136,9 +126,9 @@ export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 export LD := $(CXX)
 export OFILES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 
-.PHONY: all clean check twilight-bundle $(BUILD)
+.PHONY: all clean check $(BUILD)
 
-all: $(BUILD) $(NDS_BLANK_SAVE)
+all: $(BUILD)
 
 $(BUILD):
 	@mkdir -p $@
@@ -149,21 +139,8 @@ check: all $(NDS_DBOPL_DIFF)
 	@$(MAKE) --no-print-directory -C ../embedded \
 	   CC=gcc CXX=g++ nds-rix-profile
 	@python3 -B check_nds.py --elf $(TARGET).elf --nds $(TARGET).nds \
-	   --arm7-elf $(NDS_ARM7_ELF) --save $(NDS_BLANK_SAVE) \
 	   --pack $(PAL_FULL_PACK) \
 	   --rix-profiler $(NDS_RIX_PROFILE)
-
-$(NDS_BLANK_SAVE): $(NDS_SAVE_TOOL)
-	@mkdir -p $(dir $@)
-	@python3 -B $(NDS_SAVE_TOOL) --blank $@
-
-twilight-bundle: all
-	@mkdir -p $(NDS_TWILIGHT_BUNDLE)/roms/nds/saves
-	cp --reflink=auto $(TARGET).nds \
-	   $(NDS_TWILIGHT_BUNDLE)/roms/nds/$(TARGET).nds
-	cp --reflink=auto $(NDS_BLANK_SAVE) \
-	   $(NDS_TWILIGHT_BUNDLE)/roms/nds/saves/$(TARGET).sav
-	@echo "TWiLight bundle: $(NDS_TWILIGHT_BUNDLE)/roms/nds"
 
 $(NDS_DBOPL_DIFF): $(NDS_DBOPL_DIFF_SRC) \
    $(PROJECT_DIR)/../adplug/dosbox/dbopl.h \
@@ -172,33 +149,20 @@ $(NDS_DBOPL_DIFF): $(NDS_DBOPL_DIFF_SRC) \
 	$(HOST_CXX) -std=c++17 -O2 -w -o $@ $(NDS_DBOPL_DIFF_SRC) -lm
 
 clean:
-	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).nds $(TARGET).nds.ini
+	@rm -rf $(BUILD) $(TARGET).elf $(TARGET).nds
 
 else
 
-$(OUTPUT).nds: $(OUTPUT).elf $(NDS_ARM7_ELF) $(NITRO_STAGE) $(GAME_ICON) \
+$(OUTPUT).nds: $(OUTPUT).elf $(NITRO_STAGE) $(GAME_ICON) \
    $(PROJECT_DIR)/Makefile $(NDS_NTR_POSTPROCESS)
 	$(SILENTCMD)$(NDS_TOOL) -c $(NDS_NTR_RAW) -9 $< $(_ARM7_ELF) \
 	   -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1);$(GAME_SUBTITLE2)" \
 	   $(_ADDFILES) -h 0x4000 \
-	   -g $(NDS_GAME_CODE) $(NDS_MAKER_CODE) "$(GAME_TITLE)" \
+	   -g '####' $(NDS_MAKER_CODE) "$(GAME_TITLE)" \
 	   $(NDS_ROM_VERSION)
-	$(SILENTCMD)python3 -B $(NDS_NTR_POSTPROCESS) \
-	   $(NDS_NTR_RAW) $@ --game-code $(NDS_GAME_CODE) \
-	   --ndstool $(NDS_TOOL)
+	$(SILENTCMD)python3 -B $(NDS_NTR_POSTPROCESS) $(NDS_NTR_RAW) $@
 	$(SILENTMSG) built ... $(notdir $@)
 $(OUTPUT).elf: $(OFILES)
-
-$(NDS_ARM7_ELF): \
-   $(NDS_ARM7_SOURCE_DIR)/CMakeLists.txt \
-   $(NDS_ARM7_SOURCE_DIR)/arm7_main.c \
-   $(NDS_ARM7_SOURCE_DIR)/nds_retail_startup.c \
-   $(NDS_ARM7_SOURCE_DIR)/nds_retail_backup.s
-	cmake -S $(NDS_ARM7_SOURCE_DIR) -B $(NDS_ARM7_BUILD_DIR) \
-	   -DCMAKE_TOOLCHAIN_FILE=$(DEVKITPRO)/cmake/NDS.cmake \
-	   -DCMAKE_SYSTEM_PROCESSOR=armv4t \
-	   -DCMAKE_BUILD_TYPE=MinSizeRel
-	cmake --build $(NDS_ARM7_BUILD_DIR)
 
 $(NITRO_STAGE): $(PAL_FULL_PACK)
 	@mkdir -p $(dir $@)

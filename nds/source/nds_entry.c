@@ -8,6 +8,7 @@
 
 int PAL_EngineMain(int argc, char *argv[]);
 const char *NdsTarget_PackError(void);
+void NdsTarget_SetLaunchPath(const char *path);
 
 void
 PalEngineBridge_LogRuntimeMemory(
@@ -31,8 +32,7 @@ main(
    {
       NdsTarget_FatalAt(__FILE__, __LINE__, "video initialization failed");
    }
-   (void)argc;
-   (void)argv;
+   NdsTarget_SetLaunchPath(argc > 0 && argv != NULL ? argv[0] : NULL);
    NdsTarget_BootLog("touching reserved buffers");
    PalTarget_TouchReservedBuffers();
    PAL_MemoryLevel2Touch();

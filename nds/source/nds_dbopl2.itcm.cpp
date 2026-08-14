@@ -18,7 +18,7 @@ namespace PalNdsDbOpl2Core
 #define PAL_DBOPL_DISABLE_PERCUSSION 1
 #define PAL_DBOPL_SIMPLE_VOLUME_HANDLER 1
 #define PAL_DBOPL_PRECALCULATE_ENVELOPES 1
-#define PAL_DBOPL_ENVELOPE_BUFFER_SAMPLES PAL_NDS_AUDIO_TICK_SAMPLES
+#define PAL_DBOPL_ENVELOPE_BUFFER_SAMPLES PAL_NDS_OPL_RENDER_SAMPLES
 #define PAL_DBOPL_RESTRICT __restrict__
 #define PAL_DBOPL_HOT_DATA __attribute__((section(".sbss.pal_nds_dbopl2"), aligned(4)))
 #define PAL_DBOPL_MUL_DATA PAL_DBOPL_HOT_DATA
@@ -48,7 +48,7 @@ namespace PalNdsDbOpl2Core
 
 Chip pal_nds_dbopl2_state PAL_NDS_DBOPL2_DTCM_ATTR;
 Chip pal_nds_dbopl2_reset_state PAL_NDS_DBOPL2_STATE_ATTR;
-Bit32s pal_nds_dbopl2_scratch[PAL_NDS_AUDIO_TICK_SAMPLES]
+Bit32s pal_nds_dbopl2_scratch[PAL_NDS_OPL_RENDER_SAMPLES]
    PAL_NDS_DBOPL2_DTCM_ATTR;
 static bool pal_nds_dbopl2_ready;
 
@@ -77,6 +77,9 @@ finalize_full_volume_pcm16(int32_t sample)
 static_assert(
    std::is_trivially_copyable<Chip>::value,
    "fixed DBOPL2 state must remain safe to copy without allocation");
+static_assert(
+   PAL_NDS_AUDIO_UPSAMPLE_FACTOR == 2u,
+   "the NDS OPL output path directly duplicates every sample twice");
 
 #undef PAL_NDS_DBOPL2_STATE_ATTR
 #undef PAL_NDS_DBOPL2_DTCM_ATTR
@@ -119,27 +122,33 @@ NdsDbOpl2_Render(
 
    while (frames != 0u)
    {
-      const size_t amount = frames < PAL_NDS_AUDIO_TICK_SAMPLES
-         ? frames : PAL_NDS_AUDIO_TICK_SAMPLES;
+      const size_t amount = frames < PAL_NDS_OPL_RENDER_SAMPLES
+         ? frames : PAL_NDS_OPL_RENDER_SAMPLES;
 
       pal_nds_dbopl2_state.GenerateBlock2(amount, pal_nds_dbopl2_scratch);
       if (volume == 127u)
       {
          for (size_t i = 0u; i < amount; i++)
          {
-            samples[i] = finalize_full_volume_pcm16(
+            const int16_t sample = finalize_full_volume_pcm16(
                pal_nds_dbopl2_scratch[i]);
+
+            samples[i * 2u] = sample;
+            samples[i * 2u + 1u] = sample;
          }
       }
       else
       {
          for (size_t i = 0u; i < amount; i++)
          {
-            samples[i] = finalize_pcm16(
+            const int16_t sample = finalize_pcm16(
                pal_nds_dbopl2_scratch[i], volume);
+
+            samples[i * 2u] = sample;
+            samples[i * 2u + 1u] = sample;
          }
       }
-      samples += amount;
+      samples += amount * 2u;
       frames -= amount;
    }
 }

@@ -46,14 +46,16 @@ constexpr uint32_t kMaximumHalfFadeTicks = kRixTicksPerSecond * 30u;
 constexpr int kEmptyMusTrack = 29;
 
 static_assert(
-   PAL_NDS_AUDIO_SAMPLE_RATE == PAL_NDS_OPL_SAMPLE_RATE &&
+   PAL_NDS_AUDIO_SAMPLE_RATE ==
+         PAL_NDS_OPL_SAMPLE_RATE * PAL_NDS_AUDIO_UPSAMPLE_FACTOR &&
       kOplTickSamples ==
          (PAL_NDS_OPL_SAMPLE_RATE + kRixTicksPerSecond - 1u) /
             kRixTicksPerSecond,
-   "DBOPL2 must render every 32.768 kHz PCM frame directly");
+   "DBOPL2 must render at half the 32.768 kHz PCM rate");
 static_assert(
-   kAudioTickSamples == 256u,
-   "the fixed PCM ring uses native 256-frame service blocks");
+   kAudioTickSamples == 256u &&
+      kAudioTickSamples % PAL_NDS_AUDIO_UPSAMPLE_FACTOR == 0u,
+   "the fixed PCM ring must contain complete duplicated sample pairs");
 static_assert(
    (PAL_NDS_OPL_TICK_QUEUE_LENGTH &
       (PAL_NDS_OPL_TICK_QUEUE_LENGTH - 1u)) == 0u,
@@ -191,7 +193,7 @@ static uint32_t pal_nds_rix_samples_remaining;
 constexpr uint32_t kAudioTimer =
    soundTimerFromHz(PAL_NDS_AUDIO_SAMPLE_RATE);
 constexpr uint32_t kRixSampleDenominator =
-   kAudioTimer * kRixTicksPerSecond;
+   kAudioTimer * kRixTicksPerSecond * PAL_NDS_AUDIO_UPSAMPLE_FACTOR;
 constexpr uint32_t kRixSampleBase =
    SOUND_CLOCK / kRixSampleDenominator;
 constexpr uint32_t kRixSampleRemainder =
@@ -554,14 +556,17 @@ music_stream_render(
    size_t sample_count)
 {
    uint32_t render_ticks_total = 0u;
+   size_t opl_sample_count;
 
    (void)user;
-   if (sample_count % kAudioTickSamples != 0u)
+   if (sample_count % kAudioTickSamples != 0u ||
+      sample_count % PAL_NDS_AUDIO_UPSAMPLE_FACTOR != 0u)
    {
       memset(samples, 0, sample_count * sizeof(*samples));
       return;
    }
-   while (sample_count != 0u)
+   opl_sample_count = sample_count / PAL_NDS_AUDIO_UPSAMPLE_FACTOR;
+   while (opl_sample_count != 0u)
    {
       size_t amount;
       const uint64_t render_start = tickGetCount();
@@ -572,14 +577,14 @@ music_stream_render(
          music_request_ticks(1u);
          pal_nds_rix_samples_remaining = music_next_rix_sample_count();
       }
-      amount = sample_count < pal_nds_rix_samples_remaining
-         ? sample_count : pal_nds_rix_samples_remaining;
+      amount = opl_sample_count < pal_nds_rix_samples_remaining
+         ? opl_sample_count : pal_nds_rix_samples_remaining;
       NdsDbOpl2_Render(samples, amount, pal_nds_worker_volume);
       render_ticks_total += static_cast<uint32_t>(
          tickGetCount() - render_start);
       pal_nds_rix_samples_remaining -= static_cast<uint32_t>(amount);
-      samples += amount;
-      sample_count -= amount;
+      samples += amount * PAL_NDS_AUDIO_UPSAMPLE_FACTOR;
+      opl_sample_count -= amount;
    }
    pal_nds_dbopl_render_ticks_total += render_ticks_total;
    if (render_ticks_total > pal_nds_dbopl_render_ticks_max)

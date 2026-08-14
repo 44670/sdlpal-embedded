@@ -15,8 +15,6 @@ MAIN_RAM_LIMIT = 0x02380000
 MIN_UNUSED_MAIN_RAM = 256 * 1024
 ARM7_RAW_START = 0x02380000
 ARM7_RAW_LIMIT = 0x023F0000
-ARM7_MAIN_RESERVED_START = 0x02FF0000
-ARM7_CARDENGINE_START = 0x0380E700
 ITCM_START = 0x01FF8000
 ITCM_LIMIT = 0x02000000
 DTCM_START = 0x02FF0000
@@ -26,9 +24,17 @@ PACK_ARCHIVE_ENTRY_SIZE = 12
 PACK_CHUNK_ENTRY_SIZE = 16
 MGO_ARCHIVE_ID = 9
 MUS_ARCHIVE_ID = 11
+MAP_ARCHIVE_ID = 8
+SSS_ARCHIVE_ID = 15
 EXPECTED_OWNERS = {
     "pal_sram_framebuffer": 256 * 192,
     "pal_sram_aux_framebuffer": 256 * 192,
+    "pal_nds_minimap_topology": (193 * 191 + 7) // 8,
+    "pal_nds_minimap_tiles": 1024 * 64,
+    "pal_nds_minimap_pattern_tiles": 4096 * 2,
+    "pal_nds_minimap_tilemap": 128 * 128 * 2,
+    "pal_nds_minimap_marker_tiles": 64,
+    "pal_nds_minimap_obstacle_tile": 32,
     "pal_mem_level2_scene_arena": 256 * 1024,
     "pal_mem_level2_player_arena": 128 * 1024,
     "pal_mem_level2_battle_arena": 512 * 1024,
@@ -52,8 +58,8 @@ EXPECTED_OWNERS = {
     "pal_nds_dbopl_render_calls": 4,
     "PalNdsDbOpl2Core::pal_nds_dbopl2_state": 2472,
     "PalNdsDbOpl2Core::pal_nds_dbopl2_reset_state": 2472,
-    "PalNdsDbOpl2Core::pal_nds_dbopl2_scratch": 256 * 4,
-    "PalNdsDbOpl2Core::EnvelopeBuffer": 2 * 256 * 2,
+    "PalNdsDbOpl2Core::pal_nds_dbopl2_scratch": 128 * 4,
+    "PalNdsDbOpl2Core::EnvelopeBuffer": 2 * 128 * 2,
     "PalNdsDbOpl2Core::WaveTable": 4 * 512 * 2,
     "PalNdsDbOpl2Core::MulTable": 384 * 2,
     "PalNdsDbOpl2Core::KslTable": 128,
@@ -69,30 +75,17 @@ EXPECTED_DTCM_OWNERS = (
     "PalNdsDbOpl2Core::MulTable",
 )
 EXPECTED_GAME_TITLE = b"SDLPAL\0\0\0\0\0\0"
-EXPECTED_GAME_CODE = b"ZPLE"
+EXPECTED_GAME_CODE = b"####"
 EXPECTED_MAKER_CODE = b"00"
 EXPECTED_UNIT_CODE = 0x00
 EXPECTED_HEADER_SIZE = 0x4000
-CLASSIFIER_VENEER_OFFSET = 0x47E0
-DECRYPTED_SECURE_MARKER = b"\xFF\xDE\xFF\xE7\xFF\xDE\xFF\xE7"
 DLDI_MAGIC = b"\xED\xA5\x8D\xBF Chishm"
-SDK_CLASSIFIER_TAIL = (0xE58CC208, 0xE1DC00B6, 0xE3500000)
-SAVE_BYTES = 1024 * 1024
+DLDI_RESERVED_BYTES = 16 * 1024
+DLDI_RUNTIME_ADDRESS = 0x0380B000
+DECRYPTED_SECURE_MARKER = b"\xFF\xDE\xFF\xE7" * 2
 MAX_OPL_WRITES_PER_TICK = 256
-SDK_IRQ_ENABLE_SIGNATURE = struct.pack(
-    "<IIII", 0xE59FC028, 0xE3A01000, 0xE1DC30B0, 0xE59F2020
-)
-SDK_IRQ_HANDLER_SIGNATURE = struct.pack(
-    "<IIIII", 0xE92D4000, 0xE3A0C301, 0xE28CCE21, 0xE51C1008,
-    0xE3510000,
-)
-SDK_BACKUP_READ_SIGNATURE = struct.pack(
-    "<III", 0xE592000C, 0xE5921010, 0xE5922014
-)
-SDK_BACKUP_WRITE_SIGNATURE = struct.pack(
-    "<III", 0xE5920010, 0xE592100C, 0xE5922014
-)
-SDK_BACKUP_ERASE_SIGNATURE = struct.pack("<II", 0xE5920010, 0xE5921014)
+MINIMAP_TILE_CAPACITY = 1024
+MINIMAP_OBSTACLE_CAPACITY = 128
 
 
 def run(*args: str) -> str:
@@ -152,15 +145,6 @@ def crc16(data: bytes, initial: int = 0xFFFF) -> int:
         for _ in range(8):
             value = (value >> 1) ^ (0xA001 if value & 1 else 0)
     return value
-
-
-def arm_branch_target(source: int, instruction: int) -> int | None:
-    if instruction & 0xFF000000 != 0xEA000000:
-        return None
-    words = instruction & 0x00FFFFFF
-    if words & 0x00800000:
-        words -= 1 << 24
-    return source + 8 + words * 4
 
 
 def parse_nitro_listing(nds: Path, ndstool: str) -> tuple[int, int, int]:
@@ -226,7 +210,7 @@ def profile_rix_writes(profiler: Path, pack: Path) -> tuple[int, int]:
     return maximum, maximum_track
 
 
-def check_nds_header(path: Path, ndstool: str) -> list[str]:
+def check_nds_header(path: Path) -> list[str]:
     with path.open("rb") as source:
         header = source.read(0x8000)
     if len(header) != 0x8000:
@@ -238,7 +222,7 @@ def check_nds_header(path: Path, ndstool: str) -> list[str]:
     if header[0x0C:0x10] != EXPECTED_GAME_CODE:
         errors.append(
             f"NDS game code is {header[0x0C:0x10]!r}, "
-            f"expected retail-route {EXPECTED_GAME_CODE!r}"
+            f"expected homebrew {EXPECTED_GAME_CODE!r}"
         )
     if header[0x10:0x12] != EXPECTED_MAKER_CODE:
         errors.append(f"NDS maker code is {header[0x10:0x12]!r}, expected 00")
@@ -263,50 +247,14 @@ def check_nds_header(path: Path, ndstool: str) -> list[str]:
     arm7_rom, arm7_entry, arm7_ram, arm7_size = struct.unpack_from(
         "<IIII", header, 0x30
     )
+    arm9_hook, arm7_hook = struct.unpack_from("<II", header, 0x70)
+    # Pico Loader's current homebrew classifier accepts two zero autoload
+    # hooks. Require that exact header signal so it cannot enter its retail
+    # path; ndstool's ASCII "00" maker code is a separate homebrew convention.
+    if arm9_hook != 0 or arm7_hook != 0:
+        errors.append("Pico Loader homebrew autoload hooks must both be zero")
     if not arm9_ram <= arm9_entry < arm9_ram + arm9_size:
         errors.append("ARM9 entrypoint lies outside the ARM9 binary")
-    else:
-        entry_offset = arm9_rom + arm9_entry - arm9_ram
-        with path.open("rb") as source:
-            source.seek(entry_offset)
-            entry = source.read(16)
-        if len(entry) != 16:
-            errors.append("ARM9 entry signature lies outside the ROM")
-        else:
-            first, *tail = struct.unpack_from("<IIII", entry)
-            calico_entry_offset = arm_branch_target(entry_offset, first)
-            if entry_offset != CLASSIFIER_VENEER_OFFSET:
-                errors.append(
-                    f"ARM9 retail classifier is at {entry_offset:#x}, "
-                    f"expected {CLASSIFIER_VENEER_OFFSET:#x}"
-                )
-            if tuple(tail) != SDK_CLASSIFIER_TAIL:
-                errors.append(
-                    "ARM9 entry does not match TWiLight's SDK 3 retail "
-                    "classifier"
-                )
-            if calico_entry_offset is None:
-                errors.append("ARM9 retail classifier does not branch to Calico")
-            elif not arm9_rom <= calico_entry_offset < arm9_rom + arm9_size:
-                errors.append("ARM9 retail classifier target is out of range")
-            else:
-                with path.open("rb") as source:
-                    source.seek(calico_entry_offset)
-                    calico_entry = source.read(8)
-                if len(calico_entry) != 8:
-                    errors.append("Calico ARM9 entry lies outside the ROM")
-                else:
-                    calico_first, metadata_magic = struct.unpack(
-                        "<II", calico_entry
-                    )
-                    if not 0xEA000000 <= calico_first < 0xEC000000:
-                        errors.append(
-                            "retail classifier target is not Calico's branch"
-                        )
-                    if metadata_magic != 0x39444F4D:
-                        errors.append(
-                            "retail classifier target lacks Calico MOD9 metadata"
-                        )
     if arm7_ram != ARM7_RAW_START:
         errors.append(
             f"ARM7 raw image starts at {arm7_ram:#010x}, "
@@ -327,29 +275,51 @@ def check_nds_header(path: Path, ndstool: str) -> list[str]:
     if len(arm9_binary) != arm9_size or len(arm7_binary) != arm7_size:
         errors.append("ARM9 or ARM7 binary extent lies outside the ROM")
     else:
-        for label, signature in (
-            ("CARD IRQ-enable", SDK_IRQ_ENABLE_SIGNATURE),
-            ("ARM9 IRQ dispatcher", SDK_IRQ_HANDLER_SIGNATURE),
-        ):
-            if signature not in arm9_binary:
-                errors.append(f"ARM9 lacks the Nintendo SDK {label} surface")
-        for label, signature in (
-            ("backup read", SDK_BACKUP_READ_SIGNATURE),
-            ("backup write/program/verify", SDK_BACKUP_WRITE_SIGNATURE),
-            ("backup erase", SDK_BACKUP_ERASE_SIGNATURE),
-            ("ARM7 IRQ dispatcher", SDK_IRQ_HANDLER_SIGNATURE),
-        ):
-            if signature not in arm7_binary:
-                errors.append(f"ARM7 lacks the Nintendo SDK {label} surface")
-    if header[0x4000:0x4008] != DECRYPTED_SECURE_MARKER:
-        errors.append("NTR secure area lacks the decrypted retail-ROM marker")
-    ndstool_info = run(ndstool, "-i", str(path))
-    if not re.search(
-        r"Secure area CRC\s+0x[0-9A-Fa-f]+ \(OK, decrypted\)",
-        ndstool_info,
-    ):
+        if not arm9_binary.startswith(DECRYPTED_SECURE_MARKER):
+            errors.append(
+                "ARM9 lacks the decrypted homebrew secure marker required "
+                "to bypass Pico Loader's Blowfish-key path"
+            )
+        dldi_offsets = [
+            offset for offset in range(len(arm9_binary))
+            if arm9_binary.startswith(DLDI_MAGIC, offset)
+        ]
+        if len(dldi_offsets) != 1:
+            errors.append(
+                f"ARM9 must contain one DLDI patch target, got {dldi_offsets}"
+            )
+        else:
+            dldi_offset = dldi_offsets[0]
+            if dldi_offset + 0x80 > len(arm9_binary):
+                errors.append("DLDI header lies outside the ARM9 binary")
+            else:
+                dldi = arm9_binary[dldi_offset:dldi_offset + 0x80]
+                if dldi[0x0C] != 1:
+                    errors.append(f"unsupported DLDI version {dldi[0x0C]}")
+                reserved = 1 << dldi[0x0F]
+                if reserved != DLDI_RESERVED_BYTES:
+                    errors.append(
+                        f"DLDI patch space is {reserved} bytes, expected "
+                        f"{DLDI_RESERVED_BYTES} for Pico Loader/DSpico"
+                    )
+                driver_start, driver_end = struct.unpack_from(
+                    "<II", dldi, 0x40
+                )
+                if driver_start != DLDI_RUNTIME_ADDRESS or driver_end != (
+                    DLDI_RUNTIME_ADDRESS + DLDI_RESERVED_BYTES
+                ):
+                    errors.append(
+                        "DLDI runtime range is "
+                        f"{driver_start:#010x}..{driver_end:#010x}, expected "
+                        f"{DLDI_RUNTIME_ADDRESS:#010x}.."
+                        f"{DLDI_RUNTIME_ADDRESS + DLDI_RESERVED_BYTES:#010x}"
+                    )
+    secure_crc = struct.unpack_from("<H", header, 0x6C)[0]
+    direct_secure_crc = crc16(header[arm9_rom:0x8000])
+    if secure_crc == direct_secure_crc:
         errors.append(
-            "ndstool does not accept the decrypted retail secure-area CRC"
+            "homebrew secure-area CRC matches the loaded bytes and can "
+            "trigger Pico Loader's Blowfish-key path"
         )
     header_crc = struct.unpack_from("<H", header, 0x15E)[0]
     expected_header_crc = crc16(header[:0x15E])
@@ -364,8 +334,6 @@ def check_nds_header(path: Path, ndstool: str) -> list[str]:
             f"NTR ROM is {path.stat().st_size} bytes, expected trimmed "
             f"size {expected_file_size}"
         )
-    if DLDI_MAGIC in path.read_bytes():
-        errors.append("NTR ROM still contains a DLDI patch target")
     return errors
 
 
@@ -429,12 +397,172 @@ def pack_chunk_sizes(
     raise ValueError(f"PAL pack is missing archive {archive_id}")
 
 
+def pack_chunk_payload(path: Path, archive_id: int, chunk_id: int) -> bytes:
+    """Read one validated native chunk from the complete PAL pack."""
+    file_size = path.stat().st_size
+    with path.open("rb") as source:
+        header = source.read(32)
+        archive_count = struct.unpack_from("<H", header, 8)[0]
+        archive_table = struct.unpack_from("<I", header, 12)[0]
+        if archive_table + archive_count * PACK_ARCHIVE_ENTRY_SIZE > file_size:
+            raise ValueError("PAL pack archive table is out of range")
+        source.seek(archive_table)
+        entries = source.read(archive_count * PACK_ARCHIVE_ENTRY_SIZE)
+        for index in range(archive_count):
+            entry = index * PACK_ARCHIVE_ENTRY_SIZE
+            current_id, chunk_count, chunk_table = struct.unpack_from(
+                "<HHI", entries, entry
+            )
+            if current_id != archive_id:
+                continue
+            if chunk_id >= chunk_count:
+                raise ValueError(
+                    f"PAL pack archive {archive_id} is missing chunk {chunk_id}"
+                )
+            if chunk_table + chunk_count * PACK_CHUNK_ENTRY_SIZE > file_size:
+                raise ValueError(
+                    f"PAL pack archive {archive_id} chunk table is out of range"
+                )
+            source.seek(chunk_table + chunk_id * PACK_CHUNK_ENTRY_SIZE)
+            chunk = source.read(PACK_CHUNK_ENTRY_SIZE)
+            offset, size = struct.unpack_from("<II", chunk)
+            if offset + size > file_size:
+                raise ValueError(
+                    f"PAL pack archive {archive_id} chunk {chunk_id} is out of range"
+                )
+            source.seek(offset)
+            payload = source.read(size)
+            if len(payload) != size:
+                raise ValueError(
+                    f"PAL pack archive {archive_id} chunk {chunk_id} is short"
+                )
+            return payload
+    raise ValueError(f"PAL pack is missing archive {archive_id}")
+
+
+def pack_minimap_blocker_peak(path: Path) -> tuple[int, int]:
+    """Bound event objects that can explicitly acquire blocker state."""
+    event_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 0)
+    scene_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 1)
+    script_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 4)
+    if len(event_data) == 0 or len(event_data) % 32:
+        raise ValueError("SSS event-object chunk is malformed")
+    if len(scene_data) < 16 or len(scene_data) % 8:
+        raise ValueError("SSS scene chunk is malformed")
+    if len(script_data) == 0 or len(script_data) % 8:
+        raise ValueError("SSS script chunk is malformed")
+
+    events = list(struct.iter_unpack("<16H", event_data))
+    scenes = list(struct.iter_unpack("<4H", scene_data))
+    possible = {
+        event_id
+        for event_id, event in enumerate(events, 1)
+        if event[6] >= 2
+    }
+    for operation, operand0, operand1, operand2 in struct.iter_unpack(
+        "<4H", script_data
+    ):
+        if operation == 0x0049 and operand0 != 0 and operand1 >= 2:
+            if not 0 < operand0 <= len(events):
+                raise ValueError("SSS opcode 0049 has an invalid event-object ID")
+            possible.add(operand0)
+        elif operation == 0x009A and operand2 >= 2:
+            if not 0 < operand0 <= operand1 <= len(events):
+                raise ValueError("SSS opcode 009a has an invalid event-object range")
+            possible.update(range(operand0, operand1 + 1))
+
+    peak = (0, -1)
+    for scene_number in range(1, len(scenes)):
+        first = scenes[scene_number - 1][3]
+        end = scenes[scene_number][3]
+        if first > end or end > len(events):
+            raise ValueError(f"SSS scene {scene_number} has an invalid event range")
+        count = sum(
+            event_id in possible for event_id in range(first + 1, end + 1)
+        )
+        if count > peak[0]:
+            peak = (count, scene_number)
+    return peak
+
+
+def pack_map_pattern_peak(path: Path) -> tuple[int, int]:
+    """Measure the deduplicated 8x8 boundary tiles required by each MAP."""
+    file_size = path.stat().st_size
+    peak = (0, -1)
+    with path.open("rb") as source:
+        header = source.read(32)
+        archive_count = struct.unpack_from("<H", header, 8)[0]
+        archive_table = struct.unpack_from("<I", header, 12)[0]
+        source.seek(archive_table)
+        entries = source.read(archive_count * PACK_ARCHIVE_ENTRY_SIZE)
+        for index in range(archive_count):
+            entry = index * PACK_ARCHIVE_ENTRY_SIZE
+            archive_id, chunk_count, chunk_table = struct.unpack_from(
+                "<HHI", entries, entry
+            )
+            if archive_id == MAP_ARCHIVE_ID:
+                break
+        else:
+            raise ValueError("PAL pack is missing MAP archive")
+
+        for map_id in range(chunk_count):
+            source.seek(chunk_table + map_id * PACK_CHUNK_ENTRY_SIZE)
+            offset, size = struct.unpack("<II", source.read(8))
+            if size == 0:
+                continue
+            if size != 128 * 64 * 2 * 4 or offset + size > file_size:
+                raise ValueError(f"MAP chunk {map_id} is malformed")
+            source.seek(offset)
+            payload = source.read(size)
+            topology: set[tuple[int, int]] = set()
+            for record, (tile,) in enumerate(struct.iter_unpack("<I", payload)):
+                if tile == 0 or tile & 0x2000:
+                    continue
+                raw_y, within_row = divmod(record, 64 * 2)
+                raw_x, half = divmod(within_row, 2)
+                topology.add((raw_x + raw_y + half, raw_y - raw_x + 63))
+            if not topology:
+                continue
+
+            min_column = min(point[0] for point in topology)
+            max_column = max(point[0] for point in topology)
+            min_row = min(point[1] for point in topology)
+            max_row = max(point[1] for point in topology)
+            tile_columns = (max_column - min_column + 2) // 2
+            tile_rows = (max_row - min_row + 2) // 2
+            patterns: set[int] = set()
+            for tile_y in range(tile_rows):
+                for tile_x in range(tile_columns):
+                    column = min_column + tile_x * 2
+                    row = min_row + tile_y * 2
+                    neighbors = (
+                        (column, row), (column + 1, row),
+                        (column, row + 1), (column + 1, row + 1),
+                        (column, row - 1), (column + 1, row - 1),
+                        (column - 1, row), (column - 1, row + 1),
+                        (column + 2, row), (column + 2, row + 1),
+                        (column, row + 2), (column + 1, row + 2),
+                    )
+                    key = sum(
+                        1 << bit
+                        for bit, point in enumerate(neighbors)
+                        if point in topology
+                    )
+                    relevant = 0x000F
+                    relevant |= ((1 << 4) | (1 << 6)) if key & (1 << 0) else 0
+                    relevant |= ((1 << 5) | (1 << 8)) if key & (1 << 1) else 0
+                    relevant |= ((1 << 7) | (1 << 10)) if key & (1 << 2) else 0
+                    relevant |= ((1 << 9) | (1 << 11)) if key & (1 << 3) else 0
+                    patterns.add(key & relevant)
+            if len(patterns) > peak[0]:
+                peak = (len(patterns), map_id)
+    return peak
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--elf", type=Path, required=True)
-    parser.add_argument("--arm7-elf", type=Path, required=True)
     parser.add_argument("--nds", type=Path, required=True)
-    parser.add_argument("--save", type=Path, required=True)
     parser.add_argument("--pack", type=Path, required=True)
     parser.add_argument("--rix-profiler", type=Path, required=True)
     parser.add_argument(
@@ -443,28 +571,13 @@ def main() -> int:
     parser.add_argument("--ndstool", default="/opt/devkitpro/tools/bin/ndstool")
     args = parser.parse_args()
 
-    for path in (
-        args.elf, args.arm7_elf, args.nds, args.save, args.pack,
-        args.rix_profiler
-    ):
+    for path in (args.elf, args.nds, args.pack, args.rix_profiler):
         if not path.is_file():
             raise SystemExit(f"missing required artifact: {path}")
 
     symbols = parse_symbols(args.elf, args.tool_prefix + "nm")
     sections = parse_sections(args.elf, args.tool_prefix + "readelf")
-    arm7_symbols = parse_symbols(args.arm7_elf, args.tool_prefix + "nm")
-    arm7_sections = parse_sections(
-        args.arm7_elf, args.tool_prefix + "readelf"
-    )
-    errors = check_nds_header(args.nds, args.ndstool)
-    save_image = args.save.read_bytes()
-    if len(save_image) != SAVE_BYTES:
-        errors.append(
-            f"retail save sidecar is {len(save_image)} bytes, "
-            f"expected {SAVE_BYTES}"
-        )
-    elif save_image != b"\xFF" * SAVE_BYTES:
-        errors.append("default retail save sidecar is not fully erased")
+    errors = check_nds_header(args.nds)
     for name, expected_size in EXPECTED_OWNERS.items():
         actual = symbols.get(name)
         if actual is None:
@@ -487,100 +600,46 @@ def main() -> int:
         ):
             errors.append(f"retired NDS music owner is still linked: {retired}")
 
-    for retired in (
-        "fatInitDefault",
-        "nitroFSInit",
-        "nitroFSMount",
-        "nitroromGetSelf",
-        "dvmProbeMountDiscIface",
-        "blkInit",
-        "NdsTarget_SetLaunchPath",
-        "NdsTargetSave_SetMountedVolume",
-        "cardEepromGetType",
-        "cardEepromGetSize",
-    ):
-        if retired in symbols or retired in arm7_symbols:
-            errors.append(
-                f"retired homebrew storage path is still linked: {retired}"
-            )
     for required in (
-        "ntrcardOpen",
-        "ntrcardGetMode",
-        "ntrcardRomRead",
-        "NdsRetail_CardReadSdk",
-        "NdsRetail_CardIrqEnableSdk",
-        "NdsRetail_IrqBridgeArm9IpcSync",
-        "g_nds_retail_arm9_irq_handler",
-        "g_nds_retail_arm9_irq_table",
+        "fatInitDefault",
+        "nitroFSMount",
+        "nitroromOpen",
+        "NdsTarget_SetLaunchPath",
+        "NdsTargetSave_SetDldiReady",
+        "PalTargetSave_ReadSlot",
+        "PalTargetSave_WriteSlot",
     ):
         if required not in symbols:
-            errors.append(f"missing NTR retail-card symbol: {required}")
-    for required in (
-        "crt0Startup",
-        "NdsRetailBackup_ReadSdk",
-        "NdsRetailBackup_WriteSdk",
-        "NdsRetailBackup_ProgSdk",
-        "NdsRetailBackup_VerifySdk",
-        "NdsRetailBackup_EraseSdk",
-        "NdsRetail_IrqBridgeVBlank",
-        "NdsRetail_IrqBridgeIpcSync",
-        "g_nds_retail_arm7_irq_handler",
-        "g_nds_retail_arm7_irq_table",
-        "__irq_table",
+            errors.append(f"missing DLDI homebrew symbol: {required}")
+    retired_exact = {
+        "nitroromGetSelf",
+        "nitroFSInit",
         "cardReadEeprom",
         "cardWriteEeprom",
         "cardEepromSectorErase",
-    ):
-        if required not in arm7_symbols:
-            errors.append(f"missing ARM7 retail-card symbol: {required}")
-    for wrapper, minimum_size in (
-        ("NdsRetailBackup_ReadSdk", 0x1C),
-        ("NdsRetailBackup_WriteSdk", 0x1C),
-        ("NdsRetailBackup_ProgSdk", 0x1C),
-        ("NdsRetailBackup_VerifySdk", 0x1C),
-        ("NdsRetailBackup_EraseSdk", 0x18),
-    ):
-        symbol = arm7_symbols.get(wrapper)
-        if symbol is not None and symbol[1] < minimum_size:
-            errors.append(
-                f"{wrapper} is not interworking-safe: {symbol[1]} bytes"
-            )
-    if "crt0FillMem32" in arm7_symbols:
-        errors.append("ARM7 linked the homebrew high-RAM clearing startup")
-    for section in (".dldi", ".twl", ".twl.rw", ".twl.bss"):
+        "dvmProbeMountDiscIface",
+    }
+    for symbol in symbols:
+        if (
+            symbol in retired_exact
+            or symbol.startswith("ntrcard")
+            or symbol.startswith("NdsRetail")
+            or symbol.startswith("cardEeprom")
+        ):
+            errors.append(f"retired CARD/SPI storage symbol is linked: {symbol}")
+    dldi_section = sections.get(".dldi")
+    if dldi_section != (DLDI_RUNTIME_ADDRESS, DLDI_RESERVED_BYTES):
+        errors.append(
+            "ARM9 .dldi section must occupy "
+            f"{DLDI_RUNTIME_ADDRESS:#010x} for {DLDI_RESERVED_BYTES} bytes, "
+            f"got {dldi_section}"
+        )
+    for section in (".twl", ".twl.rw", ".twl.bss"):
         if sections.get(section, (0, 0))[1] != 0:
             errors.append(
                 f"ARM9 ELF contains nonempty forbidden section {section}: "
                 f"{sections[section][1]} bytes"
             )
-
-    arm7_crt0 = arm7_sections.get(".crt0")
-    if arm7_crt0 is None or arm7_crt0[0] != ARM7_RAW_START:
-        errors.append("ARM7 .crt0 does not start at the NTR load address")
-    elif arm7_crt0[0] + arm7_crt0[1] > ARM7_RAW_LIMIT:
-        errors.append("ARM7 .crt0 overlaps the loader-reserved high region")
-    for section_name in (
-        ".main", ".main.rw", ".main.bss", ".eh_frame", ".init_array",
-        ".fini_array",
-    ):
-        section = arm7_sections.get(section_name)
-        if section is not None and section[0] + section[1] > ARM7_MAIN_RESERVED_START:
-            errors.append(
-                f"ARM7 {section_name} ends at {section[0] + section[1]:#010x}, "
-                "overlapping loader-reserved main RAM"
-            )
-    arm7_wram_end = 0
-    for section_name in (".wram", ".wram.rw", ".wram.bss"):
-        section = arm7_sections.get(section_name)
-        if section is not None:
-            arm7_wram_end = max(arm7_wram_end, section[0] + section[1])
-    if arm7_wram_end == 0:
-        errors.append("ARM7 ELF lacks its WRAM image")
-    elif arm7_wram_end > ARM7_CARDENGINE_START:
-        errors.append(
-            f"ARM7 WRAM ends at {arm7_wram_end:#010x}, overlapping "
-            f"nds-bootstrap cardengine at {ARM7_CARDENGINE_START:#010x}"
-        )
 
     opl_render = symbols.get("NdsDbOpl2_Render")
     if opl_render is None:
@@ -629,6 +688,37 @@ def main() -> int:
         args.pack, MGO_ARCHIVE_ID, (71, 73, 571, 572, 635)
     )
     mus_sizes = pack_chunk_sizes(args.pack, MUS_ARCHIVE_ID, None)
+    map_sizes = pack_chunk_sizes(args.pack, MAP_ARCHIVE_ID, None)
+    malformed_maps = [
+        (chunk_id, size)
+        for chunk_id, size in map_sizes.items()
+        if size not in (0, 128 * 64 * 2 * 4)
+    ]
+    if malformed_maps:
+        errors.append(
+            "MAP chunks used by the full-map renderer have malformed native "
+            f"sizes: {malformed_maps[:8]}"
+        )
+        maximum_minimap_tiles, maximum_minimap_map = 0, -1
+    else:
+        maximum_minimap_tiles, maximum_minimap_map = pack_map_pattern_peak(
+            args.pack
+        )
+        if maximum_minimap_tiles > MINIMAP_TILE_CAPACITY:
+            errors.append(
+                f"MAP chunk {maximum_minimap_map} requires "
+                f"{maximum_minimap_tiles} minimap tiles, exceeds "
+                f"{MINIMAP_TILE_CAPACITY}"
+            )
+    maximum_minimap_blockers, maximum_minimap_blocker_scene = (
+        pack_minimap_blocker_peak(args.pack)
+    )
+    if maximum_minimap_blockers > MINIMAP_OBSTACLE_CAPACITY:
+        errors.append(
+            f"scene {maximum_minimap_blocker_scene} can contain "
+            f"{maximum_minimap_blockers} minimap blockers, exceeds "
+            f"{MINIMAP_OBSTACLE_CAPACITY} OBJ slots"
+        )
     oversized_mus = [
         (chunk_id, size)
         for chunk_id, size in mus_sizes.items()
@@ -663,7 +753,9 @@ def main() -> int:
     if source_hash != embedded_hash:
         errors.append("embedded pal_full.pak SHA-256 differs from its source")
     if start + nitro_size <= 32 * 1024 * 1024:
-        errors.append("embedded pack does not exercise Slot-1 reads beyond 32MiB")
+        errors.append(
+            "embedded pack does not exercise DLDI self-ROM reads beyond 32MiB"
+        )
 
     maximum_writes, maximum_write_track = profile_rix_writes(
         args.rix_profiler, args.pack
@@ -687,9 +779,15 @@ def main() -> int:
     )
     print(f"  fixed_owners={fixed_bytes} bytes, native_screens=2x256x192x8")
     print(f"  unused_DTCM_user_stack={unused_dtcm} bytes")
+    print(f"  DLDI_patch_space={DLDI_RESERVED_BYTES} bytes")
     print(
-        f"  ARM7_wram_end={arm7_wram_end:#010x}, "
-        f"cardengine_floor={ARM7_CARDENGINE_START:#010x}"
+        f"  max_minimap_tiles={maximum_minimap_tiles} "
+        f"(map {maximum_minimap_map}), capacity={MINIMAP_TILE_CAPACITY}"
+    )
+    print(
+        f"  max_minimap_blockers={maximum_minimap_blockers} "
+        f"(scene {maximum_minimap_blocker_scene}), "
+        f"capacity={MINIMAP_OBSTACLE_CAPACITY}"
     )
     print(
         f"  max_opl_writes_per_tick={maximum_writes} "
@@ -699,7 +797,7 @@ def main() -> int:
         f"  ROM={args.nds.stat().st_size} bytes, pal_full.pak={pack_size} bytes, "
         f"pack_set={pack_set:#010x}"
     )
-    print(f"  retail_save={args.save.stat().st_size} bytes")
+    print("  save_backend=fat:/sdlpal/N.rpg (DLDI FAT)")
     print(f"  pal_full.pak_sha256={source_hash}")
     return 0
 

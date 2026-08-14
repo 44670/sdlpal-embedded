@@ -29,7 +29,7 @@ namespace FastDbOpl
 #define PAL_DBOPL_DISABLE_PERCUSSION 1
 #define PAL_DBOPL_SIMPLE_VOLUME_HANDLER 1
 #define PAL_DBOPL_PRECALCULATE_ENVELOPES 1
-#define PAL_DBOPL_ENVELOPE_BUFFER_SAMPLES 469
+#define PAL_DBOPL_ENVELOPE_BUFFER_SAMPLES 128
 #undef SDLPAL_DBOPL_H
 #include "../adplug/dosbox/dbopl.h"
 #include "../adplug/dosbox/dbopl.cpp.h"
@@ -56,15 +56,15 @@ main()
 {
    ReferenceDbOpl::Chip reference;
    FastDbOpl::Chip fast;
-   int32_t expected[469];
-   int32_t actual[469];
+   int32_t expected[128];
+   int32_t actual[128];
    uint32_t random = 0x4f504c32u;
    uint64_t compared_samples = 0;
 
    ReferenceDbOpl::InitTables();
    FastDbOpl::InitTables();
-   reference.Setup(32768);
-   fast.Setup(32768);
+   reference.Setup(16384);
+   fast.Setup(16384);
 
    for (unsigned block = 0; block < 20000; ++block)
    {
@@ -81,7 +81,7 @@ main()
          reference.WriteReg(reg, value);
          fast.WriteReg(reg, value);
       }
-      const unsigned frames = 1u + next_random(random) % 469u;
+      const unsigned frames = 1u + next_random(random) % 128u;
       reference.GenerateBlock2(frames, expected);
       fast.GenerateBlock2(frames, actual);
       for (unsigned channel = 0; channel < 9; ++channel)
@@ -144,7 +144,8 @@ main()
       }
       compared_samples += frames;
    }
-   std::printf("DBOPL2 melodic differential check: %llu samples bit-exact\n",
+   std::printf(
+      "DBOPL2 16.384kHz melodic differential check: %llu samples bit-exact\n",
       static_cast<unsigned long long>(compared_samples));
    return EXIT_SUCCESS;
 }
