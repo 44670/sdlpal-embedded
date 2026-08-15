@@ -260,6 +260,29 @@ def execute_action(ws: WebSocket, action: str, root: Path) -> dict[str, object]:
         output = root / fields[1]
         write_screenshot(output, payload)
         reply = {"ok": True, "path": str(output), "screen": screen}
+    elif name == "record" and len(fields) in (3, 4):
+        screen = fields[3] if len(fields) == 4 else "main"
+        frames = int(fields[2])
+        if screen not in ("main", "touch", "both"):
+            raise HarnessError(f"unknown screenshot screen: {screen}")
+        if frames <= 0 or frames > 600:
+            raise HarnessError("record frame count must be from 1 through 600")
+        output = root / fields[1]
+        output.mkdir(parents=True, exist_ok=True)
+        for frame in range(frames):
+            json_reply(*ws.command({"cmd": "run", "frames": 1}))
+            opcode, payload = ws.command(
+                {"cmd": "screenshot", "screen": screen}
+            )
+            if opcode != 2:
+                raise HarnessError(
+                    f"expected screenshot reply, got opcode {opcode}"
+                )
+            write_screenshot(output / f"{frame:04d}.png", payload)
+        reply = {
+            "ok": True, "path": str(output), "screen": screen,
+            "frames": frames,
+        }
     else:
         raise HarnessError(f"invalid action: {action}")
     elapsed = time.perf_counter() - started
@@ -323,7 +346,8 @@ def main() -> int:
         help=("ordered action: run:N, tap:KEY[:N], down:KEY, up:KEY, status, "
               "pause, resume, regs, flush-save, reset, mem:ADDRESS:LENGTH, "
               "mem7:ADDRESS:LENGTH, or "
-              "capture:FILE[:main|touch|both]"),
+              "capture:FILE[:main|touch|both], or "
+              "record:DIR:FRAMES[:main|touch|both]"),
     )
     parser.add_argument(
         "--audio-capture", type=Path,

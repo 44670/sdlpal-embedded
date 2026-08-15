@@ -306,11 +306,12 @@ music_load_track(int track)
       static_cast<uint16_t>(track),
       mus);
    /*
-    * RIX byte 2 selects OPL2 rhythm mode.  Its six-operator percussion
-    * renderer exceeds the ARM9 budget, so this target rejects those tracks
-    * before any OPL writes reach the audio worker.
+    * Rhythm tracks still contain six ordinary melodic channels.  Load the
+    * complete RIX stream and let the target DBOPL specialization mask its
+    * percussion bit; rejecting the whole track would also discard those
+    * affordable melodic channels.
     */
-   return size > 2 && pal_nds_track[2] == 0u && pal_nds_decoder.load_buffer(
+   return size > 2 && pal_nds_decoder.load_buffer(
       pal_nds_track, static_cast<uint32_t>(size));
 }
 

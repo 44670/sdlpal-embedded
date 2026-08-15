@@ -50,6 +50,7 @@ struct Patch
 struct TrackStats
 {
    uint64_t note_ons;
+   uint64_t note_ons_by_channel[9];
    uint64_t pitch_writes;
    uint64_t live_operator_writes;
    uint64_t live_groups[5];
@@ -101,6 +102,7 @@ public:
          {
             patches.insert(capture_patch(channel));
             stats.note_ons++;
+            stats.note_ons_by_channel[channel]++;
          }
          held[channel] = now_held;
       }
@@ -280,7 +282,8 @@ main(int argc, char **argv)
       return 4;
    }
 
-   printf("track\tbytes\tticks\tseconds\tpatches\tnote_on\tpitch\t"
+   printf("track\tbytes\trhythm_mode\tticks\tseconds\tpatches\t"
+      "note_on\tmelodic_note_on\treserved_note_on\tpitch\t"
       "live_op\tlive_20\tlive_40\tlive_60\tlive_80\tlive_e0\trhythm\t"
       "held_ch_ticks\theld_ticks\tmax_held\tmax_tick_writes\n");
    for (uint16_t track_number = 0u;
@@ -289,6 +292,9 @@ main(int argc, char **argv)
    {
       PalMusicTrack track = {};
       uint64_t ticks = 0u;
+      uint64_t melodic_note_ons = 0u;
+      uint64_t reserved_note_ons = 0u;
+      bool rhythm_mode;
 
       if (track_filter >= 0 && track_number != track_filter)
       {
@@ -314,15 +320,31 @@ main(int argc, char **argv)
          fprintf(stderr, "RIX track exceeds ten minutes: %u\n", track_number);
          return 6;
       }
+      rhythm_mode = track.size > 2u && track.data[2] != 0u;
+      for (unsigned channel = 0u; channel < (rhythm_mode ? 6u : 9u);
+         channel++)
+      {
+         melodic_note_ons += opl.stats.note_ons_by_channel[channel];
+      }
+      if (rhythm_mode)
+      {
+         for (unsigned channel = 6u; channel < 9u; channel++)
+         {
+            reserved_note_ons += opl.stats.note_ons_by_channel[channel];
+         }
+      }
 
-      printf("%u\t%u\t%llu\t%.3f\t%zu\t%llu\t%llu\t%llu\t"
-         "%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\n",
+      printf("%u\t%u\t%u\t%llu\t%.3f\t%zu\t%llu\t%llu\t%llu\t%llu\t"
+         "%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%llu\t%u\t%u\n",
          track_number,
          track.size,
+         rhythm_mode ? 1u : 0u,
          static_cast<unsigned long long>(ticks),
          static_cast<double>(ticks) / kRixTicksPerSecond,
          opl.patches.size(),
          static_cast<unsigned long long>(opl.stats.note_ons),
+         static_cast<unsigned long long>(melodic_note_ons),
+         static_cast<unsigned long long>(reserved_note_ons),
          static_cast<unsigned long long>(opl.stats.pitch_writes),
          static_cast<unsigned long long>(opl.stats.live_operator_writes),
          static_cast<unsigned long long>(opl.stats.live_groups[0]),
@@ -358,6 +380,7 @@ main(int argc, char **argv)
       }
    }
 
+   fflush(stdout);
    fprintf(stderr,
       "tracks=%u ticks=%llu seconds=%.3f unique_patches=%zu "
       "note_on=%llu pitch=%llu live_op=%llu "

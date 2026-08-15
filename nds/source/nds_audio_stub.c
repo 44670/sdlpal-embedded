@@ -1,10 +1,9 @@
-/* Silent audio backend for the Nintendo DS target.
+/* Optional silent audio backend for Nintendo DS diagnostic builds.
  *
- * RIX/OPL2 music is temporarily disabled on this target.  This stub keeps
- * the engine's AUDIO_* surface intact so gameplay, menus, and the volume
- * setting behave exactly as before; nothing is ever submitted to the DS
- * sound hardware.  The previous Calico ARM7 sound-service backend remains
- * in nds_music.cpp but is not part of the build.
+ * This stub keeps the engine's AUDIO_* surface intact while submitting no
+ * sound.  The production Makefile builds the Calico/DBOPL2 implementation in
+ * nds_music.cpp instead; this file is retained only for explicit diagnostic
+ * source lists.
  */
 
 #include "../../audio.h"

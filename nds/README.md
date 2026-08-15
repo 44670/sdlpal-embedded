@@ -138,13 +138,15 @@ Relevant upstream projects:
   only MAP bit `0x2000` removes a cell. Starting at the player's logical cell,
   a four-neighbor closure keeps only that connected walkable component.
   Every active touch-trigger zone whose current script performs a scene
-  transition is included as reachable floor but is not expanded through: the
-  engine runs that script before it can accept the player's following step.
-  This closes doorways into otherwise connected zero-filled MAP space without
-  inventing collision from GOP pixels. Dynamic event blockers are deliberately
-  ignored while forming the closure, so opening a gate does not reveal a new
-  fragment; permanent MAP collision and disconnected rooms or floors remain
-  excluded.
+  transition is removed before that closure: the engine transfers the party
+  automatically inside the zone, so it is not stable walkable floor. Its
+  yellow marker remains visible at the selected component's boundary.
+  Stationary, active blockers with no trigger are also removed. They are part
+  of the engine's real movement collision and can seal an otherwise open path
+  from a street into the unused outer MAP lattice. Moving characters and
+  interactive blockers remain traversable while forming the complete floor
+  plan, so NPC motion does not regenerate it and opening a gate does not reveal
+  a new fragment. This uses movement semantics rather than GOP pixels.
   The renderer reverses PAL's isometric tile projection, crops the selected
   component, and keeps a fixed four-pixel pitch for every logical grid cell.
   Adjacent walkable cells merge into one blue region without internal lines;
@@ -161,18 +163,26 @@ Relevant upstream projects:
   console.
 - The floor plan is generated when the MAP number changes or a same-MAP scene
   transition places the player in another disconnected component. A change to
-  the active transition triggers also invalidates it. Ordinary movement inside
-  the selected component never recomputes the closure. The fixed 128x128
-  tile-map owner is temporarily reused for the transition-event list and the
-  bounded flood-fill queue, while the pattern dictionary temporarily owns the
-  terminal bitset; they then become the 16-bit GPU tile map and deduplicated
+  the active transition triggers or a stationary structural blocker's state or
+  position also invalidates it. Auto scripts are classified once per scene;
+  scripts that can move an event are excluded from the structural set.
+  Ordinary movement inside the selected component never recomputes the
+  closure. The fixed 128x128 tile-map owner is temporarily reused for the
+  closure-blocker list and bounded flood-fill queue, while the pattern
+  dictionary temporarily owns the closure-blocked bitset; they then become
+  the 16-bit GPU tile map and deduplicated
   pattern index respectively. Each 8x8 tile
   encodes a two-by-two group of four-pixel cells plus its boundary neighbors;
   equivalent patterns share one of 1,024 fixed tile slots. The sub 2D affine
   engine displays the map without rotation and applies the clamped viewport in
   hardware. Movement within the selected component causes no rerasterization
-  or upload; it only changes affine reference registers. Gray blockers use the
-  sub engine's 8x8
+  or tile-map upload. The affine identity matrix is installed once; at each
+  display commit, the live BG3 reference point and BG1 red-marker scroll are
+  written together during a verified VBlank. The 48KiB main-screen copy goes
+  to its hidden bitmap page before that wait, so it cannot delay the lower
+  screen's register commit into active scanout. A second lower-screen tile-map
+  buffer is neither used nor needed for movement because those VRAM contents
+  are static. Gray blockers use the sub engine's 8x8
   hardware OBJs; palette banks distinguish gray blockers, yellow scene exits,
   and green event points without duplicating tile graphics. They update from
   the current scene event table without changing the MAP tile layer. The
@@ -199,12 +209,35 @@ waits for VBlank while the worker fills 256-frame output blocks.
 
 The hot OPL2 code and fixed tables/state use audited ITCM/DTCM owners. The
 supported melodic path remains bit-identical to the unmodified DBOPL
-multiply-table backend in the host differential test. Rhythm-mode tracks are
-rejected before decoder initialization because their percussion renderer is
-outside the ARM9 budget; gameplay continues with that track silent.
+multiply-table backend in the host differential test. RIX rhythm-mode tracks
+are accepted, but the target masks OPL2 percussion register `0xBD` bit 5. Their
+six melodic channels therefore remain audible while bass drum, snare, tom,
+cymbal, and hi-hat are omitted. The stock DBOPL percussion loop cannot meet
+the ARM9 PCM deadline even at the reduced synthesis rate, so enabling it is
+not part of this profile.
 
-The complete pinned pack peaks at 251 OPL writes in one RIX tick against a
-capacity of 256. Run the workload profiler with:
+A forced Track 18 test at the current 16.384kHz synthesis rate measured the
+stock percussion loop at 9.85ms average and 16.05ms peak against a roughly
+7.81ms PCM-block deadline; it accumulated deadline misses and starved the UI.
+Keeping percussion masked while accepting the same track measured 1.13ms
+average and 1.45ms peak, with nonzero audio and zero deadline misses, queue
+underruns, or overruns. This is forced-track integration/performance evidence,
+not natural story-route or physical DS listening evidence. Artifacts are under
+`tmp_ui/nds/rhythm-enable-16384-track18-20260815-smoke/` and
+`tmp_ui/nds/rhythm-load-melodic-only-track18-20260815/`.
+
+The pack-wide decoder replay covers all 26 nonempty rhythm tracks. Every one
+has melodic key-on events on channels 0 through 5 (at least 76 per track), no
+key-on events on percussion-reserved channels 6 through 8, and no more than
+six simultaneously held channels. Track 3 is also the worst register burst in
+the complete pack at 251 OPL writes in one RIX tick against a capacity of 256.
+A forced Track 3 run over 900 DeSmuME frames repeatedly exercised its complete
+3.17-second stream: rendering measured 1.19ms average and 1.61ms peak, with
+zero deadline misses, underruns, or overruns and 160 target presents. Its
+capture is under
+`tmp_ui/nds/rhythm-melodic-only-track3-worstwrites-20260815/`.
+
+Run the workload profiler with:
 
 ```sh
 make -C embedded nds-rix-profile

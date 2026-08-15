@@ -92,13 +92,22 @@ MINIMAP_LOGICAL_ROWS = 191
 MINIMAP_VISIBLE_COLUMNS = 66
 MINIMAP_VISIBLE_ROWS = 50
 MINIMAP_SCRIPT_SCAN_LIMIT = 512
+MINIMAP_SCRIPT_GRAPH_LIMIT = 64
+MINIMAP_SCENE_EVENT_CAPACITY = 160
+MINIMAP_EVENT_MOVE_OPERATIONS = frozenset(
+    (*range(0x000B, 0x000F), 0x0010, 0x0011, 0x0012, 0x0013,
+     0x003F, 0x0044, 0x004C, 0x006C, 0x007C, 0x007D,
+     0x0082, 0x0084, 0x0097)
+)
 PINNED_PAL_DOS_PACK_SHA256 = (
     "9c01aec3be2f9a9404551c27ec1bb3c7d580c10accd4b3b8d254d05c9c4cfb71"
 )
 PINNED_PAL_DOS_MINIMAP_CLOSURES = (
-    # scene, MAP, (orthogonal column, row), cells, DWORD-zero cells
-    (4, 1, (95, 80), 5766, 1944),
-    (3, 10, (132, 114), 481, 0),
+    # scene, MAP, seed, cells, DWORD-zero, exits, structural blockers
+    (4, 1, (95, 80), 5741, 1937, 97, 6),
+    (3, 10, (132, 114), 469, 0, 62, 2),
+    # Yangzhou scene 82 otherwise leaks into the full unused MAP lattice.
+    (82, 79, (86, 111), 2200, 0, 62, 3),
 )
 
 
@@ -199,29 +208,48 @@ def hash_extent(path: Path, start: int, size: int) -> str:
     return digest.hexdigest()
 
 
-def profile_rix_writes(profiler: Path, pack: Path) -> tuple[int, int]:
+def profile_rix_writes(
+    profiler: Path, pack: Path
+) -> tuple[int, int, dict[int, tuple[bool, int, int, int, int]]]:
     output = run(str(profiler), str(pack))
     header: list[str] | None = None
     maximum = 0
     maximum_track = 0
+    profiles: dict[int, tuple[bool, int, int, int, int]] = {}
+    required = {
+        "track", "rhythm_mode", "melodic_note_on", "reserved_note_on",
+        "max_held", "max_tick_writes",
+    }
     for line in output.splitlines():
         fields = line.split("\t")
         if "max_tick_writes" in fields:
+            if not required.issubset(fields):
+                raise ValueError(
+                    "RIX profiler is missing rhythm-workload columns"
+                )
             header = fields
             continue
         if header is None or len(fields) != len(header):
             continue
         try:
-            track = int(fields[0])
+            track = int(fields[header.index("track")])
+            rhythm_mode = int(fields[header.index("rhythm_mode")]) != 0
+            melodic_note_ons = int(fields[header.index("melodic_note_on")])
+            reserved_note_ons = int(fields[header.index("reserved_note_on")])
+            maximum_held = int(fields[header.index("max_held")])
             writes = int(fields[header.index("max_tick_writes")])
         except ValueError:
             continue
+        profiles[track] = (
+            rhythm_mode, melodic_note_ons, reserved_note_ons,
+            maximum_held, writes,
+        )
         if writes > maximum:
             maximum = writes
             maximum_track = track
     if header is None:
         raise ValueError("RIX profiler did not return its tabular header")
-    return maximum, maximum_track
+    return maximum, maximum_track, profiles
 
 
 def check_nds_header(path: Path) -> list[str]:
@@ -454,6 +482,39 @@ def pack_chunk_payload(path: Path, archive_id: int, chunk_id: int) -> bytes:
     raise ValueError(f"PAL pack is missing archive {archive_id}")
 
 
+def pack_rhythm_tracks(path: Path, chunk_count: int) -> list[int]:
+    """Return nonempty RIX chunks whose header selects OPL2 rhythm mode."""
+    tracks: list[int] = []
+    for chunk_id in range(chunk_count):
+        payload = pack_chunk_payload(path, MUS_ARCHIVE_ID, chunk_id)
+        if len(payload) > 2 and payload[2] != 0:
+            tracks.append(chunk_id)
+    return tracks
+
+
+def check_rhythm_playback_policy() -> list[str]:
+    """Keep rhythm tracks audible without linking the over-budget drum loop."""
+    nds_dir = Path(__file__).resolve().parent
+    music = (nds_dir / "source" / "nds_music.cpp").read_text(
+        encoding="utf-8"
+    )
+    dbopl = (nds_dir / "source" / "nds_dbopl2.itcm.cpp").read_text(
+        encoding="utf-8"
+    )
+    errors: list[str] = []
+    if re.search(r"pal_nds_track\s*\[\s*2\s*\]\s*[!=]=", music):
+        errors.append(
+            "NDS music loader must not reject a complete RIX track by its "
+            "rhythm header"
+        )
+    if "#define PAL_DBOPL_DISABLE_PERCUSSION 1" not in dbopl:
+        errors.append(
+            "NDS DBOPL must keep the measured over-budget percussion loop "
+            "disabled"
+        )
+    return errors
+
+
 def minimap_world_to_cell(world_x: int, world_y: int) -> tuple[int, int]:
     """Mirror PAL_CheckObstacleWithRange's isometric diamond selection."""
     raw_x, residual_x = divmod(world_x, 32)
@@ -492,6 +553,46 @@ def minimap_script_changes_scene(
             script_entry = operand0
         else:
             script_entry += 1
+    return False
+
+
+def minimap_auto_script_moves_event(
+    scripts: list[tuple[int, int, int, int]], script_entry: int
+) -> bool:
+    """Mirror the bounded runtime classifier for stationary blockers."""
+    pending = [script_entry] if script_entry else []
+    visited: set[int] = set()
+    while pending:
+        script_entry = pending.pop()
+        if script_entry == 0 or script_entry in visited:
+            continue
+        if not 0 < script_entry < len(scripts):
+            return True
+        if len(visited) >= MINIMAP_SCRIPT_GRAPH_LIMIT:
+            return True
+        visited.add(script_entry)
+        operation, operand0, operand1, _operand2 = scripts[script_entry]
+        if operation in MINIMAP_EVENT_MOVE_OPERATIONS:
+            return True
+        if operation == 0x0000:
+            continue
+        if operation in (0x0002, 0x0003):
+            if operand0:
+                pending.append(operand0)
+            if operand1:
+                pending.append(script_entry + 1)
+        elif operation == 0x0004:
+            if operand0:
+                pending.append(operand0)
+            pending.append(script_entry + 1)
+        elif operation == 0x0006:
+            if operand1:
+                pending.append(operand1)
+            pending.append(script_entry + 1)
+        else:
+            pending.append(script_entry + 1)
+        if len(pending) > MINIMAP_SCRIPT_GRAPH_LIMIT:
+            return True
     return False
 
 
@@ -562,12 +663,33 @@ def pack_minimap_overlay_peak(path: Path) -> tuple[int, int]:
     return peak
 
 
-def pack_minimap_terminal_closure(
+def pack_minimap_scene_event_peak(path: Path) -> tuple[int, int]:
+    """Return the largest validated current-scene event-object range."""
+    event_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 0)
+    scene_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 1)
+    if len(event_data) == 0 or len(event_data) % 32:
+        raise ValueError("SSS event-object chunk is malformed")
+    if len(scene_data) < 16 or len(scene_data) % 8:
+        raise ValueError("SSS scene chunk is malformed")
+    event_count = len(event_data) // 32
+    scenes = list(struct.iter_unpack("<4H", scene_data))
+    peak = (0, -1)
+    for scene_number in range(1, len(scenes)):
+        first = scenes[scene_number - 1][3]
+        end = scenes[scene_number][3]
+        if first > end or end > event_count:
+            raise ValueError(f"SSS scene {scene_number} has an invalid event range")
+        if end - first > peak[0]:
+            peak = (end - first, scene_number)
+    return peak
+
+
+def pack_minimap_forced_exit_closure(
     path: Path,
     scene_number: int,
     seed: tuple[int, int],
-) -> tuple[int, int, int]:
-    """Run the runtime's transition-terminal closure on pinned PAL data."""
+) -> tuple[int, int, int, int, int]:
+    """Run the runtime closure with transition and structural cells blocked."""
     event_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 0)
     scene_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 1)
     script_data = pack_chunk_payload(path, SSS_ARCHIVE_ID, 4)
@@ -590,6 +712,7 @@ def pack_minimap_terminal_closure(
         raise ValueError(f"SSS scene {scene_number} has an invalid event range")
 
     portals = []
+    structural_blockers = []
     for event in events[first:end]:
         vanish_time = event[0] - 0x10000 if event[0] & 0x8000 else event[0]
         state = event[6] - 0x10000 if event[6] & 0x8000 else event[6]
@@ -601,6 +724,14 @@ def pack_minimap_terminal_closure(
             and minimap_script_changes_scene(scripts, event[4])
         ):
             portals.append(event)
+        if (
+            vanish_time == 0
+            and state >= 2
+            and event[7] == 0
+            and event[4] == 0
+            and not minimap_auto_script_moves_event(scripts, event[5])
+        ):
+            structural_blockers.append(event)
 
     payload = pack_chunk_payload(path, MAP_ARCHIVE_ID, map_number)
     if len(payload) != 128 * 64 * 2 * 4:
@@ -617,7 +748,7 @@ def pack_minimap_terminal_closure(
         if tile == 0:
             zero_tiles.add(cell)
 
-    terminals = {
+    forced_exits = {
         cell
         for cell, (world_x, world_y) in topology.items()
         if any(
@@ -626,15 +757,22 @@ def pack_minimap_terminal_closure(
             for event in portals
         )
     }
-    if seed not in topology:
+    structural_cells = {
+        cell
+        for cell, (world_x, world_y) in topology.items()
+        if any(
+            abs(event[1] - world_x) + 2 * abs(event[2] - world_y) < 16
+            for event in structural_blockers
+        )
+    }
+    closure_blocked = forced_exits | structural_cells
+    if seed not in topology or seed in closure_blocked:
         raise ValueError(
-            f"scene {scene_number} minimap seed {seed} is not nonblocking"
+            f"scene {scene_number} minimap seed {seed} is not selectable"
         )
     selected = {seed}
     queue = [seed]
     for cell in queue:
-        if cell in terminals:
-            continue
         column, row = cell
         for neighbor in (
             (column - 1, row),
@@ -642,10 +780,24 @@ def pack_minimap_terminal_closure(
             (column, row - 1),
             (column, row + 1),
         ):
-            if neighbor in topology and neighbor not in selected:
+            if (
+                neighbor in topology
+                and neighbor not in closure_blocked
+                and neighbor not in selected
+            ):
                 selected.add(neighbor)
                 queue.append(neighbor)
-    return map_number, len(selected), len(selected & zero_tiles)
+    if selected & closure_blocked:
+        raise ValueError(
+            f"scene {scene_number} minimap selected a closure-blocked cell"
+        )
+    return (
+        map_number,
+        len(selected),
+        len(selected & zero_tiles),
+        len(forced_exits),
+        len(structural_cells),
+    )
 
 
 def pack_map_pattern_peak(path: Path) -> tuple[int, int]:
@@ -743,6 +895,7 @@ def main() -> int:
     symbols = parse_symbols(args.elf, args.tool_prefix + "nm")
     sections = parse_sections(args.elf, args.tool_prefix + "readelf")
     errors = check_nds_header(args.nds)
+    errors.extend(check_rhythm_playback_policy())
     for name, expected_size in EXPECTED_OWNERS.items():
         actual = symbols.get(name)
         if actual is None:
@@ -846,6 +999,12 @@ def main() -> int:
         args.pack, MGO_ARCHIVE_ID, (71, 73, 571, 572, 635)
     )
     mus_sizes = pack_chunk_sizes(args.pack, MUS_ARCHIVE_ID, None)
+    rhythm_tracks = pack_rhythm_tracks(args.pack, len(mus_sizes))
+    if not rhythm_tracks:
+        errors.append(
+            "complete MUS archive has no rhythm track to exercise the "
+            "melodic-only playback policy"
+        )
     map_sizes = pack_chunk_sizes(args.pack, MAP_ARCHIVE_ID, None)
     malformed_maps = [
         (chunk_id, size)
@@ -883,6 +1042,15 @@ def main() -> int:
             f"{maximum_minimap_overlays} visible minimap overlays, exceeds "
             f"{MINIMAP_OVERLAY_CAPACITY} OBJ slots"
         )
+    maximum_scene_events, maximum_scene_event_scene = (
+        pack_minimap_scene_event_peak(args.pack)
+    )
+    if maximum_scene_events > MINIMAP_SCENE_EVENT_CAPACITY:
+        errors.append(
+            f"scene {maximum_scene_event_scene} contains "
+            f"{maximum_scene_events} event objects, exceeds stationary "
+            f"classifier capacity {MINIMAP_SCENE_EVENT_CAPACITY}"
+        )
     pinned_minimap_closures: list[str] = []
     if source_hash == PINNED_PAL_DOS_PACK_SHA256:
         for (
@@ -891,25 +1059,41 @@ def main() -> int:
             seed,
             expected_cells,
             expected_zero_cells,
+            expected_forced_exits,
+            expected_structural_cells,
         ) in PINNED_PAL_DOS_MINIMAP_CLOSURES:
-            map_number, cells, zero_cells = pack_minimap_terminal_closure(
-                args.pack, scene_number, seed
+            (
+                map_number,
+                cells,
+                zero_cells,
+                forced_exits,
+                structural_cells,
+            ) = (
+                pack_minimap_forced_exit_closure(
+                    args.pack, scene_number, seed
+                )
             )
             pinned_minimap_closures.append(
                 f"scene{scene_number}/map{map_number}="
-                f"{cells}cells/{zero_cells}zero"
+                f"{cells}cells/{zero_cells}zero/{forced_exits}exits/"
+                f"{structural_cells}structural"
             )
             if (
                 map_number != expected_map
                 or cells != expected_cells
                 or zero_cells != expected_zero_cells
+                or forced_exits != expected_forced_exits
+                or structural_cells != expected_structural_cells
             ):
                 errors.append(
                     "pinned PAL_DOS minimap closure mismatch: "
                     f"scene {scene_number}, map {map_number}, seed {seed}, "
-                    f"got {cells} cells/{zero_cells} DWORD-zero cells; "
+                    f"got {cells} cells/{zero_cells} DWORD-zero cells/"
+                    f"{forced_exits} blocked exit cells/"
+                    f"{structural_cells} structural blocker cells; "
                     f"expected map {expected_map}, {expected_cells}/"
-                    f"{expected_zero_cells}"
+                    f"{expected_zero_cells}/{expected_forced_exits}/"
+                    f"{expected_structural_cells}"
                 )
     oversized_mus = [
         (chunk_id, size)
@@ -948,13 +1132,48 @@ def main() -> int:
             "embedded pack does not exercise DLDI self-ROM reads beyond 32MiB"
         )
 
-    maximum_writes, maximum_write_track = profile_rix_writes(
+    maximum_writes, maximum_write_track, rix_profiles = profile_rix_writes(
         args.rix_profiler, args.pack
     )
     if maximum_writes > MAX_OPL_WRITES_PER_TICK:
         errors.append(
             f"RIX track {maximum_write_track} writes {maximum_writes} OPL "
             f"registers in one tick, exceeds {MAX_OPL_WRITES_PER_TICK}"
+        )
+    profiled_rhythm_tracks = sorted(
+        track for track, profile in rix_profiles.items() if profile[0]
+    )
+    if profiled_rhythm_tracks != rhythm_tracks:
+        errors.append(
+            "RIX profiler rhythm tracks differ from MUS headers: "
+            f"profiled={profiled_rhythm_tracks}, headers={rhythm_tracks}"
+        )
+    silent_rhythm_tracks = [
+        track for track in rhythm_tracks
+        if track not in rix_profiles or rix_profiles[track][1] == 0
+    ]
+    if silent_rhythm_tracks:
+        errors.append(
+            "rhythm tracks have no melodic key-on events after decoder "
+            f"replay: {silent_rhythm_tracks}"
+        )
+    keyed_reserved_channels = [
+        track for track in rhythm_tracks
+        if track in rix_profiles and rix_profiles[track][2] != 0
+    ]
+    if keyed_reserved_channels:
+        errors.append(
+            "rhythm tracks key on channels reserved for percussion: "
+            f"{keyed_reserved_channels}"
+        )
+    excess_rhythm_polyphony = [
+        track for track in rhythm_tracks
+        if track in rix_profiles and rix_profiles[track][3] > 6
+    ]
+    if excess_rhythm_polyphony:
+        errors.append(
+            "rhythm tracks exceed six simultaneous melodic channels: "
+            f"{excess_rhythm_polyphony}"
         )
 
     if errors:
@@ -984,6 +1203,11 @@ def main() -> int:
         f"(scene {maximum_minimap_overlay_scene}), "
         f"capacity={MINIMAP_OVERLAY_CAPACITY}"
     )
+    print(
+        f"  max_minimap_scene_events={maximum_scene_events} "
+        f"(scene {maximum_scene_event_scene}), "
+        f"stationary_capacity={MINIMAP_SCENE_EVENT_CAPACITY}"
+    )
     if pinned_minimap_closures:
         print(
             "  pinned_PAL_DOS_minimap_closures="
@@ -992,6 +1216,22 @@ def main() -> int:
     print(
         f"  max_opl_writes_per_tick={maximum_writes} "
         f"(track {maximum_write_track}), capacity={MAX_OPL_WRITES_PER_TICK}"
+    )
+    rhythm_melodic_min = min(
+        (rix_profiles[track][1] for track in rhythm_tracks
+         if track in rix_profiles),
+        default=0,
+    )
+    rhythm_max_held = max(
+        (rix_profiles[track][3] for track in rhythm_tracks
+         if track in rix_profiles),
+        default=0,
+    )
+    print(
+        f"  rhythm_tracks={len(rhythm_tracks)}, "
+        f"min_melodic_note_ons={rhythm_melodic_min}, "
+        f"reserved_note_ons=0, max_held={rhythm_max_held}, "
+        "policy=melodic-channels-only"
     )
     print(
         f"  ROM={args.nds.stat().st_size} bytes, pal_full.pak={pack_size} bytes, "
