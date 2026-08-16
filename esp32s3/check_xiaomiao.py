@@ -23,6 +23,9 @@ CHUNK_ENTRY_BYTES = 16
 PACK_FORMAT_RNG_FRAMES = 2
 PACK_FORMAT_NATIVE = 1
 PACK_FORMAT_FONT10 = 6
+PACK_FORMAT_SFX_PCM8 = 7
+SFX_SAMPLE_RATE = 8192
+SFX_BUFFER_BYTES = SFX_SAMPLE_RATE * 5
 RESIDENT_MAX_BYTES = 2048 * 1024
 TF_TOC_MAX_BYTES = 40 * 1024
 TRANSIENT_CHUNK_BYTES = 64 * 1024
@@ -85,10 +88,12 @@ PSRAM_SYMBOLS = {
     "pal_psram_res_state": 36,
     "pal_psram_res_event_sprite_ptrs": 22000,
     "pal_psram_savegame_static": 190064,
+    "pal_psram_global_state": 20964,
 }
 SRAM_SYMBOLS = {
     "pal_sram_display_dma": 4 * 1024,
     "pal_sram_fbp_scanline": 320,
+    "pal_sram_sfx_pcm8": SFX_BUFFER_BYTES,
 }
 
 FORBIDDEN_UNDEFINED = {
@@ -529,6 +534,7 @@ def main() -> int:
     main_archive = build / "esp-idf/main/libmain.a"
     board_source = root / "esp32s3/main/xiaomiao_board.c"
     audio_source = root / "esp32s3/main/xiaomiao_audio.c"
+    target_audio_header = root / "esp32s3/main/pal_target_audio.h"
     guru_screen_source = root / "esp32s3/main/pal_guru_screen.c"
     guru_screen_header = root / "esp32s3/main/pal_guru_screen.h"
     guru_bridge_source = root / "esp32s3/engine_bridge/pal_engine_guru.c"
@@ -579,7 +585,7 @@ def main() -> int:
         elf, app_bin, map_path, sdkconfig_path, project_path,
         compile_commands_path, flasher_path, partition_bin, main_archive,
         full_path, manifest_path, board_source,
-        audio_source, guru_screen_source, guru_screen_header,
+        audio_source, target_audio_header, guru_screen_source, guru_screen_header,
         guru_bridge_source, guru_bridge_header, target_memory_header,
         xiaomiao_memory_header, cardputer_memory_header,
         target_video_source, util_source, util_header, fatfs_stdio_source,
@@ -648,7 +654,7 @@ def main() -> int:
         "-DMEM_LEVEL2=1", "-DPAL_EXTREME_TWO_SCREENS=1",
         "-DPAL_TARGET_XIAOMIAO=1", "-DPAL_STORAGE_SD_ONLY=1",
         "-DPAL_NO_RUNTIME_HEAP=1", "-DPAL_NO_RUNTIME_DECOMPRESS=1",
-        "-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_NO_SFX=1",
+        "-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_EXTERNAL_SFX=1",
         "-DPAL_TARGET_GURU_MEDITATION=1",
     ):
         if token not in joined_commands:
@@ -661,6 +667,8 @@ def main() -> int:
         errors.append("Xiaomiao still defines retired PAL_CARDPUTER_EXTREME")
     if "-DPAL_CONTRACT_NO_AUDIO=1" in joined_commands:
         errors.append("Xiaomiao unexpectedly compiles the no-audio contract")
+    if "-DPAL_CONTRACT_NO_SFX=1" in joined_commands:
+        errors.append("Xiaomiao unexpectedly compiles the no-SFX contract")
 
     board_text = board_source.read_text(encoding="utf-8", errors="replace")
     board_contract = {
@@ -698,10 +706,14 @@ def main() -> int:
         errors.append("LCD reset on GPIO19 must finish before SPI initializes it as SD MISO")
 
     audio_text = audio_source.read_text(encoding="utf-8", errors="replace")
+    target_audio_text = target_audio_header.read_text(
+        encoding="utf-8", errors="replace"
+    )
     audio_contract = {
         "11-bit LEDC PWM": "AUDIO_PWM_DUTY_BITS = 11",
         "passive-buzzer 3x output gain": "AUDIO_OUTPUT_GAIN = 3",
         "sample-rate GPTimer": "audio_sample_alarm(",
+        "shared PWM/sample physical clock": "pwm_frequency_hz = ledc_get_freq(",
         "fixed four-tick ring": "AUDIO_RING_TICKS = 4",
         "passive buzzer GPIO14": "PIN_BUZZER_AUDIO = GPIO_NUM_14",
         "PCM midpoint duty": "AUDIO_PWM_DUTY_MIDPOINT",
@@ -710,6 +722,18 @@ def main() -> int:
     for label, snippet in audio_contract.items():
         if snippet not in audio_text:
             errors.append(f"Xiaomiao audio source is missing {label}: {snippet}")
+    for label, snippet in {
+        "16.384 kHz music/output rate": (
+            "#define PAL_TARGET_AUDIO_SAMPLE_RATE 16384u"
+        ),
+        "8.192 kHz SFX rate": "#define PAL_TARGET_SFX_SAMPLE_RATE 8192u",
+        "five-second SFX owner": (
+            "#define PAL_TARGET_SFX_BUFFER_SAMPLES "
+            "(PAL_TARGET_SFX_SAMPLE_RATE * 5u)"
+        ),
+    }.items():
+        if snippet not in target_audio_text:
+            errors.append(f"target audio contract is missing {label}: {snippet}")
 
     fatfs_stdio_text = fatfs_stdio_source.read_text(
         encoding="utf-8", errors="replace"
@@ -959,6 +983,8 @@ def main() -> int:
         "PalEngineBridge_OpenNativeRngFrame",
         "PalEngineBridge_ReadNativeRngFrameRange",
         "PalTargetAudio_Begin",
+        "AUDIO_PlaySound",
+        "PalEngineBridge_ReadSfxPcm8",
         "gptimer_new_timer",
         "ledc_timer_config",
     ):
@@ -1068,6 +1094,18 @@ def main() -> int:
                     or full_image[chunk.offset:chunk.offset + 2] != b"\xaa\x55"
                 ):
                     errors.append(f"MUS slot {chunk_id} is not a native RIX track")
+        sfx_chunks = full.archives.get(ARCHIVE_IDS["SFX"], [])
+        if not any(chunk.size != 0 for chunk in sfx_chunks):
+            errors.append("pal_full.pak contains no nonempty SFX chunks")
+        for chunk_id, chunk in enumerate(sfx_chunks):
+            if (
+                chunk.fmt != PACK_FORMAT_SFX_PCM8
+                or chunk.size > SFX_BUFFER_BYTES
+            ):
+                errors.append(
+                    f"SFX slot {chunk_id} must be bounded 8.192kHz PCM8: "
+                    f"size={chunk.size}, format={chunk.fmt}"
+                )
         for name in DIRECT_STAGED_ARCHIVES:
             chunks = full.archives.get(ARCHIVE_IDS[name], [])
             maximum = max((chunk.size for chunk in chunks), default=0)
@@ -1239,6 +1277,10 @@ def main() -> int:
     print(
         f"  RNG frames: max {max_rng_frame} bytes across {rng_frame_count} "
         f"frames; bounded input window {RNG_INPUT_WINDOW_BYTES} bytes"
+    )
+    print(
+        f"  audio: 16384Hz PCM16; SFX {SFX_SAMPLE_RATE}Hz PCM8 x2, "
+        f"one internal-SRAM slot {SFX_BUFFER_BYTES} bytes"
     )
     return 0
 

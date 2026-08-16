@@ -78,8 +78,8 @@ static_assert(
    std::is_trivially_copyable<Chip>::value,
    "fixed DBOPL2 state must remain safe to copy without allocation");
 static_assert(
-   PAL_NDS_AUDIO_UPSAMPLE_FACTOR == 2u,
-   "the NDS OPL output path directly duplicates every sample twice");
+   PAL_NDS_AUDIO_UPSAMPLE_FACTOR == 1u,
+   "the NDS OPL output path must render directly at the PCM rate");
 
 #undef PAL_NDS_DBOPL2_STATE_ATTR
 #undef PAL_NDS_DBOPL2_DTCM_ATTR
@@ -130,25 +130,19 @@ NdsDbOpl2_Render(
       {
          for (size_t i = 0u; i < amount; i++)
          {
-            const int16_t sample = finalize_full_volume_pcm16(
+            samples[i] = finalize_full_volume_pcm16(
                pal_nds_dbopl2_scratch[i]);
-
-            samples[i * 2u] = sample;
-            samples[i * 2u + 1u] = sample;
          }
       }
       else
       {
          for (size_t i = 0u; i < amount; i++)
          {
-            const int16_t sample = finalize_pcm16(
+            samples[i] = finalize_pcm16(
                pal_nds_dbopl2_scratch[i], volume);
-
-            samples[i * 2u] = sample;
-            samples[i * 2u + 1u] = sample;
          }
       }
-      samples += amount * 2u;
+      samples += amount;
       frames -= amount;
    }
 }

@@ -20,8 +20,10 @@
 /*
  * The Xiaomiao has a bare passive piezo buzzer, not a speaker or DAC.  Match
  * the board's known Retro-Go topology: LEDC generates one 11-bit PWM period
- * per 22.05 kHz PCM sample and GPTimer updates its duty at the sample rate.
- * A fixed four-tick SPSC ring replaces Retro-Go's allocator-backed queue.
+ * per PCM sample and GPTimer updates its duty at that same physical rate. The
+ * renderer remains logically 16.384 kHz; both peripherals share the nearest
+ * representable APB-clock period. A fixed four-block SPSC ring replaces
+ * Retro-Go's allocator-backed queue.
  */
 #if !defined(CONFIG_IDF_TARGET_ESP32)
 #error "The Xiaomiao audio sink requires classic ESP32"
@@ -43,20 +45,18 @@ enum {
     AUDIO_PWM_DUTY_BITS = 11,
     AUDIO_PWM_DUTY_MIDPOINT = 1 << (AUDIO_PWM_DUTY_BITS - 1),
     AUDIO_SAMPLE_TIMER_RESOLUTION_HZ = 40000000,
-    AUDIO_SAMPLE_TIMER_ALARM_COUNT =
-        (AUDIO_SAMPLE_TIMER_RESOLUTION_HZ +
-            PAL_TARGET_AUDIO_SAMPLE_RATE / 2) /
-        PAL_TARGET_AUDIO_SAMPLE_RATE,
     AUDIO_TASK_STACK_BYTES = 4096,
     AUDIO_STOP_TIMEOUT_MS = 2000,
     AUDIO_RUNTIME_REPORT_SECONDS = 10,
     AUDIO_RUNTIME_REPORT_US =
         1000000u * AUDIO_RUNTIME_REPORT_SECONDS,
     AUDIO_TICK_DEADLINE_US =
-        1000000u / PAL_TARGET_AUDIO_TICK_HZ,
+        (1000000u * PAL_TARGET_AUDIO_BLOCK_SAMPLES) /
+            PAL_TARGET_AUDIO_SAMPLE_RATE,
     AUDIO_TICK_PERIOD_CEIL_US =
-        (1000000u + PAL_TARGET_AUDIO_TICK_HZ - 1u) /
-            PAL_TARGET_AUDIO_TICK_HZ,
+        (1000000u * PAL_TARGET_AUDIO_BLOCK_SAMPLES +
+            PAL_TARGET_AUDIO_SAMPLE_RATE - 1u) /
+            PAL_TARGET_AUDIO_SAMPLE_RATE,
 };
 
 static gptimer_handle_t audio_sample_timer;
@@ -72,7 +72,7 @@ static uint8_t
     pal_sram_audio_task_stack_bytes[AUDIO_TASK_STACK_BYTES]
     PAL_XIAOMIAO_AUDIO_SRAM;
 static int16_t
-    pal_sram_audio_ring[AUDIO_RING_TICKS][PAL_TARGET_AUDIO_TICK_SAMPLES]
+    pal_sram_audio_ring[AUDIO_RING_TICKS][PAL_TARGET_AUDIO_BLOCK_SAMPLES]
     PAL_XIAOMIAO_AUDIO_SRAM;
 static PalTargetAudioTelemetry
     pal_audio_telemetry PAL_XIAOMIAO_AUDIO_SRAM;
@@ -80,13 +80,8 @@ static int64_t pal_audio_next_report_us PAL_XIAOMIAO_AUDIO_SRAM;
 
 typedef char xiaomiao_audio_stack_bytes_are_uint8[
     sizeof(StackType_t) == sizeof(uint8_t) ? 1 : -1];
-typedef char xiaomiao_audio_tick_rate_is_integral[
-    PAL_TARGET_AUDIO_SAMPLE_RATE % PAL_TARGET_AUDIO_TICK_HZ == 0
-        ? 1 : -1];
-typedef char xiaomiao_audio_tick_size_matches_rate[
-    PAL_TARGET_AUDIO_TICK_SAMPLES ==
-            PAL_TARGET_AUDIO_SAMPLE_RATE / PAL_TARGET_AUDIO_TICK_HZ
-        ? 1 : -1];
+typedef char xiaomiao_audio_block_is_even[
+    (PAL_TARGET_AUDIO_BLOCK_SAMPLES & 1u) == 0u ? 1 : -1];
 
 static portMUX_TYPE audio_state_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool audio_started;
@@ -188,7 +183,7 @@ audio_sample_alarm(
     if (audio_ring_ready_ticks != 0u) {
         sample = pal_sram_audio_ring[audio_ring_read_tick]
             [audio_ring_read_sample++];
-        if (audio_ring_read_sample == PAL_TARGET_AUDIO_TICK_SAMPLES) {
+        if (audio_ring_read_sample == PAL_TARGET_AUDIO_BLOCK_SAMPLES) {
             audio_ring_read_sample = 0u;
             audio_ring_read_tick =
                 (uint8_t)((audio_ring_read_tick + 1u) % AUDIO_RING_TICKS);
@@ -326,7 +321,7 @@ audio_task(
             }
 
             memset(samples, 0,
-                PAL_TARGET_AUDIO_TICK_SAMPLES * sizeof(*samples));
+                PAL_TARGET_AUDIO_BLOCK_SAMPLES * sizeof(*samples));
             render_start = esp_timer_get_time();
             if (previous_tick_start != 0 &&
                 render_start > previous_tick_start) {
@@ -345,9 +340,9 @@ audio_task(
                 audio_render(
                     audio_render_user,
                     samples,
-                    PAL_TARGET_AUDIO_TICK_SAMPLES);
+                    PAL_TARGET_AUDIO_BLOCK_SAMPLES);
                 for (sample = 0;
-                     sample < PAL_TARGET_AUDIO_TICK_SAMPLES;
+                     sample < PAL_TARGET_AUDIO_BLOCK_SAMPLES;
                      sample++) {
                     int32_t value = samples[sample];
                     uint32_t magnitude =
@@ -365,7 +360,7 @@ audio_task(
             portENTER_CRITICAL(&audio_state_lock);
             pal_audio_telemetry.rendered_ticks++;
             pal_audio_telemetry.rendered_samples +=
-                PAL_TARGET_AUDIO_TICK_SAMPLES;
+                PAL_TARGET_AUDIO_BLOCK_SAMPLES;
             if (tick_peak != 0) {
                 pal_audio_telemetry.nonzero_ticks++;
             }
@@ -430,7 +425,7 @@ audio_init_pwm(void)
         .resolution_hz = AUDIO_SAMPLE_TIMER_RESOLUTION_HZ,
     };
     gptimer_alarm_config_t alarm_config = {
-        .alarm_count = AUDIO_SAMPLE_TIMER_ALARM_COUNT,
+        .alarm_count = 0,
         .reload_count = 0,
         .flags.auto_reload_on_alarm = true,
     };
@@ -443,6 +438,7 @@ audio_init_pwm(void)
     uint32_t dma_free_after_driver;
     uint32_t minimum_internal_free;
     uint32_t minimum_dma_free;
+    uint32_t pwm_frequency_hz;
 
     if ((audio_sample_timer != NULL || audio_ledc_initialized) &&
         !audio_destroy_pwm()) {
@@ -466,6 +462,35 @@ audio_init_pwm(void)
         return false;
     }
     audio_ledc_initialized = true;
+    /*
+     * LEDC's 8-bit fractional divider cannot represent 16,384 Hz exactly at
+     * 11-bit duty resolution. Drive GPTimer from the reported physical PWM
+     * rate instead of an independently rounded nominal rate; otherwise their
+     * phases drift and one PCM value is periodically held for an extra PWM
+     * cycle. With the 80 MHz APB clock this selects 4,880 APB clocks per
+     * sample (about 16,393.44 Hz) for both peripherals.
+     */
+    pwm_frequency_hz = ledc_get_freq(
+        LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+    if (pwm_frequency_hz == 0u) {
+        ESP_LOGE(TAG, "read configured buzzer PWM frequency");
+        (void)audio_destroy_pwm();
+        return false;
+    }
+    alarm_config.alarm_count =
+        (AUDIO_SAMPLE_TIMER_RESOLUTION_HZ + pwm_frequency_hz / 2u) /
+        pwm_frequency_hz;
+    if (alarm_config.alarm_count == 0u) {
+        ESP_LOGE(TAG, "invalid buzzer sample alarm period");
+        (void)audio_destroy_pwm();
+        return false;
+    }
+    ESP_LOGI(
+        TAG,
+        "aligned PWM/sample clock: PWM=%u Hz GPTimer=%u/%llu Hz",
+        (unsigned)pwm_frequency_hz,
+        (unsigned)AUDIO_SAMPLE_TIMER_RESOLUTION_HZ,
+        (unsigned long long)alarm_config.alarm_count);
     if (!audio_log_error(
             gptimer_new_timer(&timer_config, &audio_sample_timer),
             "create buzzer sample timer") ||
@@ -608,11 +633,11 @@ PalTargetAudio_Begin(
 
     ESP_LOGI(
         TAG,
-        "RIX sink ready: %u Hz mono PCM16 -> 11-bit LEDC PWM "
-        "GPIO%d, %u samples/tick, ring=%u ticks",
+        "audio sink ready: %u Hz mono PCM16 -> 11-bit LEDC PWM "
+        "GPIO%d, %u samples/block, ring=%u blocks",
         PAL_TARGET_AUDIO_SAMPLE_RATE,
         PIN_BUZZER_AUDIO,
-        PAL_TARGET_AUDIO_TICK_SAMPLES,
+        PAL_TARGET_AUDIO_BLOCK_SAMPLES,
         AUDIO_RING_TICKS);
     return true;
 }

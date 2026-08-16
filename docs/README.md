@@ -1,3 +1,19 @@
+# ESP32 系列
+
+目前支持的设备：
+
+| 设备 | 主控 | 内存 |
+| --- | --- | --- |
+| 小喵掌机 | ESP32 | 4 MB PSRAM 可用 |
+| Cardputer ADV | ESP32-S3 | 无 PSRAM |
+
+使用步骤：
+
+1. 从 [Release 页面](https://github.com/44670/sdlpal-embedded/releases) 下载并烧录对应设备的固件。
+2. 在 [TF 卡数据包制作页面](https://44670.github.io/sdlpal-embedded/) 选择《仙剑奇侠传》DOS 版安装目录，制作资源包，然后将其解压到 SD 卡根目录。
+
+-----
+
 # SDLPAL
 
 [![GitHub CI](https://github.com/sdlpal/sdlpal/actions/workflows/linux.yml/badge.svg)](https://github.com/sdlpal/sdlpal/actions)

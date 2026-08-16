@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>仙剑 DOS 资源包生成器</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #111827, #172554);
+    }
+    main {
+      box-sizing: border-box;
+      width: min(780px, calc(100vw - 32px));
+      margin: 24px 0;
+      padding: 28px;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, .96);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.55rem;
+    }
+    p {
+      margin: 8px 0;
+      color: #cbd5e1;
+      line-height: 1.55;
+    }
+    a:not(.download) {
+      color: #93c5fd;
+    }
+    .wizard {
+      display: grid;
+      gap: 12px;
+      margin: 22px 0 16px;
+    }
+    .step {
+      padding: 15px;
+      border: 1px solid #334155;
+      border-radius: 11px;
+      background: rgba(2, 6, 23, .42);
+    }
+    .step[data-state="active"] {
+      border-color: #3b82f6;
+    }
+    .step[data-state="done"] {
+      border-color: #15803d;
+    }
+    .step[data-state="error"] {
+      border-color: #dc2626;
+    }
+    .step-header {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .step-number {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 28px;
+      place-items: center;
+      border-radius: 50%;
+      background: #1d4ed8;
+      color: white;
+      font-weight: 750;
+    }
+    .step-title {
+      flex: 1;
+      font-weight: 700;
+    }
+    .step-status {
+      color: #94a3b8;
+      font-size: .9rem;
+    }
+    .step[data-state="done"] .step-status {
+      color: #86efac;
+    }
+    .step[data-state="error"] .step-status, .warning {
+      color: #fca5a5;
+    }
+    .step-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    button, .download {
+      box-sizing: border-box;
+      min-height: 42px;
+      padding: 9px 15px;
+      border: 1px solid #60a5fa;
+      border-radius: 9px;
+      background: #1d4ed8;
+      color: white;
+      font: inherit;
+      font-weight: 650;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button:hover, .download:hover {
+      background: #2563eb;
+    }
+    button:disabled {
+      border-color: #475569;
+      background: #334155;
+      color: #94a3b8;
+      cursor: not-allowed;
+    }
+    #directory-name {
+      min-width: 180px;
+      color: #93c5fd;
+      overflow-wrap: anywhere;
+    }
+    progress {
+      width: 100%;
+      height: 13px;
+      margin: 6px 0 14px;
+      accent-color: #3b82f6;
+    }
+    .log-label {
+      display: block;
+      margin-bottom: 7px;
+      color: #cbd5e1;
+      font-weight: 650;
+    }
+    #log {
+      box-sizing: border-box;
+      width: 100%;
+      height: 280px;
+      margin: 0;
+      padding: 13px;
+      overflow: auto;
+      border: 1px solid #334155;
+      border-radius: 9px;
+      background: #020617;
+      color: #d1fae5;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      resize: vertical;
+    }
+    [hidden] {
+      display: none !important;
+    }
+    .small {
+      font-size: .9rem;
+      color: #94a3b8;
+    }
+    .success-hint {
+      color: #86efac;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>仙剑奇侠传 DOS 资源包生成器</h1>
+    <p>选择安装目录后，本页会自动验证、转换并生成 Cardputer ADV 与 Xiaomiao 共用的完整 TF 资源包。游戏文件不会上传。</p>
+    <p class="small">请用当前版 Chrome 或 Edge，并通过 HTTPS 或 localhost 打开本页面。</p>
+
+    <div class="wizard">
+      <section id="step-directory" class="step" data-state="active">
+        <div class="step-header">
+          <span class="step-number">1</span>
+          <span class="step-title">选择《仙剑奇侠传》DOS 原版安装目录</span>
+          <span id="status-directory" class="step-status">等待选择</span>
+        </div>
+        <p class="warning">必须是繁体中文 DOS 原版；不支持 Win95/98 版、柔情篇或混合修改过的资源。</p>
+        <p class="small">尚未购买？<a href="https://store.steampowered.com/app/1546570/" target="_blank" rel="noopener noreferrer">前往 Steam 购买《仙剑奇侠传》</a>。</p>
+        <div class="step-actions">
+          <button id="choose-directory" type="button">选择 DOS 安装目录</button>
+          <span id="directory-name">尚未选择</span>
+        </div>
+      </section>
+
+      <section id="step-validation" class="step" data-state="waiting" hidden>
+        <div class="step-header">
+          <span class="step-number">2</span>
+          <span class="step-title">验证 DOS 原版文件</span>
+          <span id="status-validation" class="step-status">等待上一步</span>
+        </div>
+        <p>检查必需文件、MKF 表、DOS YJ1、游戏数据表及媒体结构；不会用固定的游戏文件 SHA-256 限定 DOS 版本。</p>
+      </section>
+
+      <section id="step-font" class="step" data-state="waiting" hidden>
+        <div class="step-header">
+          <span class="step-number">3</span>
+          <span class="step-title">下载并验证字体资源</span>
+          <span id="status-font" class="step-status">等待上一步</span>
+        </div>
+        <p>下载仓库提供的 FONT10 子集，并验证 ZIP、SHA-256、CRC32 和字形数据。</p>
+      </section>
+
+      <section id="step-build" class="step" data-state="waiting" hidden>
+        <div class="step-header">
+          <span class="step-number">4</span>
+          <span class="step-title">生成并下载完整 TF 资源包</span>
+          <span id="status-build" class="step-status">等待上一步</span>
+        </div>
+        <p>输出 PALSET.BIN、manifest、pal_core/full.pak 和 b00.pak～b14.pak。</p>
+        <div class="step-actions">
+          <a id="download" class="download" hidden>下载资源包</a>
+        </div>
+        <p id="install-hint" class="success-hint" hidden>请将 TF 资源包解压到 SD 卡根目录。</p>
+      </section>
+    </div>
+
+    <progress id="progress" max="1" value="0"></progress>
+    <label class="log-label" for="log">处理日志</label>
+    <textarea id="log" role="log" aria-live="polite" readonly spellcheck="false"></textarea>
+  </main>
+
+  <script>
+  (() => {
+    const formatException = (value) => {
+      const parts = [];
+      const seen = new Set();
+      let current = value;
+      while (current != null && !seen.has(current)) {
+        seen.add(current);
+        if (parts.length) {
+          parts.push("Caused by:");
+        }
+        parts.push(current?.stack || current?.message || String(current));
+        current = current?.cause;
+      }
+      return parts.join("\n") || "未知异常";
+    };
+    const appendException = (label, value) => {
+      const output = document.querySelector("#log");
+      const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      output.value += `[${time}] ${label}：\n${formatException(value)}\n`;
+      output.scrollTop = output.scrollHeight;
+    };
+    window.addEventListener("error", (event) => {
+      appendException("未处理异常", event.error || event.message);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      appendException("未处理 Promise 异常", event.reason);
+    });
+  })();
+  </script>
+  <script src="./pako.min.js"></script>
+  <script type="module">
+/*__PAL_WEB_PACK_CORE__*/
+
+const CARDPUTER_PLAN = /*__PAL_WEB_CARDPUTER_PLAN__*/;
+const FONT10_URL = new URL(
+  `./${FONT10_ARCHIVE_FILENAME}`,
+  window.location.href,
+);
+
+class BrowserPalDirectory {
+  static async open(handle) {
+    const files = new Map();
+    for await (const [name, entry] of handle.entries()) {
+      if (entry.kind !== "file") {
+        continue;
+      }
+      const key = name.toUpperCase();
+      if (files.has(key)) {
+        throw new Error(`目录中存在忽略大小写后重名的文件：${name}`);
+      }
+      files.set(key, entry);
+    }
+    return new BrowserPalDirectory(handle.name, files);
+  }
+
+  constructor(name, files) {
+    this.name = name;
+    this.files = files;
+    this.cache = new Map();
+  }
+
+  has(name) {
+    return this.files.has(name.toUpperCase());
+  }
+
+  async read(name) {
+    const key = name.toUpperCase();
+    const handle = this.files.get(key);
+    if (!handle) {
+      throw new Error(`缺少游戏文件：${name}`);
+    }
+    if (!this.cache.has(key)) {
+      this.cache.set(key, handle.getFile().then(async (file) => (
+        new Uint8Array(await file.arrayBuffer())
+      )));
+    }
+    return this.cache.get(key);
+  }
+
+  releaseCache() {
+    this.cache.clear();
+  }
+}
+
+const chooseButton = document.querySelector("#choose-directory");
+const directoryName = document.querySelector("#directory-name");
+const progress = document.querySelector("#progress");
+const logOutput = document.querySelector("#log");
+const download = document.querySelector("#download");
+const installHint = document.querySelector("#install-hint");
+let source = null;
+let downloadUrl = null;
+let environmentReady = false;
+let busy = false;
+
+function timestamp() {
+  return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function log(message) {
+  logOutput.value += `[${timestamp()}] ${message}\n`;
+  logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function formatException(error) {
+  const parts = [];
+  const seen = new Set();
+  let current = error;
+  while (current != null && !seen.has(current)) {
+    seen.add(current);
+    if (parts.length) {
+      parts.push("Caused by:");
+    }
+    parts.push(current?.stack || current?.message || String(current));
+    current = current?.cause;
+  }
+  return parts.join("\n") || "未知异常";
+}
+
+function logException(label, error) {
+  logOutput.value += `[${timestamp()}] ${label}：\n${formatException(error)}\n`;
+  logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function formatBytes(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
+function resetDownload() {
+  download.hidden = true;
+  download.removeAttribute("href");
+  installHint.hidden = true;
+  if (downloadUrl) {
+    URL.revokeObjectURL(downloadUrl);
+    downloadUrl = null;
+  }
+}
+
+async function nextPaint() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function setStep(name, state, text) {
+  document.querySelector(`#step-${name}`).dataset.state = state;
+  document.querySelector(`#status-${name}`).textContent = text;
+}
+
+function showStep(name) {
+  document.querySelector(`#step-${name}`).hidden = false;
+}
+
+function updateChooseButton() {
+  chooseButton.disabled = !environmentReady || busy;
+}
+
+function setBusy(value) {
+  busy = value;
+  updateChooseButton();
+}
+
+function resetFollowingSteps() {
+  resetDownload();
+  for (const name of ["validation", "font", "build"]) {
+    document.querySelector(`#step-${name}`).hidden = true;
+  }
+  setStep("validation", "waiting", "等待上一步");
+  setStep("font", "waiting", "等待上一步");
+  setStep("build", "waiting", "等待上一步");
+  progress.max = 1;
+  progress.value = 0;
+}
+
+chooseButton.addEventListener("click", async () => {
+  setBusy(true);
+  let stage = "directory";
+  try {
+    const handle = await window.showDirectoryPicker({ id: "pal-dos", mode: "read" });
+    const selected = await BrowserPalDirectory.open(handle);
+    const missing = REQUIRED_PAL_FILES.filter((name) => !selected.has(name));
+    if (missing.length) {
+      throw new Error(`所选目录不是完整的 PAL DOS 目录，缺少：${missing.join(", ")}`);
+    }
+    source = selected;
+    directoryName.textContent = selected.name;
+    setStep("directory", "done", "已选择");
+    resetFollowingSteps();
+    log(`已选择目录：${selected.name}`);
+    log("已找到 20 个必需文件；开始自动处理");
+
+    stage = "validation";
+    showStep(stage);
+    setStep(stage, "active", "正在验证");
+    log("开始验证繁体中文 DOS 版数据结构");
+    await validatePalDosStructure({
+      source,
+      plan: CARDPUTER_PLAN,
+      onProgress: async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    });
+    setStep(stage, "done", "DOS 数据验证通过");
+    log("验证通过：数据符合本工具支持的 PAL DOS 结构");
+
+    stage = "font";
+    showStep(stage);
+    setStep(stage, "active", "正在下载");
+    progress.max = 1;
+    progress.value = 0;
+    log(`下载固定字体资源：${FONT10_URL.pathname}`);
+    const response = await fetch(FONT10_URL, { cache: "force-cache" });
+    if (!response.ok) {
+      throw new Error(`字体下载失败：HTTP ${response.status}`);
+    }
+    const candidate = new Uint8Array(await response.arrayBuffer());
+    await validateFont10Archive(candidate, browserInflateRaw);
+    progress.value = 1;
+    setStep(stage, "done", "字体验证通过");
+    log(`字体资源下载并验证完成：${candidate.length} bytes`);
+
+    stage = "build";
+    showStep(stage);
+    setStep(stage, "active", "正在生成");
+    progress.value = 0;
+    log("开始转换游戏资源");
+    const result = await buildXiaomiaoFullPack({
+      source,
+      font10Archive: candidate,
+      inflateRaw: browserInflateRaw,
+      onProgress: async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    });
+    log("正在生成 Cardputer ADV 的 NOR 缓存源与 15 个章节包");
+    const cardputer = await buildCardputerPackSet({
+      archives: result.archives,
+      fullPack: result.pack,
+      fullPackSha256: result.packSha256,
+      packSetId: result.packSetId,
+      plan: CARDPUTER_PLAN,
+      onProgress: async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    });
+    log("正在用 pako DEFLATE 压缩全部 19 个输出文件");
+    await nextPaint();
+    const zip = await makeDeflatedZipEntries(
+      cardputer.files,
+      browserDeflateRaw,
+      async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    );
+    source.releaseCache();
+    downloadUrl = URL.createObjectURL(zip);
+    const id = result.packSetId.toString(16).padStart(8, "0");
+    download.href = downloadUrl;
+    download.download = `sdlpal-tf-resources-${id}.zip`;
+    download.textContent = `下载资源包（${formatBytes(zip.size)}）`;
+    download.hidden = false;
+    installHint.hidden = false;
+    setStep(stage, "done", "生成完成");
+    log(`pack-set ID：0x${id}`);
+    log(`pal_full.pak：${result.pack.length} bytes`);
+    log(`SHA-256：${result.packSha256}`);
+    log("ZIP 已生成：包含 PALSET.BIN、manifest、pal_core/full 和 b00-b14");
+    log("请将 TF 资源包解压到 SD 卡根目录。");
+    await nextPaint();
+    window.alert("资源包生成成功，请点击“下载资源包”。");
+  } catch (error) {
+    if (error?.name === "AbortError" && stage === "directory") {
+      log("已取消目录选择");
+      return;
+    }
+    if (stage === "directory") {
+      source = null;
+      resetFollowingSteps();
+      directoryName.textContent = "选择失败";
+      setStep(stage, "error", "选择失败");
+    } else if (stage === "validation") {
+      setStep(stage, "error", "验证失败");
+      log("验证失败：目录不是本工具支持的 PAL DOS 数据；Win95/98、柔情篇和结构异常的混合资源不会继续处理");
+    } else if (stage === "font") {
+      setStep(stage, "error", "下载或验证失败");
+    } else {
+      resetDownload();
+      setStep(stage, "error", "生成失败");
+    }
+    source?.releaseCache();
+    logException("详细错误", error);
+  } finally {
+    setBusy(false);
+  }
+});
+
+if (!("showDirectoryPicker" in window)) {
+  setStep("directory", "error", "浏览器不支持");
+  log("错误：浏览器不支持 openDirectory。请使用当前版 Chrome 或 Edge。");
+} else if (!window.isSecureContext) {
+  setStep("directory", "error", "需要安全上下文");
+  log("错误：openDirectory 需要 HTTPS 或 localhost 安全上下文。");
+} else if (!globalThis.crypto?.subtle) {
+  setStep("directory", "error", "缺少 SHA-256");
+  log("错误：浏览器不支持 Web Crypto SHA-256。");
+} else if (typeof globalThis.pako?.inflateRaw !== "function") {
+  setStep("directory", "error", "pako 加载失败");
+  log("错误：pako.inflateRaw 加载失败。");
+} else if (typeof globalThis.pako?.deflateRaw !== "function") {
+  setStep("directory", "error", "pako 加载失败");
+  log("错误：pako.deflateRaw 加载失败。");
+} else {
+  environmentReady = true;
+  log("就绪：请选择 PAL DOS 版安装目录");
+  log(`字体来源：${FONT10_URL.pathname}`);
+}
+updateChooseButton();
+  </script>
+</body>
+</html>

@@ -1,0 +1,2424 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>仙剑 DOS 资源包生成器</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #111827, #172554);
+    }
+    main {
+      box-sizing: border-box;
+      width: min(780px, calc(100vw - 32px));
+      margin: 24px 0;
+      padding: 28px;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, .96);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .35);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.55rem;
+    }
+    p {
+      margin: 8px 0;
+      color: #cbd5e1;
+      line-height: 1.55;
+    }
+    a:not(.download) {
+      color: #93c5fd;
+    }
+    .wizard {
+      display: grid;
+      gap: 12px;
+      margin: 22px 0 16px;
+    }
+    .step {
+      padding: 15px;
+      border: 1px solid #334155;
+      border-radius: 11px;
+      background: rgba(2, 6, 23, .42);
+    }
+    .step[data-state="active"] {
+      border-color: #3b82f6;
+    }
+    .step[data-state="done"] {
+      border-color: #15803d;
+    }
+    .step[data-state="error"] {
+      border-color: #dc2626;
+    }
+    .step-header {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .step-number {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 28px;
+      place-items: center;
+      border-radius: 50%;
+      background: #1d4ed8;
+      color: white;
+      font-weight: 750;
+    }
+    .step-title {
+      flex: 1;
+      font-weight: 700;
+    }
+    .step-status {
+      color: #94a3b8;
+      font-size: .9rem;
+    }
+    .step[data-state="done"] .step-status {
+      color: #86efac;
+    }
+    .step[data-state="error"] .step-status, .warning {
+      color: #fca5a5;
+    }
+    .step-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+    }
+    button, .download {
+      box-sizing: border-box;
+      min-height: 42px;
+      padding: 9px 15px;
+      border: 1px solid #60a5fa;
+      border-radius: 9px;
+      background: #1d4ed8;
+      color: white;
+      font: inherit;
+      font-weight: 650;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button:hover, .download:hover {
+      background: #2563eb;
+    }
+    button:disabled {
+      border-color: #475569;
+      background: #334155;
+      color: #94a3b8;
+      cursor: not-allowed;
+    }
+    #directory-name {
+      min-width: 180px;
+      color: #93c5fd;
+      overflow-wrap: anywhere;
+    }
+    progress {
+      width: 100%;
+      height: 13px;
+      margin: 6px 0 14px;
+      accent-color: #3b82f6;
+    }
+    .log-label {
+      display: block;
+      margin-bottom: 7px;
+      color: #cbd5e1;
+      font-weight: 650;
+    }
+    #log {
+      box-sizing: border-box;
+      width: 100%;
+      height: 280px;
+      margin: 0;
+      padding: 13px;
+      overflow: auto;
+      border: 1px solid #334155;
+      border-radius: 9px;
+      background: #020617;
+      color: #d1fae5;
+      font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      resize: vertical;
+    }
+    [hidden] {
+      display: none !important;
+    }
+    .small {
+      font-size: .9rem;
+      color: #94a3b8;
+    }
+    .success-hint {
+      color: #86efac;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>仙剑奇侠传 DOS 资源包生成器</h1>
+    <p>选择安装目录后，本页会自动验证、转换并生成 Cardputer ADV 与 Xiaomiao 共用的完整 TF 资源包。游戏文件不会上传。</p>
+    <p class="small">请用当前版 Chrome 或 Edge，并通过 HTTPS 或 localhost 打开本页面。</p>
+
+    <div class="wizard">
+      <section id="step-directory" class="step" data-state="active">
+        <div class="step-header">
+          <span class="step-number">1</span>
+          <span class="step-title">选择《仙剑奇侠传》DOS 原版安装目录</span>
+          <span id="status-directory" class="step-status">等待选择</span>
+        </div>
+        <p class="warning">必须是繁体中文 DOS 原版；不支持 Win95/98 版、柔情篇或混合修改过的资源。</p>
+        <p class="small">尚未购买？<a href="https://store.steampowered.com/app/1546570/" target="_blank" rel="noopener noreferrer">前往 Steam 购买《仙剑奇侠传》</a>。</p>
+        <div class="step-actions">
+          <button id="choose-directory" type="button">选择 DOS 安装目录</button>
+          <span id="directory-name">尚未选择</span>
+        </div>
+      </section>
+
+      <section id="step-validation" class="step" data-state="waiting" hidden>
+        <div class="step-header">
+          <span class="step-number">2</span>
+          <span class="step-title">验证 DOS 原版文件</span>
+          <span id="status-validation" class="step-status">等待上一步</span>
+        </div>
+        <p>检查必需文件、MKF 表、DOS YJ1、游戏数据表及媒体结构；不会用固定的游戏文件 SHA-256 限定 DOS 版本。</p>
+      </section>
+
+      <section id="step-font" class="step" data-state="waiting" hidden>
+        <div class="step-header">
+          <span class="step-number">3</span>
+          <span class="step-title">下载并验证字体资源</span>
+          <span id="status-font" class="step-status">等待上一步</span>
+        </div>
+        <p>下载仓库提供的 FONT10 子集，并验证 ZIP、SHA-256、CRC32 和字形数据。</p>
+      </section>
+
+      <section id="step-build" class="step" data-state="waiting" hidden>
+        <div class="step-header">
+          <span class="step-number">4</span>
+          <span class="step-title">生成并下载完整 TF 资源包</span>
+          <span id="status-build" class="step-status">等待上一步</span>
+        </div>
+        <p>输出 PALSET.BIN、manifest、pal_core/full.pak 和 b00.pak～b14.pak。</p>
+        <div class="step-actions">
+          <a id="download" class="download" hidden>下载资源包</a>
+        </div>
+        <p id="install-hint" class="success-hint" hidden>请将 TF 资源包解压到 SD 卡根目录。</p>
+      </section>
+    </div>
+
+    <progress id="progress" max="1" value="0"></progress>
+    <label class="log-label" for="log">处理日志</label>
+    <textarea id="log" role="log" aria-live="polite" readonly spellcheck="false"></textarea>
+  </main>
+
+  <script>
+  (() => {
+    const formatException = (value) => {
+      const parts = [];
+      const seen = new Set();
+      let current = value;
+      while (current != null && !seen.has(current)) {
+        seen.add(current);
+        if (parts.length) {
+          parts.push("Caused by:");
+        }
+        parts.push(current?.stack || current?.message || String(current));
+        current = current?.cause;
+      }
+      return parts.join("\n") || "未知异常";
+    };
+    const appendException = (label, value) => {
+      const output = document.querySelector("#log");
+      const time = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      output.value += `[${time}] ${label}：\n${formatException(value)}\n`;
+      output.scrollTop = output.scrollHeight;
+    };
+    window.addEventListener("error", (event) => {
+      appendException("未处理异常", event.error || event.message);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      appendException("未处理 Promise 异常", event.reason);
+    });
+  })();
+  </script>
+  <script src="./pako.min.js"></script>
+  <script type="module">
+/*
+ * Browser/Node.js PAL DOS -> portable/Cardputer ADV TF resource converter.
+ *
+ * The browser page supplies a directory-backed source and fetches the pinned,
+ * ZIP-compressed FONT10 corpus subset.  The Node.js checker supplies filesystem
+ * bytes and the same font archive.  Keeping the conversion core shared makes
+ * the browser result directly comparable with tools/pal_pack_build.py.
+ */
+
+const PACK_MAGIC = 0x4b504c50;
+const PACK_VERSION = 1;
+const PACK_HEADER_BYTES = 32;
+const ARCHIVE_ENTRY_BYTES = 12;
+const CHUNK_ENTRY_BYTES = 16;
+const PACK_SET_ID_OFFSET = 20;
+const PACK_CRC32_OFFSET = 28;
+
+const FORMAT_RAW = 0;
+const FORMAT_NATIVE = 1;
+const FORMAT_RNG_FRAMES = 2;
+const FORMAT_TEXT_UTF16 = 3;
+const FORMAT_FONT_GLYPHS = 4;
+const FORMAT_FONT10 = 6;
+const FORMAT_SFX_PCM8 = 7;
+
+const TEXT_MAGIC = 0x54585450;
+const TEXT_VERSION = 1;
+const TEXT_HEADER_BYTES = 32;
+const FONT_MAGIC = 0x544e4650;
+const FONT_VERSION = 1;
+const FONT_HEADER_BYTES = 32;
+const FONT_GLYPH_SOURCE_OFFSET = 0x682;
+const FONT_GLYPH_SOURCE_BYTES = 30;
+const FONT_GLYPH_BYTES = 32;
+const SFX_TARGET_RATE = 8192;
+const SFX_MAX_SAMPLES = SFX_TARGET_RATE * 5;
+const CARDPUTER_CATALOG_SCENES = 300;
+const CARDPUTER_CATALOG_HEADER_BYTES = 32;
+const CARDPUTER_BUNDLE_DESCRIPTOR_BYTES = 40;
+const CARDPUTER_SET_HEADER_BYTES = 64;
+const CARDPUTER_CORE_SLOT_BYTES = 0x460000;
+const CARDPUTER_OVERLAY_SOFT_BYTES = 0x2bf000;
+const CARDPUTER_OVERLAY_HARD_BYTES = 0x2cf000;
+const CARDPUTER_OVERLAY_ARCHIVES = Object.freeze(["ABC", "FBP", "GOP", "MAP", "MGO"]);
+const PAL_DOS_SOURCE_SCENES = 294;
+const CARDPUTER_ENDING_MGO = Object.freeze([571, 572, 635]);
+const CARDPUTER_ENDING_FBP = Object.freeze([49, 65, 67, 70]);
+const DOS_YJ1_ARCHIVES = Object.freeze(["ABC", "F", "FBP", "FIRE", "MAP", "MGO"]);
+const SCRIPT_BRANCH_OPERAND = new Map([
+  [0x001e, 1], [0x0020, 2], [0x002e, 2], [0x0033, 0], [0x0034, 0],
+  [0x0038, 0], [0x003a, 0], [0x0058, 2], [0x005d, 1], [0x005e, 1],
+  [0x0061, 0], [0x0064, 1], [0x0068, 0], [0x0074, 0], [0x0079, 1],
+  [0x0081, 2], [0x0083, 2], [0x0084, 2], [0x0086, 2], [0x0091, 0],
+  [0x0094, 2], [0x0095, 1], [0x009c, 1], [0x009e, 2],
+]);
+
+const FONT10_MAGIC = new Uint8Array([0x46, 0x4f, 0x4e, 0x54, 0x31, 0x30, 0, 0]);
+const FONT10_VERSION = 1;
+const FONT10_HEADER_BYTES = 32;
+const FONT10_CELL_WIDTH = 10;
+const FONT10_CELL_HEIGHT = 10;
+const FONT10_RECORD_BYTES = 16;
+
+export const FONT10_ARCHIVE_FILENAME =
+  "sdlpal-font10-pal-dos-v2026.07.20.zip";
+export const FONT10_ARCHIVE_BYTES = 29_746;
+export const FONT10_ARCHIVE_SHA256 =
+  "fd1463d62710a88af9eb037052eae32937fdea8b8bfb2b56f116bbfb27c8b453";
+export const FONT10_MEMBER_FILENAME =
+  "sdlpal-font10-pal-dos-v2026.07.20.bin";
+export const FONT10_BINARY_BYTES = 41_392;
+export const FONT10_BINARY_SHA256 =
+  "1e97c92de941b2276a2362e34d1f645a5d14b1842b8cfb8b9d7037b2d53481c3";
+
+export const FONT10_UI_LABELS = Object.freeze({
+  chapter_complete: "CHAPTER COMPLETE - SUZHOU NEXT",
+  numeric_glyphs: "0123456789/",
+  cheat: "CHEAT",
+  cheat_money: "MONEY",
+  cheat_invincible: "INVINCIBLE",
+  cheat_always_win: "ALWAYS WIN",
+});
+
+export const ARCHIVE_IDS = Object.freeze({
+  ABC: 1,
+  BALL: 2,
+  DATA: 3,
+  F: 4,
+  FBP: 5,
+  FIRE: 6,
+  GOP: 7,
+  MAP: 8,
+  MGO: 9,
+  MIDI: 10,
+  MUS: 11,
+  PAT: 12,
+  RGM: 13,
+  RNG: 14,
+  SSS: 15,
+  TEXT: 17,
+  FONT: 18,
+  SFX: 19,
+  CACHE: 20,
+});
+
+export const FULL_ARCHIVE_NAMES = Object.freeze(
+  Object.keys(ARCHIVE_IDS)
+    .filter((name) => name !== "CACHE")
+    .sort((a, b) => ARCHIVE_IDS[a] - ARCHIVE_IDS[b]),
+);
+
+export const REQUIRED_PAL_FILES = Object.freeze([
+  "ABC.MKF",
+  "BALL.MKF",
+  "DATA.MKF",
+  "F.MKF",
+  "FBP.MKF",
+  "FIRE.MKF",
+  "GOP.MKF",
+  "MAP.MKF",
+  "MGO.MKF",
+  "MIDI.MKF",
+  "MUS.MKF",
+  "PAT.MKF",
+  "RGM.MKF",
+  "RNG.MKF",
+  "SSS.MKF",
+  "VOC.MKF",
+  "WORD.DAT",
+  "M.MSG",
+  "WOR16.ASC",
+  "WOR16.FON",
+]);
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let value = 0; value < 256; value += 1) {
+    let crc = value;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    table[value] = crc >>> 0;
+  }
+  return table;
+})();
+
+function fail(message) {
+  throw new Error(message);
+}
+
+function requireCondition(condition, message) {
+  if (!condition) {
+    fail(message);
+  }
+}
+
+function bytesView(value) {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  throw new TypeError("expected byte buffer");
+}
+
+function dataView(bytes) {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+function readU16(bytes, offset) {
+  requireCondition(offset >= 0 && offset + 2 <= bytes.length, "u16 read out of range");
+  return dataView(bytes).getUint16(offset, true);
+}
+
+function readU32(bytes, offset) {
+  requireCondition(offset >= 0 && offset + 4 <= bytes.length, "u32 read out of range");
+  return dataView(bytes).getUint32(offset, true);
+}
+
+function writeU16(bytes, offset, value) {
+  dataView(bytes).setUint16(offset, value, true);
+}
+
+function writeU32(bytes, offset, value) {
+  dataView(bytes).setUint32(offset, value >>> 0, true);
+}
+
+function align4(value) {
+  return (value + 3) & ~3;
+}
+
+function concatBytes(parts) {
+  const normalized = parts.map(bytesView);
+  const length = normalized.reduce((total, part) => total + part.length, 0);
+  const output = new Uint8Array(length);
+  let cursor = 0;
+  for (const part of normalized) {
+    output.set(part, cursor);
+    cursor += part.length;
+  }
+  return output;
+}
+
+export function crc32(input) {
+  const bytes = bytesView(input);
+  let crc = 0xffffffff;
+  for (let index = 0; index < bytes.length; index += 1) {
+    crc = CRC32_TABLE[(crc ^ bytes[index]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+export async function sha256Bytes(input) {
+  if (!globalThis.crypto?.subtle) {
+    fail("Web Crypto SHA-256 is unavailable; use current Chrome/Edge or Node.js");
+  }
+  const bytes = bytesView(input);
+  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes));
+}
+
+export async function sha256Hex(input) {
+  const digest = await sha256Bytes(input);
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function utf8(text) {
+  return new TextEncoder().encode(text);
+}
+
+const BIG5_DECODER = new TextDecoder("big5", { fatal: true, ignoreBOM: true });
+
+function decodeCp950(bytes, label) {
+  try {
+    return BIG5_DECODER.decode(bytes);
+  } catch (error) {
+    throw new Error(`${label} is not valid CP950/Big5: ${error.message}`);
+  }
+}
+
+function encodeUtf16Le(text) {
+  const output = new Uint8Array(text.length * 2);
+  const view = dataView(output);
+  for (let index = 0; index < text.length; index += 1) {
+    view.setUint16(index * 2, text.charCodeAt(index), true);
+  }
+  return output;
+}
+
+function trimTrailing(bytes, accepted) {
+  let end = bytes.length;
+  while (end > 0 && accepted.has(bytes[end - 1])) {
+    end -= 1;
+  }
+  return bytes.subarray(0, end);
+}
+
+function codepointLabel(codepoint) {
+  return `U+${codepoint.toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+const CORPUS_CONTROL = /^\p{C}$/u;
+
+function addCorpusText(codepoints, text) {
+  for (const character of text) {
+    if (!CORPUS_CONTROL.test(character)) {
+      codepoints.add(character.codePointAt(0));
+    }
+  }
+}
+
+export async function browserInflateRaw(input) {
+  if (typeof globalThis.pako?.inflateRaw !== "function") {
+    fail("pako.inflateRaw is unavailable");
+  }
+  return bytesView(globalThis.pako.inflateRaw(bytesView(input)));
+}
+
+export async function browserDeflateRaw(input) {
+  if (typeof globalThis.pako?.deflateRaw !== "function") {
+    fail("pako.deflateRaw is unavailable");
+  }
+  return bytesView(globalThis.pako.deflateRaw(bytesView(input), { level: 6 }));
+}
+
+async function extractFont10Archive(input, inflateRaw) {
+  const archive = bytesView(input);
+  requireCondition(
+    archive.length === FONT10_ARCHIVE_BYTES,
+    `${FONT10_ARCHIVE_FILENAME} is ${archive.length} bytes, expected ${FONT10_ARCHIVE_BYTES}`,
+  );
+  const digest = await sha256Hex(archive);
+  requireCondition(
+    digest === FONT10_ARCHIVE_SHA256,
+    `${FONT10_ARCHIVE_FILENAME} SHA-256 is ${digest}, expected ${FONT10_ARCHIVE_SHA256}`,
+  );
+  requireCondition(readU32(archive, 0) === 0x04034b50, "bad FONT10 ZIP local header");
+  const flags = readU16(archive, 6);
+  const method = readU16(archive, 8);
+  requireCondition((flags & 0x0009) === 0, "unsupported FONT10 ZIP flags");
+  requireCondition(method === 8, "FONT10 ZIP member is not DEFLATE-compressed");
+  const expectedCrc = readU32(archive, 14);
+  const compressedBytes = readU32(archive, 18);
+  const uncompressedBytes = readU32(archive, 22);
+  const nameBytes = readU16(archive, 26);
+  const extraBytes = readU16(archive, 28);
+  const nameStart = 30;
+  const dataOffset = nameStart + nameBytes + extraBytes;
+  const dataEnd = dataOffset + compressedBytes;
+  requireCondition(dataEnd + 4 <= archive.length, "FONT10 ZIP payload is truncated");
+  const memberName = new TextDecoder("utf-8", { fatal: true }).decode(
+    archive.subarray(nameStart, nameStart + nameBytes),
+  );
+  requireCondition(memberName === FONT10_MEMBER_FILENAME, `unexpected FONT10 ZIP member ${memberName}`);
+  requireCondition(uncompressedBytes === FONT10_BINARY_BYTES, "bad FONT10 ZIP output size");
+  requireCondition(readU32(archive, dataEnd) === 0x02014b50, "bad FONT10 ZIP central header");
+  requireCondition(typeof inflateRaw === "function", "raw DEFLATE decoder is unavailable");
+  const output = bytesView(await inflateRaw(archive.subarray(dataOffset, dataEnd)));
+  requireCondition(output.length === uncompressedBytes, "FONT10 ZIP decompressed size mismatch");
+  requireCondition(crc32(output) === expectedCrc, "FONT10 ZIP CRC32 mismatch");
+  return output;
+}
+
+export async function subsetFont10Binary(input, requestedCodepoints) {
+  const bytes = bytesView(input);
+  requireCondition(
+    bytes.length === FONT10_BINARY_BYTES,
+    `${FONT10_MEMBER_FILENAME} is ${bytes.length} bytes, expected ${FONT10_BINARY_BYTES}`,
+  );
+  const digest = await sha256Hex(bytes);
+  requireCondition(
+    digest === FONT10_BINARY_SHA256,
+    `${FONT10_MEMBER_FILENAME} SHA-256 is ${digest}, expected ${FONT10_BINARY_SHA256}`,
+  );
+  requireCondition(
+    FONT10_MAGIC.every((value, index) => bytes[index] === value),
+    'bad FONT10 magic',
+  );
+  requireCondition(readU16(bytes, 8) === FONT10_VERSION, 'bad FONT10 version');
+  requireCondition(readU16(bytes, 10) === FONT10_HEADER_BYTES, 'bad FONT10 header size');
+  const glyphCount = readU32(bytes, 12);
+  requireCondition(readU16(bytes, 16) === FONT10_RECORD_BYTES, 'bad FONT10 record size');
+  requireCondition(
+    bytes[18] === FONT10_CELL_WIDTH && bytes[19] === FONT10_CELL_HEIGHT,
+    'bad FONT10 cell dimensions',
+  );
+  requireCondition(bytes[20] === 9 && bytes[21] === 1, 'bad FONT10 metrics');
+  requireCondition(readU16(bytes, 22) === 0, 'nonzero FONT10 reserved field');
+  requireCondition(
+    readU32(bytes, 28) === bytes.length
+      && bytes.length === FONT10_HEADER_BYTES + glyphCount * FONT10_RECORD_BYTES,
+    'bad FONT10 total size',
+  );
+  const payload = bytes.subarray(FONT10_HEADER_BYTES);
+  requireCondition(readU32(bytes, 24) === crc32(payload), 'bad FONT10 payload CRC32');
+
+  const available = new Map();
+  let previous = -1;
+  for (let index = 0; index < glyphCount; index += 1) {
+    const record = FONT10_HEADER_BYTES + index * FONT10_RECORD_BYTES;
+    const codepoint = readU16(bytes, record);
+    requireCondition(codepoint > previous, 'FONT10 codepoints are not strictly sorted');
+    requireCondition(bytes[record + 2] > 0 && bytes[record + 2] <= 10, 'bad FONT10 advance');
+    requireCondition((bytes[record + 15] & 0x0f) === 0, 'nonzero FONT10 bitmap padding');
+    available.set(codepoint, record);
+    previous = codepoint;
+  }
+  const missing = Array.from(requestedCodepoints)
+    .filter((codepoint) => !available.has(codepoint))
+    .sort((left, right) => left - right);
+  requireCondition(
+    missing.length === 0,
+    `font coverage missing: ${missing.slice(0, 16).map(codepointLabel).join(", ")}`,
+  );
+  const requested = Array.from(requestedCodepoints).sort((left, right) => left - right);
+  const subsetPayload = new Uint8Array(requested.length * FONT10_RECORD_BYTES);
+  requested.forEach((codepoint, index) => {
+    const sourceRecord = available.get(codepoint);
+    subsetPayload.set(
+      bytes.subarray(sourceRecord, sourceRecord + FONT10_RECORD_BYTES),
+      index * FONT10_RECORD_BYTES,
+    );
+  });
+  const subset = new Uint8Array(FONT10_HEADER_BYTES + subsetPayload.length);
+  subset.set(bytes.subarray(0, FONT10_HEADER_BYTES));
+  writeU32(subset, 12, requested.length);
+  writeU32(subset, 24, crc32(subsetPayload));
+  writeU32(subset, 28, subset.length);
+  subset.set(subsetPayload, FONT10_HEADER_BYTES);
+  return subset;
+}
+
+export async function loadFont10Archive(input, requestedCodepoints, inflateRaw) {
+  return subsetFont10Binary(
+    await extractFont10Archive(input, inflateRaw),
+    requestedCodepoints,
+  );
+}
+
+export async function validateFont10Archive(input, inflateRaw) {
+  const binary = await extractFont10Archive(input, inflateRaw);
+  await subsetFont10Binary(binary, new Set());
+}
+
+export function readMkf(input, label = "MKF") {
+  const bytes = bytesView(input);
+  requireCondition(bytes.length >= 4, `${label} is not an MKF file`);
+  const first = readU32(bytes, 0);
+  requireCondition(
+    first >= 4 && first % 4 === 0 && first <= bytes.length,
+    `${label} has a bad MKF offset table`,
+  );
+  const count = (first - 4) / 4;
+  const chunks = [];
+  let previous = null;
+  for (let index = 0; index <= count; index += 1) {
+    const offset = readU32(bytes, index * 4);
+    requireCondition(offset <= bytes.length, `${label} chunk offset is out of range`);
+    if (previous !== null) {
+      requireCondition(previous <= offset, `${label} chunk offsets are not monotonic`);
+      chunks.push(bytes.subarray(previous, offset));
+    }
+    previous = offset;
+  }
+  return chunks;
+}
+
+function yj1GetBits(bytes, state, count) {
+  const bitPointer = state.value;
+  const byteOffset = (bitPointer >>> 4) << 1;
+  const bitOffset = bitPointer & 0x0f;
+  state.value += count;
+  requireCondition(byteOffset + 2 <= bytes.length, "YJ1 bitstream is truncated");
+  const word0 = bytes[byteOffset] | (bytes[byteOffset + 1] << 8);
+  if (count > 16 - bitOffset) {
+    const remaining = count + bitOffset - 16;
+    requireCondition(byteOffset + 4 <= bytes.length, "YJ1 bitstream is truncated");
+    const word1 = bytes[byteOffset + 2] | (bytes[byteOffset + 3] << 8);
+    const mask = 0xffff >>> bitOffset;
+    return ((((word0 & mask) << remaining) | (word1 >>> (16 - remaining))) >>> 0);
+  }
+  return (((word0 << bitOffset) & 0xffff) >>> (16 - count)) >>> 0;
+}
+
+function yj1GetLoop(bytes, state, header) {
+  if (yj1GetBits(bytes, state, 1)) {
+    return header[22];
+  }
+  const temporary = yj1GetBits(bytes, state, 2);
+  return temporary ? yj1GetBits(bytes, state, header[18 + temporary]) : header[23];
+}
+
+function yj1GetCount(bytes, state, header) {
+  const temporary = yj1GetBits(bytes, state, 2);
+  if (temporary) {
+    return yj1GetBits(bytes, state, 1)
+      ? yj1GetBits(bytes, state, header[15 + temporary])
+      : readU16(header, 4 + temporary * 2);
+  }
+  return readU16(header, 4);
+}
+
+export function decodeYj1(input) {
+  const bytes = bytesView(input);
+  requireCondition(
+    bytes.length >= 16 && bytes[0] === 0x59 && bytes[1] === 0x4a
+      && bytes[2] === 0x5f && bytes[3] === 0x31,
+    "not a YJ1 chunk",
+  );
+  const outputBytes = readU32(bytes, 4);
+  const blockCount = readU16(bytes, 12);
+  const treeLength = bytes[15] * 2;
+  requireCondition(16 + treeLength <= bytes.length, "YJ1 tree is truncated");
+  const flagBytes = bytes.subarray(16 + treeLength);
+  const treeState = { value: 0 };
+  const leaf = new Uint8Array(treeLength + 1);
+  const value = new Uint8Array(treeLength + 1);
+  const left = new Int32Array(treeLength + 1);
+  const right = new Int32Array(treeLength + 1);
+  left.fill(-1);
+  right.fill(-1);
+  left[0] = 1;
+  right[0] = 2;
+  for (let index = 1; index <= treeLength; index += 1) {
+    leaf[index] = yj1GetBits(flagBytes, treeState, 1) ? 0 : 1;
+    value[index] = bytes[15 + index];
+    if (!leaf[index]) {
+      left[index] = (value[index] << 1) + 1;
+      right[index] = left[index] + 1;
+      requireCondition(right[index] <= treeLength, "YJ1 tree child is out of range");
+    }
+  }
+
+  let source = 16 + treeLength + ((Math.ceil(treeLength / 16)) << 1);
+  const output = new Uint8Array(outputBytes);
+  let destination = 0;
+  for (let blockIndex = 0; blockIndex < blockCount; blockIndex += 1) {
+    const headerStart = source;
+    requireCondition(headerStart + 4 <= bytes.length, "YJ1 block header is truncated");
+    const rawLength = readU16(bytes, headerStart);
+    const compressedLength = readU16(bytes, headerStart + 2);
+    if (compressedLength === 0) {
+      source = headerStart + 4;
+      requireCondition(source + rawLength <= bytes.length, "YJ1 raw block is truncated");
+      requireCondition(destination + rawLength <= output.length, "YJ1 output overflow");
+      output.set(bytes.subarray(source, source + rawLength), destination);
+      destination += rawLength;
+      source += rawLength;
+      continue;
+    }
+    requireCondition(compressedLength >= 24, "short compressed YJ1 block");
+    requireCondition(headerStart + compressedLength <= bytes.length, "YJ1 block is truncated");
+    const header = bytes.subarray(headerStart, headerStart + 24);
+    const block = bytes.subarray(headerStart + 24, headerStart + compressedLength);
+    const state = { value: 0 };
+    while (true) {
+      let loop = yj1GetLoop(block, state, header);
+      if (loop === 0) {
+        break;
+      }
+      for (let index = 0; index < loop; index += 1) {
+        let node = 0;
+        while (!leaf[node]) {
+          node = yj1GetBits(block, state, 1) ? right[node] : left[node];
+          requireCondition(node >= 0 && node <= treeLength, "YJ1 tree traversal failed");
+        }
+        requireCondition(destination < output.length, "YJ1 output overflow");
+        output[destination] = value[node];
+        destination += 1;
+      }
+      loop = yj1GetLoop(block, state, header);
+      if (loop === 0) {
+        break;
+      }
+      for (let index = 0; index < loop; index += 1) {
+        const count = yj1GetCount(block, state, header);
+        const positionIndex = yj1GetBits(block, state, 2);
+        const position = yj1GetBits(block, state, header[12 + positionIndex]);
+        requireCondition(position > 0 && position <= destination, "YJ1 back-reference is invalid");
+        requireCondition(destination + count <= output.length, "YJ1 output overflow");
+        for (let copied = 0; copied < count; copied += 1) {
+          output[destination] = output[destination - position];
+          destination += 1;
+        }
+      }
+    }
+    source = headerStart + compressedLength;
+  }
+  requireCondition(
+    destination === output.length,
+    `YJ1 decoded size is ${destination}, expected ${output.length}`,
+  );
+  return output;
+}
+
+function decodeIfNeeded(chunk) {
+  return chunk.length >= 8 && chunk[0] === 0x59 && chunk[1] === 0x4a
+    && chunk[2] === 0x5f && chunk[3] === 0x31
+    ? decodeYj1(chunk)
+    : chunk;
+}
+
+export function decodeRngMovie(input) {
+  const bytes = bytesView(input);
+  if (bytes.length === 0) {
+    return bytes;
+  }
+  requireCondition(bytes.length >= 4, "short RNG movie");
+  const first = readU32(bytes, 0);
+  requireCondition(first >= 4 && first % 4 === 0 && first <= bytes.length, "bad RNG frame table");
+  const frameCount = (first - 4) / 4;
+  const frames = [];
+  for (let index = 0; index < frameCount; index += 1) {
+    const start = readU32(bytes, index * 4);
+    const end = readU32(bytes, (index + 1) * 4);
+    requireCondition(start <= end && end <= bytes.length, "bad RNG frame range");
+    frames.push(decodeIfNeeded(bytes.subarray(start, end)));
+  }
+  const tableBytes = 4 + (frameCount + 1) * 4;
+  const payloadBytes = frames.reduce((total, frame) => total + frame.length, 0);
+  const output = new Uint8Array(tableBytes + payloadBytes);
+  writeU32(output, 0, frameCount);
+  let cursor = tableBytes;
+  for (let index = 0; index < frames.length; index += 1) {
+    writeU32(output, 4 + index * 4, cursor);
+    output.set(frames[index], cursor);
+    cursor += frames[index].length;
+  }
+  writeU32(output, 4 + frames.length * 4, cursor);
+  return output;
+}
+
+async function encodeTextPack(source) {
+  const [wordData, messageData, sssData] = await Promise.all([
+    source.read("WORD.DAT"),
+    source.read("M.MSG"),
+    source.read("SSS.MKF"),
+  ]);
+  const sss = readMkf(sssData, "SSS.MKF");
+  requireCondition(sss.length > 3, "SSS.MKF has no message-offset chunk");
+  const offsetBytes = sss[3];
+  requireCondition(offsetBytes.length >= 8 && offsetBytes.length % 4 === 0, "SSS.MKF message offsets are malformed");
+  const messageOffsets = [];
+  for (let offset = 0; offset < offsetBytes.length; offset += 4) {
+    messageOffsets.push(readU32(offsetBytes, offset));
+  }
+
+  const corpus = new Set();
+  const words = [];
+  for (let offset = 0; offset < wordData.length; offset += 10) {
+    const raw = trimTrailing(wordData.subarray(offset, Math.min(offset + 10, wordData.length)), new Set([0x20, 0]));
+    const text = decodeCp950(raw, `WORD.DAT entry ${offset / 10}`);
+    addCorpusText(corpus, text);
+    words.push(encodeUtf16Le(text));
+  }
+  const messages = [];
+  for (let index = 0; index + 1 < messageOffsets.length; index += 1) {
+    const start = messageOffsets[index];
+    const end = messageOffsets[index + 1];
+    requireCondition(start <= end && end <= messageData.length, `bad M.MSG range ${start}..${end}`);
+    const text = decodeCp950(messageData.subarray(start, end), `M.MSG entry ${index}`);
+    addCorpusText(corpus, text);
+    messages.push(encodeUtf16Le(text));
+  }
+  for (const label of Object.values(FONT10_UI_LABELS)) {
+    addCorpusText(corpus, label);
+  }
+
+  requireCondition(words.length <= 0xffff && messages.length <= 0xffff, "text table count exceeds uint16");
+  const wordTableOffset = TEXT_HEADER_BYTES;
+  const messageTableOffset = wordTableOffset + (words.length + 1) * 4;
+  const textOffset = messageTableOffset + (messages.length + 1) * 4;
+  const textBytes = [...words, ...messages].reduce((total, item) => total + item.length, 0);
+  const output = new Uint8Array(textOffset + textBytes);
+  writeU32(output, 0, TEXT_MAGIC);
+  writeU16(output, 4, TEXT_VERSION);
+  writeU16(output, 6, TEXT_HEADER_BYTES);
+  writeU16(output, 8, words.length);
+  writeU16(output, 10, messages.length);
+  writeU32(output, 12, wordTableOffset);
+  writeU32(output, 16, messageTableOffset);
+  writeU32(output, 20, textOffset);
+  writeU32(output, 24, textBytes);
+  let cursor = 0;
+  for (let index = 0; index < words.length; index += 1) {
+    writeU32(output, wordTableOffset + index * 4, cursor);
+    output.set(words[index], textOffset + cursor);
+    cursor += words[index].length;
+  }
+  writeU32(output, wordTableOffset + words.length * 4, cursor);
+  for (let index = 0; index < messages.length; index += 1) {
+    writeU32(output, messageTableOffset + index * 4, cursor);
+    output.set(messages[index], textOffset + cursor);
+    cursor += messages[index].length;
+  }
+  writeU32(output, messageTableOffset + messages.length * 4, cursor);
+  requireCondition(cursor === textBytes, "text pack size accounting failed");
+  return { payload: output, corpus };
+}
+
+async function encodeLegacyFontPack(source) {
+  const [ascData, fonData] = await Promise.all([
+    source.read("WOR16.ASC"),
+    source.read("WOR16.FON"),
+  ]);
+  const asc = trimTrailing(ascData, new Set([0xff]));
+  requireCondition(asc.length % 2 === 0, "WOR16.ASC has odd byte count");
+  requireCondition(fonData.length >= FONT_GLYPH_SOURCE_OFFSET, "WOR16.FON is too short");
+  const characters = Array.from(decodeCp950(asc, "WOR16.ASC"));
+  const sourceCount = Math.min(
+    characters.length,
+    Math.floor((fonData.length - FONT_GLYPH_SOURCE_OFFSET) / FONT_GLYPH_SOURCE_BYTES),
+  );
+  const glyphs = new Map();
+  for (let index = 0; index < sourceCount; index += 1) {
+    const codepoint = characters[index].codePointAt(0);
+    if (codepoint > 0xffff || glyphs.has(codepoint)) {
+      continue;
+    }
+    const start = FONT_GLYPH_SOURCE_OFFSET + index * FONT_GLYPH_SOURCE_BYTES;
+    glyphs.set(codepoint, fonData.subarray(start, start + FONT_GLYPH_SOURCE_BYTES));
+  }
+  const codepoints = Array.from(glyphs.keys()).sort((a, b) => a - b);
+  const codepointTableOffset = FONT_HEADER_BYTES;
+  const glyphDataOffset = align4(codepointTableOffset + codepoints.length * 2);
+  const glyphDataBytes = codepoints.length * FONT_GLYPH_BYTES;
+  const output = new Uint8Array(glyphDataOffset + glyphDataBytes);
+  writeU32(output, 0, FONT_MAGIC);
+  writeU16(output, 4, FONT_VERSION);
+  writeU16(output, 6, FONT_HEADER_BYTES);
+  writeU16(output, 8, codepoints.length);
+  writeU16(output, 10, FONT_GLYPH_BYTES);
+  writeU32(output, 12, codepointTableOffset);
+  writeU32(output, 16, glyphDataOffset);
+  writeU32(output, 20, glyphDataBytes);
+  writeU32(output, 24, sourceCount);
+  codepoints.forEach((codepoint, index) => {
+    writeU16(output, codepointTableOffset + index * 2, codepoint);
+    output.set(glyphs.get(codepoint), glyphDataOffset + index * FONT_GLYPH_BYTES);
+  });
+  return output;
+}
+
+function encodeSfxPayload(pcmInput, sourceRate) {
+  const pcm = bytesView(pcmInput);
+  requireCondition(sourceRate > 0, `bad VOC source rate ${sourceRate}`);
+  if (pcm.length === 0) {
+    return new Uint8Array();
+  }
+  const outputSamples = Math.floor((pcm.length * SFX_TARGET_RATE + Math.floor(sourceRate / 2)) / sourceRate);
+  requireCondition(
+    outputSamples <= SFX_MAX_SAMPLES,
+    `VOC needs ${outputSamples} samples at ${SFX_TARGET_RATE} Hz, exceeds ${SFX_MAX_SAMPLES}`,
+  );
+  const output = new Uint8Array(outputSamples);
+  if (sourceRate <= SFX_TARGET_RATE) {
+    for (let sampleIndex = 0; sampleIndex < outputSamples; sampleIndex += 1) {
+      const position = sampleIndex * sourceRate;
+      const sourceIndex = Math.floor(position / SFX_TARGET_RATE);
+      const fraction = position % SFX_TARGET_RATE;
+      const sample = sourceIndex >= pcm.length - 1
+        ? pcm[pcm.length - 1]
+        : Math.floor((
+          pcm[sourceIndex] * (SFX_TARGET_RATE - fraction)
+          + pcm[sourceIndex + 1] * fraction
+          + Math.floor(SFX_TARGET_RATE / 2)
+        ) / SFX_TARGET_RATE);
+      output[sampleIndex] = (sample - 128) & 0xff;
+    }
+  } else {
+    for (let sampleIndex = 0; sampleIndex < outputSamples; sampleIndex += 1) {
+      const start = sampleIndex * sourceRate;
+      const end = start + sourceRate;
+      const first = Math.floor(start / SFX_TARGET_RATE);
+      const last = Math.floor((end + SFX_TARGET_RATE - 1) / SFX_TARGET_RATE);
+      let weighted = 0;
+      for (let sourceIndex = first; sourceIndex < last; sourceIndex += 1) {
+        const cellStart = sourceIndex * SFX_TARGET_RATE;
+        const cellEnd = cellStart + SFX_TARGET_RATE;
+        const weight = Math.min(end, cellEnd) - Math.max(start, cellStart);
+        if (weight > 0) {
+          weighted += pcm[Math.min(sourceIndex, pcm.length - 1)] * weight;
+        }
+      }
+      const sample = Math.floor((weighted + Math.floor(sourceRate / 2)) / sourceRate);
+      output[sampleIndex] = (sample - 128) & 0xff;
+    }
+  }
+  return output;
+}
+
+function encodeVocSfx(input) {
+  const bytes = bytesView(input);
+  if (bytes.length === 0) {
+    return new Uint8Array();
+  }
+  const signature = "Creative Voice File\x1a";
+  requireCondition(bytes.length >= 26, "short VOC chunk");
+  for (let index = 0; index < signature.length; index += 1) {
+    requireCondition(bytes[index] === signature.charCodeAt(index), "not a VOC chunk");
+  }
+  const dataOffset = readU16(bytes, 20);
+  requireCondition(dataOffset < bytes.length, "bad VOC data offset");
+  let cursor = dataOffset;
+  while (cursor < bytes.length && bytes[cursor] !== 0) {
+    requireCondition(cursor + 4 <= bytes.length, "short VOC block");
+    const blockType = bytes[cursor];
+    const blockBytes = bytes[cursor + 1] | (bytes[cursor + 2] << 8) | (bytes[cursor + 3] << 16);
+    const blockStart = cursor + 4;
+    const blockEnd = blockStart + blockBytes;
+    requireCondition(blockEnd <= bytes.length, "VOC block out of range");
+    if (blockType === 1) {
+      requireCondition(blockBytes >= 2, "short VOC sound block");
+      const timeConstant = bytes[blockStart];
+      const codec = bytes[blockStart + 1];
+      requireCondition(codec === 0, `unsupported VOC codec ${codec}`);
+      const baseRate = Math.floor(1_000_000 / (256 - timeConstant));
+      const sourceRate = Math.floor((baseRate + 99) / 100) * 100;
+      return encodeSfxPayload(bytes.subarray(blockStart + 2, blockEnd), sourceRate);
+    }
+    cursor = blockEnd;
+  }
+  return new Uint8Array();
+}
+
+async function loadStandardArchive(source, name) {
+  const rawChunks = readMkf(await source.read(`${name}.MKF`), `${name}.MKF`);
+  if (name === "RNG") {
+    return rawChunks.map((chunk) => ({ payload: decodeRngMovie(chunk), format: FORMAT_RNG_FRAMES }));
+  }
+  return rawChunks.map((chunk) => ({ payload: decodeIfNeeded(chunk), format: FORMAT_NATIVE }));
+}
+
+async function loadSfxArchive(source) {
+  return readMkf(await source.read("VOC.MKF"), "VOC.MKF").map((chunk) => ({
+    payload: encodeVocSfx(chunk),
+    format: FORMAT_SFX_PCM8,
+  }));
+}
+
+function buildPackImage(archives) {
+  const names = Object.keys(archives).sort((a, b) => ARCHIVE_IDS[a] - ARCHIVE_IDS[b]);
+  const archiveTableOffset = PACK_HEADER_BYTES;
+  const chunkTableOffset = archiveTableOffset + names.length * ARCHIVE_ENTRY_BYTES;
+  const chunkTableBytes = names.reduce(
+    (total, name) => total + archives[name].length * CHUNK_ENTRY_BYTES,
+    0,
+  );
+  const dataOffset = align4(chunkTableOffset + chunkTableBytes);
+  let totalBytes = dataOffset;
+  for (const name of names) {
+    for (const chunk of archives[name]) {
+      totalBytes = align4(totalBytes);
+      totalBytes += chunk.payload.length;
+    }
+  }
+  const output = new Uint8Array(totalBytes);
+  writeU32(output, 0, PACK_MAGIC);
+  writeU16(output, 4, PACK_VERSION);
+  writeU16(output, 6, PACK_HEADER_BYTES);
+  writeU16(output, 8, names.length);
+  writeU16(output, 10, 0);
+  writeU32(output, 12, archiveTableOffset);
+  writeU32(output, 16, dataOffset);
+  writeU32(output, PACK_SET_ID_OFFSET, 0);
+  writeU32(output, 24, totalBytes);
+  writeU32(output, PACK_CRC32_OFFSET, 0);
+
+  let chunkEntry = chunkTableOffset;
+  let payloadOffset = dataOffset;
+  names.forEach((name, archiveIndex) => {
+    const chunks = archives[name];
+    const archiveEntry = archiveTableOffset + archiveIndex * ARCHIVE_ENTRY_BYTES;
+    writeU16(output, archiveEntry, ARCHIVE_IDS[name]);
+    writeU16(output, archiveEntry + 2, chunks.length);
+    writeU32(output, archiveEntry + 4, chunkEntry);
+    writeU32(output, archiveEntry + 8, 0);
+    for (const chunk of chunks) {
+      payloadOffset = align4(payloadOffset);
+      writeU32(output, chunkEntry, payloadOffset);
+      writeU32(output, chunkEntry + 4, chunk.payload.length);
+      writeU16(output, chunkEntry + 8, chunk.format);
+      writeU16(output, chunkEntry + 10, 0);
+      writeU32(output, chunkEntry + 12, 0);
+      output.set(chunk.payload, payloadOffset);
+      payloadOffset += chunk.payload.length;
+      chunkEntry += CHUNK_ENTRY_BYTES;
+    }
+  });
+  requireCondition(payloadOffset === totalBytes, "pack size accounting failed");
+  return output;
+}
+
+function finishDerivedPack(archives, packSetId) {
+  requireCondition(Number.isInteger(packSetId) && packSetId > 0, "invalid pack-set ID");
+  const output = buildPackImage(archives);
+  writeU32(output, PACK_SET_ID_OFFSET, packSetId);
+  writeU32(output, PACK_CRC32_OFFSET, crc32(output));
+  return output;
+}
+
+async function finishPortablePack(archives) {
+  const output = buildPackImage(archives);
+  const identityPrefix = utf8("sdlpal-portable-pack-set-v1\0");
+  const identity = concatBytes([identityPrefix, output]);
+  const digest = await sha256Bytes(identity);
+  let packSetId = dataView(digest).getUint32(0, true);
+  if (packSetId === 0) {
+    packSetId = 1;
+  }
+  writeU32(output, PACK_SET_ID_OFFSET, packSetId);
+  writeU32(output, PACK_CRC32_OFFSET, crc32(output));
+  return { pack: output, packSetId };
+}
+
+export async function buildXiaomiaoFullPack({
+  source,
+  font10Archive,
+  inflateRaw,
+  onProgress = async () => {},
+}) {
+  requireCondition(source && typeof source.read === "function", "PAL directory source is invalid");
+  const missing = REQUIRED_PAL_FILES.filter(
+    (name) => typeof source.has === "function" && !source.has(name),
+  );
+  requireCondition(missing.length === 0, `PAL directory is missing: ${missing.join(", ")}`);
+
+  const archives = {};
+  let textCorpus = null;
+  await onProgress("input", 0, FULL_ARCHIVE_NAMES.length, "输入文件检查通过");
+  for (let archiveIndex = 0; archiveIndex < FULL_ARCHIVE_NAMES.length; archiveIndex += 1) {
+    const name = FULL_ARCHIVE_NAMES[archiveIndex];
+    await onProgress("archive", archiveIndex, FULL_ARCHIVE_NAMES.length, `转换 ${name}`);
+    if (name === "TEXT") {
+      const encoded = await encodeTextPack(source);
+      textCorpus = encoded.corpus;
+      archives.TEXT = [{ payload: encoded.payload, format: FORMAT_TEXT_UTF16 }];
+    } else if (name === "FONT") {
+      requireCondition(textCorpus, "TEXT must be built before FONT");
+      const [legacyFont, font10] = await Promise.all([
+        encodeLegacyFontPack(source),
+        loadFont10Archive(font10Archive, textCorpus, inflateRaw),
+      ]);
+      archives.FONT = [
+        { payload: legacyFont, format: FORMAT_FONT_GLYPHS },
+        { payload: font10, format: FORMAT_FONT10 },
+      ];
+      await onProgress(
+        "font",
+        archiveIndex,
+        FULL_ARCHIVE_NAMES.length,
+        `FONT10 precise subset：${readU32(font10, 12)} glyphs，${font10.length} bytes`,
+      );
+    } else if (name === "SFX") {
+      archives.SFX = await loadSfxArchive(source);
+    } else {
+      archives[name] = await loadStandardArchive(source, name);
+    }
+  }
+  await onProgress("pack", FULL_ARCHIVE_NAMES.length, FULL_ARCHIVE_NAMES.length, "生成 pal_full.pak");
+  const result = await finishPortablePack(archives);
+  const packSha256 = await sha256Hex(result.pack);
+  await onProgress("done", FULL_ARCHIVE_NAMES.length, FULL_ARCHIVE_NAMES.length, "资源包生成完成");
+  return { ...result, packSha256, archives };
+}
+
+function sparseArchive(sourceChunks, selectedIds, label) {
+  requireCondition(Array.isArray(sourceChunks), `${label} source archive is missing`);
+  requireCondition(Array.isArray(selectedIds), `${label} selection is not an array`);
+  const selected = new Set();
+  for (const chunkId of selectedIds) {
+    requireCondition(
+      Number.isInteger(chunkId) && chunkId >= 0 && chunkId < sourceChunks.length,
+      `${label} selects out-of-range chunk ${chunkId}`,
+    );
+    requireCondition(!selected.has(chunkId), `${label} selects duplicate chunk ${chunkId}`);
+    selected.add(chunkId);
+  }
+  return sourceChunks.map((chunk, chunkId) => ({
+    payload: selected.has(chunkId) ? chunk.payload : new Uint8Array(),
+    format: chunk.format,
+  }));
+}
+
+function validateCardputerPlan(plan) {
+  requireCondition(plan?.schema === "sdlpal-web-cardputer-plan", "bad Cardputer plan schema");
+  requireCondition(plan.version === 2, "bad Cardputer plan version");
+  requireCondition(
+    Array.isArray(plan.scene_bundles) && plan.scene_bundles.length === 15,
+    "Cardputer plan must have 15 scene bundles",
+  );
+  requireCondition(
+    Array.isArray(plan.core_full_archives) && Array.isArray(plan.core_mgo_ids),
+    "Cardputer plan has no core policy",
+  );
+}
+
+function startsWithAscii(input, text) {
+  const bytes = bytesView(input);
+  if (bytes.length < text.length) {
+    return false;
+  }
+  for (let index = 0; index < text.length; index += 1) {
+    if (bytes[index] !== text.charCodeAt(index)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function requireDosYj1Archive(name, chunks) {
+  let present = 0;
+  for (let chunkId = 0; chunkId < chunks.length; chunkId += 1) {
+    const chunk = chunks[chunkId];
+    if (chunk.length === 0) {
+      continue;
+    }
+    present += 1;
+    requireCondition(
+      startsWithAscii(chunk, "YJ_1"),
+      `${name}.MKF#${chunkId} 不是 DOS 版 YJ1 数据`,
+    );
+    decodeYj1(chunk);
+  }
+  requireCondition(present > 0, `${name}.MKF 没有有效数据块`);
+}
+
+export async function validatePalDosStructure({
+  source,
+  plan,
+  onProgress = async () => {},
+}) {
+  validateCardputerPlan(plan);
+  requireCondition(source && typeof source.read === "function", "PAL directory source is invalid");
+  const missing = REQUIRED_PAL_FILES.filter(
+    (name) => typeof source.has === "function" && !source.has(name),
+  );
+  requireCondition(missing.length === 0, `缺少 PAL DOS 文件：${missing.join(", ")}`);
+
+  const mkfNames = REQUIRED_PAL_FILES.filter((name) => name.endsWith(".MKF"));
+  const rawArchives = {};
+  for (let index = 0; index < mkfNames.length; index += 1) {
+    const filename = mkfNames[index];
+    const name = filename.slice(0, -4);
+    const chunks = readMkf(await source.read(filename), filename);
+    requireCondition(chunks.length > 0, `${filename} 没有数据块`);
+    rawArchives[name] = chunks;
+    await onProgress("dos-structure", index + 1, REQUIRED_PAL_FILES.length, `检查 ${filename}`);
+  }
+
+  for (const name of DOS_YJ1_ARCHIVES) {
+    requireDosYj1Archive(name, rawArchives[name]);
+  }
+  requireCondition(
+    rawArchives.GOP.length === rawArchives.MAP.length,
+    "GOP.MKF 与 MAP.MKF 的地图数量不一致",
+  );
+  rawArchives.RNG.forEach((chunk, chunkId) => {
+    try {
+      decodeRngMovie(chunk);
+    } catch (error) {
+      throw new Error(`RNG.MKF#${chunkId} 结构无效`, { cause: error });
+    }
+  });
+  rawArchives.VOC.forEach((chunk, chunkId) => {
+    try {
+      encodeVocSfx(chunk);
+    } catch (error) {
+      throw new Error(`VOC.MKF#${chunkId} 不是 DOS VOC 数据`, { cause: error });
+    }
+  });
+  rawArchives.MIDI.forEach((chunk, chunkId) => {
+    requireCondition(
+      chunk.length === 0 || startsWithAscii(chunk, "MThd"),
+      `MIDI.MKF#${chunkId} 不是标准 MIDI 数据`,
+    );
+  });
+  rawArchives.MUS.forEach((chunk, chunkId) => {
+    requireCondition(
+      chunk.length === 0 || (chunk.length >= 2 && chunk[0] === 0xaa && chunk[1] === 0x55),
+      `MUS.MKF#${chunkId} 不是 DOS RIX 数据`,
+    );
+  });
+
+  const tableArchives = {
+    DATA: rawArchives.DATA.map((payload) => ({ payload: decodeIfNeeded(payload), format: FORMAT_NATIVE })),
+    SSS: rawArchives.SSS.map((payload) => ({ payload: decodeIfNeeded(payload), format: FORMAT_NATIVE })),
+  };
+  const archiveCounts = Object.fromEntries(
+    CARDPUTER_OVERLAY_ARCHIVES.map((name) => [name, rawArchives[name].length]),
+  );
+  deriveCardputerBundleSelections(tableArchives, archiveCounts, plan);
+
+  await encodeTextPack(source);
+  await onProgress("dos-structure", 18, REQUIRED_PAL_FILES.length, "检查 WORD.DAT / M.MSG");
+  await encodeLegacyFontPack(source);
+  await onProgress("dos-structure", 20, REQUIRED_PAL_FILES.length, "检查 WOR16.ASC / WOR16.FON");
+  requireCondition(
+    rawArchives.SSS.length >= 5 && rawArchives.DATA.length >= 4,
+    "DATA/SSS 缺少 DOS 游戏表",
+  );
+}
+
+function setsEqual(left, right) {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function parseGameTables(archives) {
+  const sss = archives.SSS;
+  const data = archives.DATA;
+  requireCondition(sss?.length >= 5 && data?.length >= 4, "DATA/SSS archive is missing required chunks");
+  const events = bytesView(sss[0].payload);
+  const sourceScenes = bytesView(sss[1].payload);
+  const objects = bytesView(sss[2].payload);
+  const scriptData = bytesView(sss[4].payload);
+  const enemyTeams = bytesView(data[2].payload);
+  const playerRoles = bytesView(data[3].payload);
+  for (const [label, blob, recordBytes] of [
+    ["SSS event objects", events, 32],
+    ["SSS scenes", sourceScenes, 8],
+    ["SSS objects", objects, 12],
+    ["SSS scripts", scriptData, 8],
+    ["DATA enemy teams", enemyTeams, 10],
+  ]) {
+    requireCondition(blob.length > 0 && blob.length % recordBytes === 0, `${label} has invalid record alignment`);
+  }
+  requireCondition(playerRoles.length >= 36, "short DATA player-role chunk");
+  requireCondition(events.length / 32 <= 5500, "SSS event table exceeds the fixed Cardputer capacity");
+
+  const sourceSceneCount = sourceScenes.length / 8;
+  let scenes = sourceScenes;
+  if (sourceSceneCount === PAL_DOS_SOURCE_SCENES) {
+    const lastBoundary = readU16(sourceScenes, (sourceSceneCount - 1) * 8 + 6);
+    requireCondition(lastBoundary === events.length / 32, "DOS scene sentinel does not match the event table");
+    scenes = new Uint8Array(CARDPUTER_CATALOG_SCENES * 8);
+    scenes.set(sourceScenes);
+    for (let sceneRow = sourceSceneCount; sceneRow < CARDPUTER_CATALOG_SCENES; sceneRow += 1) {
+      writeU16(scenes, sceneRow * 8 + 6, lastBoundary);
+    }
+  }
+  requireCondition(
+    scenes.length / 8 === CARDPUTER_CATALOG_SCENES,
+    `unsupported DOS scene table with ${sourceSceneCount} rows`,
+  );
+
+  const scripts = [];
+  for (let offset = 0; offset < scriptData.length; offset += 8) {
+    scripts.push([
+      readU16(scriptData, offset),
+      readU16(scriptData, offset + 2),
+      readU16(scriptData, offset + 4),
+      readU16(scriptData, offset + 6),
+    ]);
+  }
+  const playerSceneSprites = new Set();
+  for (let role = 0; role < 6; role += 1) {
+    const spriteId = readU16(playerRoles, 24 + role * 2);
+    requireCondition(spriteId !== 0 && spriteId !== 0xffff, "invalid player scene-sprite number");
+    playerSceneSprites.add(spriteId);
+  }
+  return {
+    events,
+    scenes,
+    objects,
+    scripts,
+    enemyTeams,
+    playerSceneSprites,
+    sourceSceneCount,
+    eventCount: events.length / 32,
+    sceneCount: scenes.length / 8,
+    objectCount: objects.length / 12,
+    enemyTeamCount: enemyTeams.length / 10,
+  };
+}
+
+function traceScripts(entries, roots, eventLimit) {
+  const queue = Array.from(roots);
+  const seen = new Set();
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const entryId = queue[cursor];
+    if (seen.has(entryId) || !Number.isInteger(entryId) || entryId <= 0 || entryId >= entries.length) {
+      continue;
+    }
+    seen.add(entryId);
+    const [operation, operand0, operand1, operand2] = entries[entryId];
+    const operands = [operand0, operand1, operand2];
+    if (operation === 0) {
+      continue;
+    }
+    if (operation === 1) {
+      queue.push(entryId + 1);
+      continue;
+    }
+    if (operation === 2 || operation === 3) {
+      queue.push(operand0);
+      if (operand1) {
+        queue.push(entryId + 1);
+      }
+    } else {
+      queue.push(entryId + 1);
+    }
+    if (operation === 4) {
+      queue.push(operand0);
+    } else if (operation === 6) {
+      queue.push(operand1);
+    } else if (operation === 7) {
+      queue.push(operand1, operand2);
+    } else if (operation === 0x000a) {
+      queue.push(operand0);
+    } else if (SCRIPT_BRANCH_OPERAND.has(operation)) {
+      queue.push(operands[SCRIPT_BRANCH_OPERAND.get(operation)]);
+    } else if (operation === 0x00a2) {
+      const end = Math.min(entries.length, entryId + Math.max(1, operand0) + 1);
+      for (let target = entryId + 1; target < end; target += 1) {
+        queue.push(target);
+      }
+    }
+    if ((operation === 0x0024 || operation === 0x0025)
+      && operand1 && (operand0 === 0xffff || (operand0 >= 1 && operand0 <= eventLimit))) {
+      queue.push(operand1);
+    } else if (operation === 0x006d) {
+      if (operand1) queue.push(operand1);
+      if (operand2) queue.push(operand2);
+    } else if (operation === 0x0090 && operand1) {
+      queue.push(operand1);
+    }
+  }
+  return seen;
+}
+
+function objectWords(tables, objectId) {
+  requireCondition(
+    Number.isInteger(objectId) && objectId >= 0 && objectId < tables.objectCount,
+    `enemy object ${objectId} is outside SSS object count ${tables.objectCount}`,
+  );
+  const offset = objectId * 12;
+  return Array.from({ length: 6 }, (_unused, index) => readU16(tables.objects, offset + index * 2));
+}
+
+function resolveBattleClosure(tables, initialRoots) {
+  let roots = new Set(initialRoots);
+  let previousScripts = new Set();
+  let enemyObjects = new Set();
+  let dynamicEnemyObjects = new Set();
+  let teamIds = new Set();
+  while (true) {
+    const scripts = traceScripts(tables.scripts, roots, tables.eventCount);
+    const nextTeamIds = new Set();
+    for (const index of scripts) {
+      if (tables.scripts[index][0] === 7) {
+        nextTeamIds.add(tables.scripts[index][1]);
+      }
+    }
+    for (const teamId of nextTeamIds) {
+      requireCondition(teamId < tables.enemyTeamCount, `script references invalid enemy team ${teamId}`);
+    }
+    const nextEnemyObjects = new Set(enemyObjects);
+    for (const teamId of nextTeamIds) {
+      for (let member = 0; member < 5; member += 1) {
+        const objectId = readU16(tables.enemyTeams, teamId * 10 + member * 2);
+        if (objectId !== 0 && objectId !== 0xffff) {
+          nextEnemyObjects.add(objectId);
+        }
+      }
+    }
+    const nextDynamic = new Set(dynamicEnemyObjects);
+    for (const index of scripts) {
+      const [operation, operand0] = tables.scripts[index];
+      if ((operation === 0x009e || operation === 0x009f)
+        && operand0 !== 0 && operand0 !== 0xffff) {
+        nextEnemyObjects.add(operand0);
+        nextDynamic.add(operand0);
+      }
+    }
+    const nextRoots = new Set(roots);
+    for (const objectId of nextEnemyObjects) {
+      for (const scriptId of objectWords(tables, objectId).slice(2, 5)) {
+        if (scriptId) {
+          nextRoots.add(scriptId);
+        }
+      }
+    }
+    if (setsEqual(scripts, previousScripts) && setsEqual(nextTeamIds, teamIds)
+      && setsEqual(nextEnemyObjects, enemyObjects)
+      && setsEqual(nextDynamic, dynamicEnemyObjects) && setsEqual(nextRoots, roots)) {
+      return { roots, scripts, teamIds, enemyObjects, dynamicEnemyObjects };
+    }
+    previousScripts = scripts;
+    teamIds = nextTeamIds;
+    enemyObjects = nextEnemyObjects;
+    dynamicEnemyObjects = nextDynamic;
+    roots = nextRoots;
+  }
+}
+
+function sceneIdsForBundle(bundle) {
+  const ids = [];
+  for (const [first, last] of bundle.scene_ranges) {
+    for (let sceneId = first; sceneId <= last; sceneId += 1) {
+      ids.push(sceneId);
+    }
+  }
+  return ids;
+}
+
+function sceneInitialClosure(tables, sceneIds) {
+  const roots = new Set();
+  const mapIds = new Set();
+  const eventMgoIds = new Set();
+  for (const sceneId of sceneIds) {
+    requireCondition(sceneId >= 1 && sceneId < tables.sceneCount, `invalid scene ${sceneId}`);
+    const sceneOffset = (sceneId - 1) * 8;
+    const mapId = readU16(tables.scenes, sceneOffset);
+    const onEnter = readU16(tables.scenes, sceneOffset + 2);
+    const onTeleport = readU16(tables.scenes, sceneOffset + 4);
+    const eventStart = readU16(tables.scenes, sceneOffset + 6);
+    const eventEnd = readU16(tables.scenes, sceneOffset + 14);
+    requireCondition(
+      eventStart <= eventEnd && eventEnd <= tables.eventCount,
+      `scene ${sceneId} has invalid event span ${eventStart}..${eventEnd}`,
+    );
+    mapIds.add(mapId);
+    if (onEnter) roots.add(onEnter);
+    if (onTeleport) roots.add(onTeleport);
+    for (let eventIndex = eventStart; eventIndex < eventEnd; eventIndex += 1) {
+      const eventOffset = eventIndex * 32;
+      const trigger = readU16(tables.events, eventOffset + 8);
+      const automatic = readU16(tables.events, eventOffset + 10);
+      const spriteId = readU16(tables.events, eventOffset + 16);
+      if (trigger) roots.add(trigger);
+      if (automatic) roots.add(automatic);
+      if (spriteId) eventMgoIds.add(spriteId);
+    }
+  }
+  return { roots, mapIds, eventMgoIds };
+}
+
+function incomingSceneScripts(tables, sceneIds) {
+  const scenes = new Set(sceneIds);
+  const roots = new Set();
+  const entryIds = new Set();
+  tables.scripts.forEach(([operation, targetScene, onEnter, onTeleport], entryId) => {
+    if (operation !== 0x006d || !scenes.has(targetScene)) {
+      return;
+    }
+    if (onEnter) roots.add(onEnter);
+    if (onTeleport) roots.add(onTeleport);
+    entryIds.add(entryId);
+  });
+  return { roots, entryIds };
+}
+
+function validateSelectedIds(name, ids, count) {
+  for (const chunkId of ids) {
+    requireCondition(
+      Number.isInteger(chunkId) && chunkId >= 0 && chunkId < count,
+      `${name} references chunk ${chunkId}, but the archive has ${count} chunks`,
+    );
+  }
+}
+
+function deriveCardputerBundleSelections(archives, archiveCounts, plan) {
+  validateCardputerPlan(plan);
+  makeCardputerSceneTable(plan);
+  const tables = parseGameTables(archives);
+  const coreMgo = new Set(plan.core_mgo_ids);
+  validateSelectedIds("core/MGO", coreMgo, archiveCounts.MGO);
+  const bundles = plan.scene_bundles.map((sceneBundle, bundleId) => {
+    const sceneIds = sceneIdsForBundle(sceneBundle);
+    const initial = sceneInitialClosure(tables, sceneIds);
+    const incoming = incomingSceneScripts(tables, sceneIds);
+    for (const root of incoming.roots) initial.roots.add(root);
+    const battle = resolveBattleClosure(tables, initial.roots);
+    const mapIds = new Set(initial.mapIds);
+    const scriptedMgo = new Set();
+    const endingMgo = new Set();
+    for (const index of battle.scripts) {
+      const [operation, operand0, operand1] = tables.scripts[index];
+      if ((operation === 0x0065 || operation === 0x00a5)
+        && operand1 !== 0 && operand1 !== 0xffff) {
+        scriptedMgo.add(operand1);
+      } else if (operation === 0x0099 && operand1 !== 0 && operand1 !== 0xffff) {
+        mapIds.add(operand1);
+      } else if (operation === 0x0096) {
+        CARDPUTER_ENDING_MGO.forEach((id) => endingMgo.add(id));
+      }
+      void operand0;
+    }
+    const abcIds = new Set();
+    for (const objectId of battle.enemyObjects) {
+      abcIds.add(objectWords(tables, objectId)[0]);
+    }
+    const mgoIds = new Set([
+      ...initial.eventMgoIds,
+      ...tables.playerSceneSprites,
+      ...scriptedMgo,
+      ...endingMgo,
+    ]);
+    coreMgo.forEach((id) => mgoIds.delete(id));
+    const fbpIds = endingMgo.size ? new Set(CARDPUTER_ENDING_FBP) : new Set();
+    validateSelectedIds("ABC", abcIds, archiveCounts.ABC);
+    validateSelectedIds("FBP", fbpIds, archiveCounts.FBP);
+    validateSelectedIds("GOP", mapIds, archiveCounts.GOP);
+    validateSelectedIds("MAP", mapIds, archiveCounts.MAP);
+    validateSelectedIds("MGO", mgoIds, archiveCounts.MGO);
+    return {
+      id: bundleId,
+      incomingEntryIds: incoming.entryIds,
+      selection: {
+        ABC: Array.from(abcIds).sort((a, b) => a - b),
+        FBP: Array.from(fbpIds).sort((a, b) => a - b),
+        GOP: Array.from(mapIds).sort((a, b) => a - b),
+        MAP: Array.from(mapIds).sort((a, b) => a - b),
+        MGO: Array.from(mgoIds).sort((a, b) => a - b),
+      },
+    };
+  });
+  const source006d = new Set();
+  tables.scripts.forEach(([operation, targetScene], entryId) => {
+    if (operation === 0x006d && targetScene >= 1 && targetScene <= 299) {
+      source006d.add(entryId);
+    }
+  });
+  const assigned006d = new Set();
+  bundles.forEach((bundle) => bundle.incomingEntryIds.forEach((id) => assigned006d.add(id)));
+  requireCondition(
+    setsEqual(source006d, assigned006d),
+    "opcode 006d target-bundle assignment is incomplete",
+  );
+  return { tables, bundles, source006dCount: source006d.size };
+}
+
+function makeCardputerSceneTable(plan) {
+  const table = new Uint8Array(CARDPUTER_CATALOG_SCENES);
+  table.fill(0xff);
+  plan.scene_bundles.forEach((bundle, bundleId) => {
+    requireCondition(bundle.bundle_id === bundleId, `bad scene bundle ID ${bundle.bundle_id}`);
+    requireCondition(Array.isArray(bundle.scene_ranges), `bundle ${bundleId} has no scene ranges`);
+    let sceneCount = 0;
+    for (const range of bundle.scene_ranges) {
+      requireCondition(
+        Array.isArray(range) && range.length === 2
+          && Number.isInteger(range[0]) && Number.isInteger(range[1])
+          && range[0] >= 1 && range[0] <= range[1]
+          && range[1] < CARDPUTER_CATALOG_SCENES,
+        `bundle ${bundleId} has an invalid scene range`,
+      );
+      for (let sceneId = range[0]; sceneId <= range[1]; sceneId += 1) {
+        requireCondition(table[sceneId] === 0xff, `scene ${sceneId} is assigned twice`);
+        table[sceneId] = bundleId;
+        sceneCount += 1;
+      }
+    }
+    requireCondition(sceneCount === bundle.scene_count, `bundle ${bundleId} scene count mismatch`);
+  });
+  for (let sceneId = 1; sceneId < CARDPUTER_CATALOG_SCENES; sceneId += 1) {
+    requireCondition(table[sceneId] !== 0xff, `scene ${sceneId} is not assigned`);
+  }
+  return table;
+}
+
+function bytesFromHex(hex) {
+  requireCondition(typeof hex === "string" && /^[0-9a-f]{64}$/.test(hex), "bad SHA-256 hex");
+  return Uint8Array.from(hex.match(/../g), (pair) => Number.parseInt(pair, 16));
+}
+
+function buildCardputerCatalog(plan, packSetId, bundlePacks, bundleSha256) {
+  const sceneTable = makeCardputerSceneTable(plan);
+  const descriptorOffset = CARDPUTER_CATALOG_HEADER_BYTES + sceneTable.length;
+  const totalBytes = descriptorOffset
+    + bundlePacks.length * CARDPUTER_BUNDLE_DESCRIPTOR_BYTES;
+  const catalog = new Uint8Array(totalBytes);
+  catalog.set(utf8("PLBC"), 0);
+  writeU16(catalog, 4, 1);
+  writeU16(catalog, 6, CARDPUTER_CATALOG_HEADER_BYTES);
+  writeU32(catalog, 8, packSetId);
+  writeU16(catalog, 12, CARDPUTER_CATALOG_SCENES);
+  writeU16(catalog, 14, bundlePacks.length);
+  writeU32(catalog, 16, CARDPUTER_CATALOG_HEADER_BYTES);
+  writeU32(catalog, 20, descriptorOffset);
+  writeU32(catalog, 24, totalBytes);
+  writeU32(catalog, 28, 0);
+  catalog.set(sceneTable, CARDPUTER_CATALOG_HEADER_BYTES);
+  bundlePacks.forEach((bundle, bundleId) => {
+    const offset = descriptorOffset + bundleId * CARDPUTER_BUNDLE_DESCRIPTOR_BYTES;
+    catalog[offset] = bundleId;
+    writeU32(catalog, offset + 4, bundle.length);
+    catalog.set(bytesFromHex(bundleSha256[bundleId]), offset + 8);
+  });
+  writeU32(catalog, 28, crc32(catalog));
+  return catalog;
+}
+
+function buildCardputerSetFile(packSetId, corePack, coreSha256, catalog) {
+  const output = new Uint8Array(CARDPUTER_SET_HEADER_BYTES + catalog.length);
+  output.set(utf8("PLST"), 0);
+  writeU16(output, 4, 1);
+  writeU16(output, 6, CARDPUTER_SET_HEADER_BYTES);
+  writeU32(output, 8, output.length);
+  writeU32(output, 12, packSetId);
+  writeU32(output, 16, corePack.length);
+  writeU32(output, 20, CARDPUTER_SET_HEADER_BYTES);
+  writeU32(output, 24, catalog.length);
+  writeU32(output, 28, 0);
+  output.set(bytesFromHex(coreSha256), 32);
+  output.set(catalog, CARDPUTER_SET_HEADER_BYTES);
+  writeU32(output, 28, crc32(output));
+  return output;
+}
+
+function packSummary(filename, pack, sha256) {
+  return {
+    filename,
+    size: pack.length,
+    sha256,
+    crc32: readU32(pack, PACK_CRC32_OFFSET),
+    pack_set_id: readU32(pack, PACK_SET_ID_OFFSET),
+    toc_bytes: readU32(pack, 16),
+  };
+}
+
+async function buildBrowserChapterManifest({
+  plan,
+  packSetId,
+  bundleSelections,
+  archives,
+  fullPack,
+  fullSha256,
+  corePack,
+  coreSha256,
+  bundlePacks,
+  bundleSha256,
+  catalog,
+  setFile,
+  setSha256,
+}) {
+  const fullToc = fullPack.subarray(0, readU32(fullPack, 16));
+  const font10 = archives.FONT[1].payload;
+  const font10Sha256 = await sha256Hex(font10);
+  const catalogSha256 = await sha256Hex(catalog);
+  const fullTocSha256 = await sha256Hex(fullToc);
+  let advanceMin = 0xff;
+  let advanceMax = 0;
+  for (let offset = FONT10_HEADER_BYTES; offset < font10.length; offset += FONT10_RECORD_BYTES) {
+    advanceMin = Math.min(advanceMin, font10[offset + 2]);
+    advanceMax = Math.max(advanceMax, font10[offset + 2]);
+  }
+  const eventBytes = archives.SSS[0].payload.length;
+  requireCondition(
+    eventBytes > 0 && eventBytes % 32 === 0 && eventBytes / 32 <= 5500,
+    "SSS event table does not fit the Cardputer event profile",
+  );
+  const bundles = bundleSelections.map((bundle, bundleId) => ({
+    id: bundleId,
+    filename: `b${bundleId.toString().padStart(2, "0")}.pak`,
+    scene_count: plan.scene_bundles[bundleId].scene_count,
+    scene_ranges: plan.scene_bundles[bundleId].scene_ranges,
+    size: bundlePacks[bundleId].length,
+    sha256: bundleSha256[bundleId],
+    soft_cap_bytes: CARDPUTER_OVERLAY_SOFT_BYTES,
+    within_soft_cap: bundlePacks[bundleId].length <= CARDPUTER_OVERLAY_SOFT_BYTES,
+    over_soft_cap_bytes: Math.max(0, bundlePacks[bundleId].length - CARDPUTER_OVERLAY_SOFT_BYTES),
+    selection: Object.fromEntries(
+      CARDPUTER_OVERLAY_ARCHIVES.map((name) => [name, { chunk_ids: bundle.selection[name] }]),
+    ),
+  }));
+  const manifest = {
+    schema: "sdlpal-embedded-chapter-pack-manifest",
+    version: 2,
+    builder: {
+      kind: "browser",
+      plan_schema: plan.schema,
+      plan_version: plan.version,
+      selection: "runtime-derived-from-DATA/SSS",
+    },
+    data_dir: "browser-selected PAL DOS directory",
+    runtime: {
+      heap_required: false,
+      runtime_decompression_required: false,
+      payloads_are_runtime_native: true,
+      tf_access_shape: "NOR-mapped full-pack TOC with direct bounded payload reads",
+      overlay_shape: "one replaceable SPI-NOR bundle",
+      data_identity_file: "PALSET.BIN",
+      core_tf_file: "pal_core.pak",
+      portable_complete_tf_file: "pal_full.pak",
+      level2_resident_source: "runtime-derived from pal_full.pak",
+      tf_directory_contract: "one complete pack plus Cardputer NOR cache sources",
+      firmware_embeds_data_hashes: false,
+    },
+    pack_set: {
+      id: packSetId,
+      id_hex: `0x${packSetId.toString(16).padStart(8, "0")}`,
+      scope: "portable-complete-data",
+      cache_layout_affects_id: false,
+    },
+    scene_partition: {
+      catalog_scene_table_entries: CARDPUTER_CATALOG_SCENES,
+      catalog_scene_zero_is_reserved: true,
+      catalog_mapped_scene_first: 1,
+      catalog_mapped_scene_last: 299,
+      policy: "fixed-route-aware-noncontiguous-bundles",
+      bundles: plan.scene_bundles,
+    },
+    event_state: {
+      status: "standard-rpg-only-persistence",
+      record_bytes: 32,
+      record_count: eventBytes / 32,
+      record_capacity: 5500,
+      core_chunk_bytes: eventBytes,
+      level1_runtime: "three-page LRU over session-only EVENT.WRK",
+      level1_work_writes: "initialization and dirty eviction only",
+      level2_runtime: "complete resident PSRAM array",
+      durable_state: "standard N.rpg save slots only",
+    },
+    catalog: {
+      archive: "CACHE",
+      archive_id: ARCHIVE_IDS.CACHE,
+      chunk_id: 0,
+      format: "RAW",
+      size: catalog.length,
+      sha256: catalogSha256,
+      crc32: readU32(catalog, 28),
+      magic: "PLBC",
+      header_size: CARDPUTER_CATALOG_HEADER_BYTES,
+      scene_table_offset: CARDPUTER_CATALOG_HEADER_BYTES,
+      bundle_table_offset: CARDPUTER_CATALOG_HEADER_BYTES + CARDPUTER_CATALOG_SCENES,
+      bundle_descriptor_size: CARDPUTER_BUNDLE_DESCRIPTOR_BYTES,
+      bundle_filename_pattern: "b%02u.pak",
+      scene_zero_bundle: 0xff,
+    },
+    full_toc_cache: {
+      archive: "CACHE",
+      archive_id: ARCHIVE_IDS.CACHE,
+      chunk_id: 1,
+      format: "RAW",
+      size: fullToc.length,
+      sha256: fullTocSha256,
+      source: "pal_full.pak[0:data_offset]",
+      cardputer_storage: "pal_core.pak mapped from SPI NOR",
+      cardputer_sram_copy_bytes: 0,
+    },
+    set_file: {
+      filename: "PALSET.BIN",
+      magic: "PLST",
+      version: 1,
+      header_size: CARDPUTER_SET_HEADER_BYTES,
+      size: setFile.length,
+      sha256: setSha256,
+      crc32: readU32(setFile, 28),
+      core_size: corePack.length,
+      core_sha256: coreSha256,
+      catalog_offset: CARDPUTER_SET_HEADER_BYTES,
+      catalog_size: catalog.length,
+    },
+    packs: {
+      core: packSummary("pal_core.pak", corePack, coreSha256),
+      full: {
+        ...packSummary("pal_full.pak", fullPack, fullSha256),
+        portable_complete: true,
+        all_chunks: true,
+        allow_cache_overlap: true,
+      },
+      bundles,
+    },
+    overlay_soft_cap: {
+      bytes: CARDPUTER_OVERLAY_SOFT_BYTES,
+      hex: `0x${CARDPUTER_OVERLAY_SOFT_BYTES.toString(16)}`,
+      hard_pack_bytes: CARDPUTER_OVERLAY_HARD_BYTES,
+      hard_pack_hex: `0x${CARDPUTER_OVERLAY_HARD_BYTES.toString(16)}`,
+      largest_bundle_bytes: Math.max(...bundlePacks.map((pack) => pack.length)),
+      over_cap_bundle_ids: bundles.filter((bundle) => !bundle.within_soft_cap).map((bundle) => bundle.id),
+      semantics: "strict whole-pack limit; no source chunk is dropped",
+    },
+    core_slot: {
+      bytes: CARDPUTER_CORE_SLOT_BYTES,
+      hex: `0x${CARDPUTER_CORE_SLOT_BYTES.toString(16)}`,
+      pack_bytes: corePack.length,
+      remaining_bytes: CARDPUTER_CORE_SLOT_BYTES - corePack.length,
+    },
+    font10: {
+      schema: "sdlpal-embedded-font10-web",
+      version: 1,
+      provenance: "browser-validated-subset-archive",
+      archive: {
+        filename: FONT10_ARCHIVE_FILENAME,
+        bytes: FONT10_ARCHIVE_BYTES,
+        sha256: FONT10_ARCHIVE_SHA256,
+      },
+      pack_chunk: {
+        archive: "FONT",
+        chunk_id: 1,
+        format: "FONT10",
+        format_id: FORMAT_FONT10,
+      },
+      font10: {
+        bytes: font10.length,
+        sha256: font10Sha256,
+        glyph_count: readU32(font10, 12),
+        payload_crc32: readU32(font10, 24),
+        metrics: {
+          cell_width: FONT10_CELL_WIDTH,
+          cell_height: FONT10_CELL_HEIGHT,
+          ascent: font10[20],
+          descent: font10[21],
+          line_height: font10[20] + font10[21],
+          record_bytes: FONT10_RECORD_BYTES,
+          bitmap_bytes: 13,
+          advance_min: advanceMin,
+          advance_max: advanceMax,
+        },
+      },
+    },
+  };
+  return utf8(`${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+export async function buildCardputerPackSet({
+  archives,
+  fullPack,
+  fullPackSha256,
+  packSetId,
+  plan,
+  onProgress = async () => {},
+}) {
+  validateCardputerPlan(plan);
+  requireCondition(Number.isInteger(packSetId) && packSetId > 0 && packSetId <= 0xffffffff,
+    "pal_full.pak has an invalid pack-set ID");
+  requireCondition(
+    readU32(fullPack, PACK_SET_ID_OFFSET) === packSetId,
+    "pal_full.pak pack-set ID does not match the generated archives",
+  );
+  requireCondition(
+    await sha256Hex(fullPack) === fullPackSha256,
+    "pal_full.pak SHA-256 does not match the generated output",
+  );
+
+  const archiveCounts = Object.fromEntries(
+    CARDPUTER_OVERLAY_ARCHIVES.map((name) => [name, archives[name]?.length ?? 0]),
+  );
+  const derived = deriveCardputerBundleSelections(archives, archiveCounts, plan);
+  const bundleSelections = derived.bundles;
+
+  const bundlePacks = [];
+  const bundleSha256 = [];
+  for (let bundleId = 0; bundleId < bundleSelections.length; bundleId += 1) {
+    const bundle = bundleSelections[bundleId];
+    requireCondition(bundle.id === bundleId, `bad Cardputer bundle ID ${bundle.id}`);
+    const selectedNames = Object.keys(bundle.selection).sort();
+    requireCondition(
+      selectedNames.join(",") === [...CARDPUTER_OVERLAY_ARCHIVES].sort().join(","),
+      `bundle ${bundleId} archive selection is incomplete`,
+    );
+    const overlay = Object.fromEntries(CARDPUTER_OVERLAY_ARCHIVES.map((name) => [
+      name,
+      sparseArchive(archives[name], bundle.selection[name], `bundle ${bundleId}/${name}`),
+    ]));
+    const image = finishDerivedPack(overlay, packSetId);
+    requireCondition(
+      image.length <= CARDPUTER_OVERLAY_HARD_BYTES,
+      `bundle ${bundleId} exceeds its NOR cache payload`,
+    );
+    const filename = `b${bundleId.toString().padStart(2, "0")}.pak`;
+    const digest = await sha256Hex(image);
+    bundlePacks.push(image);
+    bundleSha256.push(digest);
+    await onProgress(
+      "cardputer-bundle",
+      bundleId + 1,
+      bundleSelections.length,
+      `生成 ${filename}`,
+    );
+  }
+
+  const catalog = buildCardputerCatalog(plan, packSetId, bundlePacks, bundleSha256);
+  const coreArchives = Object.fromEntries(
+    plan.core_full_archives.map((name) => [name, archives[name]]),
+  );
+  coreArchives.FONT = sparseArchive(archives.FONT, [1], "core/FONT");
+  coreArchives.MGO = sparseArchive(archives.MGO, plan.core_mgo_ids, "core/MGO");
+  coreArchives.CACHE = [
+    { payload: catalog, format: FORMAT_RAW },
+    { payload: fullPack.subarray(0, readU32(fullPack, 16)), format: FORMAT_RAW },
+  ];
+  const corePack = finishDerivedPack(coreArchives, packSetId);
+  requireCondition(corePack.length <= CARDPUTER_CORE_SLOT_BYTES, "pal_core.pak exceeds its NOR slot");
+  const coreSha256 = await sha256Hex(corePack);
+  const setFile = buildCardputerSetFile(packSetId, corePack, coreSha256, catalog);
+  const setSha256 = await sha256Hex(setFile);
+  const manifest = await buildBrowserChapterManifest({
+    plan,
+    packSetId,
+    bundleSelections,
+    archives,
+    fullPack,
+    fullSha256: fullPackSha256,
+    corePack,
+    coreSha256,
+    bundlePacks,
+    bundleSha256,
+    catalog,
+    setFile,
+    setSha256,
+  });
+  const files = [
+    { name: "PALSET.BIN", data: setFile },
+    { name: "chapter_manifest.json", data: manifest },
+    { name: "pal_core.pak", data: corePack },
+    { name: "pal_full.pak", data: fullPack },
+    ...bundlePacks.map((data, bundleId) => ({
+      name: `b${bundleId.toString().padStart(2, "0")}.pak`,
+      data,
+    })),
+  ];
+  return { files, corePack, bundlePacks, setFile, catalog, manifest };
+}
+
+export async function makeDeflatedZipEntries(
+  entries,
+  deflateRaw,
+  onProgress = async () => {},
+) {
+  requireCondition(Array.isArray(entries) && entries.length > 0, "ZIP has no entries");
+  requireCondition(entries.length <= 0xffff, "ZIP64 entry counts are not supported");
+  requireCondition(typeof deflateRaw === "function", "raw DEFLATE encoder is unavailable");
+  const seen = new Set();
+  const localParts = [];
+  const centralParts = [];
+  let localOffset = 0;
+  let centralBytes = 0;
+  for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
+    const entry = entries[entryIndex];
+    requireCondition(entry && typeof entry.name === "string", "ZIP entry has no filename");
+    requireCondition(!seen.has(entry.name), `duplicate ZIP entry ${entry.name}`);
+    seen.add(entry.name);
+    const payload = bytesView(entry.data);
+    const name = utf8(entry.name);
+    requireCondition(name.length > 0 && name.length <= 0xffff, "ZIP filename is invalid");
+    requireCondition(payload.length <= 0xffffffff, "ZIP64 is not supported");
+    const compressed = bytesView(await deflateRaw(payload));
+    requireCondition(compressed.length <= 0xffffffff, "compressed ZIP member is too large");
+    const payloadCrc = crc32(payload);
+
+    const local = new Uint8Array(30);
+    writeU32(local, 0, 0x04034b50);
+    writeU16(local, 4, 20);
+    writeU16(local, 6, 0x0800);
+    writeU16(local, 8, 8);
+    writeU16(local, 10, 0);
+    writeU16(local, 12, 0x0021);
+    writeU32(local, 14, payloadCrc);
+    writeU32(local, 18, compressed.length);
+    writeU32(local, 22, payload.length);
+    writeU16(local, 26, name.length);
+    writeU16(local, 28, 0);
+
+    const central = new Uint8Array(46);
+    writeU32(central, 0, 0x02014b50);
+    writeU16(central, 4, 20);
+    writeU16(central, 6, 20);
+    writeU16(central, 8, 0x0800);
+    writeU16(central, 10, 8);
+    writeU16(central, 12, 0);
+    writeU16(central, 14, 0x0021);
+    writeU32(central, 16, payloadCrc);
+    writeU32(central, 20, compressed.length);
+    writeU32(central, 24, payload.length);
+    writeU16(central, 28, name.length);
+    writeU16(central, 30, 0);
+    writeU16(central, 32, 0);
+    writeU16(central, 34, 0);
+    writeU16(central, 36, 0);
+    writeU32(central, 38, 0);
+    writeU32(central, 42, localOffset);
+
+    localParts.push(local, name, compressed);
+    centralParts.push(central, name);
+    localOffset += local.length + name.length + compressed.length;
+    centralBytes += central.length + name.length;
+    requireCondition(localOffset <= 0xffffffff, "ZIP64 offsets are not supported");
+    await onProgress("zip", entryIndex + 1, entries.length, `压缩 ${entry.name}`);
+  }
+
+  requireCondition(centralBytes <= 0xffffffff, "ZIP64 central directories are not supported");
+  const end = new Uint8Array(22);
+  writeU32(end, 0, 0x06054b50);
+  writeU16(end, 4, 0);
+  writeU16(end, 6, 0);
+  writeU16(end, 8, entries.length);
+  writeU16(end, 10, entries.length);
+  writeU32(end, 12, centralBytes);
+  writeU32(end, 16, localOffset);
+  writeU16(end, 20, 0);
+  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+}
+
+export async function makeDeflatedZip(filename, input, deflateRaw) {
+  return makeDeflatedZipEntries([{ name: filename, data: input }], deflateRaw);
+}
+
+const CARDPUTER_PLAN = {"core_full_archives":["DATA","SSS","TEXT","PAT","MUS","BALL","RGM","F","FIRE"],"core_mgo_ids":[2,3,5,7,26,71,73,193,208,228,232,236,242,245,259,273,361,379,385,394,511,521,525,531,532,533,534,538,541,550,563,576,607,627,630,631,632],"scene_bundles":[{"bundle_id":0,"scene_count":20,"scene_ranges":[[1,20]]},{"bundle_id":1,"scene_count":18,"scene_ranges":[[21,38]]},{"bundle_id":2,"scene_count":20,"scene_ranges":[[39,47],[101,104],[106,107],[109,113]]},{"bundle_id":3,"scene_count":15,"scene_ranges":[[48,58],[77,78],[80,80],[121,121]]},{"bundle_id":4,"scene_count":18,"scene_ranges":[[59,76]]},{"bundle_id":5,"scene_count":21,"scene_ranges":[[79,79],[81,99],[105,105]]},{"bundle_id":6,"scene_count":25,"scene_ranges":[[100,100],[108,108],[114,120],[122,137]]},{"bundle_id":7,"scene_count":18,"scene_ranges":[[138,143],[215,226]]},{"bundle_id":8,"scene_count":23,"scene_ranges":[[150,151],[155,155],[157,164],[172,174],[176,177],[193,199]]},{"bundle_id":9,"scene_count":17,"scene_ranges":[[144,149],[152,154],[156,156],[165,171]]},{"bundle_id":10,"scene_count":16,"scene_ranges":[[175,175],[178,192]]},{"bundle_id":11,"scene_count":27,"scene_ranges":[[200,200],[202,214],[259,260],[263,273]]},{"bundle_id":12,"scene_count":21,"scene_ranges":[[201,201],[227,246]]},{"bundle_id":13,"scene_count":17,"scene_ranges":[[247,258],[261,262],[274,276]]},{"bundle_id":14,"scene_count":23,"scene_ranges":[[277,299]]}],"schema":"sdlpal-web-cardputer-plan","version":2};
+const FONT10_URL = new URL(
+  `./${FONT10_ARCHIVE_FILENAME}`,
+  window.location.href,
+);
+
+class BrowserPalDirectory {
+  static async open(handle) {
+    const files = new Map();
+    for await (const [name, entry] of handle.entries()) {
+      if (entry.kind !== "file") {
+        continue;
+      }
+      const key = name.toUpperCase();
+      if (files.has(key)) {
+        throw new Error(`目录中存在忽略大小写后重名的文件：${name}`);
+      }
+      files.set(key, entry);
+    }
+    return new BrowserPalDirectory(handle.name, files);
+  }
+
+  constructor(name, files) {
+    this.name = name;
+    this.files = files;
+    this.cache = new Map();
+  }
+
+  has(name) {
+    return this.files.has(name.toUpperCase());
+  }
+
+  async read(name) {
+    const key = name.toUpperCase();
+    const handle = this.files.get(key);
+    if (!handle) {
+      throw new Error(`缺少游戏文件：${name}`);
+    }
+    if (!this.cache.has(key)) {
+      this.cache.set(key, handle.getFile().then(async (file) => (
+        new Uint8Array(await file.arrayBuffer())
+      )));
+    }
+    return this.cache.get(key);
+  }
+
+  releaseCache() {
+    this.cache.clear();
+  }
+}
+
+const chooseButton = document.querySelector("#choose-directory");
+const directoryName = document.querySelector("#directory-name");
+const progress = document.querySelector("#progress");
+const logOutput = document.querySelector("#log");
+const download = document.querySelector("#download");
+const installHint = document.querySelector("#install-hint");
+let source = null;
+let downloadUrl = null;
+let environmentReady = false;
+let busy = false;
+
+function timestamp() {
+  return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function log(message) {
+  logOutput.value += `[${timestamp()}] ${message}\n`;
+  logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function formatException(error) {
+  const parts = [];
+  const seen = new Set();
+  let current = error;
+  while (current != null && !seen.has(current)) {
+    seen.add(current);
+    if (parts.length) {
+      parts.push("Caused by:");
+    }
+    parts.push(current?.stack || current?.message || String(current));
+    current = current?.cause;
+  }
+  return parts.join("\n") || "未知异常";
+}
+
+function logException(label, error) {
+  logOutput.value += `[${timestamp()}] ${label}：\n${formatException(error)}\n`;
+  logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function formatBytes(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
+function resetDownload() {
+  download.hidden = true;
+  download.removeAttribute("href");
+  installHint.hidden = true;
+  if (downloadUrl) {
+    URL.revokeObjectURL(downloadUrl);
+    downloadUrl = null;
+  }
+}
+
+async function nextPaint() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function setStep(name, state, text) {
+  document.querySelector(`#step-${name}`).dataset.state = state;
+  document.querySelector(`#status-${name}`).textContent = text;
+}
+
+function showStep(name) {
+  document.querySelector(`#step-${name}`).hidden = false;
+}
+
+function updateChooseButton() {
+  chooseButton.disabled = !environmentReady || busy;
+}
+
+function setBusy(value) {
+  busy = value;
+  updateChooseButton();
+}
+
+function resetFollowingSteps() {
+  resetDownload();
+  for (const name of ["validation", "font", "build"]) {
+    document.querySelector(`#step-${name}`).hidden = true;
+  }
+  setStep("validation", "waiting", "等待上一步");
+  setStep("font", "waiting", "等待上一步");
+  setStep("build", "waiting", "等待上一步");
+  progress.max = 1;
+  progress.value = 0;
+}
+
+chooseButton.addEventListener("click", async () => {
+  setBusy(true);
+  let stage = "directory";
+  try {
+    const handle = await window.showDirectoryPicker({ id: "pal-dos", mode: "read" });
+    const selected = await BrowserPalDirectory.open(handle);
+    const missing = REQUIRED_PAL_FILES.filter((name) => !selected.has(name));
+    if (missing.length) {
+      throw new Error(`所选目录不是完整的 PAL DOS 目录，缺少：${missing.join(", ")}`);
+    }
+    source = selected;
+    directoryName.textContent = selected.name;
+    setStep("directory", "done", "已选择");
+    resetFollowingSteps();
+    log(`已选择目录：${selected.name}`);
+    log("已找到 20 个必需文件；开始自动处理");
+
+    stage = "validation";
+    showStep(stage);
+    setStep(stage, "active", "正在验证");
+    log("开始验证繁体中文 DOS 版数据结构");
+    await validatePalDosStructure({
+      source,
+      plan: CARDPUTER_PLAN,
+      onProgress: async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    });
+    setStep(stage, "done", "DOS 数据验证通过");
+    log("验证通过：数据符合本工具支持的 PAL DOS 结构");
+
+    stage = "font";
+    showStep(stage);
+    setStep(stage, "active", "正在下载");
+    progress.max = 1;
+    progress.value = 0;
+    log(`下载固定字体资源：${FONT10_URL.pathname}`);
+    const response = await fetch(FONT10_URL, { cache: "force-cache" });
+    if (!response.ok) {
+      throw new Error(`字体下载失败：HTTP ${response.status}`);
+    }
+    const candidate = new Uint8Array(await response.arrayBuffer());
+    await validateFont10Archive(candidate, browserInflateRaw);
+    progress.value = 1;
+    setStep(stage, "done", "字体验证通过");
+    log(`字体资源下载并验证完成：${candidate.length} bytes`);
+
+    stage = "build";
+    showStep(stage);
+    setStep(stage, "active", "正在生成");
+    progress.value = 0;
+    log("开始转换游戏资源");
+    const result = await buildXiaomiaoFullPack({
+      source,
+      font10Archive: candidate,
+      inflateRaw: browserInflateRaw,
+      onProgress: async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    });
+    log("正在生成 Cardputer ADV 的 NOR 缓存源与 15 个章节包");
+    const cardputer = await buildCardputerPackSet({
+      archives: result.archives,
+      fullPack: result.pack,
+      fullPackSha256: result.packSha256,
+      packSetId: result.packSetId,
+      plan: CARDPUTER_PLAN,
+      onProgress: async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    });
+    log("正在用 pako DEFLATE 压缩全部 19 个输出文件");
+    await nextPaint();
+    const zip = await makeDeflatedZipEntries(
+      cardputer.files,
+      browserDeflateRaw,
+      async (_phase, current, total, message) => {
+        progress.max = total;
+        progress.value = current;
+        log(message);
+        await nextPaint();
+      },
+    );
+    source.releaseCache();
+    downloadUrl = URL.createObjectURL(zip);
+    const id = result.packSetId.toString(16).padStart(8, "0");
+    download.href = downloadUrl;
+    download.download = `sdlpal-tf-resources-${id}.zip`;
+    download.textContent = `下载资源包（${formatBytes(zip.size)}）`;
+    download.hidden = false;
+    installHint.hidden = false;
+    setStep(stage, "done", "生成完成");
+    log(`pack-set ID：0x${id}`);
+    log(`pal_full.pak：${result.pack.length} bytes`);
+    log(`SHA-256：${result.packSha256}`);
+    log("ZIP 已生成：包含 PALSET.BIN、manifest、pal_core/full 和 b00-b14");
+    log("请将 TF 资源包解压到 SD 卡根目录。");
+    await nextPaint();
+    window.alert("资源包生成成功，请点击“下载资源包”。");
+  } catch (error) {
+    if (error?.name === "AbortError" && stage === "directory") {
+      log("已取消目录选择");
+      return;
+    }
+    if (stage === "directory") {
+      source = null;
+      resetFollowingSteps();
+      directoryName.textContent = "选择失败";
+      setStep(stage, "error", "选择失败");
+    } else if (stage === "validation") {
+      setStep(stage, "error", "验证失败");
+      log("验证失败：目录不是本工具支持的 PAL DOS 数据；Win95/98、柔情篇和结构异常的混合资源不会继续处理");
+    } else if (stage === "font") {
+      setStep(stage, "error", "下载或验证失败");
+    } else {
+      resetDownload();
+      setStep(stage, "error", "生成失败");
+    }
+    source?.releaseCache();
+    logException("详细错误", error);
+  } finally {
+    setBusy(false);
+  }
+});
+
+if (!("showDirectoryPicker" in window)) {
+  setStep("directory", "error", "浏览器不支持");
+  log("错误：浏览器不支持 openDirectory。请使用当前版 Chrome 或 Edge。");
+} else if (!window.isSecureContext) {
+  setStep("directory", "error", "需要安全上下文");
+  log("错误：openDirectory 需要 HTTPS 或 localhost 安全上下文。");
+} else if (!globalThis.crypto?.subtle) {
+  setStep("directory", "error", "缺少 SHA-256");
+  log("错误：浏览器不支持 Web Crypto SHA-256。");
+} else if (typeof globalThis.pako?.inflateRaw !== "function") {
+  setStep("directory", "error", "pako 加载失败");
+  log("错误：pako.inflateRaw 加载失败。");
+} else if (typeof globalThis.pako?.deflateRaw !== "function") {
+  setStep("directory", "error", "pako 加载失败");
+  log("错误：pako.deflateRaw 加载失败。");
+} else {
+  environmentReady = true;
+  log("就绪：请选择 PAL DOS 版安装目录");
+  log(`字体来源：${FONT10_URL.pathname}`);
+}
+updateChooseButton();
+  </script>
+</body>
+</html>

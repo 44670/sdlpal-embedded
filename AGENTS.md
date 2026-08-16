@@ -60,8 +60,10 @@ hardware, memory, storage, or bus assumptions.
   4KB RGB565 DMA strip. The legacy 320x200 space remains a gameplay/resource
   coordinate contract, not a target framebuffer. Their declarations are in
   `esp32s3/main/cardputer_extreme_memory.h`.
-- The default Cardputer ADV profile combines fixed-storage RIX/OPL2 music with
-  TF-managed core/chapter caches. MIDI, VOC, and SFX remain out.
+- The default Cardputer ADV profile combines fixed-storage RIX/OPL2 music,
+  one host-converted SFX voice, and TF-managed core/chapter caches. Music is
+  16.384kHz PCM16; SFX is 8.192kHz signed PCM8 duplicated twice into that
+  stream. Raw MIDI/VOC decoding remains out.
 - A generated catalog is broad resource coverage, not an unconditional
   full-game/story-route proof.
 
@@ -116,10 +118,14 @@ enforced default-profile limits live in
   `make -C esp32s3 tf-datapack`. The gate drives the SD-only provider through
   real 160x128 map and forced-battle gameplay captures under `tmp_ui/`; the
   forced battle proves integration, not natural story-route reachability.
-- RIX/OPL2 music renders as 22.05kHz mono PCM16. An 11-bit LEDC PWM channel
-  drives the built-in passive buzzer at GPIO14 while GPTimer updates its duty
-  once per sample from a fixed four-tick ring. MIDI, VOC, and SFX remain out.
-  Buzzer sound quality and timing require physical acceptance.
+- RIX/OPL2 music renders at a logical 16.384kHz as mono PCM16. One 40,960-byte internal-SRAM
+  owner holds up to five seconds of host-converted 8.192kHz signed PCM8 SFX;
+  every source sample is duplicated twice and saturating-mixed with music. An
+  11-bit LEDC PWM channel drives the built-in passive buzzer at GPIO14 while
+  GPTimer updates its duty once per sample from a fixed four-block ring. Their
+  physical periods share one quantized APB-clock rate so they do not drift. Raw
+  MIDI/VOC decoding remains out. Buzzer sound quality and timing require
+  physical acceptance.
 
 The classic Nintendo DS port is the sole non-PSRAM `MEM_LEVEL2` exception; `nds/README.md` owns its self-contained NitroFS ROM, native 256x192 libnds path, and DeSmuME SDL/WebSocket acceptance harness.
 

@@ -31,7 +31,7 @@ from pathlib import Path
 
 
 OPL_CLOCK = 3_579_545
-SAMPLE_RATE = 22_050
+SAMPLE_RATE = 16_384
 ENV_STEP = 128.0 / 1024.0
 TL_RES_LEN = 256
 TL_LEVELS = 12
@@ -141,7 +141,7 @@ def generate() -> str:
         "/*",
         " * Derived from MAME FMOPL v0.72 by Jarek Burczynski and",
         " * Tatsuyuki Satoh (GPL-2.0-or-later), as adapted by SDLPAL.",
-        " * YM3812 3579545 Hz -> 22050 Hz.",
+        f" * YM3812 3579545 Hz -> {SAMPLE_RATE} Hz.",
         " */",
         "#ifndef PAL_MAME_OPL2_FIXED_TABLES_INC",
         "#define PAL_MAME_OPL2_FIXED_TABLES_INC",

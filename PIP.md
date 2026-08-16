@@ -8,8 +8,8 @@
 命中该路径、`SDL_FillRect` 行填充、整数递增缩放、FBP/RLE 的半像素映射，
 以及 ESP32 indexed 到 RGB565 的 palette LUT。极小屏幕的显式 rect present
 已接入 Cardputer/Xiaomiao 的 LCD 窗口；palette 变化会强制整屏 present，避免
-旧 palette 残留。NDS 仍保留双页整屏 flip；RIX 已停止在 ARM9 逐样本合成，
-改由固定 PCM8 波表驱动 DS 硬件声道。
+旧 palette 残留。NDS 仍保留双页整屏 flip；RIX 由高于游戏线程一级的 ARM9
+worker 直接合成 16.384kHz PCM16，游戏线程只生成 70Hz OPL 寄存器流。
 
 ## 结论先行
 
@@ -125,11 +125,12 @@ DMA/SPI、VBlank、palette 更新、未变化帧各占多少时间。按目标�
 位置：`nds/source/nds_music.cpp`、`nds/source/nds_board.c`。
 
 修正 SDL disk-audio 的实时录音节奏后，硬件基本波形近似因音色失真被否决。
-现在由同优先级 Calico ARM9 线程直接运行 OPL2-only DBOPL：游戏线程只排队
-70Hz RIX 寄存器流，音频线程逐样本合成名义 32.768kHz PCM16。热代码和固定
-表位于 ITCM/DTCM，256-sample block 的实测最坏旋律路径仍低于 7.81ms 硬件
-期限。RIX rhythm 模式的六 operator 打击乐超出 67MHz 预算，因此在载入时
-整曲拒绝并保持静音；目标二进制不链接该打击乐路径。
+现在由比游戏主线程高一级优先级的 Calico ARM9 线程直接运行 OPL2-only DBOPL：游戏线程只排队
+70Hz RIX 寄存器流，音频线程直接合成 16.384kHz PCM16。热代码和固定表位于
+ITCM/DTCM，输出使用 256-sample block 和四块 PCM ring，音效读入后由 ring
+附加的输出延迟上限约 62.5ms。RIX rhythm 曲目保留六个旋律声道，
+但屏蔽超出 67MHz 预算的打击乐循环。主机将 VOC 转为 8.192kHz signed PCM8；
+单个五秒固定槽逐 sample 复制两次后，与 16.384kHz 音乐饱和混音。
 
 #### 7. 资源读取批量化
 

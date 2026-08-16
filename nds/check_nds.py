@@ -26,6 +26,12 @@ MGO_ARCHIVE_ID = 9
 MUS_ARCHIVE_ID = 11
 MAP_ARCHIVE_ID = 8
 SSS_ARCHIVE_ID = 15
+SFX_ARCHIVE_ID = 19
+SFX_FORMAT_PCM8 = 7
+SFX_SAMPLE_RATE = 8192
+SFX_BUFFER_SAMPLES = SFX_SAMPLE_RATE * 5
+NDS_AUDIO_BLOCK_SAMPLES = 256
+NDS_AUDIO_RING_BLOCKS = 4
 EXPECTED_OWNERS = {
     "pal_sram_framebuffer": 256 * 192,
     "pal_sram_aux_framebuffer": 256 * 192,
@@ -35,6 +41,8 @@ EXPECTED_OWNERS = {
     "pal_nds_minimap_tilemap": 128 * 128 * 2,
     "pal_nds_minimap_marker_tiles": 64,
     "pal_nds_minimap_obstacle_tile": 32,
+    "pal_nds_minimap_event_markers": 160 * 6,
+    "pal_nds_minimap_closure_blockers": 160 * 6,
     "pal_nds_save_verify": 256,
     "pal_mem_level2_scene_arena": 256 * 1024,
     "pal_mem_level2_player_arena": 128 * 1024,
@@ -47,8 +55,11 @@ EXPECTED_OWNERS = {
     "pal_nds_track": 10108,
     "pal_nds_opl_staging": 256 * 2,
     "pal_nds_opl_tick_queue": 32 * (4 + 256 * 2),
-    "pal_nds_audio_ring": 16 * 512 * 2,
+    "pal_nds_audio_ring": (
+        NDS_AUDIO_RING_BLOCKS * NDS_AUDIO_BLOCK_SAMPLES * 2
+    ),
     "pal_nds_audio_thread_stack": 6 * 1024,
+    "pal_sram_sfx_pcm8": SFX_BUFFER_SAMPLES,
     "pal_nds_opl_queue_overruns": 4,
     "pal_nds_opl_queue_underruns": 4,
     "pal_nds_audio_deadline_misses": 4,
@@ -59,8 +70,8 @@ EXPECTED_OWNERS = {
     "pal_nds_dbopl_render_calls": 4,
     "PalNdsDbOpl2Core::pal_nds_dbopl2_state": 2472,
     "PalNdsDbOpl2Core::pal_nds_dbopl2_reset_state": 2472,
-    "PalNdsDbOpl2Core::pal_nds_dbopl2_scratch": 128 * 4,
-    "PalNdsDbOpl2Core::EnvelopeBuffer": 2 * 128 * 2,
+    "PalNdsDbOpl2Core::pal_nds_dbopl2_scratch": 256 * 4,
+    "PalNdsDbOpl2Core::EnvelopeBuffer": 2 * 256 * 2,
     "PalNdsDbOpl2Core::WaveTable": 4 * 512 * 2,
     "PalNdsDbOpl2Core::MulTable": 384 * 2,
     "PalNdsDbOpl2Core::KslTable": 128,
@@ -100,7 +111,7 @@ MINIMAP_EVENT_MOVE_OPERATIONS = frozenset(
      0x0082, 0x0084, 0x0097)
 )
 PINNED_PAL_DOS_PACK_SHA256 = (
-    "9c01aec3be2f9a9404551c27ec1bb3c7d580c10accd4b3b8d254d05c9c4cfb71"
+    "09d4ebac1457804a9495f3b51159d67e67792d86d76bc3a54f9579b55f7f6c6c"
 )
 PINNED_PAL_DOS_MINIMAP_CLOSURES = (
     # scene, MAP, seed, cells, DWORD-zero, exits, structural blockers
@@ -108,7 +119,13 @@ PINNED_PAL_DOS_MINIMAP_CLOSURES = (
     (3, 10, (132, 114), 469, 0, 62, 2),
     # Yangzhou scene 82 otherwise leaks into the full unused MAP lattice.
     (82, 79, (86, 111), 2200, 0, 62, 3),
+    # The east bridge exit before Yangzhou has a touch-zone center beyond the
+    # reachable crop; event 1647 must retain a visible blocked boundary cell.
+    (83, 78, (100, 56), 1378, 0, 15, 0),
 )
+PINNED_PAL_DOS_MINIMAP_EXIT_BOUNDARIES = {
+    (83, 1647): (100, 54),
+}
 
 
 def run(*args: str) -> str:
@@ -394,9 +411,9 @@ def pack_identity(path: Path) -> tuple[int, int]:
     return struct.unpack_from("<I", header, 20)[0], declared
 
 
-def pack_chunk_sizes(
+def pack_chunk_infos(
     path: Path, archive_id: int, chunk_ids: tuple[int, ...] | None
-) -> dict[int, int]:
+) -> dict[int, tuple[int, int, int]]:
     file_size = path.stat().st_size
     with path.open("rb") as source:
         header = source.read(32)
@@ -421,22 +438,33 @@ def pack_chunk_sizes(
                 raise ValueError(
                     f"PAL pack archive {archive_id} chunk table is out of range"
                 )
-            sizes: dict[int, int] = {}
+            infos: dict[int, tuple[int, int, int]] = {}
             selected_ids = range(chunk_count) if chunk_ids is None else chunk_ids
             for chunk_id in selected_ids:
                 source.seek(chunk_table + chunk_id * PACK_CHUNK_ENTRY_SIZE)
                 chunk = source.read(PACK_CHUNK_ENTRY_SIZE)
                 if len(chunk) != PACK_CHUNK_ENTRY_SIZE:
                     raise ValueError("short PAL pack chunk entry")
-                offset, size = struct.unpack_from("<II", chunk)
+                offset, size, fmt, flags = struct.unpack_from("<IIHH", chunk)
                 if offset + size > file_size:
                     raise ValueError(
                         f"PAL pack archive {archive_id} chunk {chunk_id} "
                         "is out of range"
                     )
-                sizes[chunk_id] = size
-            return sizes
+                infos[chunk_id] = (size, fmt, flags)
+            return infos
     raise ValueError(f"PAL pack is missing archive {archive_id}")
+
+
+def pack_chunk_sizes(
+    path: Path, archive_id: int, chunk_ids: tuple[int, ...] | None
+) -> dict[int, int]:
+    return {
+        chunk_id: info[0]
+        for chunk_id, info in pack_chunk_infos(
+            path, archive_id, chunk_ids
+        ).items()
+    }
 
 
 def pack_chunk_payload(path: Path, archive_id: int, chunk_id: int) -> bytes:
@@ -498,7 +526,13 @@ def check_rhythm_playback_policy() -> list[str]:
     music = (nds_dir / "source" / "nds_music.cpp").read_text(
         encoding="utf-8"
     )
+    stream = (nds_dir / "source" / "nds_audio_stream.c").read_text(
+        encoding="utf-8"
+    )
     dbopl = (nds_dir / "source" / "nds_dbopl2.itcm.cpp").read_text(
+        encoding="utf-8"
+    )
+    memory = (nds_dir / "include" / "pal_target_memory.h").read_text(
         encoding="utf-8"
     )
     errors: list[str] = []
@@ -511,6 +545,33 @@ def check_rhythm_playback_policy() -> list[str]:
         errors.append(
             "NDS DBOPL must keep the measured over-budget percussion loop "
             "disabled"
+        )
+    if "PAL_NDS_AUDIO_THREAD_PRIO = MAIN_THREAD_PRIO - 1u" not in stream:
+        errors.append(
+            "Calico does not time-slice peer threads; the bounded audio "
+            "worker must remain one priority level above main"
+        )
+    if "#define PAL_NDS_AUDIO_TICK_SAMPLES 256u" not in memory or \
+            "#define PAL_NDS_AUDIO_RING_TICKS 4u" not in memory:
+        errors.append(
+            "NDS PCM transport must remain a four-block, 256-frame ring"
+        )
+    reuse_check = music.find(
+        "if (pal_nds_sfx.last_loaded_sound_id =="
+    )
+    storage_read = music.find(
+        "PalEngineBridge_ReadSfxPcm8(", reuse_check
+    )
+    if (
+        "int32_t last_loaded_sound_id;" not in music
+        or "pal_nds_sfx.last_loaded_sound_id = -1;" not in music
+        or reuse_check < 0
+        or storage_read < 0
+        or reuse_check > storage_read
+    ):
+        errors.append(
+            "NDS SFX must initialize last_loaded_sound_id to -1 and reuse "
+            "the current slot before issuing another storage read"
         )
     return errors
 
@@ -594,6 +655,42 @@ def minimap_auto_script_moves_event(
         if len(pending) > MINIMAP_SCRIPT_GRAPH_LIMIT:
             return True
     return False
+
+
+def minimap_touch_exit_boundary(
+    selected: set[tuple[int, int]], event: tuple[int, ...]
+) -> tuple[int, int] | None:
+    """Choose the blocked trigger-zone cell that borders the floor plan."""
+    center_column, center_row = minimap_world_to_cell(event[1], event[2])
+    maximum_steps = event[7] - 4
+    for steps in range(maximum_steps + 1):
+        for row_offset in range(-steps, steps + 1):
+            column_offset = steps - abs(row_offset)
+            candidates = [(center_column + column_offset, center_row + row_offset)]
+            if column_offset:
+                candidates.append(
+                    (center_column - column_offset, center_row + row_offset)
+                )
+            for candidate in candidates:
+                column, row = candidate
+                if not (
+                    0 <= column < MINIMAP_LOGICAL_COLUMNS
+                    and 0 <= row < MINIMAP_LOGICAL_ROWS
+                ):
+                    continue
+                if candidate in selected:
+                    continue
+                if any(
+                    neighbor in selected
+                    for neighbor in (
+                        (column - 1, row),
+                        (column + 1, row),
+                        (column, row - 1),
+                        (column, row + 1),
+                    )
+                ):
+                    return candidate
+    return None
 
 
 def minimap_pattern_key_space() -> int:
@@ -791,6 +888,26 @@ def pack_minimap_forced_exit_closure(
         raise ValueError(
             f"scene {scene_number} minimap selected a closure-blocked cell"
         )
+    for (fixture_scene, event_id), expected in (
+        PINNED_PAL_DOS_MINIMAP_EXIT_BOUNDARIES.items()
+    ):
+        if fixture_scene != scene_number:
+            continue
+        if not first < event_id <= end:
+            raise ValueError(
+                f"scene {scene_number} does not contain exit event {event_id}"
+            )
+        event = events[event_id - 1]
+        if event not in portals:
+            raise ValueError(
+                f"scene {scene_number} event {event_id} is not an active exit"
+            )
+        boundary = minimap_touch_exit_boundary(selected, event)
+        if boundary != expected:
+            raise ValueError(
+                f"scene {scene_number} event {event_id} exit boundary is "
+                f"{boundary}, expected {expected}"
+            )
     return (
         map_number,
         len(selected),
@@ -931,6 +1048,9 @@ def main() -> int:
         "NdsTargetSave_SetRetailReady",
         "PalTargetSave_ReadSlot",
         "PalTargetSave_WriteSlot",
+        "PalEngineBridge_ReadSfxPcm8",
+        "AUDIO_PlaySound",
+        "AUDIO_EnableSound",
     ):
         if required not in symbols:
             errors.append(f"missing dual-storage symbol: {required}")
@@ -968,6 +1088,15 @@ def main() -> int:
                 f"{name} is at {owner[0]:#010x}, outside ARM9 DTCM"
             )
 
+    sfx_owner = symbols.get("pal_sram_sfx_pcm8")
+    if sfx_owner is not None and not (
+        0x02000000 <= sfx_owner[0]
+        and sfx_owner[0] + sfx_owner[1] <= MAIN_RAM_LIMIT
+    ):
+        errors.append(
+            "the five-second SFX owner is not placed in ARM9 main SRAM"
+        )
+
     dtcm_bss_end = symbols.get("__dtcm_bss_end")
     if dtcm_bss_end is None:
         errors.append("missing __dtcm_bss_end")
@@ -999,6 +1128,24 @@ def main() -> int:
         args.pack, MGO_ARCHIVE_ID, (71, 73, 571, 572, 635)
     )
     mus_sizes = pack_chunk_sizes(args.pack, MUS_ARCHIVE_ID, None)
+    sfx_infos = pack_chunk_infos(args.pack, SFX_ARCHIVE_ID, None)
+    nonempty_sfx_sizes = [
+        size for size, _fmt, _flags in sfx_infos.values() if size != 0
+    ]
+    malformed_sfx = [
+        (chunk_id, size, fmt, flags)
+        for chunk_id, (size, fmt, flags) in sfx_infos.items()
+        if fmt != SFX_FORMAT_PCM8 or flags != 0 or size > SFX_BUFFER_SAMPLES
+    ]
+    if not nonempty_sfx_sizes:
+        errors.append("complete SFX archive contains no audible effects")
+    if malformed_sfx:
+        errors.append(
+            "SFX chunks must be bounded raw signed PCM8 at 8.192 kHz: "
+            f"{malformed_sfx[:8]}"
+        )
+    maximum_sfx_samples = max(nonempty_sfx_sizes, default=0)
+    total_sfx_samples = sum(nonempty_sfx_sizes)
     rhythm_tracks = pack_rhythm_tracks(args.pack, len(mus_sizes))
     if not rhythm_tracks:
         errors.append(
@@ -1048,11 +1195,21 @@ def main() -> int:
     if maximum_scene_events > MINIMAP_SCENE_EVENT_CAPACITY:
         errors.append(
             f"scene {maximum_scene_event_scene} contains "
-            f"{maximum_scene_events} event objects, exceeds stationary "
-            f"classifier capacity {MINIMAP_SCENE_EVENT_CAPACITY}"
+            f"{maximum_scene_events} event objects, exceeds minimap event "
+            f"descriptor capacity {MINIMAP_SCENE_EVENT_CAPACITY}"
         )
     pinned_minimap_closures: list[str] = []
     if source_hash == PINNED_PAL_DOS_PACK_SHA256:
+        if (
+            len(sfx_infos) != 276
+            or len(nonempty_sfx_sizes) != 211
+            or total_sfx_samples != 1714461
+            or maximum_sfx_samples != 39219
+        ):
+            errors.append(
+                "pinned PAL_DOS SFX profile differs from the audited "
+                "8.192 kHz PCM8 archive"
+            )
         for (
             scene_number,
             expected_map,
@@ -1206,7 +1363,7 @@ def main() -> int:
     print(
         f"  max_minimap_scene_events={maximum_scene_events} "
         f"(scene {maximum_scene_event_scene}), "
-        f"stationary_capacity={MINIMAP_SCENE_EVENT_CAPACITY}"
+        f"event_descriptor_capacity={MINIMAP_SCENE_EVENT_CAPACITY}"
     )
     if pinned_minimap_closures:
         print(
@@ -1216,6 +1373,12 @@ def main() -> int:
     print(
         f"  max_opl_writes_per_tick={maximum_writes} "
         f"(track {maximum_write_track}), capacity={MAX_OPL_WRITES_PER_TICK}"
+    )
+    print(
+        f"  audio=16384Hz PCM16, SFX={SFX_SAMPLE_RATE}Hz signed PCM8 x2, "
+        f"ring={NDS_AUDIO_RING_BLOCKS}x{NDS_AUDIO_BLOCK_SAMPLES}, "
+        f"one_slot={SFX_BUFFER_SAMPLES} bytes, max={maximum_sfx_samples}, "
+        f"nonempty={len(nonempty_sfx_sizes)}"
     )
     rhythm_melodic_min = min(
         (rix_profiles[track][1] for track in rhythm_tracks

@@ -9,14 +9,9 @@
 extern "C" {
 #endif
 
-/*
- * PAL's RIX sequencer advances at 70 Hz.  22050 / 70 is exactly 315, so each
- * callback is one complete sequencer tick without a fractional-rate
- * accumulator or resampler.
- */
-#define CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE 22050u
-#define CARDPUTER_EXTREME_AUDIO_TICK_HZ 70u
-#define CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES 315u
+/* Fixed PCM transport blocks are independent of the 70 Hz RIX sequencer. */
+#define CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE 16384u
+#define CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES 256u
 
 typedef void (*CardputerExtremeAudioRenderCallback)(
     void *user,

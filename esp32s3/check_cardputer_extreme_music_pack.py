@@ -173,7 +173,9 @@ def check_profile(
     for name in ("MIDI", "VOC", "SFX"):
         archive_id = common.ARCHIVE[name]
         if archive_id in nor or archive_id in tf:
-            errors.append(f"{name} must remain excluded from the music-only profile")
+            errors.append(
+                f"{name} must remain excluded from the legacy sparse pack pair"
+            )
 
     mus_id = common.ARCHIVE["MUS"]
     mus = nor.get(mus_id, {})
@@ -338,8 +340,8 @@ def main() -> int:
             print(f"ERROR: {error}")
         return 1
     print(
-        "PASS: active music-only RIX profile; MIDI/VOC/SFX remain "
-        "excluded from the runtime NOR/pal_tf.pak pair"
+        "PASS: legacy sparse RIX pair; MIDI/VOC/SFX remain excluded from "
+        "NOR/pal_tf.pak (the separate complete mirror owns PCM8 SFX)"
     )
     return 0
 

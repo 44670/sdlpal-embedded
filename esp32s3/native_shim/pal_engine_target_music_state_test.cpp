@@ -25,6 +25,7 @@ TestProfileMode test_profile_mode = TestProfileMode::Valid;
 int32_t test_last_source_fault;
 uint32_t test_source_faults;
 uint32_t test_reserved_track_map_calls;
+uint32_t test_sfx_reads;
 
 const uint8_t test_rix[] = {
     0xaa, 0x55, 0x00, 0x00,
@@ -32,6 +33,7 @@ const uint8_t test_rix[] = {
     0x00, 0x00, 0x00, 0x00,
     0x0e, 0x00, 0x00, 0x80,
 };
+const uint8_t test_sfx[] = {0x01, 0xff, 0x7f, 0x80};
 
 void
 drain()
@@ -67,12 +69,13 @@ test_startup_profile_validation()
     assert(AUDIO_OpenDevice() == 0);
     assert(gAudioDevice.fOpened);
     assert(test_render_callback != nullptr);
+    assert(pal_sfx_runtime.last_loaded_sound_id == -1);
 }
 
 void
 test_muted_play_updates_and_freezes_control_fade()
 {
-    int16_t samples[kTickSamples];
+    int16_t samples[kBlockSamples];
     uint32_t ticks_before;
     uint32_t fade_phase_before;
     uint32_t fade_remaining_before;
@@ -115,8 +118,8 @@ test_muted_play_updates_and_freezes_control_fade()
     test_render_callback(
         test_render_user,
         samples,
-        kTickSamples);
-    assert_zero_samples(samples, kTickSamples);
+        kBlockSamples);
+    assert_zero_samples(samples, kBlockSamples);
     assert(pal_music_runtime.rendered_ticks == ticks_before);
     assert(pal_music_runtime.current_track == 1);
     assert(pal_music_runtime.pending_track == 4);
@@ -386,7 +389,7 @@ test_queue_full_coalesces_latest_full_snapshots()
 void
 test_zero_volume_freezes_playback()
 {
-    int16_t samples[kTickSamples];
+    int16_t samples[kBlockSamples];
     uint32_t ticks_before;
     uint32_t fade_phase_before;
     uint32_t fade_remaining_before;
@@ -412,8 +415,8 @@ test_zero_volume_freezes_playback()
     test_render_callback(
         test_render_user,
         samples,
-        kTickSamples);
-    assert_zero_samples(samples, kTickSamples);
+        kBlockSamples);
+    assert_zero_samples(samples, kBlockSamples);
     assert(pal_music_runtime.rendered_ticks == ticks_before);
     assert(pal_music_runtime.current_track == 1);
     assert(pal_music_runtime.fade_phase_q31 == fade_phase_before);
@@ -426,7 +429,7 @@ test_zero_volume_freezes_playback()
     test_render_callback(
         test_render_user,
         samples,
-        kTickSamples);
+        kBlockSamples);
     assert(
         pal_music_runtime.rendered_ticks > ticks_before ||
         pal_music_runtime.fade_remaining != fade_remaining_before);
@@ -482,11 +485,103 @@ test_runtime_source_fault_telemetry()
     test_profile_mode = TestProfileMode::Valid;
 }
 
+void
+test_pcm8_sfx_is_duplicated_exactly()
+{
+    int16_t samples[kBlockSamples];
+    const int16_t expected[] = {
+        256, 256, -256, -256, 32512, 32512, INT16_MIN, INT16_MIN,
+    };
+
+    AUDIO_PlaySound(7);
+    assert(test_sfx_reads == 1u);
+    assert(pal_sfx_runtime.last_loaded_sound_id == 7);
+    assert(pal_sfx_runtime.active);
+    test_render_callback(test_render_user, samples, kBlockSamples);
+    for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++)
+    {
+        assert(samples[i] == expected[i]);
+    }
+    for (size_t i = sizeof(expected) / sizeof(expected[0]);
+         i < kBlockSamples;
+         i++)
+    {
+        assert(samples[i] == 0);
+    }
+    assert(!pal_sfx_runtime.active);
+    assert(pal_sfx_runtime.cursor == sizeof(test_sfx));
+
+    AUDIO_PlaySound(7);
+    assert(test_sfx_reads == 1u);
+    samples[0] = INT16_MAX - 7;
+    samples[1] = INT16_MAX - 7;
+    samples[2] = INT16_MIN + 7;
+    samples[3] = INT16_MIN + 7;
+    samples[4] = 1000;
+    samples[5] = 1000;
+    samples[6] = -1000;
+    samples[7] = -1000;
+    sound_mix(samples, 8u);
+    assert(samples[0] == INT16_MAX && samples[1] == INT16_MAX);
+    assert(samples[2] == INT16_MIN && samples[3] == INT16_MIN);
+    assert(samples[4] == INT16_MAX && samples[5] == INT16_MAX);
+    assert(samples[6] == INT16_MIN && samples[7] == INT16_MIN);
+    assert(!pal_sfx_runtime.active);
+
+    AUDIO_PlaySound(7);
+    assert(test_sfx_reads == 1u);
+    memset(samples, 0, sizeof(samples));
+    sound_mix(samples, 2u);
+    assert(pal_sfx_runtime.active && pal_sfx_runtime.cursor == 1u);
+    AUDIO_PlaySound(7);
+    assert(test_sfx_reads == 1u);
+    assert(pal_sfx_runtime.active && pal_sfx_runtime.cursor == 0u);
+    memset(samples, 0, sizeof(samples));
+    sound_mix(samples, 2u);
+    assert(samples[0] == 256 && samples[1] == 256);
+    AUDIO_PlaySound(0);
+    assert(!pal_sfx_runtime.active);
+    assert(pal_sfx_runtime.last_loaded_sound_id == 7);
+    AUDIO_PlaySound(7);
+    assert(test_sfx_reads == 1u);
+    assert(pal_sfx_runtime.active && pal_sfx_runtime.cursor == 0u);
+    AUDIO_PlaySound(0);
+}
+
 } // namespace
 
 extern "C" {
 
 CONFIGURATION gConfig = {};
+
+SemaphoreHandle_t
+xSemaphoreCreateMutexStatic(StaticSemaphore_t *storage)
+{
+    assert(storage != nullptr);
+    storage->locked = pdFALSE;
+    return storage;
+}
+
+BaseType_t
+xSemaphoreTake(
+    SemaphoreHandle_t semaphore,
+    TickType_t ticks_to_wait)
+{
+    (void)ticks_to_wait;
+    assert(semaphore != nullptr);
+    assert(semaphore->locked == pdFALSE);
+    semaphore->locked = pdTRUE;
+    return pdTRUE;
+}
+
+BaseType_t
+xSemaphoreGive(SemaphoreHandle_t semaphore)
+{
+    assert(semaphore != nullptr);
+    assert(semaphore->locked == pdTRUE);
+    semaphore->locked = pdFALSE;
+    return pdTRUE;
+}
 
 QueueHandle_t
 xQueueCreateStatic(
@@ -563,6 +658,24 @@ xQueueReset(QueueHandle_t queue)
     queue->head = 0;
     queue->count = 0;
     return pdTRUE;
+}
+
+bool
+PalEngineBridge_ReadSfxPcm8(
+    uint16_t sound_id,
+    uint8_t *destination,
+    uint32_t capacity,
+    uint32_t *sample_count)
+{
+    test_sfx_reads++;
+    if (sound_id != 7u || destination == nullptr || sample_count == nullptr ||
+        capacity < sizeof(test_sfx))
+    {
+        return false;
+    }
+    memcpy(destination, test_sfx, sizeof(test_sfx));
+    *sample_count = sizeof(test_sfx);
+    return true;
 }
 
 bool
@@ -709,8 +822,10 @@ int
 main()
 {
     gConfig.iMusicVolume = PAL_MAX_VOLUME;
+    gConfig.iSoundVolume = PAL_MAX_VOLUME;
 
     test_startup_profile_validation();
+    test_pcm8_sfx_is_duplicated_exactly();
     test_muted_play_updates_and_freezes_control_fade();
     test_zero_fade_retarget_preserves_active_fade_out();
     test_same_track_restarts_after_pending_fade_out();
@@ -721,6 +836,7 @@ main()
     test_runtime_source_fault_telemetry();
 
     AUDIO_CloseDevice();
+    assert(pal_sfx_runtime.last_loaded_sound_id == -1);
     puts("pal_engine_target_music_state_test: PASS");
     return 0;
 }

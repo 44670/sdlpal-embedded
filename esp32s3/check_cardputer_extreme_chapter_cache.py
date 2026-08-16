@@ -7,7 +7,8 @@ This checker deliberately joins the two halves of the profile contract:
   layout and contains the cache implementation; and
 * ``PALSET.BIN`` owns the data-set identity, core hash, and chapter catalog;
 * every TF artifact agrees with that external record and with its manifest;
-* the linked application contains RIX/OPL2 music but no SFX or decoder; and
+* the linked application contains RIX/OPL2 music and one bounded PCM8 SFX
+  voice, but no runtime asset decoder; and
 * neither the application nor its checker needs a generated resource hash.
 
 It does not regenerate packs or claim that the full story route is playable.
@@ -56,6 +57,9 @@ MAX_DRAM_BSS = 212 * 1024
 MAX_DRAM_DATA = 16 * 1024
 MAX_DIRAM_STATIC = 264 * 1024
 MAX_STATIC_STACK = 2048
+SFX_FORMAT_PCM8 = 7
+SFX_SAMPLE_RATE = 8192
+SFX_BUFFER_BYTES = SFX_SAMPLE_RATE * 5
 
 PARTITION_MAGIC = 0x50AA
 PARTITION_MD5_MAGIC = 0xEBEB
@@ -98,6 +102,7 @@ REQUIRED_CACHE_SYMBOLS = {
     "PalMameOpl2_Init",
     "PalMameOpl2_Render",
     "PalMusic_MapMus",
+    "PalEngineBridge_ReadSfxPcm8",
     "PalEngineEventState_ResetDefaults",
     "PalEngineEventState_ReplaceFromFile",
     "PalEventPager_Acquire",
@@ -459,6 +464,20 @@ def symbol_names(nm_output: str) -> set[str]:
     return result
 
 
+def symbol_sizes(nm_output: str) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for line in nm_output.splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        try:
+            size = int(fields[1], 16)
+        except ValueError:
+            continue
+        result[fields[-1].split("@", 1)[0]] = size
+    return result
+
+
 def section_sizes(objdump_output: str) -> dict[str, int]:
     result: dict[str, int] = {}
     for line in objdump_output.splitlines():
@@ -802,7 +821,7 @@ def check_build(
         "-DPAL_EXTREME_TWO_SCREENS=1",
         "-DPAL_EXTREME_CHAPTER_CACHE=1",
         "-DPAL_EXTREME_RIX_MUSIC=1",
-        "-DPAL_CONTRACT_NO_SFX=1",
+        "-DPAL_CONTRACT_EXTERNAL_SFX=1",
         "-DPAL_ESP_CORES3SE_NO_SFX=1",
         "-DPAL_NO_RUNTIME_DECOMPRESS=1",
         "-DPAL_NO_RUNTIME_HEAP=1",
@@ -824,6 +843,7 @@ def check_build(
                 errors.append(f"{source}: compile command is missing {token}")
         for token in (
             "-DPAL_CONTRACT_NO_AUDIO=1",
+            "-DPAL_CONTRACT_NO_SFX=1",
             "-DPAL_ESP_CORES3SE_NO_AUDIO=1",
             "-DMEM_LEVEL2=1",
             "-DPAL_CARDPUTER_EXTREME=1",
@@ -842,6 +862,7 @@ def check_build(
         "cardputer_extreme_memory.c.obj",
         "cardputer_extreme_audio.c.obj",
         "pal_engine_target_music.cpp.obj",
+        "PAL_CONTRACT_EXTERNAL_SFX=1",
         "pal_mame_opl2_static.cpp.obj",
         "pal_music_cache.c.obj",
         "rix.cpp.obj",
@@ -876,12 +897,13 @@ def check_build(
         nm_output = ""
     else:
         nm_output = run_text(
-            [str(nm), "-a", str(elf_path)],
+            [str(nm), "-a", "-S", str(elf_path)],
             errors,
             "target nm",
         )
         check_project_object_calls(project_objects, nm, errors)
     symbols = symbol_names(nm_output)
+    sizes = symbol_sizes(nm_output)
     for name in sorted(REQUIRED_CACHE_SYMBOLS - symbols):
         errors.append(f"required cache symbol is missing: {name}")
     if "PalNativeUi_Font10IdentityMatches" in symbols:
@@ -920,6 +942,12 @@ def check_build(
         errors.append("full pal_full.pak TOC is still copied into SRAM")
     if "pal_sram_extreme_engine_tf_header" not in symbols:
         errors.append("32-byte TF header comparison owner is missing")
+    if sizes.get("pal_sram_sfx_pcm8") != SFX_BUFFER_BYTES:
+        errors.append(
+            "the single SFX owner must be exactly "
+            f"{SFX_BUFFER_BYTES} bytes, got "
+            f"{sizes.get('pal_sram_sfx_pcm8')}"
+        )
 
     sections: dict[str, int] = {}
     if not objdump.is_file():
@@ -1456,6 +1484,27 @@ def check_packs(
                     "pal_core.pak MUS must retain exactly 86 native RIX tracks "
                     "with source slots 0 and 29 empty"
                 )
+    if full_data is not None:
+        sfx_chunks = next(
+            (
+                chunks
+                for archive_id, chunks in iter_pack_archives(full_data)
+                if archive_id == pack.ARCHIVE_IDS["SFX"]
+            ),
+            [],
+        )
+        if not any(size != 0 for _offset, size, _fmt, _flags in sfx_chunks):
+            errors.append("pal_full.pak contains no nonempty SFX chunks")
+        for chunk_id, (_offset, size, fmt, flags) in enumerate(sfx_chunks):
+            if (
+                fmt != SFX_FORMAT_PCM8
+                or flags != 0
+                or size > SFX_BUFFER_BYTES
+            ):
+                errors.append(
+                    f"pal_full.pak SFX#{chunk_id} must be bounded 8.192kHz "
+                    f"PCM8: size={size}, format={fmt}, flags={flags}"
+                )
     for bundle_id, meta in enumerate(bundle_meta):
         check_archive_ids(
             f"b{bundle_id:02d}.pak",
@@ -1819,7 +1868,7 @@ def main() -> int:
     pack_metrics = check_packs(pack_dir, manifest_path, errors)
     check_app_data_independence(build_dir, pack_dir, errors)
 
-    print("Cardputer ADV default music/cache contract")
+    print("Cardputer ADV default music/SFX/cache contract")
     print(
         f"  flash={FLASH_BYTES} bytes, app={build_metrics.app_bytes}/{APP_BYTES}, "
         f"core-slot={pack_metrics.core_bytes}/{CORE_SLOT_BYTES}"
@@ -1845,12 +1894,16 @@ def main() -> int:
         f"DIRAM-static={build_metrics.diram_static_bytes}/{MAX_DIRAM_STATIC}, "
         f"max-stack={build_metrics.max_stack_bytes}/{MAX_STATIC_STACK}"
     )
+    print(
+        f"  audio=16384Hz PCM16, SFX={SFX_SAMPLE_RATE}Hz PCM8 x2, "
+        f"one_slot={SFX_BUFFER_BYTES} bytes"
+    )
     if errors:
         for error in errors:
             print(f"ERROR: {error}")
         return 1
     print(
-        "PASS: exact 8MiB/no-PSRAM music/cache image and all TF "
+        "PASS: exact 8MiB/no-PSRAM music/SFX/cache image and all TF "
         "artifacts/PALSET descriptors agree"
     )
     return 0

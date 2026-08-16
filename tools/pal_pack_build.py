@@ -32,6 +32,7 @@ FORMAT_TEXT_UTF16 = 3
 FORMAT_FONT_GLYPHS = 4
 FORMAT_SFX_PCM16 = 5
 FORMAT_FONT10 = 6
+FORMAT_SFX_PCM8 = 7
 FORMAT_NAMES = {
     FORMAT_RAW: "RAW",
     FORMAT_NATIVE: "NATIVE",
@@ -40,6 +41,7 @@ FORMAT_NAMES = {
     FORMAT_FONT_GLYPHS: "FONT_GLYPHS",
     FORMAT_SFX_PCM16: "SFX_PCM16",
     FORMAT_FONT10: "FONT10",
+    FORMAT_SFX_PCM8: "SFX_PCM8",
 }
 
 TEXT_MAGIC = 0x54585450
@@ -51,10 +53,8 @@ FONT_HEADER_SIZE = 32
 FONT_GLYPH_SOURCE_OFFSET = 0x682
 FONT_GLYPH_SOURCE_BYTES = 30
 FONT_GLYPH_BYTES = 32
-SFX_MAGIC = 0x58465350
-SFX_VERSION = 1
-SFX_HEADER_SIZE = 24
-SFX_TARGET_SAMPLE_RATE = 22050
+SFX_TARGET_SAMPLE_RATE = 8192
+SFX_MAX_SAMPLES = SFX_TARGET_SAMPLE_RATE * 5
 
 ARCHIVE_IDS = {
     "ABC": 1,
@@ -508,33 +508,53 @@ def encode_sfx_payload(pcm: bytes, source_rate: int) -> bytes:
         raise ValueError(f"bad VOC source rate: {source_rate}")
 
     if not pcm:
-        out_pcm = b""
-    else:
-        out_samples = (len(pcm) * SFX_TARGET_SAMPLE_RATE + source_rate // 2) // source_rate
-        out = bytearray(out_samples * 2)
+        return b""
+
+    out_samples = (
+        len(pcm) * SFX_TARGET_SAMPLE_RATE + source_rate // 2
+    ) // source_rate
+    if out_samples > SFX_MAX_SAMPLES:
+        raise ValueError(
+            f"VOC sound needs {out_samples} samples at "
+            f"{SFX_TARGET_SAMPLE_RATE} Hz, exceeds {SFX_MAX_SAMPLES}"
+        )
+
+    out = bytearray(out_samples)
+    if source_rate <= SFX_TARGET_SAMPLE_RATE:
+        # Linear interpolation is sufficient for the minority of source VOCs
+        # below 8.192 kHz. The result remains signed PCM8 in the pack.
         for sample_index in range(out_samples):
             pos = sample_index * source_rate
             src_index = pos // SFX_TARGET_SAMPLE_RATE
             frac = pos % SFX_TARGET_SAMPLE_RATE
             if src_index >= len(pcm) - 1:
-                sample = (pcm[-1] - 128) << 8
+                sample = pcm[-1]
             else:
-                s0 = (pcm[src_index] - 128) << 8
-                s1 = (pcm[src_index + 1] - 128) << 8
-                sample = (s0 * (SFX_TARGET_SAMPLE_RATE - frac) + s1 * frac) // SFX_TARGET_SAMPLE_RATE
-            struct.pack_into("<h", out, sample_index * 2, max(-32768, min(32767, sample)))
-        out_pcm = bytes(out)
-
-    return struct.pack(
-        "<IHHIIII",
-        SFX_MAGIC,
-        SFX_VERSION,
-        SFX_HEADER_SIZE,
-        SFX_TARGET_SAMPLE_RATE,
-        len(out_pcm) // 2,
-        SFX_HEADER_SIZE,
-        len(out_pcm),
-    ) + out_pcm
+                sample = (
+                    pcm[src_index] * (SFX_TARGET_SAMPLE_RATE - frac)
+                    + pcm[src_index + 1] * frac
+                    + SFX_TARGET_SAMPLE_RATE // 2
+                ) // SFX_TARGET_SAMPLE_RATE
+            out[sample_index] = (sample - 128) & 0xFF
+    else:
+        # A small area average prevents the 11--22 kHz VOC sources from
+        # aliasing directly into the deliberately low-rate effect stream.
+        # All weights are rational integers, keeping generated packs stable.
+        for sample_index in range(out_samples):
+            start = sample_index * source_rate
+            end = start + source_rate
+            first = start // SFX_TARGET_SAMPLE_RATE
+            last = (end + SFX_TARGET_SAMPLE_RATE - 1) // SFX_TARGET_SAMPLE_RATE
+            weighted = 0
+            for source_index in range(first, last):
+                cell_start = source_index * SFX_TARGET_SAMPLE_RATE
+                cell_end = cell_start + SFX_TARGET_SAMPLE_RATE
+                weight = min(end, cell_end) - max(start, cell_start)
+                if weight > 0:
+                    weighted += pcm[min(source_index, len(pcm) - 1)] * weight
+            sample = (weighted + source_rate // 2) // source_rate
+            out[sample_index] = (sample - 128) & 0xFF
+    return bytes(out)
 
 
 def encode_voc_sfx_chunk(raw: bytes) -> bytes:
@@ -573,7 +593,10 @@ def encode_voc_sfx_chunk(raw: bytes) -> bytes:
 
 def encode_sfx_pack(data_dir: Path) -> list[Chunk]:
     voc_path = find_data_file(data_dir, "VOC.MKF")
-    return [Chunk(encode_voc_sfx_chunk(raw), FORMAT_SFX_PCM16) for raw in read_mkf(voc_path)]
+    return [
+        Chunk(encode_voc_sfx_chunk(raw), FORMAT_SFX_PCM8)
+        for raw in read_mkf(voc_path)
+    ]
 
 
 def load_archive(

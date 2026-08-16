@@ -143,6 +143,15 @@ def check_complete_mirror(
         errors.append(
             f"complete mirror archives differ: {packed_names} != {expected_order}"
         )
+    sfx_chunks = packed.get("SFX", [])
+    if not any(payload for payload, _fmt in sfx_chunks):
+        errors.append("complete mirror contains no nonempty SFX chunks")
+    for chunk_id, (payload, fmt) in enumerate(sfx_chunks):
+        if fmt != builder.FORMAT_SFX_PCM8 or len(payload) > builder.SFX_MAX_SAMPLES:
+            errors.append(
+                f"SFX#{chunk_id} must be bounded 8.192kHz PCM8: "
+                f"size={len(payload)}, format={fmt}"
+            )
 
     pack_layout = manifest.get("pack_layout")
     if not isinstance(pack_layout, dict):

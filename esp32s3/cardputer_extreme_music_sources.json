@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Exact ESP-IDF main-component source inventory for the Cardputer ADV 8MB/no-PSRAM RIX music-only profile.",
+  "description": "Exact ESP-IDF main-component source inventory for the Cardputer ADV 8MB/no-PSRAM RIX plus one-voice SFX profile.",
   "sources": [
     "adplug/player.cpp",
     "adplug/rix.cpp",

@@ -51,8 +51,9 @@ MUSIC_MIN_POST_MAIN_STACK_RESERVE = 56 * 1024
 MUSIC_OPL_STATE_BYTES = 1704
 MUSIC_OPL_TABLE_BYTES = 24832
 MUSIC_AUDIO_TASK_STACK_BYTES = 4096
-MUSIC_TICK_BYTES = 315 * 2
-MUSIC_MAX_OWNED_BSS = 12 * 1024
+MUSIC_BLOCK_BYTES = 256 * 2
+MUSIC_SFX_BYTES = 8192 * 5
+MUSIC_MAX_OWNED_BSS = 56 * 1024
 MUSIC_TRACK_IDS = set(range(1, 88)) - {29}
 PARTITION_MAGIC = 0x50AA
 PARTITION_END_MAGIC = 0xEBEB
@@ -821,13 +822,20 @@ def main() -> int:
         required_sizes.update(
             {
                 "pal_sram_audio_task_stack_bytes": MUSIC_AUDIO_TASK_STACK_BYTES,
-                "pal_sram_audio_tick_bytes": MUSIC_TICK_BYTES,
+                "pal_sram_audio_tick_bytes": MUSIC_BLOCK_BYTES,
+                "pal_sram_sfx_pcm8": MUSIC_SFX_BYTES,
             }
         )
     for name, expected in required_sizes.items():
         actual = symbols.get(name, (-1, ""))[0]
         if actual != expected:
             errors.append(f"{name}: expected {expected} bytes, got {actual}")
+    if (
+        music_profile
+        and symbol_sections.get("pal_sram_sfx_pcm8", (0, ""))[1]
+        != ".dram0.bss"
+    ):
+        errors.append("the fixed SFX owner is not placed in internal DRAM")
     for name in (
         "pal_sram_extreme_event_pager",
         "pal_sram_extreme_event_bookkeeping",
@@ -879,7 +887,7 @@ def main() -> int:
             or name in ("PalAudio_OpenSfx", "PalAudio_MixSfx")
             or name.startswith(("pal_psram_sfx_", "pal_sram_audio_mix_"))
         ):
-            errors.append(f"SFX symbol linked into music-only profile: {name}")
+            errors.append(f"obsolete SFX bank/mixer symbol is linked: {name}")
     if music_profile:
         opl_state = [
             (name, size)
@@ -923,6 +931,7 @@ def main() -> int:
                     "pal_sram_audio_",
                     "pal_music_",
                     "pal_sram_music_",
+                    "pal_sram_sfx_",
                     "pal_mame_opl2_state",
                 )
             )
@@ -1126,7 +1135,7 @@ def main() -> int:
             archive_id = ARCHIVE[name]
             if archive_id in nor or archive_id in tf:
                 errors.append(
-                    f"{name} archive is present in the music-only profile"
+                    f"{name} archive is present in the legacy sparse pack pair"
                 )
         mus = nor.get(ARCHIVE["MUS"], {})
         if len(mus) != 88:
@@ -1259,7 +1268,7 @@ def main() -> int:
         "-fstack-usage",
     )
     profile_compile_tokens = (
-        ("-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_NO_SFX=1")
+        ("-DPAL_EXTREME_RIX_MUSIC=1", "-DPAL_CONTRACT_EXTERNAL_SFX=1")
         if music_profile
         else (
             "-DPAL_CONTRACT_NO_AUDIO=1",
@@ -1346,7 +1355,7 @@ def main() -> int:
     if music_profile:
         for token in (
             "PAL_EXTREME_RIX_MUSIC=1",
-            "PAL_CONTRACT_NO_SFX=1",
+            "PAL_CONTRACT_EXTERNAL_SFX=1",
             "cardputer_extreme_audio.c",
             "pal_engine_target_music.cpp",
             "pal_mame_opl2_static.cpp",
@@ -1362,7 +1371,7 @@ def main() -> int:
         ):
             if token in ninja:
                 errors.append(
-                    f"music-only build graph contains forbidden object {token}"
+                    f"external-audio build graph contains forbidden object {token}"
                 )
     else:
         if "contract_noaudio.c.obj" not in ninja:
@@ -1450,8 +1459,8 @@ def main() -> int:
         return 1
     if music_profile:
         print(
-            "PASS: 8MB/no-PSRAM/two-screen RIX music-only contract; "
-            "SFX DISABLED; STORY ROUTE NOT PROVEN"
+            "PASS: 8MB/no-PSRAM/two-screen RIX plus one-voice SFX contract; "
+            "STORY ROUTE NOT PROVEN"
         )
     else:
         print(

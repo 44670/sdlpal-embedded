@@ -30,7 +30,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(PAL_CONTRACT_NO_AUDIO) || defined(PAL_CONTRACT_NO_SFX)
+#if defined(PAL_CONTRACT_NO_AUDIO) || defined(PAL_CONTRACT_NO_SFX) || \
+    defined(PAL_CONTRACT_EXTERNAL_SFX)
 #define PAL_CONTRACT_DISABLE_SFX 1
 #endif
 #ifndef PAL_CONTRACT_TARGET_PACK_PROVIDER
@@ -43,11 +44,7 @@
 #define PAL_CONTRACT_TEXT_SLOTS 8u
 #define PAL_CONTRACT_TEXT_CHARS 64u
 #ifndef PAL_CONTRACT_DISABLE_SFX
-# define PAL_CONTRACT_SFX_BYTES (212u * 1024u)
-# define PAL_CONTRACT_SFX_MAGIC 0x58465350u
-# define PAL_CONTRACT_SFX_VERSION 1u
-# define PAL_CONTRACT_SFX_HEADER_SIZE 24u
-# define PAL_CONTRACT_SFX_RATE 22050u
+# define PAL_CONTRACT_SFX_BYTES (8192u * 5u)
 #endif
 
 #define FONT_COLOR_DEFAULT 0x4F
@@ -112,17 +109,6 @@ PalContract_ReadLe16(
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
 }
 
-static uint32_t
-PalContract_ReadLe32(
-    const uint8_t *p
-)
-{
-    return (uint32_t)p[0] |
-           ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) |
-           ((uint32_t)p[3] << 24);
-}
-
 #ifdef PAL_CONTRACT_TARGET_PACK_PROVIDER
 bool PalContract_TargetOpenNorPack(PalPack *pack);
 bool PalContract_TargetOpenTfPack(PalPack *pack);
@@ -159,14 +145,6 @@ PalContract_MapNativeChunk(
 }
 
 #ifndef PAL_CONTRACT_DISABLE_SFX
-static int16_t
-PalContract_ReadI16(
-    const uint8_t *p
-)
-{
-    return (int16_t)PalContract_ReadLe16(p);
-}
-
 static int16_t
 PalContract_ClampI16(
     int32_t sample
@@ -357,37 +335,11 @@ PalContract_OpenSfx(
     uint32_t payload_size
 )
 {
-    uint16_t version;
-    uint16_t header_size;
-    uint32_t sample_rate;
-    uint32_t sample_count;
-    uint32_t pcm_offset;
-    uint32_t pcm_size;
-
-    if (payload == NULL || payload_size < PAL_CONTRACT_SFX_HEADER_SIZE) {
+    if (payload == NULL || payload_size > PAL_CONTRACT_SFX_BYTES) {
         return false;
     }
-
-    version = PalContract_ReadLe16(payload + 4u);
-    header_size = PalContract_ReadLe16(payload + 6u);
-    sample_rate = PalContract_ReadLe32(payload + 8u);
-    sample_count = PalContract_ReadLe32(payload + 12u);
-    pcm_offset = PalContract_ReadLe32(payload + 16u);
-    pcm_size = PalContract_ReadLe32(payload + 20u);
-
-    if (PalContract_ReadLe32(payload) != PAL_CONTRACT_SFX_MAGIC ||
-        version != PAL_CONTRACT_SFX_VERSION ||
-        header_size != PAL_CONTRACT_SFX_HEADER_SIZE ||
-        sample_rate != PAL_CONTRACT_SFX_RATE ||
-        (pcm_size & 1u) != 0 ||
-        pcm_size != sample_count * 2u ||
-        pcm_offset > payload_size ||
-        pcm_size > payload_size - pcm_offset) {
-        return false;
-    }
-
-    pal_contract_sfx_pcm = payload + pcm_offset;
-    pal_contract_sfx_samples = sample_count;
+    pal_contract_sfx_pcm = payload;
+    pal_contract_sfx_samples = payload_size;
     pal_contract_sfx_cursor = 0;
     pal_contract_sfx_active = true;
     return true;
@@ -462,7 +414,7 @@ PalContract_SoundPlay(
     }
     if (!PalContract_OpenTfPack() ||
         !PalPack_MapConst(&pal_contract_tf_pack, PAL_PACK_ARCHIVE_SFX, (uint16_t)sound_num, &span) ||
-        span.format != PAL_PACK_FORMAT_SFX_PCM16 ||
+        span.format != PAL_PACK_FORMAT_SFX_PCM8 ||
         span.size > PAL_CONTRACT_SFX_BYTES) {
         return FALSE;
     }
@@ -492,15 +444,20 @@ PalContract_SoundFillBuffer(
         return;
     }
 
-    for (frame = 0; frame < frames && pal_contract_sfx_cursor < pal_contract_sfx_samples; frame++, pal_contract_sfx_cursor++) {
+    for (frame = 0;
+         frame < frames && pal_contract_sfx_cursor / 2u < pal_contract_sfx_samples;
+         frame++, pal_contract_sfx_cursor++) {
         int channel;
-        int16_t sample = PalContract_ReadI16(pal_contract_sfx_pcm + pal_contract_sfx_cursor * 2u);
+        uint8_t encoded = pal_contract_sfx_pcm[pal_contract_sfx_cursor / 2u];
+        int16_t sample = (int16_t)(
+            (encoded < 128u ? (int32_t)encoded : (int32_t)encoded - 256) *
+            256);
         for (channel = 0; channel < channels; channel++) {
             int index = frame * channels + channel;
             dst[index] = PalContract_ClampI16((int32_t)dst[index] + sample);
         }
     }
-    if (pal_contract_sfx_cursor >= pal_contract_sfx_samples) {
+    if (pal_contract_sfx_cursor / 2u >= pal_contract_sfx_samples) {
         pal_contract_sfx_active = false;
     }
 }

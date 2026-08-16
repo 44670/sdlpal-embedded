@@ -6,12 +6,16 @@
 #include <stdint.h>
 
 /*
- * PAL's RIX sequencer advances at 70 Hz.  22050 / 70 is exactly 315, so
- * every target sink consumes one complete sequencer tick per callback.
+ * The renderer/sink contract consumes fixed 256-frame PCM blocks at a logical
+ * 16.384 kHz. RIX remains a separate 70 Hz clock and is advanced fractionally
+ * by the renderer. Individual hardware clock dividers may quantize the
+ * physical rate slightly.
  */
-#define PAL_TARGET_AUDIO_SAMPLE_RATE 22050u
-#define PAL_TARGET_AUDIO_TICK_HZ 70u
-#define PAL_TARGET_AUDIO_TICK_SAMPLES 315u
+#define PAL_TARGET_AUDIO_SAMPLE_RATE 16384u
+#define PAL_TARGET_AUDIO_RIX_HZ 70u
+#define PAL_TARGET_AUDIO_BLOCK_SAMPLES 256u
+#define PAL_TARGET_SFX_SAMPLE_RATE 8192u
+#define PAL_TARGET_SFX_BUFFER_SAMPLES (PAL_TARGET_SFX_SAMPLE_RATE * 5u)
 
 #if defined(PAL_TARGET_CARDPUTER_ADV)
 
@@ -19,8 +23,7 @@
 #include "cardputer_extreme_audio.h"
 
 #if CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE != PAL_TARGET_AUDIO_SAMPLE_RATE || \
-    CARDPUTER_EXTREME_AUDIO_TICK_HZ != PAL_TARGET_AUDIO_TICK_HZ || \
-    CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES != PAL_TARGET_AUDIO_TICK_SAMPLES
+    CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES != PAL_TARGET_AUDIO_BLOCK_SAMPLES
 #error "Cardputer and common target-audio timing contracts disagree"
 #endif
 

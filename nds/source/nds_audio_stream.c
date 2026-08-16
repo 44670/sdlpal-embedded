@@ -12,11 +12,20 @@
 
 enum {
    PAL_NDS_AUDIO_CHANNEL = 0u,
-   PAL_NDS_AUDIO_THREAD_PRIO = MAIN_THREAD_PRIO,
+   /*
+    * Calico does not time-slice equal-priority threads.  Keep the bounded
+    * PCM producer one level above the game thread so a long scene/resource
+    * load cannot prevent a sleeping audio worker from meeting its deadline.
+    */
+   PAL_NDS_AUDIO_THREAD_PRIO = MAIN_THREAD_PRIO - 1u,
    PAL_NDS_AUDIO_TIMER =
       (SOUND_CLOCK + PAL_NDS_AUDIO_SAMPLE_RATE / 2u) /
          PAL_NDS_AUDIO_SAMPLE_RATE,
 };
+
+_Static_assert(
+   MAIN_THREAD_PRIO > THREAD_MAX_PRIO,
+   "the audio worker needs one priority level above the main thread");
 
 typedef struct PalNdsAudioStream {
    Thread worker;

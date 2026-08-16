@@ -29,8 +29,10 @@ BundleArtifacts/
 *.bc
 *.data
 *.html
+!docs/index.html
 *.mem
 *.js
+!docs/pako.min.js
 *.wasm
 *.wast
 unix/sdlpal-embedded-contract

@@ -45,8 +45,16 @@
 #include "pal_target_save.h"
 #endif
 
+#if defined(PAL_TARGET_XIAOMIAO) && defined(ESP_PLATFORM) && defined(MEM_LEVEL2)
+/* Keep the 5-second SFX source slot in fast SRAM without consuming the
+ * Xiaomiao heap reserve: this fixed, non-DMA state lives in mapped PSRAM. */
+static GLOBALVARS pal_psram_global_state
+   EXT_RAM_BSS_ATTR __attribute__((aligned(4)));
+GLOBALVARS * const gpGlobals = &pal_psram_global_state;
+#else
 static GLOBALVARS _gGlobals;
-GLOBALVARS * const  gpGlobals = &_gGlobals;
+GLOBALVARS * const gpGlobals = &_gGlobals;
+#endif
 
 CONFIGURATION gConfig;
 

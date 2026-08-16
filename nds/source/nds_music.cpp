@@ -1,10 +1,11 @@
-/* Fixed-memory RIX/DBOPL2 music produced by a peer-priority ARM9 thread. */
+/* Fixed-memory RIX/DBOPL2 music consumed by a higher-priority ARM9 worker. */
 
 #include "../../audio.h"
 #include "../../palcfg.h"
 #include "../../palcommon.h"
 #include "../../adplug/rix.h"
 #include "nds_dbopl2.h"
+#include "pal_engine_pack_provider.h"
 #include "pal_target_memory.h"
 
 #include <calico.h>
@@ -33,6 +34,8 @@ volatile uint32_t pal_nds_dbopl_render_ticks_min
    __attribute__((section(".bss.pal_nds_music")));
 volatile uint32_t pal_nds_dbopl_render_calls
    __attribute__((section(".bss.pal_nds_music")));
+uint8_t pal_sram_sfx_pcm8[PAL_NDS_SFX_BUFFER_SAMPLES]
+   __attribute__((aligned(4), section(".bss.pal_nds_audio")));
 }
 
 namespace
@@ -43,6 +46,7 @@ constexpr size_t kOplTickSamples = PAL_NDS_OPL_TICK_SAMPLES;
 constexpr size_t kAudioTickSamples = PAL_NDS_AUDIO_TICK_SAMPLES;
 constexpr uint16_t kProducerTicksPerPump = PAL_NDS_OPL_PRODUCER_BATCH;
 constexpr uint32_t kMaximumHalfFadeTicks = kRixTicksPerSecond * 30u;
+constexpr int32_t kQ15One = 1 << 15;
 constexpr int kEmptyMusTrack = 29;
 
 static_assert(
@@ -51,11 +55,15 @@ static_assert(
       kOplTickSamples ==
          (PAL_NDS_OPL_SAMPLE_RATE + kRixTicksPerSecond - 1u) /
             kRixTicksPerSecond,
-   "DBOPL2 must render at half the 32.768 kHz PCM rate");
+   "DBOPL2 must render directly at the 16.384 kHz PCM rate");
 static_assert(
    kAudioTickSamples == 256u &&
       kAudioTickSamples % PAL_NDS_AUDIO_UPSAMPLE_FACTOR == 0u,
-   "the fixed PCM ring must contain complete duplicated sample pairs");
+   "the fixed PCM ring must contain complete render blocks");
+static_assert(
+   PAL_NDS_SFX_SAMPLE_RATE * 2u == PAL_NDS_AUDIO_SAMPLE_RATE &&
+      PAL_NDS_SFX_BUFFER_SAMPLES == 40960u,
+   "the SFX owner must hold five seconds of 8.192 kHz PCM8");
 static_assert(
    (PAL_NDS_OPL_TICK_QUEUE_LENGTH &
       (PAL_NDS_OPL_TICK_QUEUE_LENGTH - 1u)) == 0u,
@@ -183,12 +191,24 @@ struct MusicRuntime
    uint32_t fade_step_q16;
 };
 
+struct SfxRuntime
+{
+   uint32_t sample_count;
+   uint32_t cursor;
+   int32_t last_loaded_sound_id;
+   uint16_t volume_q15;
+   uint8_t repeat_phase;
+   bool active;
+};
+
 static PalNdsQueuedOpl pal_nds_opl;
 static CrixPlayer pal_nds_decoder(&pal_nds_opl);
 static MusicRuntime pal_nds_music;
 static uint8_t pal_nds_worker_volume;
 static uint32_t pal_nds_rix_sample_phase;
 static uint32_t pal_nds_rix_samples_remaining;
+static SfxRuntime pal_nds_sfx;
+static Mutex pal_nds_sfx_mutex;
 
 constexpr uint32_t kAudioTimer =
    soundTimerFromHz(PAL_NDS_AUDIO_SAMPLE_RATE);
@@ -224,6 +244,95 @@ music_sdl_volume()
 {
    return music_clamped_config_volume() *
       SDL_MIX_MAXVOLUME / PAL_MAX_VOLUME;
+}
+
+static int
+sound_clamped_config_volume()
+{
+   int volume = gConfig.iSoundVolume;
+
+   if (volume < 0)
+   {
+      volume = 0;
+   }
+   else if (volume > PAL_MAX_VOLUME)
+   {
+      volume = PAL_MAX_VOLUME;
+   }
+   return volume;
+}
+
+static uint16_t
+sound_volume_q15()
+{
+   return static_cast<uint16_t>(
+      (sound_clamped_config_volume() * kQ15One + PAL_MAX_VOLUME / 2) /
+         PAL_MAX_VOLUME);
+}
+
+static int
+sound_sdl_volume()
+{
+   return sound_clamped_config_volume() *
+      SDL_MIX_MAXVOLUME / PAL_MAX_VOLUME;
+}
+
+static int16_t
+sound_clamp_pcm16(int32_t sample)
+{
+   return static_cast<int16_t>(
+      sample > INT16_MAX ? INT16_MAX :
+      sample < INT16_MIN ? INT16_MIN : sample);
+}
+
+static void
+sound_stop_now()
+{
+   mutexLock(&pal_nds_sfx_mutex);
+   pal_nds_sfx.cursor = 0u;
+   pal_nds_sfx.repeat_phase = 0u;
+   pal_nds_sfx.active = false;
+   mutexUnlock(&pal_nds_sfx_mutex);
+}
+
+static void
+sound_invalidate_loaded()
+{
+   mutexLock(&pal_nds_sfx_mutex);
+   pal_nds_sfx.sample_count = 0u;
+   pal_nds_sfx.cursor = 0u;
+   pal_nds_sfx.last_loaded_sound_id = -1;
+   pal_nds_sfx.repeat_phase = 0u;
+   pal_nds_sfx.active = false;
+   mutexUnlock(&pal_nds_sfx_mutex);
+}
+
+static void
+sound_mix(int16_t *samples, size_t sample_count)
+{
+   mutexLock(&pal_nds_sfx_mutex);
+   for (size_t i = 0u; i < sample_count && pal_nds_sfx.active; i++)
+   {
+      const uint8_t encoded = pal_sram_sfx_pcm8[pal_nds_sfx.cursor];
+      const int32_t pcm8 = encoded < 128u
+         ? static_cast<int32_t>(encoded)
+         : static_cast<int32_t>(encoded) - 256;
+      const int32_t effect =
+         (pcm8 * 256 * pal_nds_sfx.volume_q15) >> 15;
+
+      samples[i] = sound_clamp_pcm16(
+         static_cast<int32_t>(samples[i]) + effect);
+      pal_nds_sfx.repeat_phase ^= 1u;
+      if (pal_nds_sfx.repeat_phase == 0u)
+      {
+         pal_nds_sfx.cursor++;
+         if (pal_nds_sfx.cursor >= pal_nds_sfx.sample_count)
+         {
+            pal_nds_sfx.active = false;
+         }
+      }
+   }
+   mutexUnlock(&pal_nds_sfx_mutex);
 }
 
 static uint32_t
@@ -558,6 +667,7 @@ music_stream_render(
 {
    uint32_t render_ticks_total = 0u;
    size_t opl_sample_count;
+   int16_t *const output = samples;
 
    (void)user;
    if (sample_count % kAudioTickSamples != 0u ||
@@ -586,6 +696,13 @@ music_stream_render(
       pal_nds_rix_samples_remaining -= static_cast<uint32_t>(amount);
       samples += amount * PAL_NDS_AUDIO_UPSAMPLE_FACTOR;
       opl_sample_count -= amount;
+   }
+   {
+      const uint64_t mix_start = tickGetCount();
+
+      sound_mix(output, sample_count);
+      render_ticks_total += static_cast<uint32_t>(
+         tickGetCount() - mix_start);
    }
    pal_nds_dbopl_render_ticks_total += render_ticks_total;
    if (render_ticks_total > pal_nds_dbopl_render_ticks_max)
@@ -641,6 +758,9 @@ AUDIO_OpenDevice(VOID)
    }
    memset(&gAudioDevice, 0, sizeof(gAudioDevice));
    memset(&pal_nds_music, 0, sizeof(pal_nds_music));
+   memset(&pal_nds_sfx, 0, sizeof(pal_nds_sfx));
+   pal_nds_sfx.last_loaded_sound_id = -1;
+   memset(&pal_nds_sfx_mutex, 0, sizeof(pal_nds_sfx_mutex));
    memset(pal_nds_track, 0, sizeof(pal_nds_track));
    memset(pal_nds_opl_staging, 0, sizeof(pal_nds_opl_staging));
    memset(pal_nds_opl_tick_queue, 0, sizeof(pal_nds_opl_tick_queue));
@@ -662,6 +782,8 @@ AUDIO_OpenDevice(VOID)
    pal_nds_music.enabled = true;
    pal_nds_music.fade_level_q16 = 127u << 16;
    gConfig.iMusicVolume = music_clamped_config_volume();
+   gConfig.iSoundVolume = sound_clamped_config_volume();
+   pal_nds_sfx.volume_q15 = sound_volume_q15();
 
    NdsDbOpl2_Init();
 
@@ -672,8 +794,8 @@ AUDIO_OpenDevice(VOID)
    gAudioDevice.spec.samples = static_cast<Uint16>(kAudioTickSamples);
 #endif
    gAudioDevice.iMusicVolume = music_sdl_volume();
-   gAudioDevice.iSoundVolume = 0;
-   gAudioDevice.fSoundEnabled = FALSE;
+   gAudioDevice.iSoundVolume = sound_sdl_volume();
+   gAudioDevice.fSoundEnabled = TRUE;
    gAudioDevice.fMusicEnabled = TRUE;
    gAudioDevice.fOpened = TRUE;
 
@@ -685,6 +807,7 @@ AUDIO_OpenDevice(VOID)
    {
       gAudioDevice.fOpened = FALSE;
       gAudioDevice.fMusicEnabled = FALSE;
+      gAudioDevice.fSoundEnabled = FALSE;
       return -1;
    }
    return 0;
@@ -704,8 +827,10 @@ AUDIO_CloseDevice(VOID)
       return;
    }
    NdsTarget_AudioStop();
+   sound_invalidate_loaded();
    gAudioDevice.fOpened = FALSE;
    gAudioDevice.fMusicEnabled = FALSE;
+   gAudioDevice.fSoundEnabled = FALSE;
 }
 
 SDL_AudioSpec *
@@ -718,21 +843,36 @@ VOID
 AUDIO_IncreaseVolume(VOID)
 {
    int volume = music_clamped_config_volume();
+   int sound_volume = sound_clamped_config_volume();
 
    volume = PAL_MAX_VOLUME - volume < 3
       ? PAL_MAX_VOLUME : volume + 3;
+   sound_volume = PAL_MAX_VOLUME - sound_volume < 3
+      ? PAL_MAX_VOLUME : sound_volume + 3;
    gConfig.iMusicVolume = volume;
+   gConfig.iSoundVolume = sound_volume;
    gAudioDevice.iMusicVolume = music_sdl_volume();
+   gAudioDevice.iSoundVolume = sound_sdl_volume();
+   mutexLock(&pal_nds_sfx_mutex);
+   pal_nds_sfx.volume_q15 = sound_volume_q15();
+   mutexUnlock(&pal_nds_sfx_mutex);
 }
 
 VOID
 AUDIO_DecreaseVolume(VOID)
 {
    int volume = music_clamped_config_volume();
+   int sound_volume = sound_clamped_config_volume();
 
    volume = volume < 3 ? 0 : volume - 3;
+   sound_volume = sound_volume < 3 ? 0 : sound_volume - 3;
    gConfig.iMusicVolume = volume;
+   gConfig.iSoundVolume = sound_volume;
    gAudioDevice.iMusicVolume = music_sdl_volume();
+   gAudioDevice.iSoundVolume = sound_sdl_volume();
+   mutexLock(&pal_nds_sfx_mutex);
+   pal_nds_sfx.volume_q15 = sound_volume_q15();
+   mutexUnlock(&pal_nds_sfx_mutex);
 }
 
 VOID
@@ -761,7 +901,53 @@ AUDIO_PlayCDTrack(INT track)
 VOID
 AUDIO_PlaySound(INT sound)
 {
-   (void)sound;
+   const int64_t signed_sound = static_cast<int64_t>(sound);
+   const uint64_t absolute_sound = signed_sound < 0
+      ? static_cast<uint64_t>(-signed_sound)
+      : static_cast<uint64_t>(signed_sound);
+   uint32_t sample_count = 0u;
+
+   if (!gAudioDevice.fOpened || !gAudioDevice.fSoundEnabled ||
+      sound_clamped_config_volume() == 0 ||
+      absolute_sound == 0u || absolute_sound > UINT16_MAX)
+   {
+      sound_stop_now();
+      return;
+   }
+   mutexLock(&pal_nds_sfx_mutex);
+   if (pal_nds_sfx.last_loaded_sound_id ==
+      static_cast<int32_t>(absolute_sound))
+   {
+      pal_nds_sfx.cursor = 0u;
+      pal_nds_sfx.volume_q15 = sound_volume_q15();
+      pal_nds_sfx.repeat_phase = 0u;
+      pal_nds_sfx.active = pal_nds_sfx.sample_count != 0u;
+      mutexUnlock(&pal_nds_sfx_mutex);
+      return;
+   }
+   pal_nds_sfx.sample_count = 0u;
+   pal_nds_sfx.cursor = 0u;
+   pal_nds_sfx.last_loaded_sound_id = -1;
+   pal_nds_sfx.repeat_phase = 0u;
+   pal_nds_sfx.active = false;
+   mutexUnlock(&pal_nds_sfx_mutex);
+   if (!PalEngineBridge_ReadSfxPcm8(
+         static_cast<uint16_t>(absolute_sound),
+         pal_sram_sfx_pcm8,
+         sizeof(pal_sram_sfx_pcm8),
+         &sample_count))
+   {
+      return;
+   }
+   mutexLock(&pal_nds_sfx_mutex);
+   pal_nds_sfx.sample_count = sample_count;
+   pal_nds_sfx.cursor = 0u;
+   pal_nds_sfx.last_loaded_sound_id =
+      static_cast<int32_t>(absolute_sound);
+   pal_nds_sfx.volume_q15 = sound_volume_q15();
+   pal_nds_sfx.repeat_phase = 0u;
+   pal_nds_sfx.active = sample_count != 0u;
+   mutexUnlock(&pal_nds_sfx_mutex);
 }
 
 VOID
@@ -780,14 +966,17 @@ AUDIO_MusicEnabled(VOID)
 VOID
 AUDIO_EnableSound(BOOL enable)
 {
-   (void)enable;
-   gAudioDevice.fSoundEnabled = FALSE;
+   gAudioDevice.fSoundEnabled = enable ? TRUE : FALSE;
+   if (!enable)
+   {
+      sound_stop_now();
+   }
 }
 
 BOOL
 AUDIO_SoundEnabled(VOID)
 {
-   return FALSE;
+   return gAudioDevice.fSoundEnabled;
 }
 
 void AUDIO_Lock(void) {}

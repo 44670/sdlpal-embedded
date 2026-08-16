@@ -46,15 +46,19 @@ enum {
     AUDIO_STOP_TIMEOUT_MS = 2000,
     AUDIO_WRITE_TIMEOUT_MS = 1000,
     AUDIO_WRITE_RETRY_DELAY_MS =
-        1000u / CARDPUTER_EXTREME_AUDIO_TICK_HZ,
+        (1000u * CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES +
+            CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE - 1u) /
+        CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE,
     AUDIO_RUNTIME_REPORT_SECONDS = 10,
     AUDIO_RUNTIME_REPORT_US =
         1000000u * AUDIO_RUNTIME_REPORT_SECONDS,
     AUDIO_TICK_DEADLINE_US =
-        1000000u / CARDPUTER_EXTREME_AUDIO_TICK_HZ,
+        (1000000u * CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES) /
+            CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE,
     AUDIO_TICK_PERIOD_CEIL_US =
-        (1000000u + CARDPUTER_EXTREME_AUDIO_TICK_HZ - 1u) /
-            CARDPUTER_EXTREME_AUDIO_TICK_HZ,
+        (1000000u * CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES +
+            CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE - 1u) /
+            CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE,
 };
 
 typedef enum CardputerExtremeAudioCommandType {
@@ -110,7 +114,7 @@ static uint8_t
     PAL_EXTREME_AUDIO_SRAM;
 static uint8_t
     pal_sram_audio_tick_bytes[
-        CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES * sizeof(int16_t)]
+        CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES * sizeof(int16_t)]
     PAL_EXTREME_AUDIO_SRAM;
 static CardputerExtremeAudioTelemetry
     pal_audio_telemetry PAL_EXTREME_AUDIO_SRAM;
@@ -119,18 +123,8 @@ static int64_t
 
 typedef char cardputer_extreme_audio_stack_bytes_are_uint8[
     sizeof(StackType_t) == sizeof(uint8_t) ? 1 : -1];
-typedef char cardputer_extreme_audio_tick_rate_is_integral[
-    CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE %
-                CARDPUTER_EXTREME_AUDIO_TICK_HZ ==
-            0
-        ? 1
-        : -1];
-typedef char cardputer_extreme_audio_tick_size_matches_rate[
-    CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES ==
-            CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE /
-                CARDPUTER_EXTREME_AUDIO_TICK_HZ
-        ? 1
-        : -1];
+typedef char cardputer_extreme_audio_block_is_even[
+    (CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES & 1u) == 0u ? 1 : -1];
 
 #define PAL_AUDIO_TICK_BUFFER \
     ((int16_t *)(void *)pal_sram_audio_tick_bytes)
@@ -391,9 +385,9 @@ audio_task(
                 audio_render(
                     audio_render_user,
                     PAL_AUDIO_TICK_BUFFER,
-                    CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES);
+                    CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES);
                 for (sample = 0;
-                     sample < CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES;
+                     sample < CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES;
                      sample++) {
                     int32_t value = PAL_AUDIO_TICK_BUFFER[sample];
                     uint32_t magnitude =
@@ -410,7 +404,7 @@ audio_task(
             portENTER_CRITICAL(&audio_state_lock);
             pal_audio_telemetry.rendered_ticks++;
             pal_audio_telemetry.rendered_samples +=
-                CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES;
+                CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES;
             if (tick_peak != 0) {
                 pal_audio_telemetry.nonzero_ticks++;
             }
@@ -518,7 +512,7 @@ audio_init_i2s(void)
 
     channel_config.dma_desc_num = AUDIO_DMA_DESCRIPTOR_COUNT;
     channel_config.dma_frame_num =
-        CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES;
+        CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES;
     channel_config.auto_clear = true;
 
     standard_config.slot_cfg.slot_bit_width =
@@ -705,10 +699,10 @@ CardputerExtremeAudio_Begin(
     }
     ESP_LOGI(
         TAG,
-        "ES8311 music ready: %u Hz mono PCM16, %u samples/tick, "
+        "ES8311 audio ready: %u Hz mono PCM16, %u samples/block, "
         "I2S1 BCLK=%d WS=%d DOUT=%d, DMA=%u bytes",
         CARDPUTER_EXTREME_AUDIO_SAMPLE_RATE,
-        CARDPUTER_EXTREME_AUDIO_TICK_SAMPLES,
+        CARDPUTER_EXTREME_AUDIO_BLOCK_SAMPLES,
         PIN_I2S_BCLK,
         PIN_I2S_WS,
         PIN_I2S_DOUT,

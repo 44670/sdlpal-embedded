@@ -10,8 +10,6 @@
 extern "C" {
 #endif
 
-typedef int BaseType_t;
-
 typedef struct StaticQueue_t {
     uint8_t *storage;
     UBaseType_t length;
@@ -21,9 +19,6 @@ typedef struct StaticQueue_t {
 } StaticQueue_t;
 
 typedef StaticQueue_t *QueueHandle_t;
-
-#define pdTRUE 1
-#define pdFALSE 0
 
 QueueHandle_t xQueueCreateStatic(
     UBaseType_t length,

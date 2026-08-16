@@ -93,7 +93,9 @@ Cardputer:
 - ST7789 native 240x135 LCD on SPI3;
 - TF on independent SPI2 at 20MHz;
 - two fixed 240x135 indexed screens and one 4KB RGB565 DMA strip;
-- RIX/OPL2 music enabled by default; MIDI, VOC, and SFX excluded.
+- RIX/OPL2 music and one host-converted SFX voice enabled by default. Replaying
+  its `last_loaded_sound_id` restarts the fixed slot without reading TF; only a
+  different sound ID overwrites it. Raw MIDI and VOC decoding are excluded.
 
 ### Build, data, and install
 
@@ -212,19 +214,28 @@ This target is the classic ESP32-WROVER-B Xiaomiao, not ESP32-S3:
 - ST7735 native landscape 160x128 LCD;
 - LCD and SD share VSPI; GPIO19 is LCD reset during initialization and then SD
   MISO, while GPIO34/35 remain input-only keys;
-- fixed RIX/OPL2 music produces 22.05kHz mono PCM16; a saturating 3x output
-  gain compensates for the quiet passive buzzer, and an 11-bit LEDC PWM
-  channel drives it on GPIO14 while GPTimer updates its duty
-  once per sample from a fixed four-tick ring. MIDI, VOC, and SFX remain
-  excluded.
+- fixed RIX/OPL2 music produces logical 16.384kHz mono PCM16; one five-second,
+  40,960-byte internal-SRAM slot holds host-converted 8.192kHz signed PCM8
+  SFX. Each effect sample is copied into two output frames and
+  saturating-mixed with music. A saturating 3x output gain compensates for the
+  quiet passive buzzer, and an 11-bit LEDC PWM channel drives it on GPIO14
+  while GPTimer updates its duty once per sample from a fixed four-block ring.
+  The LEDC and GPTimer periods are derived from the same quantized APB clock,
+  preventing their physical sample phases from drifting; the resulting buzzer
+  carrier is about 16.393kHz on the classic ESP32.
+  Raw MIDI and VOC decoding remain excluded. The fixed, non-DMA 20,964-byte
+  global game state is mapped to PSRAM so the SFX slot does not reduce the
+  required 64KiB post-main-task internal-DRAM reserve.
 
 Xiaomiao uses the same `esp32s3/TF_datapak/` directory as the Cardputer target.
 It indexes `pal_full.pak` directly and reconstructs its selected long-lived
 resident view from that file into a fixed 2MB PSRAM owner at boot. No second
 payload pack is stored on TF. The resident view includes the complete MUS
-archive so the audio task never reads SD; other gameplay resources remain
-bounded SD reads into their lifecycle owners. No PAL data is stored in
-internal flash.
+archive so music never reads SD. A different SFX is copied synchronously from the
+complete pack into the single internal-SRAM slot before playback. Replaying
+its `last_loaded_sound_id` restarts that slot without another SD read; only a
+different ID overwrites it. Other gameplay resources remain bounded SD reads
+into their lifecycle owners. No PAL data is stored in internal flash.
 
 The Xiaomiao application is data-set agnostic: TF is its only PAL-data source,
 and no generated data-set digest is compiled into or compared by the firmware.
@@ -256,6 +267,48 @@ make -C esp32s3 xiaomiao-check
 make -C esp32s3 TF_MOUNT=/media/$USER/PALTF xiaomiao-prepare-tf
 make -C esp32s3 PORT=/dev/ttyUSB0 xiaomiao-flash
 make -C esp32s3 PORT=/dev/ttyUSB0 xiaomiao-flash-app
+```
+
+For a friend-facing, browser-only Cardputer ADV/Xiaomiao data build, serve the
+repository root on localhost and open `docs/index.html` in current
+Chrome or Edge:
+
+```sh
+python3 -m http.server 8000 --bind 127.0.0.1
+# open http://localhost:8000/docs/
+```
+
+Initially the page shows only the directory-selection step. After selecting an
+original Traditional Chinese DOS installation it automatically validates the
+required MKF tables, DOS YJ1 chunks, game tables, and media structures;
+downloads and verifies the pinned FONT10 archive; then builds the resource ZIP.
+Source acceptance is structural rather than tied to one PAL file digest, so
+structurally compatible DOS editions are accepted while Win95/98, Rouqing, and
+malformed mixed data fail closed. Cardputer bundle closures are derived from
+the selected DATA/SSS tables. A read-only scrolling text box at the bottom
+records every operation and the full stack/cause chain for caught and uncaught
+browser/Promise exceptions, and all game files stay local. The
+29,746-byte font ZIP beside the page in `docs/` contains the precise
+41,392-byte FONT10 corpus subset; the
+builder validates both layers and coverage, then subsets its fixed records
+again to the characters used by the selected directory. The downloaded ZIP
+contains all 19 unified TF files: `PALSET.BIN`,
+`chapter_manifest.json`, `pal_core.pak`, `pal_full.pak`, and `b00.pak` through
+`b14.pak`. Xiaomiao uses the portable complete pack; Cardputer ADV additionally
+uses the external NOR cache sources. On success the page instructs the user to
+extract the TF resource ZIP to the SD-card root.
+
+The transfer ZIP uses the vendored pako 2.1.0 `deflateRaw` implementation in
+`docs/pako.min.js`; its MIT/Zlib license is beside it in `docs/pako.LICENSE`.
+Extracted packs remain host-decoded and directly indexable. A PAL text corpus
+outside the pinned font dictionary fails instead of emitting a pack with
+missing glyphs.
+
+The shared Node.js/browser conversion core is checked byte-for-byte against
+the Python pack builder:
+
+```sh
+make -C esp32s3 xiaomiao-web-pack-check
 ```
 
 Use the `xtensa-esp-elf` toolchain selected by the active ESP-IDF checkout;

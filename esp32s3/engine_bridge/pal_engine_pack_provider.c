@@ -923,6 +923,56 @@ PalEngineBridge_MapNativeChunk(
    return true;
 }
 
+bool
+PalEngineBridge_ReadSfxPcm8(
+   uint16_t sound_id,
+   uint8_t *destination,
+   uint32_t capacity,
+   uint32_t *sample_count)
+{
+   PalPackSpan span;
+   PalPackChunkInfo info;
+   PalEngineArchiveStore store;
+
+   ensure_default_packs();
+   if (destination == NULL || sample_count == NULL)
+   {
+      return false;
+   }
+   *sample_count = 0u;
+   store = find_chunk_store(
+      PAL_PACK_ARCHIVE_SFX, sound_id, &span, &info);
+   if (store == PAL_ENGINE_ARCHIVE_STORE_OVERLAY ||
+      store == PAL_ENGINE_ARCHIVE_STORE_CORE)
+   {
+      if (span.format != PAL_PACK_FORMAT_SFX_PCM8 || span.flags != 0u ||
+         span.size > capacity)
+      {
+         return false;
+      }
+      if (span.size != 0u)
+      {
+         memcpy(destination, span.data, span.size);
+      }
+      *sample_count = span.size;
+      return true;
+   }
+   if (store != PAL_ENGINE_ARCHIVE_STORE_TF ||
+      info.format != PAL_PACK_FORMAT_SFX_PCM8 || info.flags != 0u ||
+      info.size > capacity)
+   {
+      return false;
+   }
+   if (info.size != 0u &&
+      !pal_engine_tf_read_at(
+         pal_engine_tf_user, info.offset, destination, info.size))
+   {
+      return false;
+   }
+   *sample_count = info.size;
+   return true;
+}
+
 INT
 __wrap_PAL_MKFReadChunk(
    LPBYTE buffer,

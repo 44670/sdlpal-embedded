@@ -26,8 +26,8 @@
 #define PAL_NDS_OPL_SAMPLE_RATE 16384u
 #define PAL_NDS_OPL_TICK_RATE 70u
 #define PAL_NDS_OPL_TICK_SAMPLES 235u
-#define PAL_NDS_AUDIO_SAMPLE_RATE 32768u
-#define PAL_NDS_AUDIO_UPSAMPLE_FACTOR 2u
+#define PAL_NDS_AUDIO_SAMPLE_RATE 16384u
+#define PAL_NDS_AUDIO_UPSAMPLE_FACTOR 1u
 #define PAL_NDS_AUDIO_TICK_SAMPLES 256u
 #define PAL_NDS_OPL_RENDER_SAMPLES \
    (PAL_NDS_AUDIO_TICK_SAMPLES / PAL_NDS_AUDIO_UPSAMPLE_FACTOR)
@@ -35,10 +35,13 @@
 #define PAL_NDS_OPL_STARTUP_TICKS 20u
 #define PAL_NDS_OPL_WRITES_PER_TICK 256u
 #define PAL_NDS_OPL_TICK_QUEUE_LENGTH 32u
-#define PAL_NDS_AUDIO_RING_TICKS 32u
+/* Four blocks bound newly triggered SFX latency to about 62.5 ms. */
+#define PAL_NDS_AUDIO_RING_TICKS 4u
 #define PAL_NDS_AUDIO_RING_SAMPLES \
    (PAL_NDS_AUDIO_TICK_SAMPLES * PAL_NDS_AUDIO_RING_TICKS)
 #define PAL_NDS_AUDIO_THREAD_STACK_BYTES 6144u
+#define PAL_NDS_SFX_SAMPLE_RATE 8192u
+#define PAL_NDS_SFX_BUFFER_SAMPLES (PAL_NDS_SFX_SAMPLE_RATE * 5u)
 
 typedef struct PalNdsOplWrite {
    uint8_t reg;
@@ -72,6 +75,7 @@ extern PalNdsOplWrite pal_nds_opl_staging[PAL_NDS_OPL_WRITES_PER_TICK];
 extern PalNdsOplTick pal_nds_opl_tick_queue[PAL_NDS_OPL_TICK_QUEUE_LENGTH];
 extern int16_t pal_nds_audio_ring[PAL_NDS_AUDIO_RING_SAMPLES];
 extern uint8_t pal_nds_audio_thread_stack[PAL_NDS_AUDIO_THREAD_STACK_BYTES];
+extern uint8_t pal_sram_sfx_pcm8[PAL_NDS_SFX_BUFFER_SAMPLES];
 extern volatile uint32_t pal_nds_opl_queue_overruns;
 extern volatile uint32_t pal_nds_opl_queue_underruns;
 extern volatile uint32_t pal_nds_audio_deadline_misses;

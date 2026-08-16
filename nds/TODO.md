@@ -37,22 +37,40 @@ Remaining:
   evidence. Do not add DSpico-private I/O or route this physical DLDI test
   through the emulator-only Slot-1/SPI fallback.
 
-## 2. Accept threaded RIX music
+## 2. Accept threaded RIX music and one SFX voice
 
 State: the software and emulator gates pass for melodic RIX tracks. The game
-thread queues 70Hz OPL writes and a peer-priority ARM9 worker renders OPL2 at
-16.384kHz, copying every synthesized sample twice into the 32.768kHz PCM
-stream. The 16.384kHz synthesis output is checked bit-for-bit against the
-unmodified DBOPL backend. Rhythm-mode tracks now retain their six melodic
+thread queues 70Hz OPL writes and an ARM9 worker one Calico priority level above
+the main thread renders OPL2 at the logical 16.384kHz rate directly into fixed
+256-frame mono PCM16 blocks. The 16.384kHz synthesis output is checked
+bit-for-bit against the unmodified DBOPL backend.
+Host-generated SFX are signed mono PCM8 at exactly 8.192kHz; one fixed
+40,960-byte main-SRAM slot holds up to five seconds, and each source sample is
+copied twice before saturating mix with music. A four-block PCM ring bounds its
+post-load contribution to output latency to about 62.5ms; synchronous storage
+time remains separate. Replaying the slot's `last_loaded_sound_id` restarts it
+without another storage read; only a different sound ID overwrites the slot.
+The independent 32-entry RIX queue retains scene-load lookahead. Rhythm-mode
+tracks retain their six melodic
 channels instead of being rejected wholesale. Their five OPL2 percussion
 voices remain deliberately omitted because the stock DBOPL percussion path
 misses the PCM deadline and starves the UI even at 16.384kHz. The pack-wide
 gate replays all 26 rhythm tracks and proves each retains melodic notes without
 keying the three percussion-reserved OPL channels; the worst 251-write tick is
-also covered by a forced Track 3 emulator performance run.
+also covered by a forced Track 3 emulator performance run. A positioned-save
+integration run exercised the real scene 4 event 108 script and sound 78;
+active mix blocks added about 0.27ms in that profile. A repeat with the current
+four-block PCM ring covered 1,728 render blocks, averaged 2.27ms, peaked at
+3.60ms, and had no PCM deadline misses or OPL queue underruns/overruns. This
+proves the ordinary
+script-to-pack-to-mixer path, not a natural route to the positioned event.
 
 Remaining:
 
+- Exercise additional long and battle effects in the emulator and confirm
+  one-voice replacement while effects overlap. Exact two-frame duplication is
+  already covered by the target mixer test and scripted sound 78 is covered by
+  target telemetry.
 - Listen on DS/DS Lite and adjust only the final channel level if necessary.
   Emulator waveform/timing checks do not replace physical speaker or
   headphone acceptance.
@@ -64,12 +82,14 @@ isometric tile records into an orthogonal walkable topology (including valid
 bottom-tile index zero terrain), then keeps only
 the four-neighbor closure containing the player. Active automatic transition
 zones are treated as impassable because entering one necessarily runs its
-scene-transfer script; their yellow boundary markers remain visible.
+scene-transfer script.
 Stationary active blockers with no trigger also participate in the closure,
 matching real movement collision and preventing Yangzhou scene 82 from
 spilling into the unused outer MAP lattice. Moving characters and interactive
 barriers are still ignored, so their motion does not regenerate the map.
-Ordinary movement does not recompute it. The selected result is cropped
+The closure seals are snapshotted when the scene becomes active; later event
+movement never regenerates the topology. Ordinary movement does not recompute
+it. The selected result is cropped
 into a fixed 1024x1024 tiled address space at exactly four pixels per logical
 grid cell. Adjacent walkable cells share uninterrupted blue fill; one-pixel
 white lines appear only at region boundaries. One VBlank DMA uploads the
@@ -80,6 +100,14 @@ movement now commits the live affine reference and red-marker scroll together
 inside a verified VBlank; the hidden main-screen bitmap DMA happens before the
 wait. This targets the reported one-frame, physical-hardware-only displacement
 without adding an unnecessary second tile-map buffer.
+Gray, yellow, and green event markers are managed by a separate fixed
+160-entry dynamic descriptor array. Green and gray points use their authored
+world coordinates and only receive the final screen clip: closure membership,
+closure proximity, and the cropped topology bounds never relocate or suppress
+them. Yellow automatic touch transitions instead mark an impassable cell in
+their trigger zone adjacent to the selected component, because their authored
+center can lie beyond the closure they terminate. Marker motion updates OAM
+only and cannot trigger a full MAP rebuild.
 
 Remaining:
 
@@ -88,8 +116,8 @@ Remaining:
   outdoor scenes, including a same-MAP floor transition and a large town map.
 - Confirm the orthogonal four-pixel pitch, merged blue walkable regions, white
   boundaries, gray non-character blockers, yellow stairs/exits, green event
-  points, omitted walking characters, and the small red point on a physical
-  DS/DS Lite LCD.
+  points, omitted non-interactive walking characters, and the small red point
+  on a physical DS/DS Lite LCD.
 - Repeatedly walk while a large map follows the player and confirm that neither
   the floor plan nor red point shows the previously reported transient
   one-frame displacement. Emulator frame captures cannot close this

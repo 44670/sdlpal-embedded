@@ -26,6 +26,12 @@ bool PalEngineBridge_MapNativeChunk(
    uint16_t chunk_id,
    const uint8_t **data,
    uint32_t *size);
+/* Copy one host-converted 8.192 kHz signed PCM8 effect into its fixed owner. */
+bool PalEngineBridge_ReadSfxPcm8(
+   uint16_t sound_id,
+   uint8_t *destination,
+   uint32_t capacity,
+   uint32_t *sample_count);
 int PalEngineBridge_GetNativeChunkSize(FILE *fp, uint16_t chunk_id);
 bool PalEngineBridge_ReadNativeChunkRange(FILE *fp,
                                           uint16_t chunk_id,

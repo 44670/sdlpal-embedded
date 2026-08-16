@@ -54,7 +54,7 @@
   },
   "profiles": {
     "rix-music": {
-      "description": "Adds the complete MUS.MKF RIX/OPL2 background-music archive to NOR. Original 88-slot numbering and the two source-empty slots are retained; MIDI, VOC, and SFX remain excluded.",
+      "description": "Adds the complete MUS.MKF RIX/OPL2 background-music archive to the legacy sparse NOR pair. Original 88-slot numbering and the two source-empty slots are retained; MIDI, VOC, and SFX remain excluded from that sparse pair. The current default profile reads host-converted SFX from the complete pal_full.pak mirror.",
       "pack_additions": {
         "nor": {
           "MUS": {

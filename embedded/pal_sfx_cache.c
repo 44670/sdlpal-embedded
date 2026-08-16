@@ -38,7 +38,7 @@ bool PalSfx_LoadBank(const PalPack *tf_pack, const uint16_t *chunk_nums, uint16_
             sfx_bank->used_bytes = 0;
             return false;
         }
-        if (span.format != PAL_PACK_FORMAT_SFX_PCM16) {
+        if (span.format != PAL_PACK_FORMAT_SFX_PCM8) {
             sfx_bank->entry_count = 0;
             sfx_bank->used_bytes = 0;
             return false;
@@ -103,7 +103,7 @@ bool PalSfx_LoadBankReadAt(
             sfx_bank->used_bytes = 0;
             return false;
         }
-        if (info.format != PAL_PACK_FORMAT_SFX_PCM16 || info.flags != 0u) {
+        if (info.format != PAL_PACK_FORMAT_SFX_PCM8 || info.flags != 0u) {
             sfx_bank->entry_count = 0;
             sfx_bank->used_bytes = 0;
             return false;

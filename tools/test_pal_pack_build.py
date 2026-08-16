@@ -132,6 +132,23 @@ def traverse_scripts(
 
 
 class PackBuilderUnitTests(unittest.TestCase):
+    def test_sfx_is_bounded_signed_pcm8_at_8192_hz(self) -> None:
+        self.assertEqual(builder.SFX_TARGET_SAMPLE_RATE, 8192)
+        self.assertEqual(builder.SFX_MAX_SAMPLES, 40960)
+        self.assertEqual(
+            builder.encode_sfx_payload(bytes((0, 128, 255)), 8192),
+            bytes((0x80, 0x00, 0x7F)),
+        )
+        with self.assertRaisesRegex(ValueError, "exceeds 40960"):
+            builder.encode_sfx_payload(bytes(40961), 8192)
+
+        # A 16.384 kHz two-sample box becomes one 8.192 kHz PCM8 sample;
+        # no runtime header or second byte per sample is retained in the pack.
+        self.assertEqual(
+            builder.encode_sfx_payload(bytes((0, 0, 255, 255)), 16384),
+            bytes((0x80, 0x7F)),
+        )
+
     def test_default_layout_v1_is_unchanged(self) -> None:
         layout = builder.load_pack_layout(DEFAULT_LAYOUT_PATH)
         self.assertEqual(layout.version, 1)

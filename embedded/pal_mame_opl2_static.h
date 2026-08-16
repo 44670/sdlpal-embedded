@@ -15,7 +15,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
- * pal_mame_opl2_static.h - Fixed-memory 22.05 kHz MAME YM3812 slice.
+ * pal_mame_opl2_static.h - Fixed-memory 16.384 kHz MAME YM3812 slice.
  */
 
 #ifndef PAL_MAME_OPL2_STATIC_H
@@ -29,7 +29,7 @@ extern "C" {
 #endif
 
 #define PAL_MAME_OPL2_CLOCK_HZ 3579545u
-#define PAL_MAME_OPL2_SAMPLE_RATE 22050u
+#define PAL_MAME_OPL2_SAMPLE_RATE 16384u
 
 /*
  * This backend deliberately owns exactly one YM3812 instance. Each embedded

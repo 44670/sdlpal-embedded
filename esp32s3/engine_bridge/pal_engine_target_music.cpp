@@ -8,6 +8,7 @@
 
 #include "../../audio.h"
 #include "../../palcfg.h"
+#include "../../palcommon.h"
 #include "../../adplug/rix.h"
 #include "../../embedded/pal_mame_opl2_static.h"
 #include "../../embedded/pal_music_cache.h"
@@ -17,16 +18,32 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 
 #include <limits.h>
 #include <stdint.h>
 #include <string.h>
 
+#if defined(__GNUC__)
+#define PAL_EXTREME_MUSIC_SRAM \
+    __attribute__((section(".bss.pal_music"), aligned(8)))
+#else
+#define PAL_EXTREME_MUSIC_SRAM
+#endif
+
+extern "C" {
+uint8_t pal_sram_sfx_pcm8[PAL_TARGET_SFX_BUFFER_SAMPLES]
+    PAL_EXTREME_MUSIC_SRAM;
+}
+
 namespace
 {
 
 constexpr uint32_t kSampleRate = PAL_TARGET_AUDIO_SAMPLE_RATE;
-constexpr size_t kTickSamples = PAL_TARGET_AUDIO_TICK_SAMPLES;
+constexpr size_t kBlockSamples = PAL_TARGET_AUDIO_BLOCK_SAMPLES;
+constexpr uint32_t kRixRate = PAL_TARGET_AUDIO_RIX_HZ;
+constexpr uint32_t kRixSampleBase = kSampleRate / kRixRate;
+constexpr uint32_t kRixSampleRemainder = kSampleRate % kRixRate;
 constexpr unsigned kCommandCount = 8;
 constexpr int32_t kQ15One = 1 << 15;
 constexpr uint32_t kFadePhaseOne = UINT32_C(1) << 31;
@@ -36,11 +53,16 @@ constexpr uint16_t kEmptyMusTrackA = 0u;
 constexpr uint16_t kEmptyMusTrackB = 29u;
 
 static_assert(
-    PAL_TARGET_AUDIO_TICK_HZ == 70u &&
-        kSampleRate % PAL_TARGET_AUDIO_TICK_HZ == 0u &&
-        kTickSamples ==
-            kSampleRate / PAL_TARGET_AUDIO_TICK_HZ,
-    "each RIX 70 Hz update must render one complete PCM tick");
+    kRixRate == 70u && kRixSampleBase != 0u &&
+        kRixSampleRemainder != 0u,
+    "16.384 kHz RIX playback requires a fractional 70 Hz clock");
+static_assert(
+    kBlockSamples == 256u && (kBlockSamples & 1u) == 0u,
+    "fixed blocks must preserve complete duplicated SFX sample pairs");
+static_assert(
+    PAL_TARGET_SFX_SAMPLE_RATE * 2u == kSampleRate &&
+        PAL_TARGET_SFX_BUFFER_SAMPLES == 40960u,
+    "the fixed SFX owner must hold five seconds of 8.192 kHz PCM8");
 static_assert(
     kSampleRate == PAL_MAME_OPL2_SAMPLE_RATE,
     "RIX sink and fixed OPL2 backend sample rates must match");
@@ -48,13 +70,6 @@ static_assert(
     (kFadePhaseOne >> 16) == static_cast<uint32_t>(kQ15One) &&
         PAL_MAX_VOLUME > 0,
     "fade and volume fixed-point scales must be valid");
-
-#if defined(__GNUC__)
-#define PAL_EXTREME_MUSIC_SRAM \
-    __attribute__((section(".bss.pal_music"), aligned(8)))
-#else
-#define PAL_EXTREME_MUSIC_SRAM
-#endif
 
 enum class CommandType : uint8_t
 {
@@ -135,9 +150,21 @@ struct MusicRuntime
     uint32_t fade_step_denominator;
     uint32_t applied_play_generation;
     uint16_t volume_q15;
+    uint32_t rix_sample_phase;
+    uint32_t rix_samples_remaining;
     uint32_t rendered_ticks;
     uint32_t completed_loops;
     uint32_t missing_tracks;
+};
+
+struct SfxRuntime
+{
+    uint32_t sample_count;
+    uint32_t cursor;
+    int32_t last_loaded_sound_id;
+    uint16_t volume_q15;
+    uint8_t repeat_phase;
+    bool active;
 };
 
 static const char *const kTag = "pal_music";
@@ -152,6 +179,9 @@ static uint8_t
 static QueueHandle_t pal_music_command_queue;
 static MusicCommand pal_music_desired PAL_EXTREME_MUSIC_SRAM;
 static uint32_t pal_music_command_drops;
+static SfxRuntime pal_sfx_runtime PAL_EXTREME_MUSIC_SRAM;
+static StaticSemaphore_t pal_sfx_mutex_object PAL_EXTREME_MUSIC_SRAM;
+static SemaphoreHandle_t pal_sfx_mutex;
 
 static int
 music_clamped_config_volume()
@@ -183,6 +213,119 @@ music_sdl_volume()
 {
     return music_clamped_config_volume() *
            SDL_MIX_MAXVOLUME / PAL_MAX_VOLUME;
+}
+
+static int
+sound_clamped_config_volume()
+{
+    int volume = gConfig.iSoundVolume;
+
+    if (volume < 0)
+    {
+        volume = 0;
+    }
+    else if (volume > PAL_MAX_VOLUME)
+    {
+        volume = PAL_MAX_VOLUME;
+    }
+    return volume;
+}
+
+static uint16_t
+sound_volume_q15()
+{
+    const int volume = sound_clamped_config_volume();
+
+    return static_cast<uint16_t>(
+        (volume * kQ15One + PAL_MAX_VOLUME / 2) / PAL_MAX_VOLUME);
+}
+
+static int
+sound_sdl_volume()
+{
+    return sound_clamped_config_volume() *
+           SDL_MIX_MAXVOLUME / PAL_MAX_VOLUME;
+}
+
+static int16_t
+sound_clamp_pcm16(int32_t sample)
+{
+    return static_cast<int16_t>(
+        sample > INT16_MAX ? INT16_MAX :
+        sample < INT16_MIN ? INT16_MIN : sample);
+}
+
+static void
+sound_lock()
+{
+    if (pal_sfx_mutex != nullptr)
+    {
+        (void)xSemaphoreTake(pal_sfx_mutex, portMAX_DELAY);
+    }
+}
+
+static void
+sound_unlock()
+{
+    if (pal_sfx_mutex != nullptr)
+    {
+        (void)xSemaphoreGive(pal_sfx_mutex);
+    }
+}
+
+static void
+sound_stop_now()
+{
+    sound_lock();
+    pal_sfx_runtime.cursor = 0u;
+    pal_sfx_runtime.repeat_phase = 0u;
+    pal_sfx_runtime.active = false;
+    sound_unlock();
+}
+
+static void
+sound_invalidate_loaded()
+{
+    sound_lock();
+    pal_sfx_runtime.sample_count = 0u;
+    pal_sfx_runtime.cursor = 0u;
+    pal_sfx_runtime.last_loaded_sound_id = -1;
+    pal_sfx_runtime.repeat_phase = 0u;
+    pal_sfx_runtime.active = false;
+    sound_unlock();
+}
+
+static void
+sound_mix(int16_t *samples, size_t sample_count)
+{
+    size_t i;
+
+    sound_lock();
+    for (i = 0u;
+         i < sample_count && pal_sfx_runtime.active;
+         i++)
+    {
+        const uint8_t encoded =
+            pal_sram_sfx_pcm8[pal_sfx_runtime.cursor];
+        const int32_t pcm8 = encoded < 128u
+            ? static_cast<int32_t>(encoded)
+            : static_cast<int32_t>(encoded) - 256;
+        const int32_t effect =
+            (pcm8 * 256 * pal_sfx_runtime.volume_q15) >> 15;
+
+        samples[i] = sound_clamp_pcm16(
+            static_cast<int32_t>(samples[i]) + effect);
+        pal_sfx_runtime.repeat_phase ^= 1u;
+        if (pal_sfx_runtime.repeat_phase == 0u)
+        {
+            pal_sfx_runtime.cursor++;
+            if (pal_sfx_runtime.cursor >= pal_sfx_runtime.sample_count)
+            {
+                pal_sfx_runtime.active = false;
+            }
+        }
+    }
+    sound_unlock();
 }
 
 static uint32_t
@@ -328,6 +471,8 @@ music_stop_now()
     state.fade_step_remainder = 0;
     state.fade_step_error = 0;
     state.fade_step_denominator = 0;
+    state.rix_sample_phase = 0u;
+    state.rix_samples_remaining = 0u;
     state.mapped_track.data = nullptr;
     state.mapped_track.size = 0;
     state.mapped_track.track_num = 0;
@@ -524,6 +669,8 @@ music_start_pending()
     state.current_track = track_number;
     state.current_loop = loop;
     state.playing = true;
+    state.rix_sample_phase = 0u;
+    state.rix_samples_remaining = 0u;
     if (fade_in == 0)
     {
         music_clear_fade();
@@ -621,14 +768,17 @@ music_drain_commands()
 }
 
 static bool
-music_render_tick_source(int16_t *samples)
+music_prepare_rix_interval()
 {
     MusicRuntime &state = pal_music_runtime;
     bool retried_loop = false;
 
+    if (state.fade == FadeState::Out && state.fade_remaining == 0u)
+    {
+        (void)music_start_pending();
+    }
     if (!state.playing)
     {
-        memset(samples, 0, kTickSamples * sizeof(*samples));
         return false;
     }
 
@@ -665,13 +815,26 @@ music_render_tick_source(int16_t *samples)
         }
 
         music_stop_now();
-        memset(samples, 0, kTickSamples * sizeof(*samples));
         return false;
     }
 
-    PalMameOpl2_Render(samples, kTickSamples);
     state.rendered_ticks++;
     return true;
+}
+
+static uint32_t
+music_next_rix_sample_count()
+{
+    MusicRuntime &state = pal_music_runtime;
+    uint32_t result = kRixSampleBase;
+
+    state.rix_sample_phase += kRixSampleRemainder;
+    if (state.rix_sample_phase >= kRixRate)
+    {
+        state.rix_sample_phase -= kRixRate;
+        result++;
+    }
+    return result;
 }
 
 static void
@@ -681,71 +844,65 @@ music_render(
     size_t sample_count)
 {
     MusicRuntime &state = pal_music_runtime;
-    bool finish_fade_out = false;
-    size_t i;
+    size_t offset = 0u;
 
     (void)user;
     if (samples == nullptr)
     {
         return;
     }
-    if (sample_count != kTickSamples)
+    if (sample_count != kBlockSamples)
     {
         const size_t safe_samples =
-            sample_count < kTickSamples ? sample_count : kTickSamples;
+            sample_count < kBlockSamples ? sample_count : kBlockSamples;
         memset(samples, 0, safe_samples * sizeof(*samples));
         return;
     }
 
     music_drain_commands();
+    memset(samples, 0, sample_count * sizeof(*samples));
     /*
      * The desktop mixer does not call the RIX player while music is disabled
      * or its volume is zero.  Preserve that pause/resume behavior here: a
-     * zero-volume interval must not advance the sequencer, OPL state, or an
-     * in-progress fade behind the user's back.
+     * zero-volume block must not advance the sequencer, OPL state, or an
+     * in-progress fade behind the user's back. Effects remain independent.
      */
-    if (!state.enabled || state.volume_q15 == 0)
+    while (state.enabled && state.volume_q15 != 0u && offset < sample_count)
     {
-        memset(samples, 0, sample_count * sizeof(*samples));
-        return;
-    }
-    if (state.fade == FadeState::Out && state.fade_remaining == 0)
-    {
-        (void)music_start_pending();
-    }
-    (void)music_render_tick_source(samples);
+        size_t amount;
 
-    for (i = 0; i < sample_count; i++)
-    {
-        int32_t fade_gain = music_fade_gain_q15();
-        int32_t gain = static_cast<int32_t>(
-            (static_cast<int64_t>(fade_gain) * state.volume_q15 +
-             (1 << 14)) >>
-            15);
-        int32_t sample = static_cast<int32_t>(
-            (static_cast<int64_t>(samples[i]) * gain) >> 15);
-
-        samples[i] = static_cast<int16_t>(sample);
-        if (music_advance_fade_one_sample())
+        if (state.rix_samples_remaining == 0u)
         {
-            finish_fade_out = true;
-            memset(
-                samples + i + 1,
-                0,
-                (sample_count - i - 1) * sizeof(*samples));
-            break;
+            (void)music_prepare_rix_interval();
+            state.rix_samples_remaining =
+                music_next_rix_sample_count();
         }
-    }
+        amount = sample_count - offset;
+        if (amount > state.rix_samples_remaining)
+        {
+            amount = state.rix_samples_remaining;
+        }
+        if (state.playing)
+        {
+            PalMameOpl2_Render(samples + offset, amount);
+        }
+        for (size_t i = 0u; i < amount; i++)
+        {
+            const int32_t fade_gain = music_fade_gain_q15();
+            const int32_t gain = static_cast<int32_t>(
+                (static_cast<int64_t>(fade_gain) * state.volume_q15 +
+                 (1 << 14)) >>
+                15);
 
-    /*
-     * Track changes are quantized to the next 70 Hz boundary.  That preserves
-     * the first new RIX tick's full 315-sample duration; the maximum extension
-     * of a requested fade is one 14.3 ms tick.
-     */
-    if (finish_fade_out)
-    {
-        (void)music_start_pending();
+            samples[offset + i] = static_cast<int16_t>(
+                (static_cast<int64_t>(samples[offset + i]) * gain) >> 15);
+            (void)music_advance_fade_one_sample();
+        }
+
+        state.rix_samples_remaining -= static_cast<uint32_t>(amount);
+        offset += amount;
     }
+    sound_mix(samples, sample_count);
 }
 
 } // namespace
@@ -765,13 +922,23 @@ AUDIO_OpenDevice(VOID)
     memset(&gAudioDevice, 0, sizeof(gAudioDevice));
     memset(&pal_music_runtime, 0, sizeof(pal_music_runtime));
     memset(&pal_music_desired, 0, sizeof(pal_music_desired));
+    memset(&pal_sfx_runtime, 0, sizeof(pal_sfx_runtime));
+    pal_sfx_runtime.last_loaded_sound_id = -1;
     pal_music_command_queue = nullptr;
     pal_music_command_drops = 0;
+    pal_sfx_mutex = xSemaphoreCreateMutexStatic(&pal_sfx_mutex_object);
+    if (pal_sfx_mutex == nullptr)
+    {
+        ESP_LOGE(kTag, "cannot create fixed SFX mutex");
+        return -1;
+    }
     pal_music_runtime.current_track = -1;
     pal_music_runtime.pending_track = -1;
     pal_music_runtime.enabled = true;
     gConfig.iMusicVolume = music_clamped_config_volume();
+    gConfig.iSoundVolume = sound_clamped_config_volume();
     pal_music_runtime.volume_q15 = music_volume_q15();
+    pal_sfx_runtime.volume_q15 = sound_volume_q15();
     pal_music_desired.type = CommandType::Play;
     pal_music_desired.track = 0;
     pal_music_desired.enabled = 1u;
@@ -783,11 +950,11 @@ AUDIO_OpenDevice(VOID)
     gAudioDevice.spec.channels = 1;
 #if !SDL_VERSION_ATLEAST(3, 0, 0)
     gAudioDevice.spec.samples =
-        static_cast<Uint16>(PAL_TARGET_AUDIO_TICK_SAMPLES);
+        static_cast<Uint16>(PAL_TARGET_AUDIO_BLOCK_SAMPLES);
 #endif
     gAudioDevice.iMusicVolume = music_sdl_volume();
-    gAudioDevice.iSoundVolume = 0;
-    gAudioDevice.fSoundEnabled = FALSE;
+    gAudioDevice.iSoundVolume = sound_sdl_volume();
+    gAudioDevice.fSoundEnabled = TRUE;
 
     if (!PalContract_TargetOpenNorPack(&pal_music_runtime.nor_pack))
     {
@@ -824,8 +991,11 @@ AUDIO_OpenDevice(VOID)
     gAudioDevice.fMusicEnabled = TRUE;
     ESP_LOGI(
         kTag,
-        "fixed RIX music ready: rate=%u OPL_state=%u OPL_tables=%u",
+        "fixed audio ready: music=%u Hz SFX=%u Hz/%u bytes "
+        "OPL_state=%u OPL_tables=%u",
         static_cast<unsigned>(kSampleRate),
+        static_cast<unsigned>(PAL_TARGET_SFX_SAMPLE_RATE),
+        static_cast<unsigned>(sizeof(pal_sram_sfx_pcm8)),
         static_cast<unsigned>(PalMameOpl2_StateBytes()),
         static_cast<unsigned>(PalMameOpl2_TableBytes()));
     return 0;
@@ -842,8 +1012,10 @@ AUDIO_CloseDevice(VOID)
 {
     if (!gAudioDevice.fOpened)
     {
+        sound_invalidate_loaded();
         pal_music_command_queue = nullptr;
         gAudioDevice.fMusicEnabled = FALSE;
+        gAudioDevice.fSoundEnabled = FALSE;
         return;
     }
 
@@ -861,9 +1033,11 @@ AUDIO_CloseDevice(VOID)
         static_cast<unsigned>(pal_music_runtime.missing_tracks),
         static_cast<unsigned>(pal_music_command_drops));
     music_stop_now();
+    sound_invalidate_loaded();
     pal_music_command_queue = nullptr;
     gAudioDevice.fOpened = FALSE;
     gAudioDevice.fMusicEnabled = FALSE;
+    gAudioDevice.fSoundEnabled = FALSE;
 }
 
 SDL_AudioSpec *
@@ -877,6 +1051,7 @@ AUDIO_IncreaseVolume(VOID)
 {
     MusicCommand command = pal_music_desired;
     int volume = music_clamped_config_volume();
+    int sound_volume = sound_clamped_config_volume();
 
     if (PAL_MAX_VOLUME - volume < 3)
     {
@@ -886,8 +1061,21 @@ AUDIO_IncreaseVolume(VOID)
     {
         volume += 3;
     }
+    if (PAL_MAX_VOLUME - sound_volume < 3)
+    {
+        sound_volume = PAL_MAX_VOLUME;
+    }
+    else
+    {
+        sound_volume += 3;
+    }
     gConfig.iMusicVolume = volume;
+    gConfig.iSoundVolume = sound_volume;
     gAudioDevice.iMusicVolume = music_sdl_volume();
+    gAudioDevice.iSoundVolume = sound_sdl_volume();
+    sound_lock();
+    pal_sfx_runtime.volume_q15 = sound_volume_q15();
+    sound_unlock();
     command.type = CommandType::Volume;
     command.volume_q15 = music_volume_q15();
     pal_music_desired.volume_q15 = command.volume_q15;
@@ -902,6 +1090,7 @@ AUDIO_DecreaseVolume(VOID)
 {
     MusicCommand command = pal_music_desired;
     int volume = music_clamped_config_volume();
+    int sound_volume = sound_clamped_config_volume();
 
     if (volume < 3)
     {
@@ -911,8 +1100,21 @@ AUDIO_DecreaseVolume(VOID)
     {
         volume -= 3;
     }
+    if (sound_volume < 3)
+    {
+        sound_volume = 0;
+    }
+    else
+    {
+        sound_volume -= 3;
+    }
     gConfig.iMusicVolume = volume;
+    gConfig.iSoundVolume = sound_volume;
     gAudioDevice.iMusicVolume = music_sdl_volume();
+    gAudioDevice.iSoundVolume = sound_sdl_volume();
+    sound_lock();
+    pal_sfx_runtime.volume_q15 = sound_volume_q15();
+    sound_unlock();
     command.type = CommandType::Volume;
     command.volume_q15 = music_volume_q15();
     pal_music_desired.volume_q15 = command.volume_q15;
@@ -968,7 +1170,58 @@ AUDIO_PlayCDTrack(INT track)
 VOID
 AUDIO_PlaySound(INT sound)
 {
-    (void)sound;
+    const int64_t signed_sound = static_cast<int64_t>(sound);
+    const uint64_t absolute_sound = signed_sound < 0
+        ? static_cast<uint64_t>(-signed_sound)
+        : static_cast<uint64_t>(signed_sound);
+    uint32_t sample_count = 0u;
+
+    if (!gAudioDevice.fOpened || !gAudioDevice.fSoundEnabled ||
+        sound_clamped_config_volume() == 0 ||
+        absolute_sound == 0u || absolute_sound > UINT16_MAX)
+    {
+        sound_stop_now();
+        return;
+    }
+    sound_lock();
+    if (pal_sfx_runtime.last_loaded_sound_id ==
+        static_cast<int32_t>(absolute_sound))
+    {
+        pal_sfx_runtime.cursor = 0u;
+        pal_sfx_runtime.volume_q15 = sound_volume_q15();
+        pal_sfx_runtime.repeat_phase = 0u;
+        pal_sfx_runtime.active = pal_sfx_runtime.sample_count != 0u;
+        sound_unlock();
+        return;
+    }
+    pal_sfx_runtime.sample_count = 0u;
+    pal_sfx_runtime.cursor = 0u;
+    pal_sfx_runtime.last_loaded_sound_id = -1;
+    pal_sfx_runtime.repeat_phase = 0u;
+    pal_sfx_runtime.active = false;
+    sound_unlock();
+    if (!PalEngineBridge_ReadSfxPcm8(
+            static_cast<uint16_t>(absolute_sound),
+            pal_sram_sfx_pcm8,
+            sizeof(pal_sram_sfx_pcm8),
+            &sample_count))
+    {
+        ESP_LOGE(kTag, "SFX %u is unavailable or exceeds the fixed owner",
+            static_cast<unsigned>(absolute_sound));
+        PalTargetAudio_RecordSourceFault(
+            -static_cast<int32_t>(absolute_sound));
+        return;
+    }
+
+    sound_lock();
+    pal_sfx_runtime.sample_count = sample_count;
+    pal_sfx_runtime.cursor = 0u;
+    pal_sfx_runtime.last_loaded_sound_id =
+        static_cast<int32_t>(absolute_sound);
+    pal_sfx_runtime.volume_q15 = sound_volume_q15();
+    pal_sfx_runtime.repeat_phase = 0u;
+    pal_sfx_runtime.active = sample_count != 0u;
+    sound_unlock();
 }
 
 VOID
@@ -997,14 +1250,23 @@ AUDIO_MusicEnabled(VOID)
 VOID
 AUDIO_EnableSound(BOOL enable)
 {
-    (void)enable;
-    gAudioDevice.fSoundEnabled = FALSE;
+    gAudioDevice.fSoundEnabled = enable ? TRUE : FALSE;
+    sound_lock();
+    pal_sfx_runtime.volume_q15 = sound_volume_q15();
+    if (!enable)
+    {
+        pal_sfx_runtime.sample_count = 0u;
+        pal_sfx_runtime.cursor = 0u;
+        pal_sfx_runtime.repeat_phase = 0u;
+        pal_sfx_runtime.active = false;
+    }
+    sound_unlock();
 }
 
 BOOL
 AUDIO_SoundEnabled(VOID)
 {
-    return FALSE;
+    return gAudioDevice.fSoundEnabled;
 }
 
 void

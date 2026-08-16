@@ -1,0 +1,314 @@
+{
+  "core_full_archives": [
+    "DATA",
+    "SSS",
+    "TEXT",
+    "PAT",
+    "MUS",
+    "BALL",
+    "RGM",
+    "F",
+    "FIRE"
+  ],
+  "core_mgo_ids": [
+    2,
+    3,
+    5,
+    7,
+    26,
+    71,
+    73,
+    193,
+    208,
+    228,
+    232,
+    236,
+    242,
+    245,
+    259,
+    273,
+    361,
+    379,
+    385,
+    394,
+    511,
+    521,
+    525,
+    531,
+    532,
+    533,
+    534,
+    538,
+    541,
+    550,
+    563,
+    576,
+    607,
+    627,
+    630,
+    631,
+    632
+  ],
+  "scene_bundles": [
+    {
+      "bundle_id": 0,
+      "scene_count": 20,
+      "scene_ranges": [
+        [
+          1,
+          20
+        ]
+      ]
+    },
+    {
+      "bundle_id": 1,
+      "scene_count": 18,
+      "scene_ranges": [
+        [
+          21,
+          38
+        ]
+      ]
+    },
+    {
+      "bundle_id": 2,
+      "scene_count": 20,
+      "scene_ranges": [
+        [
+          39,
+          47
+        ],
+        [
+          101,
+          104
+        ],
+        [
+          106,
+          107
+        ],
+        [
+          109,
+          113
+        ]
+      ]
+    },
+    {
+      "bundle_id": 3,
+      "scene_count": 15,
+      "scene_ranges": [
+        [
+          48,
+          58
+        ],
+        [
+          77,
+          78
+        ],
+        [
+          80,
+          80
+        ],
+        [
+          121,
+          121
+        ]
+      ]
+    },
+    {
+      "bundle_id": 4,
+      "scene_count": 18,
+      "scene_ranges": [
+        [
+          59,
+          76
+        ]
+      ]
+    },
+    {
+      "bundle_id": 5,
+      "scene_count": 21,
+      "scene_ranges": [
+        [
+          79,
+          79
+        ],
+        [
+          81,
+          99
+        ],
+        [
+          105,
+          105
+        ]
+      ]
+    },
+    {
+      "bundle_id": 6,
+      "scene_count": 25,
+      "scene_ranges": [
+        [
+          100,
+          100
+        ],
+        [
+          108,
+          108
+        ],
+        [
+          114,
+          120
+        ],
+        [
+          122,
+          137
+        ]
+      ]
+    },
+    {
+      "bundle_id": 7,
+      "scene_count": 18,
+      "scene_ranges": [
+        [
+          138,
+          143
+        ],
+        [
+          215,
+          226
+        ]
+      ]
+    },
+    {
+      "bundle_id": 8,
+      "scene_count": 23,
+      "scene_ranges": [
+        [
+          150,
+          151
+        ],
+        [
+          155,
+          155
+        ],
+        [
+          157,
+          164
+        ],
+        [
+          172,
+          174
+        ],
+        [
+          176,
+          177
+        ],
+        [
+          193,
+          199
+        ]
+      ]
+    },
+    {
+      "bundle_id": 9,
+      "scene_count": 17,
+      "scene_ranges": [
+        [
+          144,
+          149
+        ],
+        [
+          152,
+          154
+        ],
+        [
+          156,
+          156
+        ],
+        [
+          165,
+          171
+        ]
+      ]
+    },
+    {
+      "bundle_id": 10,
+      "scene_count": 16,
+      "scene_ranges": [
+        [
+          175,
+          175
+        ],
+        [
+          178,
+          192
+        ]
+      ]
+    },
+    {
+      "bundle_id": 11,
+      "scene_count": 27,
+      "scene_ranges": [
+        [
+          200,
+          200
+        ],
+        [
+          202,
+          214
+        ],
+        [
+          259,
+          260
+        ],
+        [
+          263,
+          273
+        ]
+      ]
+    },
+    {
+      "bundle_id": 12,
+      "scene_count": 21,
+      "scene_ranges": [
+        [
+          201,
+          201
+        ],
+        [
+          227,
+          246
+        ]
+      ]
+    },
+    {
+      "bundle_id": 13,
+      "scene_count": 17,
+      "scene_ranges": [
+        [
+          247,
+          258
+        ],
+        [
+          261,
+          262
+        ],
+        [
+          274,
+          276
+        ]
+      ]
+    },
+    {
+      "bundle_id": 14,
+      "scene_count": 23,
+      "scene_ranges": [
+        [
+          277,
+          299
+        ]
+      ]
+    }
+  ],
+  "schema": "sdlpal-web-cardputer-plan",
+  "version": 2
+}

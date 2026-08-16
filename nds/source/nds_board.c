@@ -36,7 +36,7 @@ enum {
    PAL_NDS_MINIMAP_MARKER_RED = 1u,
    PAL_NDS_MINIMAP_MARKER_CENTER = 4u,
    PAL_NDS_MAP_BLOCKED = 0x2000u,
-   PAL_NDS_MINIMAP_MAX_OBSTACLES = 128u,
+   PAL_NDS_MINIMAP_MAX_EVENT_MARKERS = 128u,
    PAL_NDS_MINIMAP_PALETTE_GRAY = 0u,
    PAL_NDS_MINIMAP_PALETTE_YELLOW = 1u,
    PAL_NDS_MINIMAP_PALETTE_GREEN = 2u,
@@ -44,6 +44,26 @@ enum {
    PAL_NDS_MINIMAP_SCRIPT_GRAPH_LIMIT = 64u,
    PAL_NDS_MINIMAP_SCENE_EVENT_CAPACITY = 160u,
 };
+
+typedef struct tagPALNDSMINIMAPEVENTMARKER
+{
+   uint16_t event_index;
+   WORD trigger_script;
+   uint8_t trigger_changes_scene;
+   uint8_t reserved;
+} PALNDSMINIMAPEVENTMARKER;
+
+typedef struct tagPALNDSMINIMAPCLOSUREBLOCKER
+{
+   uint16_t x;
+   uint16_t y;
+   uint16_t blocked_distance;
+} PALNDSMINIMAPCLOSUREBLOCKER;
+
+_Static_assert(sizeof(PALNDSMINIMAPEVENTMARKER) == 6u,
+   "minimap event-marker descriptor size changed");
+_Static_assert(sizeof(PALNDSMINIMAPCLOSUREBLOCKER) == 6u,
+   "minimap closure-blocker descriptor size changed");
 
 _Static_assert(
    PAL_NDS_MINIMAP_TILEMAP_ENTRIES >=
@@ -103,8 +123,6 @@ static int pal_nds_minimap_pending_map = -1;
 static int pal_nds_minimap_pending_scene = -1;
 static int pal_nds_minimap_component_seed_column = -1;
 static int pal_nds_minimap_component_seed_row = -1;
-static uint32_t pal_nds_minimap_pending_portal_signature;
-static uint32_t pal_nds_minimap_pending_structural_signature;
 static uint32_t pal_nds_minimap_generation;
 static uint32_t pal_nds_minimap_pending_generation;
 static unsigned pal_nds_minimap_min_column;
@@ -121,11 +139,14 @@ static int pal_nds_minimap_marker_y = -1;
 static int pal_nds_minimap_pending_marker_x = -1;
 static int pal_nds_minimap_pending_marker_y = -1;
 static unsigned pal_nds_minimap_tile_count;
-static unsigned pal_nds_minimap_obstacle_count;
+static unsigned pal_nds_minimap_event_marker_oam_count;
 static bool pal_nds_minimap_pending_visible;
-static unsigned pal_nds_minimap_stationary_event_count;
-static uint8_t pal_nds_minimap_stationary_events[
-   (PAL_NDS_MINIMAP_SCENE_EVENT_CAPACITY + 7u) / 8u];
+static unsigned pal_nds_minimap_event_marker_count;
+static PALNDSMINIMAPEVENTMARKER pal_nds_minimap_event_markers[
+   PAL_NDS_MINIMAP_SCENE_EVENT_CAPACITY];
+static unsigned pal_nds_minimap_closure_blocker_count;
+static PALNDSMINIMAPCLOSUREBLOCKER pal_nds_minimap_closure_blockers[
+   PAL_NDS_MINIMAP_SCENE_EVENT_CAPACITY];
 
 static bool
 pal_nds_minimap_script_changes_scene(
@@ -270,17 +291,49 @@ pal_nds_minimap_auto_script_moves_event(
    return false;
 }
 
-static bool
-pal_nds_minimap_stationary_event_get(
-   unsigned index)
+static void
+pal_nds_minimap_update_marker_trigger(
+   PALNDSMINIMAPEVENTMARKER *marker,
+   const EVENTOBJECT *event_object)
 {
-   return index < pal_nds_minimap_stationary_event_count &&
-      (pal_nds_minimap_stationary_events[index >> 3] &
-         (uint8_t)(1u << (index & 7u))) != 0u;
+   if (marker->trigger_script == event_object->wTriggerScript)
+   {
+      return;
+   }
+   marker->trigger_script = event_object->wTriggerScript;
+   marker->trigger_changes_scene =
+      event_object->wTriggerScript != 0u &&
+      pal_nds_minimap_script_changes_scene(
+         event_object->wTriggerScript) ? 1u : 0u;
+}
+
+static bool
+pal_nds_minimap_event_is_touch_exit(
+   const EVENTOBJECT *event_object,
+   const PALNDSMINIMAPEVENTMARKER *marker)
+{
+   return event_object != NULL && marker != NULL &&
+      event_object->sVanishTime == 0 &&
+      event_object->sState > kObjStateHidden &&
+      event_object->wTriggerMode >= kTriggerTouchNear &&
+      event_object->wTriggerScript != 0u &&
+      marker->trigger_changes_scene != 0u;
+}
+
+static bool
+pal_nds_minimap_event_is_structural_blocker(
+   const EVENTOBJECT *event_object,
+   bool stationary)
+{
+   return event_object != NULL && stationary &&
+      event_object->sVanishTime == 0 &&
+      event_object->sState >= kObjStateBlocker &&
+      event_object->wTriggerMode == kTriggerNone &&
+      event_object->wTriggerScript == 0u;
 }
 
 static void
-pal_nds_minimap_cache_stationary_events(
+pal_nds_minimap_cache_scene_events(
    const EVENTOBJECT *event_objects,
    unsigned event_object_count)
 {
@@ -291,109 +344,89 @@ pal_nds_minimap_cache_stationary_events(
       NdsTarget_FatalAt(__FILE__, __LINE__,
          "minimap scene-event profile overflow");
    }
-   memset(pal_nds_minimap_stationary_events, 0,
-      sizeof(pal_nds_minimap_stationary_events));
-   pal_nds_minimap_stationary_event_count = event_object_count;
-   for (i = 0u; i < event_object_count; i++)
-   {
-      if (!pal_nds_minimap_auto_script_moves_event(
-            event_objects[i].wAutoScript))
-      {
-         pal_nds_minimap_stationary_events[i >> 3] |=
-            (uint8_t)(1u << (i & 7u));
-      }
-   }
-}
-
-static bool
-pal_nds_minimap_event_is_structural_blocker(
-   const EVENTOBJECT *event_object,
-   unsigned index)
-{
-   return event_object != NULL &&
-      pal_nds_minimap_stationary_event_get(index) &&
-      event_object->sVanishTime == 0 &&
-      event_object->sState >= kObjStateBlocker &&
-      event_object->wTriggerMode == kTriggerNone &&
-      event_object->wTriggerScript == 0u;
-}
-
-static uint32_t
-pal_nds_minimap_structural_signature(
-   const EVENTOBJECT *event_objects,
-   unsigned event_object_count)
-{
-   uint32_t signature = 2166136261u;
-   unsigned i;
-
+   memset(pal_nds_minimap_event_markers, 0,
+      sizeof(pal_nds_minimap_event_markers));
+   memset(pal_nds_minimap_closure_blockers, 0,
+      sizeof(pal_nds_minimap_closure_blockers));
+   pal_nds_minimap_event_marker_count = event_object_count;
+   pal_nds_minimap_closure_blocker_count = 0u;
    for (i = 0u; i < event_object_count; i++)
    {
       const EVENTOBJECT *event_object = event_objects + i;
+      PALNDSMINIMAPEVENTMARKER *marker =
+         pal_nds_minimap_event_markers + i;
+      PALNDSMINIMAPCLOSUREBLOCKER *blocker;
+      bool stationary = !pal_nds_minimap_auto_script_moves_event(
+         event_object->wAutoScript);
+      uint32_t blocked_distance = 0u;
 
-      if (!pal_nds_minimap_event_is_structural_blocker(event_object, i))
+      marker->event_index = (uint16_t)i;
+      marker->trigger_script = event_object->wTriggerScript;
+      marker->trigger_changes_scene =
+         event_object->wTriggerScript != 0u &&
+         pal_nds_minimap_script_changes_scene(
+            event_object->wTriggerScript) ? 1u : 0u;
+      if (pal_nds_minimap_event_is_touch_exit(event_object, marker))
+      {
+         blocked_distance =
+            ((uint32_t)event_object->wTriggerMode -
+               (uint32_t)kTriggerTouchNear) * 32u + 16u;
+      }
+      else if (pal_nds_minimap_event_is_structural_blocker(
+            event_object, stationary))
+      {
+         blocked_distance = 16u;
+      }
+      if (blocked_distance == 0u)
       {
          continue;
       }
-#define PAL_NDS_MINIMAP_HASH(value) do { \
-      signature ^= (uint32_t)(value);       \
-      signature *= 16777619u;               \
-   } while (0)
-      PAL_NDS_MINIMAP_HASH(i);
-      PAL_NDS_MINIMAP_HASH(event_object->x);
-      PAL_NDS_MINIMAP_HASH(event_object->y);
-      PAL_NDS_MINIMAP_HASH(event_object->sState);
-#undef PAL_NDS_MINIMAP_HASH
+      if (pal_nds_minimap_closure_blocker_count >=
+            PAL_NDS_MINIMAP_SCENE_EVENT_CAPACITY ||
+         blocked_distance > UINT16_MAX)
+      {
+         NdsTarget_FatalAt(__FILE__, __LINE__,
+            "minimap closure-blocker profile overflow");
+      }
+      blocker = pal_nds_minimap_closure_blockers +
+         pal_nds_minimap_closure_blocker_count++;
+      blocker->x = event_object->x;
+      blocker->y = event_object->y;
+      blocker->blocked_distance = (uint16_t)blocked_distance;
    }
-   return signature;
 }
 
-static bool
-pal_nds_minimap_event_is_touch_exit(
-   const EVENTOBJECT *event_object)
-{
-   return event_object != NULL &&
-      event_object->sVanishTime == 0 &&
-      event_object->sState > kObjStateHidden &&
-      event_object->wTriggerMode >= kTriggerTouchNear &&
-      event_object->wTriggerScript != 0u &&
-      pal_nds_minimap_script_changes_scene(
-         event_object->wTriggerScript);
-}
-
-static uint32_t
-pal_nds_minimap_portal_signature(
+static void
+pal_nds_minimap_refresh_event_markers(
    const EVENTOBJECT *event_objects,
    unsigned event_object_count)
 {
-   uint32_t signature = 2166136261u;
    unsigned i;
 
+   if (event_object_count != pal_nds_minimap_event_marker_count)
+   {
+      NdsTarget_FatalAt(__FILE__, __LINE__,
+         "minimap event-marker count changed within scene");
+   }
    for (i = 0u; i < event_object_count; i++)
    {
-      const EVENTOBJECT *event_object = event_objects + i;
+      PALNDSMINIMAPEVENTMARKER *marker =
+         pal_nds_minimap_event_markers + i;
 
-      if (!pal_nds_minimap_event_is_touch_exit(event_object))
+      if (marker->event_index != i)
       {
-         continue;
+         NdsTarget_FatalAt(__FILE__, __LINE__,
+            "minimap event-marker index mismatch");
       }
-#define PAL_NDS_MINIMAP_HASH(value) do { \
-      signature ^= (uint32_t)(value);       \
-      signature *= 16777619u;               \
-   } while (0)
-      PAL_NDS_MINIMAP_HASH(i);
-      PAL_NDS_MINIMAP_HASH(event_object->x);
-      PAL_NDS_MINIMAP_HASH(event_object->y);
-      PAL_NDS_MINIMAP_HASH(event_object->sState);
-      PAL_NDS_MINIMAP_HASH(event_object->wTriggerMode);
-      PAL_NDS_MINIMAP_HASH(event_object->wTriggerScript);
-#undef PAL_NDS_MINIMAP_HASH
+      pal_nds_minimap_update_marker_trigger(
+         marker, event_objects + i);
    }
-   return signature;
 }
 
 static int
 pal_nds_minimap_event_palette(
-   const EVENTOBJECT *event_object)
+   const EVENTOBJECT *event_object,
+   const PALNDSMINIMAPEVENTMARKER *marker)
 {
    if (event_object->sVanishTime != 0 ||
       event_object->sState <= kObjStateHidden)
@@ -402,12 +435,18 @@ pal_nds_minimap_event_palette(
    }
    if (event_object->wTriggerMode != kTriggerNone &&
       event_object->wTriggerScript != 0u &&
-      pal_nds_minimap_script_changes_scene(
-         event_object->wTriggerScript))
+      marker->trigger_changes_scene != 0u)
    {
       return PAL_NDS_MINIMAP_PALETTE_YELLOW;
    }
-   if (event_object->nSpriteFrames == 3u)
+   /*
+    * Suppress only non-interactive walking characters.  A three-frame NPC
+    * can still own a search trigger and block movement; in that case it is a
+    * real gray event marker, not decorative map clutter.
+    */
+   if (event_object->nSpriteFrames == 3u &&
+      (event_object->wTriggerMode == kTriggerNone ||
+       event_object->wTriggerScript == 0u))
    {
       return -1;
    }
@@ -509,6 +548,96 @@ pal_nds_minimap_topology_get(
       (uint8_t)(1u << (bit & 7u))) != 0u;
 }
 
+static bool
+pal_nds_minimap_touches_selected_component(
+   int column,
+   int row)
+{
+   static const int offsets[5][2] = {
+      { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
+   };
+   unsigned i;
+
+   for (i = 0u; i < 5u; i++)
+   {
+      int neighbor_column = column + offsets[i][0];
+      int neighbor_row = row + offsets[i][1];
+
+      if (neighbor_column >= 0 && neighbor_row >= 0 &&
+         pal_nds_minimap_topology_get(
+            (unsigned)neighbor_column, (unsigned)neighbor_row))
+      {
+         return true;
+      }
+   }
+   return false;
+}
+
+static bool
+pal_nds_minimap_find_touch_exit_boundary(
+   const EVENTOBJECT *event_object,
+   int *column,
+   int *row)
+{
+   int center_column;
+   int center_row;
+   int maximum_steps;
+   int steps;
+
+   if (event_object == NULL || column == NULL || row == NULL ||
+      event_object->wTriggerMode < kTriggerTouchNear ||
+      !pal_nds_minimap_world_to_cell(
+         event_object->x, event_object->y,
+         &center_column, &center_row))
+   {
+      return false;
+   }
+   maximum_steps =
+      (int)event_object->wTriggerMode - (int)kTriggerTouchNear;
+   for (steps = 0; steps <= maximum_steps; steps++)
+   {
+      int row_offset;
+
+      for (row_offset = -steps; row_offset <= steps; row_offset++)
+      {
+         int column_offset = steps -
+            (row_offset < 0 ? -row_offset : row_offset);
+         int candidate_column = center_column + column_offset;
+         int candidate_row = center_row + row_offset;
+
+         if (candidate_column >= 0 && candidate_row >= 0 &&
+            candidate_column < (int)PAL_NDS_MINIMAP_LOGICAL_COLUMNS &&
+            candidate_row < (int)PAL_NDS_MINIMAP_LOGICAL_ROWS &&
+            !pal_nds_minimap_topology_get(
+               (unsigned)candidate_column, (unsigned)candidate_row) &&
+            pal_nds_minimap_touches_selected_component(
+               candidate_column, candidate_row))
+         {
+            *column = candidate_column;
+            *row = candidate_row;
+            return true;
+         }
+         if (column_offset != 0)
+         {
+            candidate_column = center_column - column_offset;
+            if (candidate_column >= 0 && candidate_row >= 0 &&
+               candidate_column < (int)PAL_NDS_MINIMAP_LOGICAL_COLUMNS &&
+               candidate_row < (int)PAL_NDS_MINIMAP_LOGICAL_ROWS &&
+               !pal_nds_minimap_topology_get(
+                  (unsigned)candidate_column, (unsigned)candidate_row) &&
+               pal_nds_minimap_touches_selected_component(
+                  candidate_column, candidate_row))
+            {
+               *column = candidate_column;
+               *row = candidate_row;
+               return true;
+            }
+         }
+      }
+   }
+   return false;
+}
+
 static void
 pal_nds_minimap_topology_clear(
    unsigned column,
@@ -563,92 +692,6 @@ pal_nds_minimap_closure_blocked_set(
    unsigned bit = row * PAL_NDS_MINIMAP_LOGICAL_COLUMNS + column;
 
    closure_blocked[bit >> 3] |= (uint8_t)(1u << (bit & 7u));
-}
-
-static bool
-pal_nds_minimap_topology_near(
-   int column,
-   int row)
-{
-   static const int offsets[5][2] = {
-      { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 }
-   };
-   unsigned i;
-
-   for (i = 0u; i < 5u; i++)
-   {
-      int neighbor_column = column + offsets[i][0];
-      int neighbor_row = row + offsets[i][1];
-
-      if (neighbor_column >= 0 && neighbor_row >= 0 &&
-         pal_nds_minimap_topology_get(
-            (unsigned)neighbor_column, (unsigned)neighbor_row))
-      {
-         return true;
-      }
-   }
-   return false;
-}
-
-static bool
-pal_nds_minimap_find_touch_exit_marker(
-   const EVENTOBJECT *event_object,
-   int *column,
-   int *row)
-{
-   int center_column;
-   int center_row;
-   int maximum_steps;
-   int steps;
-
-   if (event_object == NULL || column == NULL || row == NULL ||
-      event_object->wTriggerMode < kTriggerTouchNear ||
-      !pal_nds_minimap_world_to_cell(
-         event_object->x, event_object->y,
-         &center_column, &center_row))
-   {
-      return false;
-   }
-   maximum_steps =
-      (int)event_object->wTriggerMode - (int)kTriggerTouchNear;
-   for (steps = 0; steps <= maximum_steps; steps++)
-   {
-      int row_offset;
-
-      for (row_offset = -steps; row_offset <= steps; row_offset++)
-      {
-         int column_offset = steps -
-            (row_offset < 0 ? -row_offset : row_offset);
-         int candidate_column = center_column + column_offset;
-         int candidate_row = center_row + row_offset;
-
-         if (candidate_column >= 0 && candidate_row >= 0 &&
-            !pal_nds_minimap_topology_get(
-               (unsigned)candidate_column, (unsigned)candidate_row) &&
-            pal_nds_minimap_topology_near(
-               candidate_column, candidate_row))
-         {
-            *column = candidate_column;
-            *row = candidate_row;
-            return true;
-         }
-         if (column_offset != 0)
-         {
-            candidate_column = center_column - column_offset;
-            if (candidate_column >= 0 && candidate_row >= 0 &&
-               !pal_nds_minimap_topology_get(
-                  (unsigned)candidate_column, (unsigned)candidate_row) &&
-               pal_nds_minimap_topology_near(
-                  candidate_column, candidate_row))
-            {
-               *column = candidate_column;
-               *row = candidate_row;
-               return true;
-            }
-         }
-      }
-   }
-   return false;
 }
 
 static uint16_t
@@ -752,31 +795,24 @@ pal_nds_minimap_make_tile(
 static bool
 pal_nds_minimap_cell_is_closure_blocked(
    int world_x,
-   int world_y,
-   const EVENTOBJECT *event_objects,
-   unsigned closure_blocker_count)
+   int world_y)
 {
    unsigned blocker;
 
-   for (blocker = 0u; blocker < closure_blocker_count; blocker++)
+   for (blocker = 0u;
+      blocker < pal_nds_minimap_closure_blocker_count;
+      blocker++)
    {
-      const EVENTOBJECT *event_object = event_objects +
-         pal_nds_minimap_tilemap[blocker];
-      int delta_x = (int)event_object->x - world_x;
-      int delta_y = (int)event_object->y - world_y;
+      const PALNDSMINIMAPCLOSUREBLOCKER *closure_blocker =
+         pal_nds_minimap_closure_blockers + blocker;
+      int delta_x = (int)closure_blocker->x - world_x;
+      int delta_y = (int)closure_blocker->y - world_y;
       uint32_t distance;
-      uint32_t blocked_distance = 16u;
 
       delta_x = delta_x < 0 ? -delta_x : delta_x;
       delta_y = delta_y < 0 ? -delta_y : delta_y;
       distance = (uint32_t)delta_x + (uint32_t)delta_y * 2u;
-      if (pal_nds_minimap_event_is_touch_exit(event_object))
-      {
-         blocked_distance =
-            ((uint32_t)event_object->wTriggerMode -
-               (uint32_t)kTriggerTouchNear) * 32u + 16u;
-      }
-      if (distance < blocked_distance)
+      if (distance < closure_blocker->blocked_distance)
       {
          return true;
       }
@@ -875,8 +911,6 @@ pal_nds_minimap_select_component(
 static void
 pal_nds_minimap_prepare(
    const uint32_t *map_tiles,
-   const EVENTOBJECT *event_objects,
-   unsigned event_object_count,
    int seed_column,
    int seed_row)
 {
@@ -884,7 +918,6 @@ pal_nds_minimap_prepare(
    unsigned max_column = 0u;
    unsigned min_row = PAL_NDS_MINIMAP_LOGICAL_ROWS;
    unsigned max_row = 0u;
-   unsigned closure_blocker_count = 0u;
    unsigned raw_y;
    bool any;
 
@@ -892,32 +925,6 @@ pal_nds_minimap_prepare(
       sizeof(pal_nds_minimap_topology));
    memset(pal_nds_minimap_pattern_tiles, 0,
       PAL_NDS_MINIMAP_TOPOLOGY_BYTES);
-
-   /* Automatic scene exits and permanent stationary blockers both terminate
-    * ordinary walking. Their event indices occupy the queue owner only until
-    * topology construction starts. Moving or interactive blockers remain
-    * traversable for the complete floor plan. */
-   if (event_objects != NULL)
-   {
-      unsigned i;
-
-      for (i = 0u; i < event_object_count; i++)
-      {
-         if (!pal_nds_minimap_event_is_touch_exit(event_objects + i) &&
-            !pal_nds_minimap_event_is_structural_blocker(
-               event_objects + i, i))
-         {
-            continue;
-         }
-         if (closure_blocker_count >= PAL_NDS_MINIMAP_TILEMAP_ENTRIES ||
-            i > UINT16_MAX)
-         {
-            NdsTarget_FatalAt(__FILE__, __LINE__,
-               "minimap closure-blocker profile overflow");
-         }
-         pal_nds_minimap_tilemap[closure_blocker_count++] = (uint16_t)i;
-      }
-   }
 
    /* MAP records are stored in an isometric (x, y, half-tile) lattice. */
    for (raw_y = 0u; raw_y < PAL_NDS_MINIMAP_RAW_ROWS; raw_y++)
@@ -947,11 +954,10 @@ pal_nds_minimap_prepare(
             row = (unsigned)((int)raw_y - (int)raw_x +
                PAL_NDS_MINIMAP_DIAGONAL_ORIGIN);
             pal_nds_minimap_topology_set(column, row);
-            if (closure_blocker_count != 0u &&
+            if (pal_nds_minimap_closure_blocker_count != 0u &&
                pal_nds_minimap_cell_is_closure_blocked(
                   (int)(raw_x * 32u + half * 16u),
-                  (int)(raw_y * 16u + half * 8u),
-                  event_objects, closure_blocker_count))
+                  (int)(raw_y * 16u + half * 8u)))
             {
                pal_nds_minimap_closure_blocked_set(column, row);
             }
@@ -972,8 +978,7 @@ pal_nds_minimap_prepare(
 
    if (any)
    {
-      /* One empty cell keeps blocked stair/event markers adjacent to the
-       * reachable component inside the cropped floor-plan extent. */
+      /* One empty cell preserves the complete white component outline. */
       min_column = min_column > 0u ? min_column - 1u : min_column;
       min_row = min_row > 0u ? min_row - 1u : min_row;
       max_column = max_column + 1u < PAL_NDS_MINIMAP_LOGICAL_COLUMNS ?
@@ -1119,20 +1124,22 @@ NdsTarget_MinimapSetVisible(
 }
 
 static void
-pal_nds_minimap_update_obstacles(
+pal_nds_minimap_update_event_markers(
    const EVENTOBJECT *event_objects,
-   unsigned event_object_count,
    int view_x,
    int view_y)
 {
-   unsigned obstacle_count = 0u;
+   unsigned visible_marker_count = 0u;
    unsigned i;
 
    if (event_objects != NULL && pal_nds_minimap_has_cells)
    {
-      for (i = 0u; i < event_object_count; i++)
+      for (i = 0u; i < pal_nds_minimap_event_marker_count; i++)
       {
-         const EVENTOBJECT *event_object = event_objects + i;
+         const PALNDSMINIMAPEVENTMARKER *marker =
+            pal_nds_minimap_event_markers + i;
+         const EVENTOBJECT *event_object =
+            event_objects + marker->event_index;
          int palette;
          int column;
          int row;
@@ -1142,33 +1149,31 @@ pal_nds_minimap_update_obstacles(
          int screen_y;
 
          /* Walking characters do not belong on the floor plan. */
-         palette = pal_nds_minimap_event_palette(event_object);
+         palette = pal_nds_minimap_event_palette(event_object, marker);
          if (palette < 0 ||
             !pal_nds_minimap_world_to_cell(
                event_object->x, event_object->y, &column, &row))
          {
             continue;
          }
+         /* A touch exit is a trigger zone rather than a point object. Its
+          * authored center can lie beyond the component that the zone itself
+          * cut off. Keep the marker on an impassable zone cell adjacent to
+          * the selected floor plan; point-like green and gray events retain
+          * their exact authored coordinates. */
          if (palette == PAL_NDS_MINIMAP_PALETTE_YELLOW &&
             event_object->wTriggerMode >= kTriggerTouchNear &&
-            !pal_nds_minimap_topology_near(column, row) &&
-            !pal_nds_minimap_find_touch_exit_marker(
-               event_object, &column, &row))
+            !pal_nds_minimap_touches_selected_component(column, row))
          {
-            continue;
-         }
-         if (
-            column < (int)pal_nds_minimap_min_column ||
-            row < (int)pal_nds_minimap_min_row ||
-            (unsigned)(column - (int)pal_nds_minimap_min_column) *
-               PAL_NDS_MINIMAP_CELL_PIXELS >=
-               pal_nds_minimap_width_pixels ||
-            (unsigned)(row - (int)pal_nds_minimap_min_row) *
-               PAL_NDS_MINIMAP_CELL_PIXELS >=
-               pal_nds_minimap_height_pixels ||
-            !pal_nds_minimap_topology_near(column, row))
-         {
-            continue;
+            int boundary_column;
+            int boundary_row;
+
+            if (pal_nds_minimap_find_touch_exit_boundary(
+                  event_object, &boundary_column, &boundary_row))
+            {
+               column = boundary_column;
+               row = boundary_row;
+            }
          }
          source_x = (column - (int)pal_nds_minimap_min_column) *
             PAL_NDS_MINIMAP_CELL_PIXELS +
@@ -1183,24 +1188,26 @@ pal_nds_minimap_update_obstacles(
          {
             continue;
          }
-         if (obstacle_count >= PAL_NDS_MINIMAP_MAX_OBSTACLES)
+         if (visible_marker_count >= PAL_NDS_MINIMAP_MAX_EVENT_MARKERS)
          {
             NdsTarget_FatalAt(__FILE__, __LINE__,
-               "visible minimap obstacle profile overflow");
+               "visible minimap event-marker profile overflow");
          }
-         oamSet(&oamSub, (int)obstacle_count,
+         oamSet(&oamSub, (int)visible_marker_count,
             screen_x - 4, screen_y - 4,
             0, palette, SpriteSize_8x8, SpriteColorFormat_16Color,
             SPRITE_GFX_SUB, -1, false, false,
             false, false, false);
-         obstacle_count++;
+         visible_marker_count++;
       }
    }
-   for (i = obstacle_count; i < pal_nds_minimap_obstacle_count; i++)
+   for (i = visible_marker_count;
+      i < pal_nds_minimap_event_marker_oam_count;
+      i++)
    {
       oamSetHidden(&oamSub, (int)i, true);
    }
-   pal_nds_minimap_obstacle_count = obstacle_count;
+   pal_nds_minimap_event_marker_oam_count = visible_marker_count;
 }
 
 bool
@@ -1381,11 +1388,10 @@ NdsTarget_MinimapSetMap(
    int marker_x = -1;
    int marker_y = -1;
    bool player_cell_valid;
-   uint32_t portal_signature;
-   uint32_t structural_signature;
    bool component_missing;
    bool component_seed_changed;
    bool scene_changed;
+   bool scene_events_changed;
 
    if (!pal_nds_started || map_number < 0 || scene_number <= 0 ||
       map_tiles == NULL ||
@@ -1394,16 +1400,18 @@ NdsTarget_MinimapSetMap(
       return;
    }
    scene_changed = pal_nds_minimap_pending_scene != scene_number;
-   if (scene_changed ||
-      pal_nds_minimap_stationary_event_count != event_object_count)
+   scene_events_changed = scene_changed ||
+      pal_nds_minimap_event_marker_count != event_object_count;
+   if (scene_events_changed)
    {
-      pal_nds_minimap_cache_stationary_events(
+      pal_nds_minimap_cache_scene_events(
          event_objects, event_object_count);
    }
-   portal_signature = pal_nds_minimap_portal_signature(
-      event_objects, event_object_count);
-   structural_signature = pal_nds_minimap_structural_signature(
-      event_objects, event_object_count);
+   else
+   {
+      pal_nds_minimap_refresh_event_markers(
+         event_objects, event_object_count);
+   }
    player_cell_valid = world_x >= 0 && world_y >= 0 &&
       pal_nds_minimap_world_to_cell(
          world_x, world_y, &column, &row);
@@ -1416,20 +1424,15 @@ NdsTarget_MinimapSetMap(
          row != pal_nds_minimap_component_seed_row);
    if (pal_nds_minimap_pending_map != map_number ||
       pal_nds_minimap_pending_scene != scene_number ||
-      pal_nds_minimap_pending_portal_signature != portal_signature ||
-      pal_nds_minimap_pending_structural_signature != structural_signature ||
+      scene_events_changed ||
       (component_missing && component_seed_changed))
    {
       pal_nds_minimap_prepare(
          map_tiles,
-         event_objects,
-         event_object_count,
          player_cell_valid ? column : -1,
          player_cell_valid ? row : -1);
       pal_nds_minimap_pending_map = map_number;
       pal_nds_minimap_pending_scene = scene_number;
-      pal_nds_minimap_pending_portal_signature = portal_signature;
-      pal_nds_minimap_pending_structural_signature = structural_signature;
       pal_nds_minimap_component_seed_column =
          player_cell_valid ? column : -1;
       pal_nds_minimap_component_seed_row =
@@ -1494,8 +1497,8 @@ NdsTarget_MinimapSetMap(
    pal_nds_minimap_pending_view_y = view_y;
    pal_nds_minimap_pending_marker_x = marker_x;
    pal_nds_minimap_pending_marker_y = marker_y;
-   pal_nds_minimap_update_obstacles(
-      event_objects, event_object_count, view_x, view_y);
+   pal_nds_minimap_update_event_markers(
+      event_objects, view_x, view_y);
 }
 
 void

@@ -139,8 +139,7 @@ Relevant upstream projects:
   a four-neighbor closure keeps only that connected walkable component.
   Every active touch-trigger zone whose current script performs a scene
   transition is removed before that closure: the engine transfers the party
-  automatically inside the zone, so it is not stable walkable floor. Its
-  yellow marker remains visible at the selected component's boundary.
+  automatically inside the zone, so it is not stable walkable floor.
   Stationary, active blockers with no trigger are also removed. They are part
   of the engine's real movement collision and can seal an otherwise open path
   from a street into the unused outer MAP lattice. Moving characters and
@@ -150,28 +149,34 @@ Relevant upstream projects:
   The renderer reverses PAL's isometric tile projection, crops the selected
   component, and keeps a fixed four-pixel pitch for every logical grid cell.
   Adjacent walkable cells merge into one blue region without internal lines;
-  one-pixel white lines outline only its boundaries. Current event objects
-  whose state has
-  PAL's blocker semantics are overlaid as four-pixel gray cells. Active event
-  points are green, while transition/relocation triggers (including stairs)
-  are yellow. Ordinary three-frame walking characters without such a trigger
-  are omitted, so moving NPCs neither clutter nor continuously change the
-  floor plan. A script-operated barrier disappears as soon as its event state
-  stops blocking. Small maps are centered in full; larger maps scroll only
-  after the player reaches a viewport edge. A small red point marks the
-  player's current position. Fatal errors switch back to the preserved
-  console.
+  one-pixel white lines outline only its boundaries. Event overlays are a
+  separate dynamic layer: PAL blockers are gray, active event points are
+  green, and transition/relocation triggers (including stairs) are yellow.
+  Gray blockers and green event points use their event object's original world
+  coordinate; they are not snapped to, clipped by, or required to be adjacent
+  to the selected closure. This keeps invisible counter and wall search
+  triggers at their authored positions. A yellow automatic touch transition
+  represents a trigger zone rather than a point: if its authored center lies
+  beyond the floor-plan crop, its marker uses an impassable trigger-zone cell
+  adjacent to the selected component. Search-activated yellow transitions
+  retain their authored coordinate. Ordinary three-frame walking characters
+  without an interaction trigger are omitted to avoid clutter. A
+  script-operated barrier disappears as soon as its event state stops
+  blocking. Small maps are centered in full; larger maps scroll only after the
+  player reaches a viewport edge. A small red point marks the player's current
+  position. Fatal errors switch back to the preserved console.
 - The floor plan is generated when the MAP number changes or a same-MAP scene
-  transition places the player in another disconnected component. A change to
-  the active transition triggers or a stationary structural blocker's state or
-  position also invalidates it. Auto scripts are classified once per scene;
-  scripts that can move an event are excluded from the structural set.
-  Ordinary movement inside the selected component never recomputes the
-  closure. The fixed 128x128 tile-map owner is temporarily reused for the
-  closure-blocker list and bounded flood-fill queue, while the pattern
+  transition places the player in another disconnected component. At scene
+  entry, fixed arrays snapshot automatic exits and stationary structural
+  seals for topology construction. Later event position, state, and color
+  changes never invalidate that topology. Retaining an old structural seal is
+  deliberately fail-closed if an event unexpectedly moves; it cannot reopen a
+  route into unused MAP storage. Ordinary movement inside the selected
+  component never recomputes the closure. The fixed 128x128 tile-map owner is
+  temporarily reused only as the bounded flood-fill queue, while the pattern
   dictionary temporarily owns the closure-blocked bitset; they then become
-  the 16-bit GPU tile map and deduplicated
-  pattern index respectively. Each 8x8 tile
+  the 16-bit GPU tile map and deduplicated pattern index respectively. Each
+  8x8 tile
   encodes a two-by-two group of four-pixel cells plus its boundary neighbors;
   equivalent patterns share one of 1,024 fixed tile slots. The sub 2D affine
   engine displays the map without rotation and applies the clamped viewport in
@@ -184,9 +189,14 @@ Relevant upstream projects:
   buffer is neither used nor needed for movement because those VRAM contents
   are static. Gray blockers use the sub engine's 8x8
   hardware OBJs; palette banks distinguish gray blockers, yellow scene exits,
-  and green event points without duplicating tile graphics. They update from
-  the current scene event table without changing the MAP tile layer. The
-  console remains intact in the same VRAM bank. While a scene transition is
+  and green event points without duplicating tile graphics. A fixed 160-entry
+  descriptor array treats every displayed event as dynamic and updates its
+  projection without changing the MAP tile layer. Green and gray points remain
+  at their live authored coordinates; yellow touch zones use the static
+  selected component only to choose their visible impassable boundary cell.
+  Trigger-script classification is repeated only when that event's script
+  entry changes. The console remains intact in the same VRAM bank. While a
+  scene transition is
   fading out or in, the lower map is hidden; the new component appears only
   after the new scene has completed its fade, avoiding mixed old-map/new-scene
   frames.
@@ -199,13 +209,28 @@ derives the fixed resident Level2 view while retaining bounded streaming
 access to other chunks. DLDI launches read the selected `.nds` as a FAT file;
 direct emulator launches read the same NitroFS extent from Slot-1.
 
-## Threaded RIX/OPL2 music
+## Threaded RIX/OPL2 music and one SFX voice
 
 The game thread decodes RIX at 70Hz and queues ordered OPL2 register writes. A
-peer-priority Calico ARM9 worker renders OPL2 at 16.384kHz. Each synthesized
-sample is copied directly to two consecutive samples in the fixed 32.768kHz
-mono PCM output; there is no interpolation or filter. The game thread normally
-waits for VBlank while the worker fills 256-frame output blocks.
+Calico ARM9 worker one priority level above the main thread renders and outputs
+mono PCM16 directly at the logical 16.384kHz rate in fixed 256-frame blocks.
+Calico does not time-slice equal-priority threads, so this single priority step
+is required for the sleeping audio worker to preempt long scene/resource
+loads. The fractional 70Hz interval alternates between 234 and 235 samples as
+required; there is no second 32.768kHz output stage. The NDS sound timer is an
+integer divider, so its physical rate is about 16,380.25Hz.
+
+`VOC.MKF` is converted on the host to raw signed mono PCM8 at exactly 8.192kHz.
+Only one effect can play at a time. Its source sample is copied to two adjacent
+16.384kHz output frames and saturating-mixed with music. The single fixed
+40,960-byte owner holds five seconds and lives in ARM9 main SRAM even though
+the port uses the `MEM_LEVEL2` resource profile. Loading a new effect stops the
+old voice. If its sound ID matches the slot's `last_loaded_sound_id`, playback
+restarts from the existing PCM8 data without another ROM/TF read. A different
+effect invalidates and overwrites that same slot with one synchronous pack
+read, so storage access never races the audio worker and does not require a
+second slot. Stopping playback retains the loaded ID for later reuse; closing
+the audio device resets it to `-1`.
 
 The hot OPL2 code and fixed tables/state use audited ITCM/DTCM owners. The
 supported melodic path remains bit-identical to the unmodified DBOPL
@@ -216,13 +241,30 @@ cymbal, and hi-hat are omitted. The stock DBOPL percussion loop cannot meet
 the ARM9 PCM deadline even at the reduced synthesis rate, so enabling it is
 not part of this profile.
 
-A forced Track 18 test at the current 16.384kHz synthesis rate measured the
-stock percussion loop at 9.85ms average and 16.05ms peak against a roughly
-7.81ms PCM-block deadline; it accumulated deadline misses and starved the UI.
-Keeping percussion masked while accepting the same track measured 1.13ms
-average and 1.45ms peak, with nonzero audio and zero deadline misses, queue
-underruns, or overruns. This is forced-track integration/performance evidence,
-not natural story-route or physical DS listening evidence. Artifacts are under
+The ARM7 looping PCM channel uses a fixed four-block ring. At 256 frames per
+block, the ring adds at most about 62.5ms after an effect has been loaded,
+rather than the half second a 32-block ring would add at the current rate.
+Synchronous pack read time is separate. The 32-entry RIX command queue remains
+unchanged so scene/resource loads retain their producer lookahead.
+
+A forced Track 18 test on the preceding 128-synthesis-sample transport measured
+the stock percussion loop at 9.85ms average and 16.05ms peak against a 7.81ms
+deadline; it accumulated deadline misses and starved the UI. Keeping
+percussion masked measured 1.13ms average and 1.45ms peak, with nonzero audio
+and zero deadline misses, queue underruns, or overruns. The current direct
+256-frame transport was then measured through a direct SPI-save load, scene
+construction, and scripted sound 78. With the current four-block ring, 1,728
+render blocks averaged 2.27ms and peaked at 3.60ms against the physical
+15.63ms block deadline, with zero PCM deadline misses and zero OPL queue
+underruns or overruns. A preceding same-renderer profile measured full SFX
+blocks at 3.02ms versus 2.75ms for adjacent music-only blocks, so the one-voice
+mix added about 0.27ms in that run. The positioned save is an integration
+shortcut: ordinary input ran scene 4 event 108 and its real script, but this is
+not evidence of a natural story route to that event. Current four-block-ring
+artifacts are under `tmp_ui/nds/audio-priority-sfx-ring4-20260816/`; the
+preceding mix-cost profile is under
+`tmp_ui/nds/audio-priority-sfx-profile-20260816/`. Physical listening remains
+acceptance work. The older forced-track artifacts are under
 `tmp_ui/nds/rhythm-enable-16384-track18-20260815-smoke/` and
 `tmp_ui/nds/rhythm-load-melodic-only-track18-20260815/`.
 

@@ -297,7 +297,7 @@ static int exercise_tf_toc_reads(const MappedPack *tf)
         return 4;
     }
     if (!PalPackToc_GetChunkInfo(&toc, PAL_PACK_ARCHIVE_SFX, 255, &info) ||
-        info.size != 211152u || info.format != PAL_PACK_FORMAT_SFX_PCM16 || info.flags != 0u) {
+        info.size != 39219u || info.format != PAL_PACK_FORMAT_SFX_PCM8 || info.flags != 0u) {
         return 5;
     }
     if (!PalPackToc_CopyRawFromImage(&toc, tf->data, PAL_PACK_ARCHIVE_FBP, 0, pal_sram_framebuffer, PAL_SRAM_FRAMEBUFFER_BYTES, &copied) ||
@@ -454,8 +454,8 @@ static int sweep_all_tf_payloads_readat(const char *path)
             PAL_PACK_FORMAT_NATIVE, pal_psram_map_tiles, PAL_PSRAM_MAP_TILES_BYTES);
     }
     if (rc == 0) {
-        rc = sweep_tf_archive_readat(&toc, &fd, PAL_PACK_ARCHIVE_SFX, 276u, 9236076u, 211152u,
-            PAL_PACK_FORMAT_SFX_PCM16, pal_psram_resource_staging, PAL_PSRAM_RESOURCE_STAGING_BYTES);
+        rc = sweep_tf_archive_readat(&toc, &fd, PAL_PACK_ARCHIVE_SFX, 276u, 1714461u, 39219u,
+            PAL_PACK_FORMAT_SFX_PCM8, pal_psram_resource_staging, PAL_PSRAM_RESOURCE_STAGING_BYTES);
     }
 
     close(fd);
@@ -1054,10 +1054,28 @@ static int check_rng_all_frames_readat(const char *path)
 static int check_sfx_bank(const PalPack *tf)
 {
     static const uint16_t chunks[] = { 1, 62, 192, 213, 214, 255, 272 };
-    static const uint32_t sizes[] = { 12622, 111738, 132856, 204664, 148342, 211152, 200526 };
+    static const uint32_t sizes[] = { 2340, 20752, 24675, 38014, 27551, 39219, 37245 };
+    static const uint8_t duplication_probe[] = { 0x80u, 0x7fu };
     PalSfxBank bank;
+    PalAudioSfx probe;
+    const int16_t *probe_mix;
+    uint32_t probe_cursor = 0;
     uint32_t used = 0;
     uint16_t i;
+
+    if (!PalAudio_OpenSfx(duplication_probe, sizeof(duplication_probe), &probe) ||
+        PalAudio_OpenSfx(duplication_probe, PAL_AUDIO_SFX_MAX_SAMPLES + 1u, &probe)) {
+        return 8;
+    }
+    PalAudio_Clear(4);
+    if (!PalAudio_MixSfx(&probe, &probe_cursor, 4) || probe_cursor != 4u) {
+        return 9;
+    }
+    probe_mix = PalAudio_MixBuffer();
+    if (probe_mix[0] != -32768 || probe_mix[1] != -32768 ||
+        probe_mix[2] != 32512 || probe_mix[3] != 32512) {
+        return 10;
+    }
 
     if (!PalSfx_LoadBank(tf, chunks, (uint16_t)(sizeof(chunks) / sizeof(chunks[0])), &bank)) {
         return 1;
@@ -1089,7 +1107,7 @@ static int check_sfx_bank(const PalPack *tf)
         used += size;
     }
 
-    if (bank.used_bytes != 1021906u || used != bank.used_bytes) {
+    if (bank.used_bytes != 189801u || used != bank.used_bytes) {
         return 7;
     }
     return 0;
@@ -1098,7 +1116,7 @@ static int check_sfx_bank(const PalPack *tf)
 static int check_sfx_bank_readat(const char *path)
 {
     static const uint16_t chunks[] = { 1, 62, 192, 213, 214, 255, 272 };
-    static const uint32_t sizes[] = { 12622, 111738, 132856, 204664, 148342, 211152, 200526 };
+    static const uint32_t sizes[] = { 2340, 20752, 24675, 38014, 27551, 39219, 37245 };
     PalPackToc toc;
     PalSfxBank bank;
     struct stat st;
@@ -1142,7 +1160,7 @@ static int check_sfx_bank_readat(const char *path)
         used += size;
     }
 
-    if (bank.used_bytes != 1021906u || used != bank.used_bytes) {
+    if (bank.used_bytes != 189801u || used != bank.used_bytes) {
         return 8;
     }
     return 0;
